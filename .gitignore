@@ -1,0 +1,71 @@
+# ========================================================
+# Twitch Drops Sentinel v3 — Zero-Leak .gitignore
+# ========================================================
+
+# 🔴 P0 SECURITY & TOKENS (Strict Exclusion)
+*cookie*.jar
+cookies.jar
+core/cookies.jar
+*.token
+*.auth
+*.session
+
+# 🔴 LOGS & RUNTIME DIAGNOSTICS (PII Leak Prevention)
+*.log
+sentinel_stdout.log
+sentinel_stderr.log
+core/sentinel_service.log
+core/sentinel_stdout.log
+crash.log
+
+# 🔴 LARGE BINARIES (GitHub 100 MB Limit) & PACKAGING
+*.exe
+*.dll
+TwitchDropsSentinel.exe
+TwitchDropsSentinel_v3.0_PORTABLE.zip
+TwitchDropsSentinel_v3.0_PRO.zip
+TwitchDropsSentinel_v3.0_Friend_Edition.zip
+*.zip
+*.7z
+*.tar.gz
+portable_runtime/
+dist_staging/
+dist_package/
+publish/
+backups/
+scratch/
+
+# 🔴 USER STATE & PERSONAL HISTORY
+Trophies.md
+data/window_state.json
+
+# 🐍 PYTHON ARTIFACTS
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# ⚛️ NODE & FRONTEND ARTIFACTS
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# 💻 .NET & C# BUILD ARTIFACTS
+desktop/bin/
+desktop/obj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+# 🪟 WINDOWS & OS TRASH
+desktop.ini
+Thumbs.db
+[Ee]xternal/
+.DS_Store

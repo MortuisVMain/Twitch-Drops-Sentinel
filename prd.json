@@ -1,0 +1,95 @@
+{
+  "project": "Twitch Drops Sentinel v3.0 [Apple Glass Edition]",
+  "branch": "main",
+  "version": "3.1.0",
+  "description": "Autonomous Twitch Drops & Channel Points Farming Application with Apple Glassmorphism UI, 138 PC Games Auto-Scanner, Luna Auto-Shutdown, and Monolithic Standalone EXE Build",
+  "author": "Mortuis_V / Mortuis_V_Studio",
+  "design_reference": "C:/AI Local Projects/Ideas/Apple Style Shutdown Utility v2",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Project Scaffolding & Native Host Architecture",
+      "description": "Initialize Twitch Drops Sentinel v3 workspace combining React 19 + Tailwind CSS v4 + TypeScript with high-performance desktop host (WebView2 / C# .NET 10 / Python) ready for standalone exe compilation.",
+      "acceptanceCriteria": [
+        "Directory structure created at C:/AI Local Projects/Ideas/Twitch Drops Sentinel v3",
+        "Frontend Vite + React 19 + Tailwind v4 builds with exit code 0",
+        "Desktop host initialized with dark title bar and custom 3D icon support",
+        "Clean IPC message channel setup between host and UI"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "Apple Liquid Glass UI / Frosted Obsidian Dashboard",
+      "description": "Port and adapt the aesthetic from Luna (Apple Style Shutdown Utility v2): Bento Grid layout, frosted glass cards (backdrop-blur-xl), Lucide icons, tactile switches, glowing Twitch purple (#9146ff) & cyber cyan (#00f0ff) accents.",
+      "acceptanceCriteria": [
+        "Top Sentinel HUD: Hardware Guard status, active game detector, battery status, network ping",
+        "Bento Card 1: Active drop circular progress tracker, ETA countdown, channel switcher",
+        "Bento Card 2: Stealth statistics (traffic saved in GB, GPU 0%, channel points earned)",
+        "Bento Card 3: Luna-style Auto-Shutdown timer toggle (turn off PC when farm completes)",
+        "Zero legacy Tkinter controls; 100% modern 60 FPS hardware-accelerated UI"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "Streamless Core Engine & Session Bridge",
+      "description": "Connect reverse-engineered Smartbox GQL & WebSocket streamless engine with the UI via bidirectional IPC bridge, reusing active session cookies.jar.",
+      "acceptanceCriteria": [
+        "Auth session loaded from existing cookies.jar without re-login prompt",
+        "Live campaign fetch and websocket drop progression hooked into React state",
+        "Auto-claim mechanism claiming drops and channel points in real time",
+        "Manual priority toggle and channel switching supported from the UI"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-004",
+      "title": "Local PC 138 Games Scanner & 120+ Drop Catalog",
+      "description": "Implement local game discovery scanner for Steam (76 games), E:/Games (12 games), and E:/Games Cracked (50 games) plus pre-seeded 120+ Twitch Drops game catalog.",
+      "acceptanceCriteria": [
+        "Auto-detects 138 installed games across Steam, E:/Games, and E:/Games Cracked",
+        "Displays 'Установлено на ПК 💾' badge on all installed titles",
+        "Instant real-time search filter and one-click add to Priority or Exclude lists",
+        "Pre-seeded catalog covers all major categories (FPS, ARPG, MMO, Gacha, Survival)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-005",
+      "title": "Hardware Guard Sensors & Luna Auto-Shutdown",
+      "description": "Background watcher monitoring running processes via psutil to automatically pause streamless farming during gaming or battery usage, plus auto-shutdown when finished.",
+      "acceptanceCriteria": [
+        "Instant pause upon detecting any of user's 138 installed games (PoE 2, Hunt, Hearthstone, GoW, RDR2, etc.)",
+        "Auto-pause on battery power when unplugged",
+        "Smooth resume with grace countdown after exiting game",
+        "Luna-style Auto-Shutdown option: powers off or sleeps PC when all priority drops are claimed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-006",
+      "title": "Trophy Vault Card Gallery & Native Toast Notifications",
+      "description": "Visual loot museum displaying all claimed drops with card previews, campaign names, claim timestamps, and native Windows 10/11 Toasts.",
+      "acceptanceCriteria": [
+        "Every claimed item saved into local storage / SQLite / Trophies.md",
+        "Interactive visual cards with 3D hover effects in the Trophy Vault tab",
+        "Native Windows Toast fired on every claimed reward via WinRT",
+        "Export history to Markdown/CSV"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-007",
+      "title": "Standalone Monolithic EXE Compilation Pipeline",
+      "description": "Configure single-file executable packaging creating TwitchDropsSentinel.exe with embedded cyber shield 3D icon and zero external runtime requirements.",
+      "acceptanceCriteria": [
+        "Build script compiles TwitchDropsSentinel.exe cleanly",
+        "Executable runs without command prompt flash and nests in system tray",
+        "Custom 3D shield icon visible on taskbar, window title, and tray",
+        "Verified launch and verified exit code 0"
+      ],
+      "passes": true
+    }
+  ]
+}

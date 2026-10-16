@@ -1,0 +1,31 @@
+# Twitch Drops Sentinel — Solutions & Engineering Knowledge Base
+
+| Index | Title | Scope |
+| :--- | :--- | :--- |
+| **001** | [Headless Decoupling of Twitch Streamless Core & WebView2 Native Host](./001-twitch-drops-sentinel-architecture.md) | Architecture / WebView2 / Headless Python / Luna Auto-Shutdown |
+| **002** | [Headless Twitch Contract Hardening & Native Host Lifecycle Integration](./002-headless-gui-contract-and-service-hardening.md) | Bugfix / Headless Contract / Web Audio / Host Auto-Spawn / Asyncio |
+| **003** | [Dynamic Campaign Discovery & Streamer Drop Validation](./003-dynamic-campaign-discovery-and-streamer-validation.md) | Twitch GQL / Smartbox Bypass / Directory Discovery / Batch Streamer Filter |
+| **004** | [Unlinked Campaign Eligibility & Witcher 3 Mining](./004-unlinked-campaign-eligibility-and-witcher-mining.md) | Bugfix / Account Link Bypass / Streamless Spade / State.GAMES_UPDATE |
+| **005** | [Apple Liquid Glass UI Redesign & Tactile Design Engineering](./005-apple-liquid-glass-ui-redesign.md) | UI/UX / OpenDesign / OKLCH / Bento Grid / Liquid Glass / WebView2 |
+| **006** | [Deadlock Resolution on 100% Drops & Automatic Claim Progression](./006-deadlock-resolution-and-drop-completion-auto-claim.md) | Bugfix / Auto-Claim / Queue Unblock / Channel Switching / GQL / WS |
+| **007** | [Legacy v2 Autostart Cleanup & Migration to v3.0 Native Host](./007-legacy-v2-autostart-cleanup-and-v3-migration.md) | Windows Startup / Shell Shortcut / Process Audit / Dual-Instance Cleanup |
+| **008** | [Headless GQL Polling, Completed Campaign Filter & Idle Rescan Loop](./008-headless-gql-polling-and-completed-campaign-filter.md) | Bugfix / Headless GQL / Trophies Filter / Stall Watchdog / Idle Rescan |
+| **009** | [Full Twitch Drops Universe Catalog Enrichment & Instant Priority Switching](./009-all-campaigns-catalog-enrichment-and-priority-switching.md) | Feature / Live Catalog / Trophies Auto-Claim / Fast Stream Search / Settings Sync |
+| **010** | [Supreme Critic Triad Hardening, Protocol Stealth & Self-Healing Architecture](./010-critic-triad-hardening-and-protocol-stealth.md) | Audit / Protocol Stealth / Jitter / Dynamic Timestamps / TrophiesVault / Self-Healing |
+| **011** | [Lead Architecture & Systems Pro Audit: Fuzzy Priority Farming, ref2game UI Perfection & Desktop Hardening](./011-pro-audit-fuzzy-priority-farming-and-ref2game-ui-perfection.md) | Pro Audit / Fuzzy Matching / Priority Queue / ref2game UI / Luna Auto-Shutdown / Async Pipes |
+| **012** | [Foolproof Game Addition & Live Drops Verification Engine](./012-foolproof-game-addition-and-live-drops-verification.md) | 3-Tier Verification / Live Twitch Drops Universe / Autocomplete Badges / Dynamic Live Shelf |
+| **013** | [Android Client Integrity Bypass & Dynamic Farm Focus](./013-android-client-integrity-bypass-and-dynamic-farm-focus.md) | Bugfix / Android Client Integrity Bypass / Precondition Deadlock / Dynamic Farm Focus / Live Shelf Clarity |
+| **014** | [Watchdog Calibration, HLS Chunk Verification & Unlinked Campaign Filtering](./014-watchdog-calibration-hls-chunks-and-unlinked-campaign-filtering.md) | Bugfix / Watchdog Calibration / HLS Video Chunk HEAD / Account Link Filter / Drop Chain State |
+| **015** | [Headless Progress Phase Aliasing & Streamer Rotation Circuit Breaker](./015-headless-progress-phase-aliasing-and-streamer-rotation-circuit-breaker.md) | Bugfix / Phase Beat Frequency / Unconditional GQL Polling / 6m Watchdog / Jitter Smoothing |
+| **016** | [Live Command Console Restoration, Twitch OAuth Device Code Banner and Watchdog Recalibration](./016-live-command-console-oauth-device-flow-and-watchdog-hardening.md) | UI / Terminal Console / OAuth Device Code / Watchdog Calibration / GQL Session / ref2game |
+| **017** | [Apple macOS Liquid Glass Redesign, Segmented Toolbar Architecture and Zero-Regression Refactoring](./017-apple-macos-liquid-glass-redesign-and-toolbar-integration.md) | UI / Apple HIG / Luna 2.0 / macOS Toolbar / ref2game / WebView2 |
+| **018** | [Apple Luna 2.0 1:1 UI, Win32 DWM Titlebar Fix & Squircle Icon](./018-apple-luna-ui-1to1-dwm-titlebar-fix-and-squircle-icon.md) | UI / 1:1 Luna 2.0 / Win32 DWM / DWMWA_CAPTION_COLOR 35 / Apple Squircle Icon / 216px Sidebar |
+| **019** | [Apple Luna 2.0 Ambient Glow Defect Fix & Tactile UI Refinement](./019-apple-luna-ambient-glow-fix-and-tactile-ui-refinement.md) | UI / Bugfix / Ambient Glow / Apple Luna 2.0 / Tactile Switch / Zero Regression |
+| **020** | [Opus Deep Audit Hardening, Apple Luna 2.0 Zero-Neon Refactoring & Desktop Portability](./020-opus-deep-audit-hardening-and-luna-zero-neon-refactoring.md) | Audit / Luna Zero-Neon / App.tsx Decomposition / GQL Safe Dict / WebView2 Dispose / Portability |
+| **021** | [Portable Runtime Tkinter Fix, Apple Luna 2.0 Dashboard Rebuild & Icon Deployment](./021-portable-runtime-tkinter-fix-and-luna-dashboard-rebuild.md) | Bugfix / Tkinter Decoupling / Luna 2.0 Bento Cards / Noble Mint Claim Button / Uptime NaN Fix / Desktop Icon / desktop.ini |
+| **022** | [Unlinked Campaign Eligibility Unlock & Windows Shell Icon Cache Reset](./022-unlinked-campaign-eligibility-fix-and-windows-shell-icon-cache-reset.md) | Bugfix / Unlinked Drops Unlock / 94 Campaigns / AppUserModelID / Shell Change Notification / OAuth Banner Clear |
+| **023** | [Twitch Drop Session Trap and Streamer Rotation Fix](./023-twitch-drop-session-trap-and-streamer-rotation-fix.md) | Bugfix / Session Affinity Trap / Offline Streamer Leak / Dead by Daylight Expired Filter / Live Minutes Advance |
+| **024** | [Full HLS Chunk HEAD Cadence & Drop Stall Resolution](./024-hls-chunk-head-cadence-and-drop-stall-resolution.md) | Bugfix / HLS 15-Chunk HEAD / 20s Watch Interval / Twitch CDN Buffer / Zero Stall / Python 3.12 Partitioned Cookie |
+| **025** | [Campaign Shelf Hero Pin, Alphabetical Sorting & Multi-Source Box Art Engine](./025-campaign-shelf-hero-pin-alphabetical-sort-and-multi-source-box-art.md) | Feature / Hero Pin / Alphabetical Sorting / Quick-Add Popover / Steam 600x900 Posters / IGDB Safe Titles |
+
+

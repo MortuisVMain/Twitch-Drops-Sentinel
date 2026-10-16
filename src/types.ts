@@ -1,0 +1,89 @@
+export interface ActiveDrop {
+  id: string;
+  name: string;
+  game: string;
+  game_box_art?: string;
+  current_minutes: number;
+  required_minutes: number;
+  progress_percent: number;
+  remaining_seconds: number;
+  channel_name: string;
+  channel_id: string;
+  is_claimed: boolean;
+  can_claim: boolean;
+  preview_url?: string;
+}
+
+export interface HardwareGuard {
+  is_gaming: boolean;
+  detected_game: string | null;
+  on_battery: boolean;
+  is_paused: boolean;
+  ping_ms: number;
+  cpu_percent: number;
+  gpu_percent: number;
+}
+
+export interface SentinelStats {
+  traffic_saved_mb: number;
+  total_drops_claimed: number;
+  channel_points_earned: number;
+  total_farm_hours: number;
+}
+
+export interface GameItem {
+  id: string;
+  name: string;
+  is_installed: boolean;
+  install_path?: string;
+  has_drops: boolean;
+  box_art?: string;
+  category?: string;
+  drops_end_at?: string;
+  rewards_count?: number;
+}
+
+export interface TrophyItem {
+  id: string;
+  date: string;
+  game: string;
+  drop_name: string;
+  campaign: string;
+  status: string;
+}
+
+export interface SentinelSettings {
+  auto_shutdown_on_complete: boolean;
+  auto_shutdown_mode: 'shutdown' | 'sleep' | 'lock';
+  pause_on_gaming: boolean;
+  pause_on_battery: boolean;
+  native_toasts: boolean;
+  priority_games: string[];
+  excluded_games: string[];
+  priority_mode?: number; // 0 = PRIORITY_ONLY, 1 = ENDING_SOONEST, 2 = LOW_AVBL_FIRST
+}
+
+export interface SentinelLogEntry {
+  time: string;
+  level: string;
+  message: string;
+}
+
+export interface FullSentinelState {
+  connected: boolean;
+  user_id: string;
+  username: string;
+  status_text?: string;
+  watching_channel?: string | null;
+  active_drop: ActiveDrop | null;
+  hardware: HardwareGuard;
+  stats: SentinelStats;
+  settings: SentinelSettings;
+  installed_games: GameItem[];
+  all_catalog_games: GameItem[];
+  trophies: TrophyItem[];
+  recent_logs?: SentinelLogEntry[];
+  watchdog_status?: string | null;
+  oauth_code?: string | null;
+  oauth_uri?: string | null;
+}

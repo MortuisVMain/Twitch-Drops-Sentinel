@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitch Drops Sentinel v3.0 • Liquid Glass Edition (ref2game UI)</title>
+    <style>
+        :root {
+            --bg-base: #07090e;
+            --glass-l1: rgba(13, 17, 26, 0.72);
+            --glass-l2: rgba(20, 26, 40, 0.85);
+            --border-specular: rgba(255, 255, 255, 0.12);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --twitch-violet: #9146ff;
+            --twitch-glow: rgba(145, 70, 255, 0.35);
+            --cyber-cyan: #00f2fe;
+            --emerald-green: #00f59b;
+            --amber-gold: #ffaa00;
+            --rose-red: #ff4d6d;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 20px;
+            --radius-xl: 28px;
+            --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+            --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Ambient Liquid Canvas Background */
+        #ambientCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.65;
+        }
+
+        /* Main Container */
+        .app-shell {
+            position: relative;
+            z-index: 1;
+            max-width: 1280px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Top Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--glass-l1);
+            backdrop-filter: blur(28px);
+            -webkit-backdrop-filter: blur(28px);
+            border: 1px solid var(--border-specular);
+            border-radius: var(--radius-lg);
+            padding: 16px 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+
+        .brand-group {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .sentinel-logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #772ce8, #00f2fe);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(119, 44, 232, 0.45);
+            position: relative;
+        }
+
+        .sentinel-logo svg {
+            width: 24px;
+            height: 24px;
+            fill: #fff;
+        }
+
+        .logo-ring {
+            position: absolute;
+            inset: -4px;
+            border-radius: 16px;
+            border: 1px solid rgba(0, 242, 254, 0.4);
+            animation: pulseRing 3s ease-in-out infinite;
+        }
+
+        @keyframes pulseRing {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.08); opacity: 0.8; }
+        }
+
+        .brand-text h1 {
+            font-size: 19px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .version-badge {
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(0, 242, 254, 0.12);
+            color: var(--cyber-cyan);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-family: var(--font-mono);
+        }
+
+        .brand-text p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* Power Toggle Button */
+        .power-switch {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--border-specular);
+            padding: 6px 14px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .power-switch:hover {
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .power-switch:active {
+            transform: scale(0.97);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--emerald-green);
+            box-shadow: 0 0 12px var(--emerald-green);
+        }
+
+        .status-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Bento Grid */
+        .bento-grid {
+            display: grid;
+            grid-template-columns: 340px 1fr 320px;
+            gap: 20px;
+        }
+
+        @media (max-width: 1150px) {
+            .bento-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Cards Base with Spotlight Effect */
+        .bento-card {
+            background: var(--glass-l1);
+            backdrop-filter: blur(28px);
+            -webkit-backdrop-filter: blur(28px);
+            border: 1px solid var(--border-specular);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .bento-card:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Spotlight radial gradient overlay */
+        .bento-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(
+                450px circle at var(--mouse-x, -500px) var(--mouse-y, -500px),
+                rgba(145, 70, 255, 0.12),
+                transparent 70%
+            );
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .bento-card:hover::before {
+            opacity: 1;
+        }
+
+        .card-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-heading {
+            font-size: 15px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Active Drop Hero Section */
+        .hero-banner {
+            height: 160px;
+            border-radius: var(--radius-md);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-end;
+            padding: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background-size: cover;
+            background-position: center;
+            transition: all 0.3s ease;
+        }
+
+        .hero-gradient {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(0deg, rgba(7, 9, 14, 0.95) 0%, rgba(7, 9, 14, 0.3) 60%, transparent 100%);
+        }
+
+        .hero-info {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .game-badge {
+            align-self: flex-start;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: var(--twitch-violet);
+            color: #fff;
+            letter-spacing: 0.05em;
+        }
+
+        .game-title {
+            font-size: 20px;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: -0.02em;
+        }
+
+        /* Progress Card in Center */
+        .progress-box {
+            background: var(--glass-l2);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+        }
+
+        .progress-pct {
+            font-family: var(--font-mono);
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--cyber-cyan);
+        }
+
+        .progress-bar-bg {
+            height: 10px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 74%;
+            background: linear-gradient(90deg, #772ce8, #00f2fe);
+            border-radius: 6px;
+            position: relative;
+            box-shadow: 0 0 14px rgba(0, 242, 254, 0.5);
+            transition: width 0.5s ease;
+        }
+
+        .metric-pills {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .metric-pill {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pill-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .pill-value {
+            font-family: var(--font-mono);
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Game Shelf List (Left column) */
+        .shelf-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .shelf-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .shelf-item:hover {
+            background: rgba(145, 70, 255, 0.08);
+            border-color: rgba(145, 70, 255, 0.35);
+            transform: translateX(3px);
+        }
+
+        .shelf-item.active {
+            background: rgba(145, 70, 255, 0.14);
+            border-color: var(--twitch-violet);
+            box-shadow: 0 0 16px rgba(145, 70, 255, 0.25);
+        }
+
+        .shelf-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .shelf-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            background: #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .shelf-meta {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .shelf-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .shelf-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .shelf-badge {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--cyber-cyan);
+            background: rgba(0, 242, 254, 0.1);
+            padding: 3px 8px;
+            border-radius: 12px;
+        }
+
+        /* Streamless Telemetry (Right Column) */
+        .hardware-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .tele-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tele-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .tele-name {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tele-num {
+            font-family: var(--font-mono);
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Actions & Claim button */
+        .action-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-claim {
+            flex: 1;
+            min-height: 48px;
+            background: linear-gradient(135deg, #00f59b, #00c47d);
+            border: none;
+            border-radius: var(--radius-md);
+            color: #051a11;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 18px rgba(0, 245, 155, 0.35);
+            transition: all 0.15s ease;
+        }
+
+        .btn-claim:hover {
+            box-shadow: 0 6px 24px rgba(0, 245, 155, 0.55);
+            transform: translateY(-1px);
+        }
+
+        .btn-claim:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            min-height: 48px;
+            padding: 0 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-specular);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.15s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-secondary:active {
+            transform: scale(0.98);
+        }
+
+        /* Bottom QA Verification HUD */
+        .qa-hud {
+            background: rgba(10, 14, 22, 0.9);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            border-radius: var(--radius-md);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .qa-badges {
+            display: flex;
+            gap: 16px;
+        }
+
+        .qa-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .qa-status {
+            font-weight: 700;
+            color: var(--emerald-green);
+            font-family: var(--font-mono);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Liquid Canvas Background (Living System) -->
+    <canvas id="ambientCanvas"></canvas>
+
+    <div class="app-shell">
+
+        <!-- Top Header -->
+        <header class="header">
+            <div class="brand-group">
+                <div class="sentinel-logo">
+                    <div class="logo-ring"></div>
+                    <svg viewBox="0 0 24 24">
+                        <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0h1.714v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>Twitch Drops Sentinel <span class="version-badge">v3.0 PRO</span></h1>
+                    <p>Streamless Zero-Bandwidth Auto Claimer • Liquid Glass Interface</p>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <div class="power-switch" id="powerBtn" onclick="togglePower()">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span class="status-label" id="statusLabel">Daemon Active</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Bento Layout -->
+        <main class="bento-grid">
+
+            <!-- LEFT: GAME SHELF -->
+            <section class="bento-card">
+                <div class="card-title-row">
+                    <span class="card-heading">Active Campaigns (4)</span>
+                    <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">Auto-Queue</span>
+                </div>
+
+                <div class="shelf-list" id="shelfList">
+                    <div class="shelf-item active" onclick="selectGame(0)">
+                        <div class="shelf-left">
+                            <div class="shelf-icon">🐺</div>
+                            <div class="shelf-meta">
+                                <span class="shelf-name">The Witcher 3</span>
+                                <span class="shelf-sub">Wolf Armor DLC • 74%</span>
+                            </div>
+                        </div>
+                        <span class="shelf-badge">FARMING</span>
+                    </div>
+
+                    <div class="shelf-item" onclick="selectGame(1)">
+                        <div class="shelf-left">
+                            <div class="shelf-icon">⛺</div>
+                            <div class="shelf-meta">
+                                <span class="shelf-name">Rust</span>
+                                <span class="shelf-sub">Round 32 Rivals • 100%</span>
+                            </div>
+                        </div>
+                        <span class="shelf-badge" style="color: var(--emerald-green); background: rgba(0, 245, 155, 0.1);">CLAIMED</span>
+                    </div>
+
+                    <div class="shelf-item" onclick="selectGame(2)">
+                        <div class="shelf-left">
+                            <div class="shelf-icon">🌆</div>
+                            <div class="shelf-meta">
+                                <span class="shelf-name">Cyberpunk 2077</span>
+                                <span class="shelf-sub">Trauma Team Vest • 32%</span>
+                            </div>
+                        </div>
+                        <span class="shelf-badge" style="color: var(--amber-gold); background: rgba(255, 170, 0, 0.1);">QUEUED</span>
+                    </div>
+
+                    <div class="shelf-item" onclick="selectGame(3)">
+                        <div class="shelf-left">
+                            <div class="shelf-icon">🤠</div>
+                            <div class="shelf-meta">
+                                <span class="shelf-name">Hunt: Showdown</span>
+                                <span class="shelf-sub">Spite Charm • 0%</span>
+                            </div>
+                        </div>
+                        <span class="shelf-badge" style="color: var(--text-muted);">IDLE</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: auto; padding-top: 10px;">
+                    <button class="btn-secondary" style="width: 100%; justify-content: center;" onclick="playClick(); alert('Поиск новых кампаний Twitch GraphQL: Найдено 14 активных дропсов!');">
+                        🔍 Сканировать Кампании Twitch
+                    </button>
+                </div>
+            </section>
+
+            <!-- CENTER: ACTIVE DROP DETAIL & CONTROLS -->
+            <section class="bento-card">
+                <div class="card-title-row">
+                    <span class="card-heading" id="targetGameHeader">Current Target • Priority 1</span>
+                    <span style="font-size: 12px; color: var(--emerald-green); font-family: var(--font-mono); font-weight: 700;">● STREAMLESS LIVE</span>
+                </div>
+
+                <div class="hero-banner" id="heroBanner" style="background: linear-gradient(135deg, #1e1b4b, #0f172a);">
+                    <div class="hero-gradient"></div>
+                    <div class="hero-info">
+                        <span class="game-badge" id="heroBadge">The Witcher 3: Wild Hunt</span>
+                        <h2 class="game-title" id="heroTitle">Wolf School Grandmaster Steel Sword</h2>
+                    </div>
+                </div>
+
+                <div class="progress-box">
+                    <div class="progress-header">
+                        <span style="color: var(--text-secondary);">Прогресс дропса (3 ч 42 мин из 5 ч):</span>
+                        <span class="progress-pct" id="progressPct">74%</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="progressBar"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+                        <span>Старт: 18:00</span>
+                        <span>Осталось: ~1 час 18 мин</span>
+                    </div>
+                </div>
+
+                <div class="metric-pills">
+                    <div class="metric-pill">
+                        <span class="pill-label">Сэкономлено Трафика</span>
+                        <span class="pill-value" style="color: var(--emerald-green);">42.8 GB</span>
+                    </div>
+                    <div class="metric-pill">
+                        <span class="pill-label">Нагрузка на GPU / CPU</span>
+                        <span class="pill-value" style="color: var(--cyber-cyan);">0.0% / 0.1%</span>
+                    </div>
+                    <div class="metric-pill">
+                        <span class="pill-label">Энергопотребление</span>
+                        <span class="pill-value">~1.2 Watt</span>
+                    </div>
+                    <div class="metric-pill">
+                        <span class="pill-label">Сессионный Пинг</span>
+                        <span class="pill-value">14 ms (Stealth)</span>
+                    </div>
+                </div>
+
+                <div class="action-row">
+                    <button class="btn-claim" onclick="claimDropNow()">
+                        🎁 Забрать Полученный Дроп
+                    </button>
+                    <button class="btn-secondary" onclick="playClick(); toggleAutoMode();">
+                        ⚙️ Настройки
+                    </button>
+                </div>
+            </section>
+
+            <!-- RIGHT: HARDWARE & TELEMETRY -->
+            <section class="bento-card">
+                <div class="card-title-row">
+                    <span class="card-heading">Hardware & Telemetry</span>
+                    <span style="font-size: 11px; color: var(--cyber-cyan); font-family: var(--font-mono);">RTX 5070 Ti</span>
+                </div>
+
+                <div class="hardware-grid">
+                    <div class="tele-row">
+                        <span class="tele-name">🎮 GPU Status</span>
+                        <span class="tele-num" style="color: var(--emerald-green);">Cold (38°C)</span>
+                    </div>
+                    <div class="tele-row">
+                        <span class="tele-name">⚡ VRAM Usage</span>
+                        <span class="tele-num">240 MB / 12 GB</span>
+                    </div>
+                    <div class="tele-row">
+                        <span class="tele-name">🛡️ Anti-Ban Stealth</span>
+                        <span class="tele-num" style="color: var(--emerald-green);">Active (Patchright)</span>
+                    </div>
+                    <div class="tele-row">
+                        <span class="tele-name">🌐 Proxy Egress</span>
+                        <span class="tele-num">Direct ISP (Fast)</span>
+                    </div>
+                    <div class="tele-row">
+                        <span class="tele-name">⏱️ Uptime</span>
+                        <span class="tele-num" id="uptimeCounter">14h 28m 12s</span>
+                    </div>
+                    <div class="tele-row">
+                        <span class="tele-name">🏆 Total Claimed</span>
+                        <span class="tele-num" style="color: var(--amber-gold);">86 Drops</span>
+                    </div>
+                </div>
+
+                <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.2); border-radius: var(--radius-md); padding: 14px; margin-top: auto;">
+                    <div style="font-size: 12px; font-weight: 700; color: var(--cyber-cyan); margin-bottom: 4px;">
+                        💡 Streamless Protocol Active
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                        Видеопоток не декодируется. Сервер Twitch получает чистые WebSocket сигналы присутствия. Никаких лагов в играх.
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Bottom QA Telemetry Bar (The ref2game Continuous Validation Gate) -->
+        <footer class="qa-hud">
+            <div>
+                <strong>ref2game UI Contract:</strong> ИИ-микроассеты + Процедурный DOM (Zero-Baking)
+            </div>
+            <div class="qa-badges">
+                <div class="qa-item">
+                    <span>Контрастность WCAG 2.1:</span>
+                    <span class="qa-status">7.4:1 (PASS)</span>
+                </div>
+                <div class="qa-item">
+                    <span>Hit Targets:</span>
+                    <span class="qa-status">≥48px (100%)</span>
+                </div>
+                <div class="qa-item">
+                    <span>Layout Shift (CLS):</span>
+                    <span class="qa-status">0.000</span>
+                </div>
+                <div class="qa-item">
+                    <span>Audio Engine:</span>
+                    <span class="qa-status">Modal 2.4kHz</span>
+                </div>
+            </div>
+        </footer>
+
+    </div>
+
+    <script>
+        // ==================== 1. WEB AUDIO PROCEDURAL FEEDBACK (IDEA-045) ====================
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        // Tactile micro-click (2.4 kHz modal resonator)
+        function playClick() {
+            const ctx = getAudioContext();
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(2450, now);
+            osc.frequency.exponentialRampToValueAtTime(1200, now + 0.015);
+
+            gain.gain.setValueAtTime(0.18, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.start(now);
+            osc.stop(now + 0.02);
+        }
+
+        // Reward chime for claimed drop (1820 Hz + 3940 Hz modal bell)
+        function playRewardChime() {
+            const ctx = getAudioContext();
+            const now = ctx.currentTime;
+            [1820, 3940, 6280].forEach((freq, idx) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, now);
+
+                const baseAmp = 0.15 / (idx + 1);
+                gain.gain.setValueAtTime(baseAmp, now);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.4);
+            });
+        }
+
+        // ==================== 2. SPOTLIGHT CURSOR HOVER SYSTEM ====================
+        document.querySelectorAll('.bento-card').forEach(card => {
+            card.addEventListener('mousemove', e => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--mouse-x', `${x}px`);
+                card.style.setProperty('--mouse-y', `${y}px`);
+            });
+        });
+
+        // ==================== 3. AMBIENT LIQUID ORBS (CANVAS SYSTEM) ====================
+        const canvas = document.getElementById('ambientCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeAmbient() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeAmbient);
+        resizeAmbient();
+
+        const orbs = [
+            { x: canvas.width * 0.2, y: canvas.height * 0.3, r: 240, color: 'rgba(145, 70, 255, 0.18)', vx: 0.3, vy: 0.2 },
+            { x: canvas.width * 0.8, y: canvas.height * 0.6, r: 280, color: 'rgba(0, 242, 254, 0.12)', vx: -0.2, vy: 0.25 },
+            { x: canvas.width * 0.5, y: canvas.height * 0.8, r: 200, color: 'rgba(0, 245, 155, 0.08)', vx: 0.15, vy: -0.2 }
+        ];
+
+        function animateOrbs() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            orbs.forEach(orb => {
+                orb.x += orb.vx;
+                orb.y += orb.vy;
+                if (orb.x < -100 || orb.x > canvas.width + 100) orb.vx *= -1;
+                if (orb.y < -100 || orb.y > canvas.height + 100) orb.vy *= -1;
+
+                const grad = ctx.createRadialGradient(orb.x, orb.y, 10, orb.x, orb.y, orb.r);
+                grad.addColorStop(0, orb.color);
+                grad.addColorStop(1, 'transparent');
+
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(orb.x, orb.y, orb.r, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            requestAnimationFrame(animateOrbs);
+        }
+        animateOrbs();
+
+        // ==================== 4. GAME SELECTOR & STATE LOGIC ====================
+        const games = [
+            {
+                name: "The Witcher 3: Wild Hunt",
+                title: "Wolf School Grandmaster Steel Sword",
+                badge: "🐺 The Witcher 3",
+                pct: 74,
+                bg: "linear-gradient(135deg, #1e1b4b, #0f172a)"
+            },
+            {
+                name: "Rust",
+                title: "Rivals Round 32 Glowing Assault Rifle",
+                badge: "⛺ Rust Survival",
+                pct: 100,
+                bg: "linear-gradient(135deg, #451a03, #1c1917)"
+            },
+            {
+                name: "Cyberpunk 2077",
+                title: "Trauma Team Tactical Vest & Visor",
+                badge: "🌆 Cyberpunk 2077",
+                pct: 32,
+                bg: "linear-gradient(135deg, #4c0519, #09090b)"
+            },
+            {
+                name: "Hunt: Showdown 1896",
+                title: "The Spite Vintage Revolver Charm",
+                badge: "🤠 Hunt: Showdown",
+                pct: 0,
+                bg: "linear-gradient(135deg, #14532d, #022c22)"
+            }
+        ];
+
+        function selectGame(idx) {
+            playClick();
+            document.querySelectorAll('.shelf-item').forEach((el, i) => {
+                el.classList.toggle('active', i === idx);
+            });
+
+            const g = games[idx];
+            document.getElementById('heroBanner').style.background = g.bg;
+            document.getElementById('heroBadge').innerText = g.badge;
+            document.getElementById('heroTitle').innerText = g.title;
+            document.getElementById('progressPct').innerText = `${g.pct}%`;
+            document.getElementById('progressBar').style.width = `${g.pct}%`;
+            document.getElementById('targetGameHeader').innerText = `Current Target • ${g.name}`;
+        }
+
+        let isDaemonActive = true;
+        function togglePower() {
+            playClick();
+            isDaemonActive = !isDaemonActive;
+            const dot = document.getElementById('statusDot');
+            const lbl = document.getElementById('statusLabel');
+            if (isDaemonActive) {
+                dot.style.background = 'var(--emerald-green)';
+                dot.style.boxShadow = '0 0 12px var(--emerald-green)';
+                lbl.innerText = 'Daemon Active';
+            } else {
+                dot.style.background = 'var(--rose-red)';
+                dot.style.boxShadow = '0 0 12px var(--rose-red)';
+                lbl.innerText = 'Daemon Paused';
+            }
+        }
+
+        function claimDropNow() {
+            playRewardChime();
+            const bar = document.getElementById('progressBar');
+            const pct = document.getElementById('progressPct');
+            bar.style.width = '100%';
+            pct.innerText = '100% (CLAIMED!)';
+            pct.style.color = 'var(--emerald-green)';
+            alert('🎉 Дроп успешно заклеймлен в инвентарь Twitch через GraphQL API!');
+        }
+
+        function toggleAutoMode() {
+            alert('Режим энергосбережения активирован: фоновый фреймрейт залочен на 1 FPS в трее.');
+        }
+
+        // Live uptime ticker
+        let seconds = 52092;
+        setInterval(() => {
+            seconds++;
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            document.getElementById('uptimeCounter').innerText = `${h}h ${m}m ${s < 10 ? '0' : ''}${s}s`;
+        }, 1000);
+    </script>
+</body>
+</html>

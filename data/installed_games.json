@@ -1,0 +1,589 @@
+[
+  {
+    "id": "poe2",
+    "name": "Path of Exile 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "ARPG / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2694490/library_600x900.jpg"
+  },
+  {
+    "id": "hunt1896",
+    "name": "Hunt: Showdown 1896",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Shooter / Steam",
+    "box_art": "https://cdn.cloudflare.steamstatic.com/steam/apps/594650/library_600x900.jpg"
+  },
+  {
+    "id": "nomansky",
+    "name": "No Man",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Survival / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/275850/library_600x900.jpg"
+  },
+  {
+    "id": "witcher3",
+    "name": "The Witcher 3: Wild Hunt",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "RPG / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/292030/library_600x900.jpg"
+  },
+  {
+    "id": "frostpunk2",
+    "name": "Frostpunk 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1601580/library_600x900.jpg"
+  },
+  {
+    "id": "inzoi",
+    "name": "inZOI",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2456740/library_600x900.jpg"
+  },
+  {
+    "id": "hades2",
+    "name": "Hades II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Roguelike / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1145350/library_600x900.jpg"
+  },
+  {
+    "id": "zomboid",
+    "name": "Project Zomboid",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Survival / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/108600/library_600x900.jpg"
+  },
+  {
+    "id": "hogwarts",
+    "name": "Hogwarts Legacy",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "RPG / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/990080/library_600x900.jpg"
+  },
+  {
+    "id": "slaythespire2",
+    "name": "Slay the Spire 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Roguelike / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2868840/library_600x900.jpg"
+  },
+  {
+    "id": "stellaris",
+    "name": "Stellaris",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/281990/library_600x900.jpg"
+  },
+  {
+    "id": "terraria",
+    "name": "Terraria",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Sandbox / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/105600/library_600x900.jpg"
+  },
+  {
+    "id": "cities2",
+    "name": "Cities: Skylines II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/949230/library_600x900.jpg"
+  },
+  {
+    "id": "crusaderkings3",
+    "name": "Crusader Kings III",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1158310/library_600x900.jpg"
+  },
+  {
+    "id": "warhammer40k_battlesector",
+    "name": "Warhammer 40,000: Battlesector",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1295500/library_600x900.jpg"
+  },
+  {
+    "id": "warhammer40k_chaosgate",
+    "name": "Warhammer 40,000: Chaos Gate - Daemonhunters",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam"
+  },
+  {
+    "id": "againstthestorm",
+    "name": "Against the Storm",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1336490/library_600x900.jpg"
+  },
+  {
+    "id": "ageofwonders4",
+    "name": "Age of Wonders 4",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1669000/library_600x900.jpg"
+  },
+  {
+    "id": "anno117",
+    "name": "Anno 117: Pax Romana",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3274580/library_600x900.jpg"
+  },
+  {
+    "id": "battletech",
+    "name": "BATTLETECH",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/637090/library_600x900.jpg"
+  },
+  {
+    "id": "beholder3",
+    "name": "Beholder 3",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Indie / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1570070/library_600x900.jpg"
+  },
+  {
+    "id": "desperados3",
+    "name": "Desperados III",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/610370/library_600x900.jpg"
+  },
+  {
+    "id": "doorkickers2",
+    "name": "Door Kickers 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1239080/library_600x900.jpg"
+  },
+  {
+    "id": "endzone2",
+    "name": "Endzone 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2144640/library_600x900.jpg"
+  },
+  {
+    "id": "fortheking2",
+    "name": "For The King II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "RPG / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1676840/library_600x900.jpg"
+  },
+  {
+    "id": "frostpunk",
+    "name": "Frostpunk",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/323190/library_600x900.jpg"
+  },
+  {
+    "id": "graveyardkeeper",
+    "name": "Graveyard Keeper",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://cdn.cloudflare.steamstatic.com/steam/apps/599140/library_600x900.jpg"
+  },
+  {
+    "id": "hardwest2",
+    "name": "Hard West 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1282410/library_600x900.jpg"
+  },
+  {
+    "id": "heroesoldenera",
+    "name": "Heroes of Might and Magic: Olden Era",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3105440/library_600x900.jpg"
+  },
+  {
+    "id": "jaggedalliance3",
+    "name": "Jagged Alliance 3",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1084160/library_600x900.jpg"
+  },
+  {
+    "id": "jurassicworld3",
+    "name": "Jurassic World Evolution 3",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2958130/df39f8c59232633e8e01ab63313b095402bdd0d5/header.jpg?t=1790687062"
+  },
+  {
+    "id": "kingdomrush5",
+    "name": "Kingdom Rush 5: Alliance TD",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tower Defense / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2849080/library_600x900.jpg"
+  },
+  {
+    "id": "marvelmidnightsuns",
+    "name": "Marvel's Midnight Suns",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/368260/library_600x900.jpg"
+  },
+  {
+    "id": "mewgenics",
+    "name": "Mewgenics",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Roguelike / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/686060/library_600x900.jpg"
+  },
+  {
+    "id": "moonlighter2",
+    "name": "Moonlighter 2: The Endless Vault",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action RPG / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2350790/library_600x900.jpg"
+  },
+  {
+    "id": "necesse",
+    "name": "Necesse",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Sandbox / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1169040/library_600x900.jpg"
+  },
+  {
+    "id": "oxygennotincluded",
+    "name": "Oxygen Not Included",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/457140/library_600x900.jpg"
+  },
+  {
+    "id": "pathfinder_wotr",
+    "name": "Pathfinder: Wrath of the Righteous",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "cRPG / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1184370/library_600x900.jpg"
+  },
+  {
+    "id": "phoenixpoint",
+    "name": "Phoenix Point",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/839770/library_600x900.jpg"
+  },
+  {
+    "id": "re2",
+    "name": "Resident Evil 2 Remake",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/883710/library_600x900.jpg"
+  },
+  {
+    "id": "re3",
+    "name": "Resident Evil 3 Remake",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/952060/library_600x900.jpg"
+  },
+  {
+    "id": "rimworld",
+    "name": "RimWorld",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/294100/library_600x900.jpg"
+  },
+  {
+    "id": "stardewvalley",
+    "name": "Stardew Valley",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Simulation / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/413150/library_600x900.jpg"
+  },
+  {
+    "id": "starshiptroopers",
+    "name": "Starship Troopers: Terran Command",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "RTS / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1202130/library_600x900.jpg"
+  },
+  {
+    "id": "steamworldbuild",
+    "name": "SteamWorld Build",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2134770/library_600x900.jpg"
+  },
+  {
+    "id": "theyarebillions",
+    "name": "They Are Billions",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/644930/library_600x900.jpg"
+  },
+  {
+    "id": "timberborn",
+    "name": "Timberborn",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "City Builder / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1062090/library_600x900.jpg"
+  },
+  {
+    "id": "victoria3",
+    "name": "Victoria 3",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / Steam",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/529340/library_600x900.jpg"
+  },
+  {
+    "id": "hearthstone",
+    "name": "Hearthstone",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Card Game / E:Games"
+  },
+  {
+    "id": "starcraft2",
+    "name": "StarCraft II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "RTS / E:Games"
+  },
+  {
+    "id": "rdr2",
+    "name": "Red Dead Redemption 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Open World / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1174180/library_600x900.jpg"
+  },
+  {
+    "id": "acvalhalla",
+    "name": "Assassin's Creed Valhalla",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2208920/library_600x900.jpg"
+  },
+  {
+    "id": "deathstranding",
+    "name": "Death Stranding Director Cut",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1850570/library_600x900.jpg"
+  },
+  {
+    "id": "dredge",
+    "name": "Dredge",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Indie / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1562430/library_600x900.jpg"
+  },
+  {
+    "id": "plaguetale_innocence",
+    "name": "A Plague Tale Innocence",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Story / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/752590/library_600x900.jpg"
+  },
+  {
+    "id": "princeofpersia",
+    "name": "Prince of Persia: The Lost Crown",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Metroidvania / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2751000/library_600x900.jpg"
+  },
+  {
+    "id": "carteltycoon",
+    "name": "Cartel Tycoon",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tycoon / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1220140/library_600x900.jpg"
+  },
+  {
+    "id": "strandedaliendawn",
+    "name": "Stranded Alien Dawn",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Survival / E:Games",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1324130/library_600x900.jpg"
+  },
+  {
+    "id": "gow_ragnarok",
+    "name": "God of War Ragnarok",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2322010/library_600x900.jpg"
+  },
+  {
+    "id": "horizon_fw",
+    "name": "Horizon Forbidden West Complete",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Open World / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2420110/library_600x900.jpg"
+  },
+  {
+    "id": "spiderman2",
+    "name": "Marvel's Spider-Man 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2651280/library_600x900.jpg"
+  },
+  {
+    "id": "spiderman_mm",
+    "name": "Marvel's Spider-Man: Miles Morales",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked"
+  },
+  {
+    "id": "spiderman_remastered",
+    "name": "Marvel's Spider-Man Remastered",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/449394/header.jpg"
+  },
+  {
+    "id": "tlou1",
+    "name": "The Last of Us Part I",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1888930/library_600x900.jpg"
+  },
+  {
+    "id": "tlou2",
+    "name": "The Last of Us Part II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2531310/library_600x900.jpg"
+  },
+  {
+    "id": "mechanicus2",
+    "name": "Warhammer 40,000: Mechanicus II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2532480/library_600x900.jpg"
+  },
+  {
+    "id": "nfs_unbound",
+    "name": "Need for Speed Unbound",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Racing / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1846380/library_600x900.jpg"
+  },
+  {
+    "id": "hellblade2",
+    "name": "Senua's Saga: Hellblade II",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Action / E:Cracked"
+  },
+  {
+    "id": "thealters",
+    "name": "The Alters",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Sci-Fi / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1601570/library_600x900.jpg"
+  },
+  {
+    "id": "dungeons4",
+    "name": "Dungeons 4",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Strategy / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1643310/library_600x900.jpg"
+  },
+  {
+    "id": "endlesslegend2",
+    "name": "ENDLESS Legend 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "4X Strategy / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3407390/library_600x900.jpg"
+  },
+  {
+    "id": "pioneersofpagonia",
+    "name": "Pioneers of Pagonia",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Settlement / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2155180/library_600x900.jpg"
+  },
+  {
+    "id": "shadowgambit",
+    "name": "Shadow Gambit The Cursed Crew",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Stealth Tactics / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1545560/library_600x900.jpg"
+  },
+  {
+    "id": "xenonauts2",
+    "name": "Xenonauts 2",
+    "is_installed": true,
+    "has_drops": false,
+    "category": "Tactics / E:Cracked",
+    "box_art": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/538030/library_600x900.jpg"
+  }
+]
