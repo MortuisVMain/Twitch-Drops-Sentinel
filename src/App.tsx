@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavTab } from './components/Header';
 import { LiveDashboard } from './components/LiveDashboard';
 import { GameShelf } from './components/GameShelf';
+import { GiveawaysView } from './components/GiveawaysView';
 import { SettingsStudio } from './components/SettingsStudio';
 import { LiquidCanvas } from './components/LiquidCanvas';
 import { HelpModal } from './components/HelpModal';
@@ -22,6 +23,7 @@ import {
   Check, 
   LayoutDashboard, 
   Gamepad2, 
+  Gift,
   SlidersHorizontal, 
   X, 
   RotateCw,
@@ -137,6 +139,7 @@ export const App: React.FC = () => {
   const navItems = [
     { id: 'dashboard' as NavTab, label: 'Дашборд', icon: LayoutDashboard, badge: 'PRO' },
     { id: 'shelf' as NavTab, label: 'Полка Игр', icon: Gamepad2, badge: `${sentinelState.installed_games.length}` },
+    { id: 'giveaways' as NavTab, label: 'Раздачи', icon: Gift, badge: 'FREE' },
     { id: 'settings' as NavTab, label: 'Настройки', icon: SlidersHorizontal },
   ];
 
@@ -317,16 +320,19 @@ export const App: React.FC = () => {
                 <span />
                 {activeTab === 'dashboard' && 'SENTINEL PRO · ТИХИЙ АВТОНОМНЫЙ ФАРМ ДРОПОВ 24/7'}
                 {activeTab === 'shelf' && 'БИБЛИОТЕКА ИГР · ПРИОРИТЕТЫ И ИСКЛЮЧЕНИЯ'}
+                {activeTab === 'giveaways' && 'СИНДИКАТ ХАЛЯВЫ · АВТОМАТИЧЕСКИЙ СБОР РАЗДАЧ'}
                 {activeTab === 'settings' && 'КОНФИГУРАЦИЯ · ПОВЕДЕНИЕ ДЕМОНА И ПИТАНИЕ'}
               </div>
               <h1>
                 {activeTab === 'dashboard' && 'Все трофеи под контролем.'}
                 {activeTab === 'shelf' && 'Каждой игре — свой приоритет.'}
+                {activeTab === 'giveaways' && 'Все магазины под контролем.'}
                 {activeTab === 'settings' && 'Тонкая настройка по вашим правилам.'}
               </h1>
               <p>
                 {activeTab === 'dashboard' && 'Автономный сбор наград Twitch без видеопотока, лагов и нагрузки на видеокарту.'}
                 {activeTab === 'shelf' && 'Управляйте приоритетами дропов и исключайте ненужные игры в один клик.'}
+                {activeTab === 'giveaways' && 'Автоматический забор бесплатных игр и ассетов в Epic Games, GOG, Steam, Fab и Unity без открытого браузера.'}
                 {activeTab === 'settings' && 'Управление поведением при гейминге, питанием и сканированием локальных дисков.'}
               </p>
             </div>
@@ -388,6 +394,12 @@ export const App: React.FC = () => {
                   onRemoveFromExcluded={(name) => handleToggleExclude(name)}
                   onReorderPriority={handleReorderPriority}
                   onBack={() => handleTabChange('dashboard')}
+                />
+              )}
+
+              {activeTab === 'giveaways' && (
+                <GiveawaysView
+                  onBackToDashboard={() => handleTabChange('dashboard')}
                 />
               )}
 

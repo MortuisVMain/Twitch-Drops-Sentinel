@@ -87,3 +87,59 @@ export interface FullSentinelState {
   oauth_code?: string | null;
   oauth_uri?: string | null;
 }
+
+export type StoreId = 'epic' | 'gog' | 'steam' | 'fab' | 'unity' | 'itch' | 'prime';
+export type ClaimStatus = 'claimed' | 'existed' | string;
+export type RunnerState = 'idle' | 'running' | 'aborting' | 'external_running';
+
+export interface ClaimedGameItem {
+  id: string;
+  store: StoreId;
+  account: string;
+  slug: string;
+  title: string;
+  claimedAt: string;
+  timestampMs: number;
+  url: string;
+  status: ClaimStatus;
+}
+
+export interface StoreTelemetry {
+  store: StoreId;
+  displayName: string;
+  claimedCount: number;
+  existedCount: number;
+  lastClaimedAt: string | null;
+  dbFileExists: boolean;
+}
+
+export interface SchedulerTelemetry {
+  taskName: string;
+  exists: boolean;
+  state: 'Ready' | 'Running' | 'Disabled' | 'Unknown';
+  lastRunTime: string | null;
+  nextRunTime: string | null;
+  lastTaskResult: number | null;
+}
+
+export interface GiveawaysLogEntry {
+  line: string;
+  ts: string;
+}
+
+export interface GiveawaysStateResponse {
+  runner: {
+    state: RunnerState;
+    activeStores: StoreId[];
+    pid: number | null;
+    startedAt: string | null;
+    headless: boolean;
+  };
+  scheduler: SchedulerTelemetry;
+  stores: Record<StoreId, StoreTelemetry>;
+  inventory: ClaimedGameItem[];
+  recentLogs: GiveawaysLogEntry[];
+  lastLogFile: string | null;
+  fgcInstalled: boolean;
+  totalClaimed: number;
+}

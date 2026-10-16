@@ -143,6 +143,14 @@ def test_core_service_api():
             assert isinstance(c_res, list) and len(c_res) > 50
             print(f"      GET /api/catalog ({len(c_res)} games): PASS [OK]")
 
+        # Test GET /api/v1/giveaways/state
+        g_req = urllib.request.Request("http://127.0.0.1:28492/api/v1/giveaways/state")
+        with urllib.request.urlopen(g_req, timeout=3.0) as res:
+            assert res.status == 200
+            g_res = json.loads(res.read().decode("utf-8"))
+            assert "runner" in g_res and "stores" in g_res and "inventory" in g_res and "scheduler" in g_res
+            print(f"      GET /api/v1/giveaways/state ({len(g_res.get('stores', {}))} stores, {len(g_res.get('inventory', []))} items): PASS [OK]")
+
     finally:
         if proc is not None:
             proc.terminate()
@@ -457,6 +465,47 @@ def test_audited_steam_app_ids_and_verified_sequels():
 
     print("      Audited Steam AppIDs & Verified Sequels: ALL PASS [OK]")
 
+def test_giveaways_hub_integration():
+    print("[19/19] Testing Free Games Claimer Giveaways Hub Integration...")
+    import sys
+    import asyncio
+    core_dir = WORKSPACE / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from giveaways_controller import GiveawaysOrchestrator
+
+    orchestrator = GiveawaysOrchestrator()
+    state = asyncio.run(orchestrator.get_state())
+
+    assert "runner" in state, "State must contain 'runner'"
+    assert "stores" in state, "State must contain 'stores'"
+    assert "inventory" in state, "State must contain 'inventory'"
+    assert "scheduler" in state, "State must contain 'scheduler'"
+
+    store_ids = list(state["stores"].keys())
+    assert "epic" in store_ids, "Epic Games store missing"
+    assert "gog" in store_ids, "GOG store missing"
+    assert "steam" in store_ids, "Steam store missing"
+    assert "fab" in store_ids, "Fab store missing"
+    assert "unity" in store_ids, "Unity store missing"
+
+    # Inventory test
+    assert len(state["inventory"]) > 0, "Inventory must contain claimed items"
+    first_item = state["inventory"][0]
+    assert "id" in first_item and "title" in first_item and "store" in first_item
+
+    # Scheduler test
+    sched = state["scheduler"]
+    assert "taskName" in sched and "FreeGamesClaimerStudio" in sched["taskName"]
+    assert "state" in sched
+
+    # Frontend bundle test - verify giveaways in bundle
+    dist_html = WORKSPACE / "dist" / "index.html"
+    bundle_text = dist_html.read_text(encoding="utf-8")
+    assert "Раздачи" in bundle_text or "giveaways" in bundle_text
+
+    print(f"      Giveaways Hub Integration ({len(state['inventory'])} items, scheduler={sched['state']}): ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.0 — VERIFICATION TEST SUITE")
@@ -480,6 +529,7 @@ if __name__ == "__main__":
     test_search_games_and_box_art_cache()
     test_sequel_guard_and_no_false_box_art()
     test_audited_steam_app_ids_and_verified_sequels()
+    test_giveaways_hub_integration()
     print("=" * 65)
-    print("  ALL 18 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 19 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)

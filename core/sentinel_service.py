@@ -48,6 +48,7 @@ from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT
 from utils import json_load, json_save
 from campaigns_fetcher import CAMPAIGNS_FETCHER
+from giveaways_controller import GiveawaysOrchestrator
 
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
@@ -170,6 +171,8 @@ class SentinelSupervisor:
             "gpu_percent": 8,
         }
         self.luna_countdown: Optional[int] = None
+        self.giveaways = GiveawaysOrchestrator()
+        self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
 
     def load_settings(self) -> dict:
@@ -300,6 +303,10 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
         self.app.router.add_post("/api/toggle-daemon", self.handle_toggle_daemon)
         self.app.router.add_get("/ws", self.handle_ws)
+        self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
+        self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
+        self.app.router.add_post("/api/v1/giveaways/abort", self.handle_giveaways_abort)
+        self.app.router.add_get("/api/v1/giveaways/stream", self.handle_giveaways_stream)
 
         # CORS preflight middleware
         self.app.middlewares.append(self.cors_middleware)
@@ -487,6 +494,32 @@ class SentinelSupervisor:
         except Exception as e:
             logger.error("Error opening trophies file: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_giveaways_state(self, request: web.Request) -> web.Response:
+        force = request.query.get("force_refresh", "0") in ("1", "true")
+        state = await self.giveaways.get_state(force_refresh=force)
+        return web.json_response(state)
+
+    async def handle_giveaways_claim(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        stores = body.get("stores", ["epic", "gog", "steam", "fab", "unity"])
+        headless = body.get("headless", True)
+        res = await self.giveaways.start_claim(stores=stores, headless=headless)
+        return web.json_response(res)
+
+    async def handle_giveaways_abort(self, request: web.Request) -> web.Response:
+        res = await self.giveaways.abort_claim()
+        return web.json_response(res)
+
+    async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
+        return await self.giveaways.handle_stream(request)
+
+    async def _on_app_shutdown(self, app):
+        logger.info("Cleaning up Giveaways processes on shutdown...")
+        await self.giveaways.abort_claim()
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()

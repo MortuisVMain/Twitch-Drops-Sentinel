@@ -1,20 +1,22 @@
 import React from 'react';
-import { Activity, Gamepad2, Trophy, Sliders } from 'lucide-react';
+import { Activity, Gamepad2, Gift, Sliders } from 'lucide-react';
 
-export type NavTab = 'dashboard' | 'shelf' | 'settings';
+export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'settings';
 
 interface NavigationProps {
   currentTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   trophiesCount: number;
   installedCount: number;
+  giveawaysCount?: number;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
   currentTab,
   onSelectTab,
   trophiesCount,
-  installedCount
+  installedCount,
+  giveawaysCount = 0,
 }) => {
   const tabs = [
     {
@@ -29,6 +31,13 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'Полка Игр',
       icon: Gamepad2,
       badge: `${installedCount} ПК`,
+      badgeColor: 'bg-[#368873]/20 text-[#73bba5] border-[#73bba5]/35'
+    },
+    {
+      id: 'giveaways' as NavTab,
+      label: 'Раздачи',
+      icon: Gift,
+      badge: giveawaysCount > 0 ? `${giveawaysCount}` : 'FREE',
       badgeColor: 'bg-[#368873]/20 text-[#73bba5] border-[#73bba5]/35'
     },
     {

@@ -13,11 +13,12 @@ import {
   Wifi, 
   Cpu, 
   Play, 
-  Pause 
+  Pause,
+  Gift
 } from 'lucide-react';
 
 // Twitch Drops Sentinel v3 — Author: Mortuis_V / Mortuis_V_Studio
-export type NavTab = 'dashboard' | 'shelf' | 'settings';
+export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'settings';
 
 interface HeaderProps {
   hardware: HardwareGuard;
@@ -65,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   const tabLabels: Record<NavTab, { label: string; icon: React.ElementType; badge?: string }> = {
     dashboard: { label: 'Дашборд', icon: LayoutGrid, badge: 'LIVE' },
     shelf: { label: 'Полка Игр', icon: Gamepad2, badge: `${installedCount}` },
+    giveaways: { label: 'Раздачи', icon: Gift, badge: 'FREE' },
     settings: { label: 'Настройки', icon: SlidersHorizontal },
   };
 
