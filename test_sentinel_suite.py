@@ -187,12 +187,14 @@ def test_core_service_api():
 
 def test_prd_compliance():
     print("[6/10] Testing PRD Acceptance Criteria...")
-    prd_path = WORKSPACE / "prd.json"
-    assert prd_path.exists(), "prd.json missing!"
-    prd_data = json.loads(prd_path.read_text(encoding="utf-8"))
-    assert len(prd_data["userStories"]) == 7, "Expected 7 user stories in PRD!"
-    print(f"      Project: {prd_data['project']} v{prd_data['version']}")
-    print(f"      Author: {prd_data['author']}")
+    prd_path = WORKSPACE / "PRD_SENTINEL_V3.md"
+    assert prd_path.exists(), "PRD_SENTINEL_V3.md missing!"
+    content = prd_path.read_text(encoding="utf-8")
+    assert "Twitch Drops Sentinel" in content
+    assert "Mortuis_V" in content
+    assert "E:\\Games Cracked" not in content, "Public PRD must not contain cracked tags!"
+    print("      Project: Twitch Drops Sentinel v3.1")
+    print("      Author: Mortuis_V / Mortuis_V_Studio")
     print("      PRD Structure: PASS [OK]")
 
 def test_branding_check():

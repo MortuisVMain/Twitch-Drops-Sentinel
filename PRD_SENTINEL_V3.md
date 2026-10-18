@@ -16,7 +16,7 @@
 3. **Глубокую интеграцию с библиотекой ПК пользователя (138 игр найдено):**
    - 76 игр из Steam (`C:\Program Files (x86)\Steam`, `E:\SteamLibrary`).
    - 12 игр из `E:\Games` (включая *Hearthstone, StarCraft II, RDR2, AC Valhalla, Death Stranding*).
-   - 50 игр из `E:\Games Cracked` (включая *God of War Ragnarok, Horizon Forbidden West, Spider-Man 2, The Last of Us, Warhammer Mechanicus II, NFS Unbound*).
+   - 50 игр из Standalone / Пользовательских папок (включая *God of War Ragnarok, Horizon Forbidden West, Spider-Man 2, The Last of Us, Warhammer Mechanicus II, NFS Unbound*).
 4. **Умный аппаратный страж (Sentinel Hardware Guard):**
    - Автоматическая пауза при запуске любой из 138 установленных игр (пинг и видеокарта полностью свободны).
    - ЭКО-режим при отключении ноутбука от сети (контроль батареи).
@@ -37,7 +37,7 @@ Sentinel v3.0 оснащён автоматическим модулем `LocalG
 ```mermaid
 pie title Распределение игр на ПК пользователя (138 игр)
     "Steam Библиотека" : 76
-    "E:\Games Cracked" : 50
+    "Standalone / Пользовательские папки" : 50
     "E:\Games" : 12
 ```
 
@@ -113,7 +113,7 @@ flowchart LR
 | **US-001** | **Инициализация Scaffolding** | Развёртывание проекта React 19 + Tailwind v4 + Vite + C# .NET 10 WebView2 host в `Ideas/Twitch Drops Sentinel v3` | `npm run build` и `dotnet build` завершаются с кодом 0 |
 | **US-002** | **Apple Glass UI по образцу Luna** | Вёрстка Bento Grid, шапки Sentinel HUD, карточек дропсов, полки игр и витрины трофеев на Lucide Icons | 100% соответствие стилю Luna, плавные анимации, отсутствие багов верстки |
 | **US-003** | **Интеграция Ядра Smartbox & IPC** | Подключение бесстримового движка Twitch GQL/WebSocket через IPC bridge, чтение сессии из `cookies.jar` | Сессия подхватывается без ввода логина, отображается текущий прогресс дропсов |
-| **US-004** | **Модуль Сканирования 138 Игр** | Реализация парсера Steam (76 игр) + `E:\Games` (12) + `E:\Games Cracked` (50) + база 120 Twitch игр | Игры с ПК отображаются в UI с бейджем «💾 Установлено», работает поиск |
+| **US-004** | **Модуль Сканирования 138 Игр** | Реализация универсального сканера Steam + Epic + GOG + пользовательские директории + база 120 Twitch игр | Игры с ПК отображаются в UI с бейджем «💾 Установлено», работает поиск |
 | **US-005** | **Hardware Guard & Luna Auto-Sleep** | Фоновый поток `psutil` с мониторингом 138 exe-файлов и батареи + таймер автовыключения ПК при завершении | При запуске игры фарм встает на паузу, при закрытии продолжается; таймер выключения работает |
 | **US-006** | **Trophy Vault & WinRT Toasts** | Запись трофеев в `Trophies.md` / JSON, рендер галереи карточек, всплывающие уведомления Windows | Каждый полученный дроп отображается в витрине и даёт уведомление Windows |
 | **US-007** | **Сборка Standalone `TwitchDropsSentinel.exe`** | Компиляция в единый монолитный исполняемый файл с 3D-иконкой Cyber Shield и скрытием в трей | `TwitchDropsSentinel.exe` запускается в 1 клик, не открывает чёрных консолей, работает трей |

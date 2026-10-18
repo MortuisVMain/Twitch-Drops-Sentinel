@@ -298,6 +298,14 @@ class SentinelSupervisor:
             "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
             "games_to_pause": DEFAULT_GAMES_PROCESSES,
         }
+        if not CONFIG_FILE.exists():
+            default_template = PROJECT_DIR / "config.default.json"
+            if default_template.exists():
+                try:
+                    shutil.copy2(default_template, CONFIG_FILE)
+                except Exception:
+                    pass
+
         if CONFIG_FILE.exists():
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:

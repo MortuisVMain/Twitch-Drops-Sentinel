@@ -36,11 +36,12 @@ publish/
 backups/
 scratch/
 
-# 🔴 USER STATE & PERSONAL HISTORY
+# 🔴 USER STATE, LOCAL CONFIGS & PERSONAL HISTORY
+config.json
+core/settings.json
 Trophies.md
-data/window_state.json
-data/update_check_cache.json
-data/active_campaigns_cache.json
+data/*.json
+!data/.gitkeep
 
 # 🐍 PYTHON ARTIFACTS
 __pycache__/

@@ -1,0 +1,18 @@
+{
+  "auto_shutdown_on_complete": false,
+  "auto_shutdown_mode": "shutdown",
+  "pause_on_gaming": true,
+  "pause_on_battery": true,
+  "native_toasts": true,
+  "ui_sound_enabled": true,
+  "game_directories": [],
+  "priority_games": [
+    "Rust",
+    "The Witcher 3: Wild Hunt",
+    "Hunt: Showdown 1896",
+    "Path of Exile 2",
+    "Cyberpunk 2077"
+  ],
+  "excluded_games": [],
+  "priority_mode": 1
+}
