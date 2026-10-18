@@ -44,16 +44,17 @@ def test_artifacts():
     print("      Artifacts: ALL PASS [OK]")
 
 def test_installed_games_catalog():
-    print("[2/10] Testing 138 Installed Games Catalog...")
+    print("[2/22] Testing Clean Installed Games & Catalog Database...")
     catalog_path = WORKSPACE / "src" / "data" / "gamesCatalog.ts"
     assert catalog_path.exists(), "gamesCatalog.ts missing!"
     content = catalog_path.read_text(encoding="utf-8")
     assert "Path of Exile 2" in content
     assert "Hunt: Showdown 1896" in content
-    assert "God of War Ragnarok" in content
-    assert "Hearthstone" in content
+    assert "The Witcher 3: Wild Hunt" in content
+    assert "Cyberpunk 2077" in content
     assert "USER_INSTALLED_GAMES" in content
-    print("      138 Local Games + Twitch Drops Catalog: PASS [OK]")
+    assert "E:Cracked" not in content, "Clean public release must not contain cracked tags"
+    print("      Clean Installed Games & Catalog: PASS [OK]")
 
 def test_trophy_vault_journal():
     print("[3/10] Testing Trophy Vault Journal (Trophies.md)...")
@@ -506,6 +507,64 @@ def test_giveaways_hub_integration():
 
     print(f"      Giveaways Hub Integration ({len(state['inventory'])} items, scheduler={sched['state']}): ALL PASS [OK]")
 
+def test_universal_game_scanner():
+    print("[20/22] Testing Universal GameScanner (Steam, Epic, GOG, Custom folders)...")
+    import sys
+    core_dir = WORKSPACE / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from game_scanner import GameScanner
+
+    scanner = GameScanner()
+    steam_games = scanner.scan_steam()
+    epic_games = scanner.scan_epic()
+    gog_games = scanner.scan_gog()
+    total = scanner.scan_all_sync()
+    print(f"      Discovered: Steam={len(steam_games)} | Epic={len(epic_games)} | GOG={len(gog_games)} | Total={len(total)}")
+    assert len(total) > 0, "Scanner must discover installed games on this system!"
+    assert any(g.get("platform") == "steam" for g in total), "Expected at least one Steam game"
+    print("      Universal GameScanner: ALL PASS [OK]")
+
+def test_route_aliases_and_directory_management():
+    print("[21/22] Testing Route Aliases & Directory Management Endpoints...")
+    # Verify that sentinel_service.py has all requested route aliases
+    service_code = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "/api/scan-games" in service_code, "Route alias /api/scan-games must be registered"
+    assert "/api/open-trophies-file" in service_code, "Route alias /api/open-trophies-file must be registered"
+    assert "/api/sync" in service_code, "Route /api/sync must be registered"
+    assert "/api/game-directories" in service_code, "Route /api/game-directories must be registered"
+    assert "/api/game-directories/add" in service_code, "Route /api/game-directories/add must be registered"
+    assert "/api/game-directories/remove" in service_code, "Route /api/game-directories/remove must be registered"
+    assert "/api/browse-folder" in service_code, "Route /api/browse-folder must be registered"
+    print("      Route Aliases & Directory Endpoints: ALL PASS [OK]")
+
+def test_audio_mute_and_release_safety():
+    print("[22/22] Testing Audio Mute & Multi-User Release Safety...")
+    # 1. Verify useTactileAudio has mute toggle and persistence
+    audio_hook = (WORKSPACE / "src" / "hooks" / "useTactileAudio.ts").read_text(encoding="utf-8")
+    assert "toggleMute" in audio_hook, "toggleMute must exist in useTactileAudio"
+    assert "isMuted" in audio_hook, "isMuted must exist in useTactileAudio"
+    assert "sentinel_muted" in audio_hook, "sentinel_muted must be persisted in localStorage"
+
+    # 2. Verify Topbar has mute button
+    app_code = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "Volume2" in app_code and "VolumeX" in app_code, "App.tsx must include Volume icons"
+    assert "toggleMute" in app_code, "App.tsx must wire toggleMute"
+
+    # 3. Verify SettingsStudio has folder manager and mute switch
+    settings_code = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "handleBrowseAndAddFolder" in settings_code, "SettingsStudio must have handleBrowseAndAddFolder"
+    assert "handleRemoveFolder" in settings_code, "SettingsStudio must have handleRemoveFolder"
+    assert "Звуки интерфейса (Mute)" in settings_code, "SettingsStudio must have UI sound mute switch"
+
+    # 4. Verify C# MainForm.cs handles SELECT_FOLDER message
+    mainform_code = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "SELECT_FOLDER" in mainform_code, "MainForm.cs must handle SELECT_FOLDER"
+    assert "FolderBrowserDialog" in mainform_code, "MainForm.cs must instantiate FolderBrowserDialog"
+    assert "C:\\AI Local Projects\\Ideas\\Twitch Drops Sentinel v3\\dist" not in mainform_code, "Hardcoded author path must be eliminated"
+
+    print("      Audio Mute & Multi-User Release Safety: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.0 — VERIFICATION TEST SUITE")
@@ -530,6 +589,9 @@ if __name__ == "__main__":
     test_sequel_guard_and_no_false_box_art()
     test_audited_steam_app_ids_and_verified_sequels()
     test_giveaways_hub_integration()
+    test_universal_game_scanner()
+    test_route_aliases_and_directory_management()
+    test_audio_mute_and_release_safety()
     print("=" * 65)
-    print("  ALL 19 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 22 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)

@@ -267,8 +267,15 @@ export function useSentinelState(
   };
 
   // Claim Drop
-  const handleClaimNow = async (dropId: string) => {
-    if (!sentinelState.active_drop) return;
+  const handleClaimNow = async (dropId?: string) => {
+    if (!sentinelState.active_drop) {
+      showToast('В данный момент нет готовых к зачислению дропов. Sentinel автоматически заберет дроп при достижении 100%.');
+      return;
+    }
+
+    if (!sentinelState.active_drop.can_claim && !sentinelState.active_drop.is_claimed && sentinelState.active_drop.progress_percent < 100) {
+      showToast(`Дроп еще фармится (${sentinelState.active_drop.progress_percent}%). Он будет зачислен автоматически при завершении!`);
+    }
 
     const newTrophy: TrophyItem = {
       id: `tr-${Date.now()}`,
@@ -334,26 +341,20 @@ export function useSentinelState(
   const handleRescanGames = async () => {
     playClick();
     setIsScanning(true);
-    showToast('Глубокое сканирование Steam, Epic Games, GOG и Battle.net...');
+    showToast('Глубокое сканирование Steam, Epic Games, GOG и выбранных папок...');
     try {
       const res = await fetch('http://127.0.0.1:28492/api/scan-games', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        setSentinelState((prev) => ({
-          ...prev,
-          installed_games: data.installed_games || prev.installed_games,
-          all_catalog_games: data.all_catalog_games || prev.all_catalog_games,
-        }));
-        showToast(`✓ Найдено установленных игр: ${data.installed_games?.length || 0}`);
+        await handleManualRefresh();
+        showToast(`✓ Найдено установленных игр: ${data.installed_count ?? data.games?.length ?? 0}`);
       }
     } catch {
-      setTimeout(() => {
-        setIsScanning(false);
-        showToast('✓ Сканирование библиотек завершено');
-      }, 1500);
-      return;
+      await handleManualRefresh();
+      showToast('✓ Сканирование библиотек завершено');
+    } finally {
+      setIsScanning(false);
     }
-    setIsScanning(false);
   };
 
   // Toggle Daemon Farm Pause / Resume

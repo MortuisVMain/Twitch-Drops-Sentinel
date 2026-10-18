@@ -27,7 +27,9 @@ import {
   SlidersHorizontal, 
   X, 
   RotateCw,
-  Monitor
+  Monitor,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 interface TabErrorBoundaryProps {
@@ -92,7 +94,7 @@ export const App: React.FC = () => {
   const [isDarkTheme, setIsDarkTheme] = useState(true);
   const [isZenMode, setIsZenMode] = useState(false);
 
-  const { playClick, playRewardChime } = useTactileAudio();
+  const { playClick, playRewardChime, isMuted, toggleMute } = useTactileAudio();
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -116,6 +118,38 @@ export const App: React.FC = () => {
     handleReorderPriority,
   } = useSentinelState(showToast, playRewardChime, playClick);
 
+  // WebView2 Native Message Listener (Folder selection from native dialog)
+  useEffect(() => {
+    const handleWebMessage = async (event: any) => {
+      try {
+        const raw = event.data;
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (data && data.type === 'FOLDER_SELECTED' && data.path) {
+          showToast(`Добавление библиотеки: ${data.path}`);
+          const res = await fetch('http://127.0.0.1:28492/api/game-directories/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: data.path }),
+          });
+          if (res.ok) {
+            handleManualRefresh();
+            showToast(`Библиотека подключена: ${data.path}`);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to handle web message:', err);
+      }
+    };
+
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.addEventListener === 'function') {
+      wv.addEventListener('message', handleWebMessage);
+      return () => {
+        wv.removeEventListener('message', handleWebMessage);
+      };
+    }
+  }, [handleManualRefresh]);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -128,7 +162,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [handleManualRefresh]);
 
   const handleTabChange = (tab: NavTab) => {
     playClick();
@@ -246,6 +280,18 @@ export const App: React.FC = () => {
               onClick={handleManualRefresh}
             >
               <RotateCw size={17} />
+            </button>
+
+            <button
+              aria-label={isMuted ? "Включить звуки интерфейса" : "Отключить звуки интерфейса"}
+              title={isMuted ? "Включить звуки интерфейса (сейчас Muted)" : "Отключить звуки интерфейса (Mute)"}
+              className={`tactile-press ${isMuted ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30' : ''}`}
+              onClick={() => {
+                toggleMute();
+                showToast(isMuted ? "Звуки интерфейса включены" : "Звуки интерфейса отключены (Mute)");
+              }}
+            >
+              {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
             </button>
 
             <button
@@ -407,6 +453,8 @@ export const App: React.FC = () => {
                 <SettingsStudio
                   settings={sentinelState.settings}
                   stats={sentinelState.stats}
+                  username={sentinelState.username}
+                  installedCount={sentinelState.installed_games.length}
                   onUpdateSettings={handleUpdateSettings}
                   onRescanGames={handleRescanGames}
                   isScanning={isScanning}

@@ -49,6 +49,7 @@ from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode
 from utils import json_load, json_save
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
+from game_scanner import GameScanner
 
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
@@ -157,6 +158,7 @@ class SentinelSupervisor:
     def __init__(self):
         self.app = web.Application()
         self.twitch_client: Optional[Twitch] = None
+        self.scanner = GameScanner()
         self.settings: dict = self.load_settings()
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
@@ -182,6 +184,8 @@ class SentinelSupervisor:
             "pause_on_gaming": True,
             "pause_on_battery": True,
             "native_toasts": True,
+            "ui_sound_enabled": True,
+            "game_directories": [],
             "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
             "excluded_games": [],
             "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
@@ -299,7 +303,14 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/claim", self.handle_claim)
         self.app.router.add_post("/api/switch-streamer", self.handle_switch_streamer)
         self.app.router.add_post("/api/rescan", self.handle_rescan)
+        self.app.router.add_post("/api/scan-games", self.handle_scan_games)
         self.app.router.add_post("/api/open-vault", self.handle_open_vault)
+        self.app.router.add_post("/api/open-trophies-file", self.handle_open_vault)
+        self.app.router.add_post("/api/sync", self.handle_sync)
+        self.app.router.add_get("/api/game-directories", self.handle_get_game_directories)
+        self.app.router.add_post("/api/game-directories/add", self.handle_add_game_directory)
+        self.app.router.add_post("/api/game-directories/remove", self.handle_remove_game_directory)
+        self.app.router.add_post("/api/browse-folder", self.handle_browse_folder)
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
         self.app.router.add_post("/api/toggle-daemon", self.handle_toggle_daemon)
         self.app.router.add_get("/ws", self.handle_ws)
@@ -473,8 +484,11 @@ class SentinelSupervisor:
             logger.error("Error switching streamer: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
-    async def handle_rescan(self, request: web.Request) -> web.Response:
-        logger.info("Rescanning local game libraries and refreshing active drop campaigns...")
+    async def handle_scan_games(self, request: web.Request) -> web.Response:
+        logger.info("Rescanning local game libraries (Steam, Epic, GOG, Custom folders)...")
+        custom_dirs = self.settings.get("game_directories", [])
+        installed = await self.scanner.scan_all_async(custom_dirs)
+        CAMPAIGNS_FETCHER.refresh_installed_games()
         if self.twitch_client:
             if hasattr(self.twitch_client, "game_cooldowns"):
                 self.twitch_client.game_cooldowns.clear()
@@ -484,12 +498,99 @@ class SentinelSupervisor:
                 self.twitch_client.game_accumulated_stall.clear()
             if hasattr(self.twitch_client, "change_state"):
                 self.twitch_client.change_state(State.INVENTORY_FETCH)
-        return web.json_response({"status": "rescanned", "installed_count": 138})
+        STATE_BRIDGE.add_log("INFO", f"Библиотеки просканированы: найдено {len(installed)} установленных игр.")
+        return web.json_response({
+            "status": "rescanned",
+            "installed_count": len(installed),
+            "games": [g.name for g in installed]
+        })
+
+    async def handle_rescan(self, request: web.Request) -> web.Response:
+        return await self.handle_scan_games(request)
+
+    async def handle_sync(self, request: web.Request) -> web.Response:
+        logger.info("Syncing campaigns and game catalog...")
+        await asyncio.to_thread(CAMPAIGNS_FETCHER.fetch_active_campaigns_and_cache)
+        CAMPAIGNS_FETCHER.refresh_installed_games()
+        return web.json_response({"status": "ok", "synced": True})
+
+    async def handle_get_game_directories(self, request: web.Request) -> web.Response:
+        dirs = self.settings.get("game_directories", [])
+        return web.json_response({"status": "ok", "directories": dirs})
+
+    async def handle_add_game_directory(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            folder_path = str(data.get("path", "")).strip()
+            if not folder_path:
+                return web.json_response({"status": "error", "message": "Path is empty"}, status=400)
+            p = Path(folder_path)
+            if not p.exists() or not p.is_dir():
+                return web.json_response({"status": "error", "message": f"Directory not found: {folder_path}"}, status=400)
+            dirs = list(self.settings.get("game_directories", []))
+            norm_path = str(p.resolve())
+            if norm_path not in dirs:
+                dirs.append(norm_path)
+                self.settings["game_directories"] = dirs
+                self.save_settings()
+                logger.info(f"Added custom game directory: {norm_path}")
+            installed = await self.scanner.scan_all_async(dirs)
+            CAMPAIGNS_FETCHER.refresh_installed_games()
+            STATE_BRIDGE.add_log("INFO", f"Добавлена папка с играми: {norm_path} (всего игр: {len(installed)})")
+            return web.json_response({"status": "ok", "directories": dirs, "installed_count": len(installed)})
+        except Exception as e:
+            logger.error(f"Error adding game directory: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_remove_game_directory(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            folder_path = str(data.get("path", "")).strip()
+            dirs = list(self.settings.get("game_directories", []))
+            dirs = [d for d in dirs if d.lower() != folder_path.lower()]
+            self.settings["game_directories"] = dirs
+            self.save_settings()
+            logger.info(f"Removed custom game directory: {folder_path}")
+            installed = await self.scanner.scan_all_async(dirs)
+            CAMPAIGNS_FETCHER.refresh_installed_games()
+            STATE_BRIDGE.add_log("INFO", f"Удалена папка: {folder_path} (осталось игр: {len(installed)})")
+            return web.json_response({"status": "ok", "directories": dirs, "installed_count": len(installed)})
+        except Exception as e:
+            logger.error(f"Error removing game directory: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_browse_folder(self, request: web.Request) -> web.Response:
+        try:
+            def show_picker_sync():
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$f.Description = 'Выберите папку с играми для Sentinel'; "
+                    "$f.ShowNewFolderButton = $false; "
+                    "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"
+                )
+                res = subprocess.run(
+                    ["powershell", "-NoProfile", "-STA", "-Command", ps_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                return res.stdout.strip()
+
+            selected_path = await asyncio.to_thread(show_picker_sync)
+            if selected_path and Path(selected_path).is_dir():
+                return web.json_response({"status": "ok", "path": selected_path})
+            return web.json_response({"status": "cancelled", "path": ""})
+        except Exception as e:
+            logger.error(f"Error browsing folder: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_open_vault(self, request: web.Request) -> web.Response:
         try:
-            if TROPHIES_FILE.exists():
-                os.startfile(str(TROPHIES_FILE))
+            if not TROPHIES_FILE.exists():
+                with open(TROPHIES_FILE, "w", encoding="utf-8") as f:
+                    f.write("# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n")
+            os.startfile(str(TROPHIES_FILE))
             return web.json_response({"status": "opened"})
         except Exception as e:
             logger.error("Error opening trophies file: %s", e, exc_info=True)
@@ -638,31 +739,23 @@ class SentinelSupervisor:
             await asyncio.sleep(1)
 
     async def games_folder_rescan_loop(self):
-        """Silently scans E:\\Games and E:\\Games Cracked every 30 minutes for new installed games."""
-        logger.info("Games Folder Auto-Scanner initialized (checking E:\\Games and E:\\Games Cracked).")
-        await asyncio.sleep(3)
+        """Silently scans game libraries every 30 minutes for newly installed titles."""
+        logger.info("Games Folder Auto-Scanner initialized (monitoring Steam, Epic, GOG, and custom directories).")
+        await asyncio.sleep(5)
         while self.is_running:
             try:
-                def scan_sync():
-                    found_exes = []
-                    search_roots = [Path(r"E:\Games"), Path(r"E:\Games Cracked")]
-                    for root in search_roots:
-                        if root.exists():
-                            for exe_path in root.glob("*/*.exe"):
-                                exe_name = exe_path.name.lower()
-                                if "unins" not in exe_name and "setup" not in exe_name and "crash" not in exe_name:
-                                    found_exes.append(exe_path.name)
-                    return found_exes
-
-                found_exes = await asyncio.to_thread(scan_sync)
+                custom_dirs = self.settings.get("game_directories", [])
+                installed_games = await self.scanner.scan_all_async(custom_dirs)
+                CAMPAIGNS_FETCHER.refresh_installed_games()
                 current_list = set(g.lower() for g in self.settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES))
                 found_new = False
-                for exe_name in found_exes:
-                    if exe_name.lower() not in current_list:
-                        logger.info(f"Auto-Scanner: Discovered new game executable: {exe_name}")
-                        self.settings.setdefault("games_to_pause", []).append(exe_name)
-                        current_list.add(exe_name.lower())
-                        found_new = True
+                for g in installed_games:
+                    for exe in g.executable_names:
+                        if exe.lower() not in current_list:
+                            logger.info(f"Auto-Scanner: Discovered new game executable: {exe} ({g.name})")
+                            self.settings.setdefault("games_to_pause", []).append(exe)
+                            current_list.add(exe.lower())
+                            found_new = True
                 if found_new:
                     self.save_settings()
                     logger.info("Auto-Scanner: Updated games_to_pause with newly detected titles.")

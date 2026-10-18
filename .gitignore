@@ -31,6 +31,7 @@ TwitchDropsSentinel_v3.0_Friend_Edition.zip
 portable_runtime/
 dist_staging/
 dist_package/
+dist_release/
 publish/
 backups/
 scratch/

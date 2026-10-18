@@ -58,6 +58,8 @@ export interface SentinelSettings {
   pause_on_gaming: boolean;
   pause_on_battery: boolean;
   native_toasts: boolean;
+  ui_sound_enabled?: boolean;
+  game_directories?: string[];
   priority_games: string[];
   excluded_games: string[];
   priority_mode?: number; // 0 = PRIORITY_ONLY, 1 = ENDING_SOONEST, 2 = LOW_AVBL_FIRST

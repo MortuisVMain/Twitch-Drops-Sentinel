@@ -522,7 +522,7 @@ namespace TwitchDropsSentinel
                 }
                 if (!Directory.Exists(distFolder))
                 {
-                    distFolder = @"C:\AI Local Projects\Ideas\Twitch Drops Sentinel v3\dist";
+                    distFolder = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "dist"));
                 }
 
                 string indexPath = Path.Combine(distFolder, "index.html");
@@ -577,6 +577,24 @@ namespace TwitchDropsSentinel
                 else if (type == "CANCEL_POWER")
                 {
                     CancelPowerAction();
+                }
+                else if (type == "SELECT_FOLDER" || type == "BROWSE_FOLDER")
+                {
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        using var dlg = new FolderBrowserDialog
+                        {
+                            Description = "Выберите папку с установленными играми для Sentinel",
+                            UseDescriptionForTitle = true,
+                            ShowNewFolderButton = false
+                        };
+                        if (dlg.ShowDialog(this) == DialogResult.OK && Directory.Exists(dlg.SelectedPath))
+                        {
+                            string safePath = dlg.SelectedPath.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                            string responseJson = $"{{\"type\":\"FOLDER_SELECTED\",\"path\":\"{safePath}\"}}";
+                            _webView.CoreWebView2.PostWebMessageAsJson(responseJson);
+                        }
+                    }));
                 }
             }
             catch (Exception ex)

@@ -552,8 +552,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
   const handleClaim = () => {
     playRewardChime();
-    if (activeDrop && onClaimNow) {
-      onClaimNow(activeDrop.id);
+    if (onClaimNow) {
+      onClaimNow(activeDrop?.id || '');
     }
   };
 

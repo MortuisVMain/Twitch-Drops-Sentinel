@@ -7,11 +7,11 @@
     "exclude": {
         "__type": "set",
         "data": [
-            "RavenQuest",
-            "Out of the Park Baseball 27",
             "Ace Combat Zero: The Belkan War",
             "Airport Baggage Simulator",
-            "ACE COMBAT 8: WINGS OF THEVE"
+            "ACE COMBAT 8: WINGS OF THEVE",
+            "Out of the Park Baseball 27",
+            "RavenQuest"
         ]
     },
     "language": "English",

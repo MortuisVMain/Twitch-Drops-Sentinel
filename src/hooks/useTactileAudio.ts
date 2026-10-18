@@ -2,9 +2,22 @@
  * Procedural Web Audio Engine (ref2game Standard)
  * Zero external MP3 files, zero latency, 0 KB bundle bloat.
  * Generates tactile micro-interactions and modal chime alerts using native Web Audio API.
+ * Includes instant Mute control with localStorage persistence and reactive listeners.
  */
 
+import { useState, useEffect } from 'react';
+
 let sharedAudioCtx: AudioContext | null = null;
+let isAudioMuted: boolean = typeof window !== 'undefined' ? localStorage.getItem('sentinel_muted') === 'true' : false;
+const muteListeners = new Set<(muted: boolean) => void>();
+
+function setGlobalMute(val: boolean) {
+  isAudioMuted = val;
+  try {
+    localStorage.setItem('sentinel_muted', String(val));
+  } catch {}
+  muteListeners.forEach((fn) => fn(val));
+}
 
 function getAudioContext(): AudioContext {
   if (!sharedAudioCtx) {
@@ -18,11 +31,30 @@ function getAudioContext(): AudioContext {
 }
 
 export function useTactileAudio() {
+  const [muted, setMutedState] = useState<boolean>(isAudioMuted);
+
+  useEffect(() => {
+    const handler = (newMuted: boolean) => setMutedState(newMuted);
+    muteListeners.add(handler);
+    return () => {
+      muteListeners.delete(handler);
+    };
+  }, []);
+
+  const toggleMute = () => {
+    setGlobalMute(!isAudioMuted);
+  };
+
+  const setMuted = (val: boolean) => {
+    setGlobalMute(val);
+  };
+
   /**
    * Tactile micro-click for UI buttons, tabs, and switches
    * Exponential frequency sweep: 2450 Hz -> 1200 Hz over 15ms
    */
   const playClick = () => {
+    if (isAudioMuted) return;
     try {
       const ctx = getAudioContext();
       const now = ctx.currentTime;
@@ -51,6 +83,7 @@ export function useTactileAudio() {
    * 3-harmonic sine bells (1820 Hz, 3940 Hz, 6280 Hz) with exponential decay
    */
   const playRewardChime = () => {
+    if (isAudioMuted) return;
     try {
       const ctx = getAudioContext();
       const now = ctx.currentTime;
@@ -77,5 +110,5 @@ export function useTactileAudio() {
     }
   };
 
-  return { playClick, playRewardChime };
+  return { playClick, playRewardChime, isMuted: muted, toggleMute, setMuted };
 }

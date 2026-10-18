@@ -6,19 +6,27 @@ import {
   RefreshCw,
   Sliders,
   Volume2,
-  Gamepad2,
+  VolumeX,
   BatteryCharging,
   Coins,
   CheckCircle2,
   FolderSync,
   ArrowLeft,
   FileText,
+  FolderPlus,
+  Trash2,
+  Folder,
+  Disc,
+  Gamepad2,
 } from 'lucide-react';
 import { SentinelSettings, SentinelStats } from '../types';
+import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface SettingsStudioProps {
   settings: SentinelSettings;
   stats: SentinelStats;
+  username?: string;
+  installedCount?: number;
   onUpdateSettings: (newSettings: Partial<SentinelSettings>) => void;
   onRescanGames?: () => void;
   isScanning?: boolean;
@@ -29,6 +37,8 @@ interface SettingsStudioProps {
 export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   settings,
   stats,
+  username,
+  installedCount = 0,
   onUpdateSettings,
   onRescanGames,
   isScanning = false,
@@ -36,8 +46,11 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   onOpenVaultFile,
 }) => {
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
+  const [isBrowsingFolder, setIsBrowsingFolder] = useState<boolean>(false);
+  const { isMuted, toggleMute, playClick } = useTactileAudio();
 
   const startTestShutdown = () => {
+    playClick();
     setTestCountdown(5);
     const interval = setInterval(() => {
       setTestCountdown((prev) => {
@@ -49,6 +62,64 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       });
     }, 1000);
   };
+
+  const handleBrowseAndAddFolder = async () => {
+    playClick();
+    setIsBrowsingFolder(true);
+    try {
+      // 1. Try native WebView2 message bridge
+      const wv = (window as any).chrome?.webview;
+      if (wv && typeof wv.postMessage === 'function') {
+        wv.postMessage({ type: 'SELECT_FOLDER' });
+        setIsBrowsingFolder(false);
+        return;
+      }
+
+      // 2. Fallback to REST API dialog
+      const res = await fetch('http://127.0.0.1:28492/api/browse-folder', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'ok' && data.path) {
+          const addRes = await fetch('http://127.0.0.1:28492/api/game-directories/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: data.path }),
+          });
+          if (addRes.ok) {
+            const addData = await addRes.json();
+            onUpdateSettings({ game_directories: addData.directories });
+            if (onRescanGames) onRescanGames();
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error opening folder browser:', err);
+    } finally {
+      setIsBrowsingFolder(false);
+    }
+  };
+
+  const handleRemoveFolder = async (folderPath: string) => {
+    playClick();
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/game-directories/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folderPath }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onUpdateSettings({ game_directories: data.directories });
+        if (onRescanGames) onRescanGames();
+      }
+    } catch (err) {
+      console.error('Error removing directory:', err);
+    }
+  };
+
+  const gameDirectories = settings.game_directories || [];
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto select-none pb-12 animate-in fade-in duration-300">
@@ -72,7 +143,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div>
               <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[var(--foreground)]">Параметры & Архитектура</h2>
               <p className="text-xs text-[var(--muted)] mt-0.5">
-                Twitch Drops Sentinel v3.0 &bull; Mortuis_V_Studio
+                Twitch Drops Sentinel v3.0 &bull; Универсальный клиент
               </p>
             </div>
           </div>
@@ -90,7 +161,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             )}
             <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#368873]/15 border border-[#73bba5]/30 text-[var(--accent)] text-xs font-semibold">
               <CheckCircle2 className="w-4 h-4 text-[#73bba5]" />
-              <span>Twitch Session: Mortuis_V (Активна)</span>
+              <span>Twitch Session: {username || 'Активна'}</span>
             </div>
           </div>
         </div>
@@ -117,7 +188,6 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   <div className="text-xs font-semibold text-[var(--foreground)]">Выключать при завершении</div>
                   <div className="text-[11px] text-[var(--muted)]">После фарма всех выбранных игр</div>
                 </div>
-                {/* Tactile Apple Studio Switch */}
                 <button
                   type="button"
                   aria-label="Переключить автовыключение"
@@ -128,21 +198,20 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 </button>
               </div>
 
-              {/* Mode Selector */}
-              <div className="space-y-1.5">
-                <label className="text-xs text-[var(--muted)] font-semibold">Режим выключения</label>
+              <div className="p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] space-y-2">
+                <div className="text-xs font-semibold text-[var(--foreground)]">Режим питания</div>
                 <div className="grid grid-cols-3 gap-2">
                   {(['shutdown', 'sleep', 'lock'] as const).map((mode) => (
                     <button
                       key={mode}
                       onClick={() => onUpdateSettings({ auto_shutdown_mode: mode })}
-                      className={`py-2 px-3 rounded-xl text-xs font-semibold capitalize border transition-all cursor-pointer ${
+                      className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
                         settings.auto_shutdown_mode === mode
-                          ? 'bg-[#368873] border-[#73bba5] text-white shadow-sm'
-                          : 'bg-[var(--surface-elevated)] border-[var(--line)] text-[var(--muted)] hover:text-[var(--foreground)]'
+                          ? 'bg-[#368873]/20 border-[#73bba5] text-[var(--accent)] font-semibold'
+                          : 'bg-black/20 border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'
                       }`}
                     >
-                      {mode === 'shutdown' ? 'Power Off' : mode === 'sleep' ? 'Сон' : 'Блокировка'}
+                      {mode === 'shutdown' ? 'Выключение' : mode === 'sleep' ? 'Сон' : 'Блокировка'}
                     </button>
                   ))}
                 </div>
@@ -150,31 +219,18 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
           </div>
 
-          <div>
-            {testCountdown !== null ? (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-between">
-                <span className="text-xs text-rose-300 font-semibold tabular-nums">
-                  Тест Luna: таймер {testCountdown}с...
-                </span>
-                <button
-                  onClick={() => setTestCountdown(null)}
-                  className="px-3 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Отмена
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={startTestShutdown}
-                className="w-full py-2.5 px-4 rounded-xl bg-[var(--surface-elevated)] hover:bg-white/[0.06] border border-[var(--line)] text-[var(--foreground)] text-xs font-semibold transition-all cursor-pointer active:scale-95"
-              >
-                Протестировать таймер Luna (5с)
-              </button>
-            )}
+          <div className="pt-2">
+            <button
+              onClick={startTestShutdown}
+              disabled={testCountdown !== null}
+              className="w-full py-2.5 px-4 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-[var(--foreground)] border border-[var(--line)] transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+            >
+              {testCountdown !== null ? `Тест питания... (${testCountdown}s)` : 'Проверить таймер питания (5 сек)'}
+            </button>
           </div>
         </div>
 
-        {/* Hardware Guard & Gaming Detector */}
+        {/* Hardware Guard (Gaming Detection & Battery) */}
         <div className="card p-6 flex flex-col justify-between space-y-5">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
@@ -183,7 +239,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </div>
               <div>
                 <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Hardware Guard</h3>
-                <p className="text-xs text-[var(--muted)]">Защита пинга и производительности системы</p>
+                <p className="text-xs text-[var(--muted)]">Защита от просадок FPS и разрядки батареи</p>
               </div>
             </div>
 
@@ -192,8 +248,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 <div className="flex items-center gap-2.5">
                   <Gamepad2 className="w-4 h-4 text-[var(--accent)]" />
                   <div>
-                    <div className="text-xs font-semibold text-[var(--foreground)]">Автопауза в играх</div>
-                    <div className="text-[11px] text-[var(--muted)]">138 игр на ПК в базе мониторинга</div>
+                    <div className="text-xs font-semibold text-[var(--foreground)]">Автопауза при запуске игр</div>
+                    <div className="text-[11px] text-[var(--muted)]">Освобождает CPU и сеть во время гейминга</div>
                   </div>
                 </div>
                 <button
@@ -227,29 +283,95 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </div>
 
           <div className="p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-xs text-[var(--muted)] flex items-center justify-between font-mono">
-            <span className="tabular-nums">RTX 5070 Ti / 32 GB RAM</span>
+            <span>Процесс мониторинга: 0% CPU</span>
             <span className="font-semibold text-[var(--accent)]">Hardware Guard OK</span>
           </div>
         </div>
       </div>
 
-      {/* Library Rescan & Farming Strategy */}
+      {/* ==================== Universal Game Libraries & Custom Folders ==================== */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Local Games Library */}
+        {/* Local Libraries & Custom Folders */}
         <div className="card p-6 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-              <FolderSync className="w-5 h-5" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
+                <FolderSync className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Библиотеки и папки с играми</h3>
+                <p className="text-xs text-[var(--muted)]">Автоопределение Steam, Epic Games, GOG + свои папки</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Каталог игр ПК</h3>
-              <p className="text-xs text-[var(--muted)]">Steam, E:\Games, E:\Games Cracked</p>
+            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30 tabular-nums">
+              {installedCount} игр обнаружено
+            </span>
+          </div>
+
+          {/* Launcher Detection Badges */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)]">
+              <Disc className="w-3.5 h-3.5 text-[#73bba5]" />
+              <span className="font-medium text-[var(--foreground)]">Steam:</span>
+              <span>Все диски (libraryfolders.vdf)</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)]">
+              <Disc className="w-3.5 h-3.5 text-amber-400" />
+              <span className="font-medium text-[var(--foreground)]">Epic Games:</span>
+              <span>Манифесты</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)]">
+              <Disc className="w-3.5 h-3.5 text-purple-400" />
+              <span className="font-medium text-[var(--foreground)]">GOG Galaxy:</span>
+              <span>Реестр</span>
             </div>
           </div>
 
-          <p className="text-xs text-[var(--muted)] leading-relaxed">
-            В каталоге обнаружено 138 локальных игр. При выходе новых Twitch Drops для ваших установленных игр Sentinel автоматически поставит их в наивысший приоритет.
-          </p>
+          {/* Custom Folders Section */}
+          <div className="space-y-2 pt-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-[var(--foreground)]">
+              <span>Дополнительные папки с играми:</span>
+              <button
+                type="button"
+                onClick={handleBrowseAndAddFolder}
+                disabled={isBrowsingFolder}
+                className="flex items-center gap-1.5 text-[var(--accent)] hover:underline cursor-pointer text-xs font-semibold disabled:opacity-50"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>{isBrowsingFolder ? 'Выбор папки...' : '+ Выбрать папку на диске'}</span>
+              </button>
+            </div>
+
+            {gameDirectories.length === 0 ? (
+              <div className="p-3 rounded-xl bg-[var(--surface-elevated)] border border-dashed border-[var(--line)] text-[11px] text-[var(--muted)] text-center">
+                Пользовательские папки не добавлены. Игры из Steam, Epic Games и GOG определяются автоматически со всех подключенных дисков.
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {gameDirectories.map((dir) => (
+                  <div
+                    key={dir}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-xs font-mono"
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
+                      <Folder className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                      <span className="text-[var(--foreground)] truncate" title={dir}>
+                        {dir}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFolder(dir)}
+                      className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-400 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer shrink-0 ml-2"
+                      title="Удалить эту папку из списка сканирования"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <button
             onClick={onRescanGames}
@@ -257,7 +379,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
-            <span>{isScanning ? 'Сканирование дисков...' : 'Пересканировать установленные игры'}</span>
+            <span>{isScanning ? 'Сканирование библиотек...' : 'Пересканировать установленные игры'}</span>
           </button>
         </div>
 
@@ -307,19 +429,20 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </div>
         </div>
 
-        {/* Notifications & Points */}
+        {/* Notifications & Audio Control */}
         <div className="card p-6 space-y-4 md:col-span-2">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
               <Coins className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Баллы канала & Уведомления</h3>
-              <p className="text-xs text-[var(--muted)]">Автоматический сбор бонусов стримеров и звуковые оповещения</p>
+              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Звуки интерфейса & Баллы канала</h3>
+              <p className="text-xs text-[var(--muted)]">Управление тактильным звуком Web Audio и автоматический сбор бонусов</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Channel Points Stats */}
             <div className="p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Coins className="w-5 h-5 text-amber-400" />
@@ -333,19 +456,42 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </span>
             </div>
 
+            {/* Apple Chime on Trophy */}
             <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
               <div className="flex items-center gap-2.5">
-                <Volume2 className="w-4 h-4 text-[var(--muted)]" />
+                <Volume2 className="w-4 h-4 text-[var(--accent)]" />
                 <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Звуковой сигнал Apple Chime</div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Сигнал Apple Chime</div>
                   <div className="text-[11px] text-[var(--muted)]">При получении трофея</div>
                 </div>
               </div>
               <button
                 type="button"
-                aria-label="Переключить звуковой сигнал"
+                aria-label="Переключить звуковой сигнал получения трофея"
                 onClick={() => onUpdateSettings({ native_toasts: !settings.native_toasts })}
                 className={`studio-switch ${settings.native_toasts ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* UI Click Sound Mute Switch */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
+              <div className="flex items-center gap-2.5">
+                {isMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4 text-[var(--accent)]" />}
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Звуки интерфейса (Mute)</div>
+                  <div className="text-[11px] text-[var(--muted)]">{isMuted ? 'Звук отключен' : 'Клики и переключатели активны'}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить звуки интерфейса"
+                onClick={() => {
+                  toggleMute();
+                  onUpdateSettings({ ui_sound_enabled: isMuted });
+                }}
+                className={`studio-switch ${!isMuted ? 'checked' : ''}`}
               >
                 <span />
               </button>
