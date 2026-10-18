@@ -604,6 +604,17 @@ namespace TwitchDropsSentinel
                 {
                     CancelPowerAction();
                 }
+                else if (type == "COPY_TO_CLIPBOARD" && root.TryGetProperty("text", out var textProp))
+                {
+                    string textToCopy = textProp.GetString() ?? "";
+                    if (!string.IsNullOrEmpty(textToCopy))
+                    {
+                        this.BeginInvoke(new Action(() =>
+                        {
+                            try { Clipboard.SetText(textToCopy); } catch { }
+                        }));
+                    }
+                }
                 else if (type == "SELECT_FOLDER" || type == "BROWSE_FOLDER")
                 {
                     this.BeginInvoke(new Action(() =>

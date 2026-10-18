@@ -314,6 +314,10 @@ class SentinelSupervisor:
             "pause_on_battery": True,
             "native_toasts": True,
             "ui_sound_enabled": True,
+            "claim_channel_points": True,
+            "auto_claim_drops": True,
+            "giveaways_enabled": True,
+            "streamer_watchdog_enabled": True,
             "game_directories": [],
             "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
             "excluded_games": [],
@@ -426,6 +430,9 @@ class SentinelSupervisor:
                     self.twitch_client.settings.priority_mode = PriorityMode(priority_mode_val)
                 except Exception:
                     pass
+                self.twitch_client.claim_channel_points_enabled = bool(self.settings.get("claim_channel_points", True))
+                self.twitch_client.auto_claim_drops_enabled = bool(self.settings.get("auto_claim_drops", True))
+                self.twitch_client.streamer_watchdog_enabled = bool(self.settings.get("streamer_watchdog_enabled", True))
                 self.twitch_client.settings.save(force=True)
                 if hasattr(self.twitch_client, "change_state"):
                     self.twitch_client.change_state(State.INVENTORY_FETCH)
@@ -481,6 +488,7 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/autostart", self.handle_get_autostart)
         self.app.router.add_post("/api/autostart", self.handle_post_autostart)
         self.app.router.add_get("/api/diagnostic-report", self.handle_get_diagnostic_report)
+        self.app.router.add_post("/api/clipboard/copy", self.handle_clipboard_copy)
         self.app.router.add_get("/api/updates/check", self.handle_check_updates)
         self.app.router.add_post("/api/updates/apply", self.handle_apply_update)
         self.app.router.add_get("/ws", self.handle_ws)
@@ -656,6 +664,44 @@ class SentinelSupervisor:
     async def handle_get_diagnostic_report(self, request: web.Request) -> web.Response:
         report = generate_sanitized_diagnostic_report(self.settings, self.hardware_state)
         return web.Response(text=report, content_type="text/plain; charset=utf-8")
+
+    async def handle_clipboard_copy(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            text = str(data.get("text", ""))
+            if not text:
+                return web.json_response({"status": "error", "message": "Текст не передан"}, status=400)
+
+            def copy_to_windows_clipboard() -> bool:
+                # 1. Try native clip.exe (standard Windows utility)
+                try:
+                    p = subprocess.Popen(["clip.exe"], stdin=subprocess.PIPE, shell=True)
+                    p.communicate(input=text.encode("utf-16le"), timeout=3)
+                    if p.returncode == 0:
+                        return True
+                except Exception:
+                    pass
+                # 2. Try PowerShell Set-Clipboard
+                try:
+                    res = subprocess.run(
+                        ["powershell", "-NoProfile", "-STA", "-Command", "$input | Set-Clipboard"],
+                        input=text,
+                        text=True,
+                        timeout=5
+                    )
+                    if res.returncode == 0:
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            success = await asyncio.to_thread(copy_to_windows_clipboard)
+            if success:
+                return web.json_response({"status": "ok", "message": "Скопировано в буфер обмена Windows"})
+            return web.json_response({"status": "error", "message": "Не удалось записать в буфер обмена"}, status=500)
+        except Exception as e:
+            logger.error(f"Error copying to clipboard: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_check_updates(self, request: web.Request) -> web.Response:
         force = request.query.get("force", "0") in ("1", "true")

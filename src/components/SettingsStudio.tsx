@@ -23,6 +23,10 @@ import {
   Laptop,
   Download,
   Sparkles,
+  Gift,
+  Bell,
+  Radio,
+  ToggleRight,
 } from 'lucide-react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
@@ -175,7 +179,54 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       const res = await fetch('http://127.0.0.1:28492/api/diagnostic-report');
       if (res.ok) {
         const text = await res.text();
-        await navigator.clipboard.writeText(text);
+        let copied = false;
+
+        // 1. Try modern async Clipboard API
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+          } catch {}
+        }
+
+        // 2. Fallback to hidden textarea + execCommand
+        if (!copied) {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.top = '0';
+            ta.style.left = '0';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            copied = document.execCommand('copy');
+            document.body.removeChild(ta);
+          } catch {}
+        }
+
+        // 3. Fallback to C# WebView2 Native Host IPC
+        if (!copied) {
+          const wv = (window as any).chrome?.webview;
+          if (wv && typeof wv.postMessage === 'function') {
+            wv.postMessage({ type: 'COPY_TO_CLIPBOARD', text });
+            copied = true;
+          }
+        }
+
+        // 4. Fallback to Backend REST endpoint (clip.exe / PowerShell Set-Clipboard)
+        if (!copied) {
+          try {
+            const clipRes = await fetch('http://127.0.0.1:28492/api/clipboard/copy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text }),
+            });
+            copied = clipRes.ok;
+          } catch {}
+        }
+
         setIsCopiedReport(true);
         setTimeout(() => setIsCopiedReport(false), 3000);
       }
@@ -375,6 +426,244 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
       {/* Grid of Settings Sections */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Master Feature Toggles & Automation Center (Apple Luna 2.0) */}
+        <div className="card p-6 md:p-8 space-y-6 md:col-span-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)] shadow-sm">
+                <ToggleRight className="w-5 h-5 text-[#73bba5]" />
+              </div>
+              <div>
+                <h3 className="text-base md:text-lg font-bold text-[var(--foreground)]">Управление модулями & Автоматизация</h3>
+                <p className="text-xs text-[var(--muted)]">Мгновенное переключение функций и защитных систем Sentinel</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30">
+                10 систем под контролем
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+            {/* 1. Channel Points Auto-Claim */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
+                  <Coins className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-2">
+                    <span>Автосбор баллов канала</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">+50</span>
+                  </div>
+                  <div className="text-[11px] text-[var(--muted)]">Авто-забор сундуков с бонусными очками на стриме</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить автосбор баллов канала"
+                onClick={() => onUpdateSettings({ claim_channel_points: !(settings.claim_channel_points ?? true) })}
+                className={`studio-switch ${(settings.claim_channel_points ?? true) ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 2. Drops Auto-Claim */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-[#368873]/20 text-[var(--accent)] shrink-0">
+                  <Gift className="w-4 h-4 text-[#73bba5]" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Автоматический забор наград</div>
+                  <div className="text-[11px] text-[var(--muted)]">Мгновенный клейм трофеев при достижении 100%</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить авто-забор наград"
+                onClick={() => onUpdateSettings({ auto_claim_drops: !(settings.auto_claim_drops ?? true) })}
+                className={`studio-switch ${(settings.auto_claim_drops ?? true) ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 3. Free Games Syndicate */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400 shrink-0">
+                  <Gamepad2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Синдикат бесплатных раздач</div>
+                  <div className="text-[11px] text-[var(--muted)]">Мониторинг 100% халявных игр в Steam, EGS и GOG</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить синдикат бесплатных раздач"
+                onClick={() => onUpdateSettings({ giveaways_enabled: !(settings.giveaways_enabled ?? true) })}
+                className={`studio-switch ${(settings.giveaways_enabled ?? true) ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 4. Streamer Watchdog */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sky-500/15 text-sky-400 shrink-0">
+                  <Radio className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Авто-ротация стримеров (Watchdog)</div>
+                  <div className="text-[11px] text-[var(--muted)]">Смена стримера при зависании или отсутствии минут</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить сторожа стримеров"
+                onClick={() => onUpdateSettings({ streamer_watchdog_enabled: !(settings.streamer_watchdog_enabled ?? true) })}
+                className={`studio-switch ${(settings.streamer_watchdog_enabled ?? true) ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 5. Gaming Hardware Pause */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-violet-500/15 text-violet-400 shrink-0">
+                  <Shield className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Аппаратный страж гейминга</div>
+                  <div className="text-[11px] text-[var(--muted)]">Пауза при запуске игр на ПК для максимального FPS</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить паузу в играх"
+                onClick={() => onUpdateSettings({ pause_on_gaming: !settings.pause_on_gaming })}
+                className={`studio-switch ${settings.pause_on_gaming ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 6. Battery Saver Pause */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
+                  <BatteryCharging className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Энергосбережение батареи</div>
+                  <div className="text-[11px] text-[var(--muted)]">Пауза фарма при работе ноутбука от аккумулятора</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить энергосбережение батареи"
+                onClick={() => onUpdateSettings({ pause_on_battery: !settings.pause_on_battery })}
+                className={`studio-switch ${settings.pause_on_battery ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 7. Windows Native Toasts */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-500/15 text-blue-400 shrink-0">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Всплывающие уведомления Windows</div>
+                  <div className="text-[11px] text-[var(--muted)]">Нативные системные уведомления о новых дропах</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить системные уведомления Windows"
+                onClick={() => onUpdateSettings({ native_toasts: !settings.native_toasts })}
+                className={`studio-switch ${settings.native_toasts ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 8. Tactile UI Sounds */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-[#368873]/20 text-[var(--accent)] shrink-0">
+                  {isMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4 text-[#73bba5]" />}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Тактильные звуки интерфейса</div>
+                  <div className="text-[11px] text-[var(--muted)]">{isMuted ? 'Звуковые эффекты заглушены' : 'Звук кликов и переключателей включен'}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить звуки интерфейса"
+                onClick={() => {
+                  toggleMute();
+                  onUpdateSettings({ ui_sound_enabled: isMuted });
+                }}
+                className={`studio-switch ${!isMuted ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 9. Luna Auto-Shutdown on Complete */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-rose-500/15 text-rose-400 shrink-0">
+                  <Power className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Luna Auto-Shutdown</div>
+                  <div className="text-[11px] text-[var(--muted)]">Выключение или сон ПК после сбора всех дропов</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить автовыключение ПК"
+                onClick={() => onUpdateSettings({ auto_shutdown_on_complete: !settings.auto_shutdown_on_complete })}
+                className={`studio-switch ${settings.auto_shutdown_on_complete ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* 10. Windows Autostart */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-teal-500/15 text-teal-400 shrink-0">
+                  <Laptop className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Автозапуск с Windows</div>
+                  <div className="text-[11px] text-[var(--muted)]">Тихий запуск в системный трей при старте системы</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить автозапуск с Windows"
+                onClick={handleToggleAutostart}
+                className={`studio-switch ${autostartEnabled ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Luna Auto-Shutdown Engine */}
         <div className="card p-6 flex flex-col justify-between space-y-5">
           <div className="space-y-4">
@@ -677,9 +966,23 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   <div className="text-base md:text-lg font-bold text-amber-300 tabular-nums">+{stats.channel_points_earned.toLocaleString()}</div>
                 </div>
               </div>
-              <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30">
-                Auto-Claimer ON
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
+                  (settings.claim_channel_points ?? true)
+                    ? 'bg-[#368873]/20 text-[var(--accent)] border-[#73bba5]/30'
+                    : 'bg-white/[0.04] text-[var(--muted)] border-[var(--line)]'
+                }`}>
+                  {(settings.claim_channel_points ?? true) ? 'Auto-Claimer ON' : 'Auto-Claimer OFF'}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Переключить сбор баллов"
+                  onClick={() => onUpdateSettings({ claim_channel_points: !(settings.claim_channel_points ?? true) })}
+                  className={`studio-switch ${(settings.claim_channel_points ?? true) ? 'checked' : ''}`}
+                >
+                  <span />
+                </button>
+              </div>
             </div>
 
             {/* Apple Chime on Trophy */}

@@ -59,6 +59,10 @@ export interface SentinelSettings {
   pause_on_battery: boolean;
   native_toasts: boolean;
   ui_sound_enabled?: boolean;
+  claim_channel_points?: boolean;
+  auto_claim_drops?: boolean;
+  giveaways_enabled?: boolean;
+  streamer_watchdog_enabled?: boolean;
   game_directories?: string[];
   priority_games: string[];
   excluded_games: string[];

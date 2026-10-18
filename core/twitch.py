@@ -500,6 +500,9 @@ class Twitch:
         self.game_accumulated_stall: dict[str, float] = {}
         self.game_last_real_min: dict[str, int] = {}
         self._active_mining_drop: TimedDrop | None = None
+        self.claim_channel_points_enabled: bool = True
+        self.auto_claim_drops_enabled: bool = True
+        self.streamer_watchdog_enabled: bool = True
         self.gui = GUIManager(self)
         # Storing and watching channels
         self.channels: OrderedDict[int, Channel] = OrderedDict()
@@ -689,6 +692,9 @@ class Twitch:
             WebsocketTopic("User", "Drops", auth_state.user_id, self.process_drops),
             WebsocketTopic(
                 "User", "Notifications", auth_state.user_id, self.process_notifications
+            ),
+            WebsocketTopic(
+                "User", "CommunityPoints", auth_state.user_id, self.process_points
             ),
         ])
         full_cleanup: bool = False
@@ -1105,18 +1111,21 @@ class Twitch:
 
                 # Watchdog 2: Current streamer stalled (>15 min)
                 if streamer_elapsed >= 900.0:
-                    logger.warning(
-                        f"[WATCHDOG] Стример '{channel.name}' не дает прогресса {round(streamer_elapsed/60)} мин. "
-                        f"Кулдаун стримера 15 мин -> ротация стримера..."
-                    )
-                    self.streamer_cooldowns[channel.id] = now + 900.0
-                    streamer_watch_start = now
-                    self.game_accumulated_stall[game_name] = 0.0
-                    self.stop_watching()
-                    self.change_state(State.CHANNEL_SWITCH)
-                    await asyncio.sleep(2)
-                    last_loop_timestamp = time()
-                    continue
+                    if getattr(self, "streamer_watchdog_enabled", True):
+                        logger.warning(
+                            f"[WATCHDOG] Стример '{channel.name}' не дает прогресса {round(streamer_elapsed/60)} мин. "
+                            f"Кулдаун стримера 15 мин -> ротация стримера..."
+                        )
+                        self.streamer_cooldowns[channel.id] = now + 900.0
+                        streamer_watch_start = now
+                        self.game_accumulated_stall[game_name] = 0.0
+                        self.stop_watching()
+                        self.change_state(State.CHANNEL_SWITCH)
+                        await asyncio.sleep(2)
+                        last_loop_timestamp = time()
+                        continue
+                    else:
+                        logger.debug(f"[WATCHDOG] Стример '{channel.name}' {round(streamer_elapsed/60)} мин (ротация отключена).")
 
                 # logger.log(CALL, f"Sending watch payload to: {channel.name}")
                 succeeded: bool = await channel.send_watch()
@@ -1128,9 +1137,14 @@ class Twitch:
                     self._watch_tick_counter = 0
                 self._watch_tick_counter += 1
 
-                # Every 3 ticks (~60s), query GQL CurrentDrop to sync live minutes from Twitch
+                # Every 3 ticks (~60s), query GQL CurrentDrop and check Channel Points
                 if self._watch_tick_counter % 3 == 0:
                     handled: bool = False
+
+                    # 1. Check and claim channel points bonus (+50 points)
+                    if getattr(self, "claim_channel_points_enabled", True):
+                        with suppress(Exception):
+                            await self.claim_channel_points_if_available(channel)
 
                     # Solution 1: use GQL to query for the currently mined drop status every minute
                     try:
@@ -1161,21 +1175,24 @@ class Twitch:
                             logger.log(CALL, f"Drop progress from GQL: {drop_text}")
                             handled = True
                             if gql_drop.current_minutes >= gql_drop.required_minutes and not gql_drop.is_claimed:
-                                logger.info(f"Drop completed via GQL: {gql_drop.name}. Auto-claiming...")
-                                # Precondition drops must also be marked completed
-                                for pid in gql_drop.precondition_drops:
-                                    if pid in gql_drop.campaign.timed_drops:
-                                        p_drop = gql_drop.campaign.timed_drops[pid]
-                                        if not p_drop.is_claimed:
-                                            p_drop.is_claimed = True
-                                            p_drop.real_current_minutes = p_drop.required_minutes
-                                if gql_drop.claim_id is None:
-                                    with suppress(Exception):
-                                        await gql_drop.generate_claim()
-                                await gql_drop.claim()
-                                gql_drop.display()
-                                if not gql_drop.campaign.can_earn(channel):
-                                    self.change_state(State.GAMES_UPDATE)
+                                if getattr(self, "auto_claim_drops_enabled", True):
+                                    logger.info(f"Drop completed via GQL: {gql_drop.name}. Auto-claiming...")
+                                    # Precondition drops must also be marked completed
+                                    for pid in gql_drop.precondition_drops:
+                                        if pid in gql_drop.campaign.timed_drops:
+                                            p_drop = gql_drop.campaign.timed_drops[pid]
+                                            if not p_drop.is_claimed:
+                                                p_drop.is_claimed = True
+                                                p_drop.real_current_minutes = p_drop.required_minutes
+                                    if gql_drop.claim_id is None:
+                                        with suppress(Exception):
+                                            await gql_drop.generate_claim()
+                                    await gql_drop.claim()
+                                    gql_drop.display()
+                                    if not gql_drop.campaign.can_earn(channel):
+                                        self.change_state(State.GAMES_UPDATE)
+                                else:
+                                    logger.info(f"Drop completed: {gql_drop.name}. Auto-claim is turned off (ready for manual claim in UI).")
 
                     # Solution 2: If GQL fails, figure out which campaign we're most likely mining
                     # right now, and then bump up the minutes on it's drops
@@ -1472,17 +1489,23 @@ class Twitch:
             # the received payload is for the drop we expected
             drop.update_minutes(message["data"]["current_progress_min"])
             if drop.current_minutes >= drop.required_minutes and not drop.is_claimed:
-                logger.info(
-                    f"Drop reached 100% progress via websocket: {drop.name} "
-                    f"({drop.current_minutes}/{drop.required_minutes}). Auto-claiming..."
-                )
-                if drop.claim_id is None:
-                    with suppress(Exception):
-                        await drop.generate_claim()
-                await drop.claim()
-                drop.display()
-                if not drop.campaign.can_earn(watching):
-                    self.change_state(State.GAMES_UPDATE)
+                if getattr(self, "auto_claim_drops_enabled", True):
+                    logger.info(
+                        f"Drop reached 100% progress via websocket: {drop.name} "
+                        f"({drop.current_minutes}/{drop.required_minutes}). Auto-claiming..."
+                    )
+                    if drop.claim_id is None:
+                        with suppress(Exception):
+                            await drop.generate_claim()
+                    await drop.claim()
+                    drop.display()
+                    if not drop.campaign.can_earn(watching):
+                        self.change_state(State.GAMES_UPDATE)
+                else:
+                    logger.info(
+                        f"Drop '{drop.name}' reached 100% via websocket. "
+                        f"Auto-claim is disabled (ready for manual claim in UI)."
+                    )
 
     @task_wrapper
     async def process_notifications(self, user_id: int, message: JsonType):
@@ -1499,6 +1522,70 @@ class Twitch:
                         {"input": {"id": data["id"]}}
                     )
                 )
+
+    @task_wrapper
+    async def process_points(self, user_id: int, message: JsonType):
+        if not getattr(self, "claim_channel_points_enabled", True):
+            return
+        msg_type = message.get("type")
+        data = message.get("data", {}) if isinstance(message, dict) else {}
+        if msg_type == "claim-available":
+            claim_data = data.get("claim", {}) if isinstance(data, dict) else {}
+            claim_id = claim_data.get("id")
+            channel_id = claim_data.get("channel_id")
+            if claim_id and channel_id:
+                try:
+                    claim_query = GQL_QUERIES["ClaimCommunityPoints"].with_variables(
+                        {
+                            "input": {
+                                "claimID": str(claim_id),
+                                "channelID": str(channel_id),
+                            }
+                        }
+                    )
+                    await self.gql_request(claim_query)
+                    from gui_headless import STATE_BRIDGE
+                    STATE_BRIDGE.channel_points_earned += 50
+                    logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Успешно забран сундук через WebSocket! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
+                except Exception as e:
+                    logger.debug(f"Error claiming points via PubSub: {e}")
+
+    async def claim_channel_points_if_available(self, channel: Channel) -> int:
+        if not getattr(self, "claim_channel_points_enabled", True):
+            return 0
+        if not self.is_logged_in or not channel or not channel.id:
+            return 0
+        login = getattr(channel, "_login", None) or getattr(channel, "name", None)
+        if not login:
+            return 0
+
+        try:
+            query = GQL_QUERIES["ChannelPointsContext"].with_variables(
+                {"channelLogin": str(login)}
+            )
+            resp = await self.gql_request(query)
+            data = resp.get("data", {}) if isinstance(resp, dict) else {}
+            comm_points = data.get("communityPoints") or {}
+            available_claim = comm_points.get("availableClaim")
+            if available_claim and isinstance(available_claim, dict):
+                claim_id = available_claim.get("id")
+                if claim_id:
+                    claim_query = GQL_QUERIES["ClaimCommunityPoints"].with_variables(
+                        {
+                            "input": {
+                                "claimID": str(claim_id),
+                                "channelID": str(channel.id),
+                            }
+                        }
+                    )
+                    await self.gql_request(claim_query)
+                    from gui_headless import STATE_BRIDGE
+                    STATE_BRIDGE.channel_points_earned += 50
+                    logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
+                    return 50
+        except Exception as e:
+            logger.debug(f"Channel points check for {channel.name}: {e}")
+        return 0
 
     async def get_auth(self) -> _AuthState:
         await self._auth_state.validate()

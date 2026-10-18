@@ -31,6 +31,10 @@ const INITIAL_STATE: FullSentinelState = {
     pause_on_gaming: true,
     pause_on_battery: false,
     native_toasts: true,
+    claim_channel_points: true,
+    auto_claim_drops: true,
+    giveaways_enabled: true,
+    streamer_watchdog_enabled: true,
     priority_mode: 1,
     priority_games: [
       'Rust',

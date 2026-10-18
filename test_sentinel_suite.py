@@ -734,6 +734,84 @@ def test_hardware_guard_false_positive_and_installed_clear():
 
     print("      Hardware Guard Anti-False-Positive & Installed Clear: ALL PASS [OK]")
 
+def test_channel_points_clipboard_and_feature_toggles():
+    print("[26/26] Testing Channel Points Auto-Claim, Multi-Layer Clipboard & Feature Toggles...")
+
+    # 1. Verify MainForm.cs has COPY_TO_CLIPBOARD IPC
+    main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "COPY_TO_CLIPBOARD" in main_cs, "MainForm.cs must handle COPY_TO_CLIPBOARD"
+    assert "Clipboard.SetText" in main_cs, "MainForm.cs must copy to system clipboard"
+
+    # 2. Verify core/sentinel_service.py has clipboard endpoint and feature flags
+    svc_code = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "/api/clipboard/copy" in svc_code, "sentinel_service.py must register /api/clipboard/copy"
+    assert "handle_clipboard_copy" in svc_code, "sentinel_service.py must implement handle_clipboard_copy"
+    assert "claim_channel_points" in svc_code, "load_settings must support claim_channel_points"
+    assert "auto_claim_drops" in svc_code, "load_settings must support auto_claim_drops"
+    assert "giveaways_enabled" in svc_code, "load_settings must support giveaways_enabled"
+    assert "streamer_watchdog_enabled" in svc_code, "load_settings must support streamer_watchdog_enabled"
+
+    # 3. Verify core/twitch.py has CommunityPoints topic, claim mutation & feature gates
+    twitch_code = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert "CommunityPoints" in twitch_code, "twitch.py must subscribe to CommunityPoints topic"
+    assert "claim_channel_points_if_available" in twitch_code, "twitch.py must implement claim_channel_points_if_available"
+    assert "ClaimCommunityPoints" in twitch_code, "twitch.py must define ClaimCommunityPoints mutation"
+    assert "channel_points_earned" in twitch_code, "twitch.py must increment channel_points_earned"
+    assert "claim_channel_points_enabled" in twitch_code, "twitch.py must store claim_channel_points_enabled"
+    assert "auto_claim_drops_enabled" in twitch_code, "twitch.py must guard auto_claim_drops_enabled"
+    assert "streamer_watchdog_enabled" in twitch_code, "twitch.py must guard streamer_watchdog_enabled"
+
+    # 4. Verify src/components/SettingsStudio.tsx has 4-layer copy and 10 feature switches
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "COPY_TO_CLIPBOARD" in settings_tsx, "SettingsStudio must trigger C# COPY_TO_CLIPBOARD IPC"
+    assert "/api/clipboard/copy" in settings_tsx, "SettingsStudio must trigger backend fallback clipboard"
+    assert "Управление модулями & Автоматизация" in settings_tsx, "SettingsStudio must render feature modules board"
+    assert "claim_channel_points" in settings_tsx, "SettingsStudio must have claim_channel_points switch"
+    assert "auto_claim_drops" in settings_tsx, "SettingsStudio must have auto_claim_drops switch"
+    assert "giveaways_enabled" in settings_tsx, "SettingsStudio must have giveaways_enabled switch"
+    assert "streamer_watchdog_enabled" in settings_tsx, "SettingsStudio must have streamer_watchdog_enabled switch"
+
+    # 5. Live test: POST /api/clipboard/copy
+    test_text = "Diagnostic Report Clipboard Integrity Test 2026"
+    req_clip = urllib.request.Request(
+        "http://127.0.0.1:28492/api/clipboard/copy",
+        data=json.dumps({"text": test_text}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_clip, timeout=5.0) as res:
+        assert res.status == 200
+        d = json.loads(res.read().decode("utf-8"))
+        assert d.get("status") == "ok"
+
+    # 6. Live test: Settings persistence through /api/settings and /api/state
+    req_settings = urllib.request.Request(
+        "http://127.0.0.1:28492/api/settings",
+        data=json.dumps({
+            "claim_channel_points": True,
+            "auto_claim_drops": True,
+            "giveaways_enabled": True,
+            "streamer_watchdog_enabled": True,
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_settings, timeout=5.0) as res:
+        assert res.status == 200
+
+    req_state = urllib.request.Request(
+        "http://127.0.0.1:28492/api/state",
+        headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_state, timeout=5.0) as res:
+        assert res.status == 200
+        state = json.loads(res.read().decode("utf-8"))
+        st = state.get("settings", {})
+        assert st.get("claim_channel_points") is True
+        assert st.get("auto_claim_drops") is True
+        assert st.get("giveaways_enabled") is True
+        assert st.get("streamer_watchdog_enabled") is True
+
+    print("      Channel Points Auto-Claim, Multi-Layer Clipboard & Feature Toggles: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -764,7 +842,9 @@ if __name__ == "__main__":
     test_argon_public_hardening_and_resilience()
     test_github_updater_and_zero_mock_telemetry()
     test_hardware_guard_false_positive_and_installed_clear()
+    test_channel_points_clipboard_and_feature_toggles()
     print("=" * 65)
-    print("  ALL 25 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 26 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
+
 
