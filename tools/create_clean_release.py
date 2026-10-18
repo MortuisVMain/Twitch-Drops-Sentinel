@@ -18,15 +18,18 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+from version import __version__
+
 WORKSPACE = Path(__file__).resolve().parent.parent
 DIST_STAGING = WORKSPACE / "dist_release"
-RELEASE_DIR = DIST_STAGING / "Twitch Drops Sentinel v3.1.1"
-ZIP_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_v3.1.1_Public_Release.zip"
-PATCH_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_Patch_v3.1.1.zip"
+RELEASE_DIR = DIST_STAGING / f"Twitch Drops Sentinel v{__version__}"
+ZIP_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"
+PATCH_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
 
 def create_release():
     print("=" * 65)
-    print("  BUILDING TWITCH DROPS SENTINEL v3.1.1 CLEAN PUBLIC RELEASE")
+    print(f"  BUILDING TWITCH DROPS SENTINEL v{__version__} CLEAN PUBLIC RELEASE")
     print("=" * 65)
 
     if DIST_STAGING.exists():

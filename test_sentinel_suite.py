@@ -143,13 +143,13 @@ def test_core_service_api():
             print("      POST /api/settings: PASS [OK]")
 
         # Test GET /api/verify-game
-        v_req = urllib.request.Request("http://127.0.0.1:28492/api/verify-game?query=Witcher")
+        v_req = urllib.request.Request("http://127.0.0.1:28492/api/verify-game?query=Desert")
         with safe_urlopen(v_req, timeout=10.0) as res:
             assert res.status == 200
             v_res = json.loads(res.read().decode("utf-8"))
             assert v_res.get("verified") is True
-            assert "Witcher" in v_res.get("canonical_name", "")
-            print(f"      GET /api/verify-game (Witcher -> {v_res['canonical_name']}, drops={v_res.get('has_active_drops')}): PASS [OK]")
+            assert "Desert" in v_res.get("canonical_name", "")
+            print(f"      GET /api/verify-game (Desert -> {v_res['canonical_name']}, drops={v_res.get('has_active_drops')}): PASS [OK]")
 
         # Test GET /api/catalog
         c_req = urllib.request.Request("http://127.0.0.1:28492/api/catalog")
@@ -640,10 +640,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.0", f"Version mismatch: {__version__}"
-    assert parse_version("3.1.0") == (3, 1, 0)
+    assert __version__ == "3.1.2", f"Version mismatch: {__version__}"
+    assert parse_version("3.1.2") == (3, 1, 2)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
-    assert parse_version("v3.2.0") > parse_version("3.1.0")
+    assert parse_version("v3.2.0") > parse_version("3.1.2")
 
     # 2. Verify protected blacklist in updater
     assert "cookies.jar" in PROTECTED_PATHS
@@ -677,6 +677,63 @@ def test_github_updater_and_zero_mock_telemetry():
 
     print("      GitHub Auto-Updater & Zero-Mock Telemetry: ALL PASS [OK]")
 
+def test_hardware_guard_false_positive_and_installed_clear():
+    print("[25/25] Testing Hardware Guard Anti-False-Positive & Installed Clear...")
+    
+    # 1. Verify sentinel_service.py contains SYSTEM_NON_GAME_EXES and no blind auto-injection
+    svc_code = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "SYSTEM_NON_GAME_EXES" in svc_code
+    assert "happ.exe" in svc_code
+    assert "mscopilot.exe" in svc_code
+    assert "spotify.exe" in svc_code
+    assert "handle_ignore_process" in svc_code
+    assert "handle_clear_installed_games" in svc_code
+    # Ensure old bug is not present in games_folder_rescan_loop
+    assert "games_to_pause" not in svc_code.split("def games_folder_rescan_loop")[1].split("def ")[0]
+
+    # 2. Verify App.tsx has no duplicate top alert banner
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "Hardware Guard: Обнаружена игра" not in app_tsx, "App.tsx must not contain duplicate gaming alert banner"
+
+    # 3. Verify LiveDashboard.tsx has 1-click ignore button
+    live_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "handleIgnoreDetectedProcess" in live_tsx, "LiveDashboard must contain handleIgnoreDetectedProcess"
+    assert "Это не игра (Игнорировать)" in live_tsx, "LiveDashboard must contain ignore button text"
+
+    # 4. Verify SettingsStudio.tsx has clear installed games button
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "handleClearInstalledGames" in settings_tsx, "SettingsStudio must contain handleClearInstalledGames"
+    assert "Очистить список" in settings_tsx, "SettingsStudio must contain clear list button"
+
+    # 5. Verify GameShelf.tsx has installed games management
+    shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "handleClearInstalled" in shelf_tsx, "GameShelf must contain handleClearInstalled"
+
+    # 6. Verify REST API endpoints respond cleanly
+    req_ignore = urllib.request.Request(
+        "http://127.0.0.1:28492/api/hardware/ignore-process",
+        data=json.dumps({"process": "Happ.exe"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_ignore, timeout=5.0) as res:
+        assert res.status == 200
+        d = json.loads(res.read().decode("utf-8"))
+        assert d.get("status") == "ok"
+        assert d.get("ignored") == "Happ.exe"
+
+    req_clear = urllib.request.Request(
+        "http://127.0.0.1:28492/api/installed-games/clear",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_clear, timeout=5.0) as res:
+        assert res.status == 200
+        d = json.loads(res.read().decode("utf-8"))
+        assert d.get("status") == "ok"
+        assert d.get("cleared") is True
+
+    print("      Hardware Guard Anti-False-Positive & Installed Clear: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -706,7 +763,8 @@ if __name__ == "__main__":
     test_audio_mute_and_release_safety()
     test_argon_public_hardening_and_resilience()
     test_github_updater_and_zero_mock_telemetry()
+    test_hardware_guard_false_positive_and_installed_clear()
     print("=" * 65)
-    print("  ALL 24 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 25 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
 

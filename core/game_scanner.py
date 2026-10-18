@@ -747,6 +747,15 @@ class GameScanner:
             finally:
                 self._is_scanning = False
 
+    def clear_cache(self) -> None:
+        """Clears the persisted installed games cache atomically."""
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            self.cache_file.write_text("[]", encoding="utf-8")
+            logger.info("Installed games cache successfully cleared.")
+        except Exception as e:
+            logger.error(f"Error clearing installed games cache: {e}", exc_info=True)
+
     def load_cached_games(self) -> list[InstalledGame]:
         if self.cache_file.exists():
             try:

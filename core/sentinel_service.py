@@ -207,6 +207,28 @@ DEFAULT_GAMES_PROCESSES = [
     "deathstranding.exe", "dredge.exe", "mechanicus2.exe", "nfsunbound.exe"
 ]
 
+SYSTEM_NON_GAME_EXES = {
+    "happ.exe", "spotify.exe", "telegram.exe", "firefox.exe", "chrome.exe",
+    "opera.exe", "msedge.exe", "brave.exe", "discord.exe", "utorrent.exe",
+    "torrent.exe", "qbittorrent.exe", "winscp.exe", "hwinfo64.exe", "hwinfo32.exe",
+    "gpu-z.exe", "cpu-z.exe", "update.exe", "updater.exe", "launcher.exe",
+    "ollama.exe", "ffmpeg.exe", "regorganizer.exe", "systeminformer.exe",
+    "jetbrains_client64.exe", "vcpkg.exe", "qtwebengineprocess.exe",
+    "samsungmagician.exe", "purevpn.exe", "mpc-hc64.exe", "mpc-be64.exe",
+    "vlc.exe", "explorer.exe", "taskmgr.exe", "cmd.exe", "powershell.exe",
+    "conhost.exe", "ctfmon.exe", "searchhost.exe", "startmenuexperiencehost.exe",
+    "textinputhost.exe", "shellexperiencehost.exe", "applicationframehost.exe",
+    "runtimebroker.exe", "smartscreen.exe", "securityhealthservice.exe",
+    "onedrive.exe", "googledrivesync.exe", "dropbox.exe", "notion.exe",
+    "slack.exe", "zoom.exe", "teams.exe", "obs64.exe", "obs.exe",
+    "everything.exe", "sharex.exe", "lightshot.exe", "powertoys.exe",
+    "mscopilot.exe", "copilot.exe", "cortana.exe", "widgetservice.exe",
+    "widgets.exe", "photoshop.exe", "finereader.exe", "aimp.exe", "anvir.exe",
+    "blender.exe", "c4dpy.exe", "cheatengine-x86_64.exe", "unrealeditor.exe",
+    "antigravity ide.exe", "deepseek harness.exe", "gemini.exe", "dsx.exe",
+    "asus_framework.exe", "game cheats manager.exe", "game save manager.exe",
+}
+
 SLUG_TO_GAME_NAME = {
     "poe2": "Path of Exile 2",
     "poe": "Path of Exile",
@@ -297,6 +319,7 @@ class SentinelSupervisor:
             "excluded_games": [],
             "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
             "games_to_pause": DEFAULT_GAMES_PROCESSES,
+            "ignored_processes": [],
         }
         if not CONFIG_FILE.exists():
             default_template = PROJECT_DIR / "config.default.json"
@@ -313,6 +336,21 @@ class SentinelSupervisor:
                     default_settings.update(data)
             except Exception as e:
                 logger.warning(f"Could not load config.json: {e}")
+
+        # Sanitize games_to_pause: remove any non-game system utilities or ignored processes
+        raw_pause_games = default_settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES)
+        ignored = set(p.lower() for p in default_settings.get("ignored_processes", []))
+        if len(raw_pause_games) > 60:
+            logger.info("Auto-pruning legacy bloated games_to_pause list to curated AAA defaults.")
+            raw_pause_games = DEFAULT_GAMES_PROCESSES
+        cleaned_pause_games = [
+            g for g in raw_pause_games
+            if g and g.lower() not in SYSTEM_NON_GAME_EXES and g.lower() not in ignored
+        ]
+        if not cleaned_pause_games:
+            cleaned_pause_games = [g for g in DEFAULT_GAMES_PROCESSES if g.lower() not in ignored]
+        default_settings["games_to_pause"] = cleaned_pause_games
+        default_settings.setdefault("ignored_processes", [])
 
         # Normalize priority_games from config.json
         if "priority_games" in default_settings:
@@ -346,6 +384,14 @@ class SentinelSupervisor:
 
         exclude_list = [normalize_game_name(g) for g in self.settings.get("excluded_games", [])]
         self.settings["excluded_games"] = exclude_list
+
+        # Sanitize games_to_pause
+        raw_pause_games = self.settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES)
+        ignored = set(p.lower() for p in self.settings.get("ignored_processes", []))
+        self.settings["games_to_pause"] = [
+            g for g in raw_pause_games
+            if g and g.lower() not in SYSTEM_NON_GAME_EXES and g.lower() not in ignored
+        ]
 
         priority_mode_val = int(self.settings.get("priority_mode", 0))
 
@@ -419,6 +465,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/switch-streamer", self.handle_switch_streamer)
         self.app.router.add_post("/api/rescan", self.handle_rescan)
         self.app.router.add_post("/api/scan-games", self.handle_scan_games)
+        self.app.router.add_post("/api/hardware/ignore-process", self.handle_ignore_process)
+        self.app.router.add_post("/api/installed-games/clear", self.handle_clear_installed_games)
         self.app.router.add_post("/api/open-vault", self.handle_open_vault)
         self.app.router.add_post("/api/open-trophies-file", self.handle_open_vault)
         self.app.router.add_post("/api/sync", self.handle_sync)
@@ -676,6 +724,61 @@ class SentinelSupervisor:
     async def handle_rescan(self, request: web.Request) -> web.Response:
         return await self.handle_scan_games(request)
 
+    async def handle_ignore_process(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            proc = str(data.get("process", "")).strip()
+            if not proc:
+                return web.json_response({"status": "error", "message": "Process name is required"}, status=400)
+            
+            proc_lower = proc.lower()
+            # 1. Remove from games_to_pause
+            cur_games = self.settings.get("games_to_pause", [])
+            self.settings["games_to_pause"] = [g for g in cur_games if g.lower() != proc_lower]
+            
+            # 2. Add to ignored_processes
+            ignored = self.settings.setdefault("ignored_processes", [])
+            if proc_lower not in [p.lower() for p in ignored]:
+                ignored.append(proc)
+            
+            # 3. Save settings
+            self.save_settings()
+            
+            # 4. Clear detected game state immediately if it was this process
+            if str(self.hardware_state.get("detected_game") or "").lower() == proc_lower:
+                self.hardware_state["detected_game"] = None
+                self.hardware_state["is_gaming"] = False
+                on_battery = self.hardware_state.get("on_battery", False)
+                self.hardware_state["is_paused"] = self.force_paused or (on_battery and self.settings.get("pause_on_battery", True))
+                if self.twitch_client and not self.hardware_state["is_paused"]:
+                    self.twitch_client.sentinel_paused = False
+                    logger.info(f"Hardware Guard: Process '{proc}' ignored by user. Resumed farming.")
+            
+            # 5. Broadcast updated state
+            await self.broadcast_ws()
+            STATE_BRIDGE.add_log("INFO", f"Процесс {proc} добавлен в список исключений Hardware Guard.")
+            return web.json_response({"status": "ok", "ignored": proc, "games_to_pause": self.settings["games_to_pause"]})
+        except Exception as e:
+            logger.error(f"Error ignoring process: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_clear_installed_games(self, request: web.Request) -> web.Response:
+        try:
+            if hasattr(self.scanner, "clear_cache"):
+                self.scanner.clear_cache()
+            else:
+                cache_file = PROJECT_DIR / "data" / "installed_games.json"
+                if cache_file.exists():
+                    cache_file.write_text("[]", encoding="utf-8")
+            
+            CAMPAIGNS_FETCHER.refresh_installed_games()
+            STATE_BRIDGE.add_log("INFO", "Список установленных игр очищен.")
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "cleared": True, "installed_count": 0})
+        except Exception as e:
+            logger.error(f"Error clearing installed games: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
     async def handle_sync(self, request: web.Request) -> web.Response:
         logger.info("Syncing campaigns and game catalog...")
         await asyncio.to_thread(CAMPAIGNS_FETCHER.fetch_active_campaigns_and_cache)
@@ -843,8 +946,14 @@ class SentinelSupervisor:
 
                 running_procs, on_battery, cpu_pct = await asyncio.to_thread(check_hardware_sync)
                 detected_game = None
+                ignored = set(p.lower() for p in self.settings.get("ignored_processes", []))
                 for game_exe in self.settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES):
-                    if game_exe.lower() in running_procs:
+                    if not game_exe:
+                        continue
+                    exe_lower = game_exe.lower()
+                    if exe_lower in ignored or exe_lower in SYSTEM_NON_GAME_EXES:
+                        continue
+                    if exe_lower in running_procs:
                         detected_game = game_exe
                         break
 
@@ -932,20 +1041,7 @@ class SentinelSupervisor:
                 custom_dirs = self.settings.get("game_directories", [])
                 installed_games = await self.scanner.scan_all_async(custom_dirs)
                 CAMPAIGNS_FETCHER.refresh_installed_games()
-                current_list = set(g.lower() for g in self.settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES))
-                found_new = False
-                for g in installed_games:
-                    exes = g.executable_names if hasattr(g, "executable_names") else ([g.get("executable")] if isinstance(g, dict) and g.get("executable") else [])
-                    g_name = g.get("name", "") if isinstance(g, dict) else getattr(g, "name", "")
-                    for exe in exes:
-                        if exe and exe.lower() not in current_list:
-                            logger.info(f"Auto-Scanner: Discovered new game executable: {exe} ({g_name})")
-                            self.settings.setdefault("games_to_pause", []).append(exe)
-                            current_list.add(exe.lower())
-                            found_new = True
-                if found_new:
-                    self.save_settings()
-                    logger.info("Auto-Scanner: Updated games_to_pause with newly detected titles.")
+                logger.info(f"Auto-Scanner: Game libraries refreshed ({len(installed_games)} installed titles).")
             except Exception as e:
                 logger.error(f"Games folder rescan error: {e}")
             await asyncio.sleep(1800)

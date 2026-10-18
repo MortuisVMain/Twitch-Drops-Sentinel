@@ -301,7 +301,30 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
   const [isRotatingStreamer, setIsRotatingStreamer] = useState(false);
+  const [isIgnoringProcess, setIsIgnoringProcess] = useState(false);
   const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  const handleIgnoreDetectedProcess = async () => {
+    const proc = hardware?.detected_game;
+    if (!proc) return;
+    setIsIgnoringProcess(true);
+    playClick();
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/hardware/ignore-process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ process: proc }),
+      });
+      if (res.ok) {
+        playRewardChime();
+        if (onManualRefresh) onManualRefresh();
+      }
+    } catch (err) {
+      console.error('Failed to ignore process:', err);
+    } finally {
+      setIsIgnoringProcess(false);
+    }
+  };
 
   // Close search popover on outside click
   useEffect(() => {
@@ -654,27 +677,52 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
       )}
       {/* Gaming Auto-Pause Alert if detected */}
       {hardware.is_paused && (
-        <div className="liquid-glass-elevated rounded-2xl p-4.5 border-amber-500/40 text-amber-200 shadow-[0_0_35px_rgba(245,158,11,0.2)] flex items-center justify-between gap-4">
+        <div className="rounded-2xl p-4.5 bg-[var(--surface-elevated)] border border-amber-500/30 text-[var(--foreground)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm backdrop-blur-xl animate-in fade-in duration-200">
           <div className="flex items-center gap-3.5">
-            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-              <ShieldAlert className="w-6 h-6 animate-pulse" />
+            <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0">
+              <ShieldAlert className="w-5 h-5 text-amber-400" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                Hardware Guard: Фарм временно на паузе
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 font-bold">
-                  0% НАГРУЗКИ
+              <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                Hardware Guard: Автопауза фарма
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 font-mono font-bold">
+                  {hardware.detected_game ? '0% НАГРУЗКИ' : 'АККУМУЛЯТОР'}
                 </span>
               </h4>
-              <p className="text-xs text-amber-200/80 mt-0.5 leading-relaxed">
-                Обнаружен игровой процесс: <strong className="text-white underline">{hardware.detected_game || 'Активная игра'}</strong>. 
-                Видеокарта и сетевой канал полностью освобождены для идеального FPS и нулевого пинга.
+              <p className="text-[11px] text-[var(--muted)] mt-1 leading-relaxed">
+                {hardware.detected_game ? (
+                  <>
+                    Обнаружен процесс: <strong className="text-white font-mono bg-white/10 px-1.5 py-0.5 rounded border border-white/10">{hardware.detected_game}</strong>. 
+                    Если это системная утилита или фоновый софт, а не игра — снимите паузу в 1 клик:
+                  </>
+                ) : (
+                  <>Устройство работает от аккумулятора. Фоновый сбор приостановлен для экономии заряда.</>
+                )}
               </p>
             </div>
           </div>
-          <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 shrink-0">
-            АВТОПАУЗА
-          </span>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            {hardware.detected_game && (
+              <button
+                type="button"
+                onClick={handleIgnoreDetectedProcess}
+                disabled={isIgnoringProcess}
+                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold border border-amber-500/40 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-50"
+                title="Исключить этот процесс из списка паузы навсегда"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>{isIgnoringProcess ? 'Исключение...' : 'Это не игра (Игнорировать)'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onToggleDaemon}
+              className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-[var(--line)] transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <Play className="w-3.5 h-3.5 text-[var(--accent)]" />
+              <span>Продолжить сбор</span>
+            </button>
+          </div>
         </div>
       )}
 

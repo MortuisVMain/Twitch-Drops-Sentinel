@@ -391,28 +391,6 @@ export const App: React.FC = () => {
 
         {/* Main Content Area */}
         <main>
-          {/* Gaming Pause HUD Notification */}
-          {sentinelState.hardware.is_gaming && (
-            <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
-                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-amber-400" />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-white">
-                    Hardware Guard: Обнаружена игра ({sentinelState.hardware.detected_game || 'Активный гейминг'})
-                  </span>
-                  <p className="text-[11px] text-amber-200/80 mt-0.5">
-                    Sentinel временно приостановил фоновый опрос для 100% плавности и нулевого пинга
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs px-3 py-1.5 rounded-xl bg-amber-400/20 text-amber-300 font-bold border border-amber-400/30 shrink-0">
-                Автопауза активна
-              </span>
-            </div>
-          )}
-
           {/* 1:1 Apple Luna 2.0 Page Heading */}
           <div className="page-heading">
             <div>
@@ -491,6 +469,7 @@ export const App: React.FC = () => {
                   onAddToExcluded={(name) => handleToggleExclude(name)}
                   onRemoveFromExcluded={(name) => handleToggleExclude(name)}
                   onReorderPriority={handleReorderPriority}
+                  onRescanGames={handleRescanGames}
                   onBack={() => handleTabChange('dashboard')}
                 />
               )}

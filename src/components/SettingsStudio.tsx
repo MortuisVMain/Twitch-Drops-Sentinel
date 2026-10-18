@@ -55,6 +55,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [autostartEnabled, setAutostartEnabled] = useState<boolean>(false);
   const [isCopiedReport, setIsCopiedReport] = useState<boolean>(false);
   const [isCopyingReport, setIsCopyingReport] = useState<boolean>(false);
+  const [isClearingGames, setIsClearingGames] = useState<boolean>(false);
+  const [clearedGamesMessage, setClearedGamesMessage] = useState<string | null>(null);
 
   // GitHub Auto-Updater States
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
@@ -181,6 +183,30 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       console.error('Failed to copy diagnostic report:', err);
     } finally {
       setIsCopyingReport(false);
+    }
+  };
+
+  const handleClearInstalledGames = async () => {
+    playClick();
+    setIsClearingGames(true);
+    setClearedGamesMessage(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/installed-games/clear', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        playRewardChime();
+        setClearedGamesMessage('✓ Список установленных игр очищен');
+        if (onRescanGames) onRescanGames();
+        setTimeout(() => setClearedGamesMessage(null), 4000);
+      } else {
+        setClearedGamesMessage('Ошибка очистки списка');
+      }
+    } catch (err) {
+      console.error('Failed to clear installed games:', err);
+      setClearedGamesMessage('Сбой связи со службой');
+    } finally {
+      setIsClearingGames(false);
     }
   };
 
@@ -553,14 +579,34 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             )}
           </div>
 
-          <button
-            onClick={onRescanGames}
-            disabled={isScanning}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
-            <span>{isScanning ? 'Сканирование библиотек...' : 'Пересканировать установленные игры'}</span>
-          </button>
+          <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onRescanGames}
+              disabled={isScanning}
+              className="w-full sm:flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
+              <span>{isScanning ? 'Сканирование библиотек...' : 'Пересканировать установленные игры'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearInstalledGames}
+              disabled={isClearingGames || isScanning}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 text-[var(--muted)] hover:text-rose-400 text-xs font-semibold border border-[var(--line)] hover:border-rose-500/30 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
+              title="Очистить обнаруженные установленные игры на ПК"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>{isClearingGames ? 'Очистка...' : 'Очистить список'}</span>
+            </button>
+          </div>
+
+          {clearedGamesMessage && (
+            <p className="text-[11px] text-[var(--accent)] font-medium text-center animate-in fade-in duration-200">
+              {clearedGamesMessage}
+            </p>
+          )}
         </div>
 
         {/* Priority Strategy */}

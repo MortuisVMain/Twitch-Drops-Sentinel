@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  HardDrive, Flame, Plus, Check, Ban, Star, ArrowLeft, Gamepad2, Calendar, ShieldCheck, AlertCircle, ChevronUp, ChevronDown
+  HardDrive, Flame, Plus, Check, Ban, Star, ArrowLeft, Gamepad2, Calendar, ShieldCheck, AlertCircle, ChevronUp, ChevronDown, Trash2
 } from 'lucide-react';
 import { GameItem } from '../types';
 import { GameSearchAutocomplete } from './GameSearchAutocomplete';
@@ -15,6 +15,7 @@ interface GameShelfProps {
   onAddToExcluded: (gameName: string) => void;
   onRemoveFromExcluded: (gameName: string) => void;
   onReorderPriority?: (gameName: string, direction: 'up' | 'down') => void;
+  onRescanGames?: () => void;
   onBack?: () => void;
 }
 
@@ -121,10 +122,28 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   onAddToExcluded,
   onRemoveFromExcluded,
   onReorderPriority,
+  onRescanGames,
   onBack
 }) => {
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'drops' | 'installed' | 'priority' | 'excluded' | 'all'>('drops');
+  const [isClearingInstalled, setIsClearingInstalled] = useState(false);
+
+  const handleClearInstalled = async () => {
+    setIsClearingInstalled(true);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/installed-games/clear', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        if (onRescanGames) onRescanGames();
+      }
+    } catch (err) {
+      console.error('Failed to clear installed games:', err);
+    } finally {
+      setIsClearingInstalled(false);
+    }
+  };
 
   // Filtered games
   const filteredGames = useMemo(() => {
@@ -225,6 +244,28 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           </button>
         ))}
       </div>
+
+      {/* Installed Games Management Banner */}
+      {filterMode === 'installed' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[var(--surface-elevated)] border border-[var(--line)] text-xs text-[var(--muted)] shadow-sm backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-[var(--accent)] shrink-0" />
+            <span>Обнаружено <strong className="text-[var(--foreground)]">{installedCount}</strong> установленных игр на ПК.</span>
+          </div>
+          {installedCount > 0 && (
+            <button
+              type="button"
+              onClick={handleClearInstalled}
+              disabled={isClearingInstalled}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 text-[var(--muted)] hover:text-rose-400 border border-[var(--line)] hover:border-rose-500/30 text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shrink-0 self-end sm:self-auto"
+              title="Очистить обнаруженные установленные игры"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isClearingInstalled ? 'Очистка...' : 'Очистить список'}</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Games Catalog Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
