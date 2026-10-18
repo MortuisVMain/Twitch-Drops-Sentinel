@@ -84,11 +84,11 @@
     "Albion Online"
   ],
   "excluded_games": [
-    "Out of the Park Baseball 27",
-    "Ace Combat Zero: The Belkan War",
+    "RavenQuest",
     "Airport Baggage Simulator",
+    "Out of the Park Baseball 27",
     "ACE COMBAT 8: WINGS OF THEVE",
-    "RavenQuest"
+    "Ace Combat Zero: The Belkan War"
   ],
   "priority_mode": 0,
   "games_to_pause": [
