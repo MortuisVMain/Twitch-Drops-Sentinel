@@ -66,12 +66,12 @@ def create_release():
     core_dest = RELEASE_DIR / "core"
     core_dest.mkdir(parents=True, exist_ok=True)
     print("[*] Packaging sanitized core engine modules...")
-    banned_files = {"cookies.jar", "sentinel_stdout.log", "sentinel_stderr.log"}
+    banned_files = {"cookies.jar", "sentinel_stdout.log", "sentinel_stderr.log", "sentinel_service.log", "settings.json"}
     for item in core_src.rglob("*"):
         if item.is_file():
             rel = item.relative_to(core_src)
-            # Skip caches, cookies, logs
-            if "__pycache__" in rel.parts or rel.name in banned_files or rel.suffix in (".pyc", ".pyo"):
+            # Skip caches, cookies, logs, user settings
+            if "__pycache__" in rel.parts or rel.name in banned_files or rel.suffix in (".log", ".pyc", ".pyo"):
                 continue
             target = core_dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -171,8 +171,8 @@ def create_release():
             namelist = zf.namelist()
             for name in namelist:
                 assert "cookies.jar" not in name.lower(), f"CRITICAL: Found cookies.jar in {target_zip.name}! {name}"
-                assert "sentinel_stdout" not in name.lower(), f"CRITICAL: Found log file in {target_zip.name}! {name}"
-                assert "sentinel_stderr" not in name.lower(), f"CRITICAL: Found log file in {target_zip.name}! {name}"
+                assert not name.lower().endswith(".log"), f"CRITICAL: Found log file in {target_zip.name}! {name}"
+                assert "settings.json" not in name.lower() or "lang" in name.lower(), f"CRITICAL: Found settings.json in {target_zip.name}! {name}"
 
     print(f"      [PASS] Security Audit Passed: ZERO private tokens, 0 cookies, 0 personal logs.")
     print("=" * 65)
