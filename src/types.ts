@@ -156,6 +156,7 @@ export interface UpdateCheckResult {
   release_notes: string;
   published_at: string;
   download_url: string;
+  asset_api_url?: string;
   html_url: string;
   error?: string;
 }

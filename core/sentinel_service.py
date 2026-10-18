@@ -598,7 +598,8 @@ class SentinelSupervisor:
         try:
             data = await request.json()
             url = str(data.get("download_url", "")).strip()
-            success, message = await asyncio.to_thread(UPDATER.apply_update_from_url, url)
+            asset_api_url = str(data.get("asset_api_url", "")).strip() or None
+            success, message = await asyncio.to_thread(UPDATER.apply_update_from_url, url, asset_api_url)
             return web.json_response({"status": "ok" if success else "error", "message": message})
         except Exception as e:
             logger.error(f"Error applying update: {e}", exc_info=True)

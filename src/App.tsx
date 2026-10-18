@@ -148,7 +148,10 @@ export const App: React.FC = () => {
       const res = await fetch('http://127.0.0.1:28492/api/updates/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ download_url: updateInfo.download_url }),
+        body: JSON.stringify({
+          download_url: updateInfo.download_url,
+          asset_api_url: updateInfo.asset_api_url,
+        }),
       });
       const data = await res.json();
       if (data.status === 'ok') {

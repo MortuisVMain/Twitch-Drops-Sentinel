@@ -39,6 +39,8 @@ scratch/
 # 🔴 USER STATE & PERSONAL HISTORY
 Trophies.md
 data/window_state.json
+data/update_check_cache.json
+data/active_campaigns_cache.json
 
 # 🐍 PYTHON ARTIFACTS
 __pycache__/

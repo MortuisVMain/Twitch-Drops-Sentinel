@@ -52,6 +52,59 @@ def parse_version(v: str) -> tuple[int, ...]:
             parts.append(int(digits))
     return tuple(parts) if parts else (0, 0, 0)
 
+def get_optional_github_token() -> str:
+    """Safely retrieves GitHub token if available (env, config, or git credential manager)."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if token:
+        return token.strip()
+
+    # Check config.json
+    try:
+        config_path = PROJECT_DIR / "config.json"
+        if config_path.exists():
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            tok = str(cfg.get("github_token", "")).strip()
+            if tok:
+                return tok
+    except Exception:
+        pass
+
+    # Check Git Credential Manager
+    try:
+        import subprocess
+        proc = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                if line.startswith("password="):
+                    val = line.split("=", 1)[1].strip()
+                    if val:
+                        return val
+    except Exception:
+        pass
+
+    return ""
+
+class SafeAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """
+    Prevents leaking or conflicting Authorization headers when redirected
+    across domains (e.g. GitHub API -> AWS S3 / objects.githubusercontent.com).
+    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            from urllib.parse import urlparse
+            orig_host = urlparse(req.full_url).netloc
+            new_host = urlparse(newurl).netloc
+            if orig_host != new_host and "Authorization" in new_req.headers:
+                del new_req.headers["Authorization"]
+        return new_req
+
 class GitHubUpdater:
     def __init__(self):
         self.last_check_time: float = 0.0
@@ -92,20 +145,24 @@ class GitHubUpdater:
             "changelog": "",
             "html_url": "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases",
             "download_url": "",
+            "asset_api_url": "",
             "is_hot_patch": False,
             "published_at": "",
         }
 
-        req = urllib.request.Request(
-            REPO_API_URL,
-            headers={
-                "User-Agent": "TwitchDropsSentinel-Updater/3.1",
-                "Accept": "application/vnd.github.v3+json",
-            },
-        )
+        token = get_optional_github_token()
+        headers = {
+            "User-Agent": "TwitchDropsSentinel-Updater/3.1",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        req = urllib.request.Request(REPO_API_URL, headers=headers)
+        opener = urllib.request.build_opener(SafeAuthRedirectHandler)
 
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with opener.open(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 remote_tag = data.get("tag_name", "3.0.0")
                 remote_ver = parse_version(remote_tag)
@@ -115,17 +172,25 @@ class GitHubUpdater:
                 assets = data.get("assets", [])
 
                 patch_url = None
+                patch_api_url = None
                 full_url = None
+                full_api_url = None
                 for a in assets:
                     name = a.get("name", "").lower()
                     url = a.get("browser_download_url", "")
+                    api_url = a.get("url", "")
                     if "patch" in name and name.endswith(".zip"):
                         patch_url = url
+                        patch_api_url = api_url
                     elif name.endswith(".zip"):
                         full_url = url
+                        full_api_url = api_url
 
                 rel_ver = remote_tag.lstrip("vV")
                 body_notes = data.get("body", "") or "Регулярное обновление Twitch Drops Sentinel."
+
+                chosen_download = patch_url or full_url or data.get("html_url", "")
+                chosen_api_asset = patch_api_url or full_api_url or ""
 
                 result.update({
                     "latest_version": rel_ver,
@@ -137,7 +202,8 @@ class GitHubUpdater:
                     "changelog": body_notes,
                     "update_available": update_avail,
                     "html_url": data.get("html_url", result["html_url"]),
-                    "download_url": patch_url or full_url or data.get("html_url", ""),
+                    "download_url": chosen_download,
+                    "asset_api_url": chosen_api_asset,
                     "is_hot_patch": bool(patch_url),
                     "published_at": data.get("published_at", ""),
                 })
@@ -152,7 +218,7 @@ class GitHubUpdater:
 
         return result
 
-    def apply_update_from_url(self, download_url: str) -> tuple[bool, str]:
+    def apply_update_from_url(self, download_url: str, asset_api_url: Optional[str] = None) -> tuple[bool, str]:
         if not download_url or not download_url.startswith("http"):
             return False, "Некорректная ссылка на скачивание обновления."
 
@@ -160,14 +226,43 @@ class GitHubUpdater:
         zip_path = staging_dir / "update.zip"
         backup_dir = PROJECT_DIR / ".backup_state"
 
+        token = get_optional_github_token()
+        opener = urllib.request.build_opener(SafeAuthRedirectHandler)
+
+        urls_to_try = [download_url]
+        if asset_api_url and asset_api_url != download_url and asset_api_url.startswith("http"):
+            urls_to_try.append(asset_api_url)
+
         try:
             staging_dir.mkdir(parents=True, exist_ok=True)
             backup_dir.mkdir(parents=True, exist_ok=True)
 
-            logger.info(f"Downloading update payload from {download_url}...")
-            req = urllib.request.Request(download_url, headers={"User-Agent": "TwitchDropsSentinel-Updater/3.1"})
-            with urllib.request.urlopen(req, timeout=30) as resp, open(zip_path, "wb") as f:
-                shutil.copyfileobj(resp, f)
+            download_success = False
+            last_err = None
+
+            for try_url in urls_to_try:
+                try:
+                    logger.info(f"Downloading update payload from {try_url}...")
+                    req_headers = {"User-Agent": "TwitchDropsSentinel-Updater/3.1"}
+                    if "api.github.com" in try_url:
+                        req_headers["Accept"] = "application/octet-stream"
+                        if token:
+                            req_headers["Authorization"] = f"Bearer {token}"
+                    elif token:
+                        req_headers["Authorization"] = f"Bearer {token}"
+
+                    req = urllib.request.Request(try_url, headers=req_headers)
+                    with opener.open(req, timeout=45) as resp, open(zip_path, "wb") as f:
+                        shutil.copyfileobj(resp, f)
+
+                    download_success = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    logger.warning(f"Download attempt failed for {try_url}: {e}")
+
+            if not download_success:
+                return False, f"Не удалось загрузить архив обновления: {last_err}"
 
             # Test ZIP integrity
             with zipfile.ZipFile(zip_path, "r") as zf:
