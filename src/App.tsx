@@ -123,6 +123,7 @@ export const App: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
+  const [updateInstalled, setUpdateInstalled] = useState<boolean>(false);
 
   const checkUpdates = async (force: boolean = false) => {
     try {
@@ -143,6 +144,20 @@ export const App: React.FC = () => {
     checkUpdates(false);
   }, []);
 
+  const handleRestartApp = async () => {
+    playClick();
+    showToast('Перезапуск Sentinel...');
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') {
+      wv.postMessage({ type: 'RESTART_SENTINEL' });
+      return;
+    }
+    try {
+      await fetch('http://127.0.0.1:28492/api/restart', { method: 'POST' });
+      setTimeout(() => window.location.reload(), 1500);
+    } catch { }
+  };
+
   const handleApplyUpdate = async () => {
     if (!updateInfo?.download_url) return;
     setIsApplyingUpdate(true);
@@ -159,8 +174,8 @@ export const App: React.FC = () => {
       const data = await res.json();
       if (data.status === 'ok') {
         playRewardChime();
-        showToast('✨ Обновление успешно установлено! Перезапустите Sentinel.');
-        setShowUpdateModal(false);
+        setUpdateInstalled(true);
+        showToast('✨ Обновление успешно установлено! Нажмите «Перезапустить сейчас».');
         checkUpdates(true);
       } else {
         showToast(`Ошибка обновления: ${data.message}`);
@@ -666,23 +681,33 @@ export const App: React.FC = () => {
               >
                 Напомнить позже
               </button>
-              <button
-                onClick={handleApplyUpdate}
-                disabled={isApplyingUpdate || !updateInfo.download_url}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-              >
-                {isApplyingUpdate ? (
-                  <>
-                    <RotateCw size={15} className="animate-spin" />
-                    <span>Установка обновления...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download size={15} />
-                    <span>Установить в 1 клик</span>
-                  </>
-                )}
-              </button>
+              {updateInstalled ? (
+                <button
+                  onClick={handleRestartApp}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer animate-pulse"
+                >
+                  <RotateCw size={15} />
+                  <span>Перезапустить сейчас</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleApplyUpdate}
+                  disabled={isApplyingUpdate || !updateInfo.download_url}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {isApplyingUpdate ? (
+                    <>
+                      <RotateCw size={15} className="animate-spin" />
+                      <span>Установка обновления...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={15} />
+                      <span>Установить в 1 клик</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

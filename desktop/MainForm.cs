@@ -41,6 +41,7 @@ namespace TwitchDropsSentinel
         private Process? _pythonBackendProcess;
         private System.Windows.Forms.Timer? _backendWatchdogTimer;
         private volatile bool _isShuttingDown = false;
+        private volatile bool _isForceClosing = false;
 
         private class WindowStateConfig
         {
@@ -520,6 +521,15 @@ namespace TwitchDropsSentinel
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
                 _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                _webView.CoreWebView2.NewWindowRequested += (s, args) =>
+                {
+                    args.Handled = true;
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                    }
+                    catch { }
+                };
 
                 // Priority 1: dist/ folder next to .exe or in project root
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -610,6 +620,19 @@ namespace TwitchDropsSentinel
                             string responseJson = $"{{\"type\":\"FOLDER_SELECTED\",\"path\":\"{safePath}\"}}";
                             _webView.CoreWebView2.PostWebMessageAsJson(responseJson);
                         }
+                    }));
+                }
+                else if (type == "RESTART_APP" || type == "RESTART_SENTINEL")
+                {
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        _isForceClosing = true;
+                        _isShuttingDown = true;
+                        ShutdownBackend();
+                        try { _webView?.Dispose(); } catch { }
+                        if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); _trayIcon = null; }
+                        Application.Restart();
+                        Environment.Exit(0);
                     }));
                 }
             }
@@ -723,6 +746,15 @@ namespace TwitchDropsSentinel
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             SaveWindowState();
+            if (_isForceClosing)
+            {
+                ShutdownBackend();
+                try { _webView?.Dispose(); } catch { }
+                if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); _trayIcon = null; }
+                base.OnFormClosing(e);
+                return;
+            }
+
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;

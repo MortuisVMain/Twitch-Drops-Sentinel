@@ -88,6 +88,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     }
   };
 
+  const [isUpdateInstalled, setIsUpdateInstalled] = useState(false);
+
+  const handleRestartApp = async () => {
+    playClick();
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') {
+      wv.postMessage({ type: 'RESTART_SENTINEL' });
+      return;
+    }
+    try {
+      await fetch('http://127.0.0.1:28492/api/restart', { method: 'POST' });
+      setTimeout(() => window.location.reload(), 1500);
+    } catch { }
+  };
+
   const handleApplyUpdate = async () => {
     if (!updateInfo?.download_url) return;
     playClick();
@@ -104,6 +119,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       const data = await res.json();
       if (data.status === 'ok') {
         playRewardChime();
+        setIsUpdateInstalled(true);
         setUpdateMessage('✨ Обновление успешно установлено! Перезапустите Sentinel.');
         setUpdateInfo(null);
       } else {
@@ -702,15 +718,26 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleCheckUpdates}
-                  disabled={isCheckingUpdate || isApplyingUpdate}
-                  className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-[var(--accent)]' : ''}`} />
-                  <span>{isCheckingUpdate ? 'Проверка...' : 'Проверить обновления'}</span>
-                </button>
+                {isUpdateInstalled ? (
+                  <button
+                    type="button"
+                    onClick={handleRestartApp}
+                    className="px-4 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold border border-[#73bba5]/40 shadow-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer animate-pulse"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Перезапустить сейчас</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCheckUpdates}
+                    disabled={isCheckingUpdate || isApplyingUpdate}
+                    className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-[var(--accent)]' : ''}`} />
+                    <span>{isCheckingUpdate ? 'Проверка...' : 'Проверить обновления'}</span>
+                  </button>
+                )}
 
                 {updateInfo?.update_available && (
                   <button

@@ -419,6 +419,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/game-directories/remove", self.handle_remove_game_directory)
         self.app.router.add_post("/api/browse-folder", self.handle_browse_folder)
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
+        self.app.router.add_post("/api/restart", self.handle_restart)
+        self.app.router.add_post("/api/system/restart", self.handle_restart)
         self.app.router.add_post("/api/toggle-daemon", self.handle_toggle_daemon)
         self.app.router.add_get("/api/autostart", self.handle_get_autostart)
         self.app.router.add_post("/api/autostart", self.handle_post_autostart)
@@ -565,6 +567,15 @@ class SentinelSupervisor:
             self.twitch_client.close()
         asyncio.create_task(self._delayed_stop())
         return web.json_response({"status": "shutting_down"})
+
+    async def handle_restart(self, request: web.Request) -> web.Response:
+        logger.info("Restart requested via API.")
+        set_sleep_guard(False)
+        self.is_running = False
+        if self.twitch_client:
+            self.twitch_client.close()
+        asyncio.create_task(self._delayed_stop())
+        return web.json_response({"status": "restarting"})
 
     async def _delayed_stop(self):
         await asyncio.sleep(0.5)
