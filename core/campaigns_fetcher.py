@@ -441,6 +441,20 @@ class CampaignsFetcher:
 
         return results[:10]
 
+    def refresh_installed_games(self, scanned_games: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        """Reloads installed_games.json (or takes fresh list) and rebuilds the merged catalog."""
+        if scanned_games is not None:
+            self._installed_games = [dict(g) for g in scanned_games]
+        else:
+            self._installed_games = self._load_installed_games()
+        self._build_catalog()
+        logger.info(f"CampaignsFetcher refreshed: {len(self._installed_games)} installed games, catalog size: {len(self._cached_catalog)}")
+        return self._installed_games
+
+    def fetch_active_campaigns_and_cache(self) -> list[dict[str, Any]]:
+        """Alias for fetch_sync to support background and API synchronization."""
+        return self.fetch_sync()
+
     def get_catalog(self) -> list[dict[str, Any]]:
         if not self._cached_catalog:
             self._build_catalog()

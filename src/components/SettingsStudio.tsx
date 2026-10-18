@@ -198,6 +198,50 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     }, 1000);
   };
 
+  // Listen for WebView2 native messages (e.g. FOLDER_SELECTED from C# FolderBrowserDialog)
+  React.useEffect(() => {
+    const wv = (window as any).chrome?.webview;
+    if (!wv || typeof wv.addEventListener !== 'function') return;
+
+    const handleWebMessage = async (event: any) => {
+      let data = event.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          return;
+        }
+      }
+      if (data && data.type === 'FOLDER_SELECTED') {
+        setIsBrowsingFolder(false);
+        if (!data.cancelled && data.path) {
+          try {
+            const addRes = await fetch('http://127.0.0.1:28492/api/game-directories/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: data.path }),
+            });
+            if (addRes.ok) {
+              const addData = await addRes.json();
+              onUpdateSettings({ game_directories: addData.directories });
+              if (onRescanGames) onRescanGames();
+              playRewardChime();
+            }
+          } catch (err) {
+            console.error('Failed to add folder from native picker:', err);
+          }
+        }
+      }
+    };
+
+    wv.addEventListener('message', handleWebMessage);
+    return () => {
+      try {
+        wv.removeEventListener('message', handleWebMessage);
+      } catch {}
+    };
+  }, [onUpdateSettings, onRescanGames, playRewardChime]);
+
   const handleBrowseAndAddFolder = async () => {
     playClick();
     setIsBrowsingFolder(true);
@@ -206,7 +250,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       const wv = (window as any).chrome?.webview;
       if (wv && typeof wv.postMessage === 'function') {
         wv.postMessage({ type: 'SELECT_FOLDER' });
-        setIsBrowsingFolder(false);
+        setTimeout(() => setIsBrowsingFolder(false), 3000);
         return;
       }
 
@@ -226,6 +270,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             const addData = await addRes.json();
             onUpdateSettings({ game_directories: addData.directories });
             if (onRescanGames) onRescanGames();
+            playRewardChime();
           }
         }
       }

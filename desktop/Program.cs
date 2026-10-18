@@ -20,7 +20,7 @@ namespace TwitchDropsSentinel
         private static Mutex? _singleInstanceMutex;
 
         [STAThread]
-        public static void Main(string[]? args)
+        public static void Main(string[] args)
         {
             try
             {

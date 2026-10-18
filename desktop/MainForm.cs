@@ -617,7 +617,12 @@ namespace TwitchDropsSentinel
                         if (dlg.ShowDialog(this) == DialogResult.OK && Directory.Exists(dlg.SelectedPath))
                         {
                             string safePath = dlg.SelectedPath.Replace("\\", "\\\\").Replace("\"", "\\\"");
-                            string responseJson = $"{{\"type\":\"FOLDER_SELECTED\",\"path\":\"{safePath}\"}}";
+                            string responseJson = $"{{\"type\":\"FOLDER_SELECTED\",\"cancelled\":false,\"path\":\"{safePath}\"}}";
+                            _webView.CoreWebView2.PostWebMessageAsJson(responseJson);
+                        }
+                        else
+                        {
+                            string responseJson = "{\"type\":\"FOLDER_SELECTED\",\"cancelled\":true,\"path\":\"\"}";
                             _webView.CoreWebView2.PostWebMessageAsJson(responseJson);
                         }
                     }));

@@ -670,7 +670,7 @@ class SentinelSupervisor:
         return web.json_response({
             "status": "rescanned",
             "installed_count": len(installed),
-            "games": [g.name for g in installed]
+            "games": [g.get("name", "") if isinstance(g, dict) else getattr(g, "name", "") for g in installed]
         })
 
     async def handle_rescan(self, request: web.Request) -> web.Response:
@@ -935,9 +935,11 @@ class SentinelSupervisor:
                 current_list = set(g.lower() for g in self.settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES))
                 found_new = False
                 for g in installed_games:
-                    for exe in g.executable_names:
-                        if exe.lower() not in current_list:
-                            logger.info(f"Auto-Scanner: Discovered new game executable: {exe} ({g.name})")
+                    exes = g.executable_names if hasattr(g, "executable_names") else ([g.get("executable")] if isinstance(g, dict) and g.get("executable") else [])
+                    g_name = g.get("name", "") if isinstance(g, dict) else getattr(g, "name", "")
+                    for exe in exes:
+                        if exe and exe.lower() not in current_list:
+                            logger.info(f"Auto-Scanner: Discovered new game executable: {exe} ({g_name})")
                             self.settings.setdefault("games_to_pause", []).append(exe)
                             current_list.add(exe.lower())
                             found_new = True
