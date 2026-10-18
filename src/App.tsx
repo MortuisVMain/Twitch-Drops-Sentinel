@@ -308,7 +308,7 @@ export const App: React.FC = () => {
 
           <div className="sidebar-version">
             <span>Twitch Drops Sentinel</span>
-            <span className="version-pro">v.3.1</span>
+            <span className="version-pro">v.{updateInfo?.local_version || '3.1.2'}</span>
           </div>
         </div>
       </aside>
@@ -556,7 +556,7 @@ export const App: React.FC = () => {
               Всё спокойно. Sentinel рядом.
             </span>
             <div className="flex items-center gap-4 text-[10px] text-[#828f88]">
-              <span>Sentinel v3.1 · Mortuis_V</span>
+              <span>Sentinel v{updateInfo?.local_version || '3.1.2'} · Mortuis_V</span>
               <span>&bull;</span>
               <span>Sentinel Engine Active</span>
             </div>

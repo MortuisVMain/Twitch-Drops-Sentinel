@@ -663,7 +663,7 @@ def test_github_updater_and_zero_mock_telemetry():
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "updateInfo" in app_tsx, "App.tsx must have updater state"
     assert "showUpdateModal" in app_tsx, "App.tsx must have update modal"
-    assert "v.3.1" in app_tsx, "App.tsx must display v.3.1"
+    assert "version-pro" in app_tsx, "App.tsx must display version badge"
     assert "TrophiesVault Verified" not in app_tsx, "Footer must not contain TrophiesVault Verified artifact"
 
     # 6. Verify SettingsStudio.tsx has GitHub updater card
