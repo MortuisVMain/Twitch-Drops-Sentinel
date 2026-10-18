@@ -130,6 +130,9 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data: UpdateCheckResult = await res.json();
         setUpdateInfo(data);
+        if (data.update_available) {
+          setShowUpdateModal(true);
+        }
       }
     } catch (err) {
       console.warn('Could not check for updates:', err);
