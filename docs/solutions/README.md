@@ -27,5 +27,6 @@
 | **023** | [Twitch Drop Session Trap and Streamer Rotation Fix](./023-twitch-drop-session-trap-and-streamer-rotation-fix.md) | Bugfix / Session Affinity Trap / Offline Streamer Leak / Dead by Daylight Expired Filter / Live Minutes Advance |
 | **024** | [Full HLS Chunk HEAD Cadence & Drop Stall Resolution](./024-hls-chunk-head-cadence-and-drop-stall-resolution.md) | Bugfix / HLS 15-Chunk HEAD / 20s Watch Interval / Twitch CDN Buffer / Zero Stall / Python 3.12 Partitioned Cookie |
 | **025** | [Campaign Shelf Hero Pin, Alphabetical Sorting & Multi-Source Box Art Engine](./025-campaign-shelf-hero-pin-alphabetical-sort-and-multi-source-box-art.md) | Feature / Hero Pin / Alphabetical Sorting / Quick-Add Popover / Steam 600x900 Posters / IGDB Safe Titles |
+| **026** | [Repository Hygiene, Template Config Separation & Release Artifact Sanitization](./026-repository-hygiene-and-release-artifact-sanitization.md) | Hygiene / Public GitHub / Config Templates / Zero Leak / PRD Sanitization |
 
 
