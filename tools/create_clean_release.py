@@ -20,21 +20,23 @@ if hasattr(sys.stderr, "reconfigure"):
 
 WORKSPACE = Path(__file__).resolve().parent.parent
 DIST_STAGING = WORKSPACE / "dist_release"
-RELEASE_DIR = DIST_STAGING / "Twitch Drops Sentinel v3.1"
-ZIP_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_v3.1_Public_Release.zip"
-PATCH_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_Patch_v3.1.zip"
+RELEASE_DIR = DIST_STAGING / "Twitch Drops Sentinel v3.1.1"
+ZIP_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_v3.1.1_Public_Release.zip"
+PATCH_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_Patch_v3.1.1.zip"
 
 def create_release():
     print("=" * 65)
-    print("  BUILDING TWITCH DROPS SENTINEL v3.1 CLEAN PUBLIC RELEASE")
+    print("  BUILDING TWITCH DROPS SENTINEL v3.1.1 CLEAN PUBLIC RELEASE")
     print("=" * 65)
 
     if DIST_STAGING.exists():
         shutil.rmtree(DIST_STAGING)
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. Main Executable
-    exe_src = WORKSPACE / "TwitchDropsSentinel.exe"
+    # 1. Main Executable (Prefer fresh desktop/publish build)
+    exe_src = WORKSPACE / "desktop" / "publish" / "TwitchDropsSentinel.exe"
+    if not exe_src.exists():
+        exe_src = WORKSPACE / "TwitchDropsSentinel.exe"
     assert exe_src.exists(), f"Missing executable: {exe_src}"
     print(f"[*] Copying {exe_src.name} ({exe_src.stat().st_size / (1024*1024):.1f} MB)...")
     shutil.copy2(exe_src, RELEASE_DIR / "TwitchDropsSentinel.exe")
