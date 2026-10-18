@@ -446,6 +446,9 @@ class CampaignsFetcher:
             self._build_catalog()
         return self._cached_catalog
 
+    def get_installed_game_names(self) -> list[str]:
+        return [g["name"] for g in self.get_catalog() if g.get("is_installed")]
+
     def get_raw_campaigns(self) -> list[dict[str, Any]]:
         return self._cached_campaigns
 

@@ -16,8 +16,8 @@ logger = logging.getLogger("TwitchDrops.HeadlessGUI")
 class SentinelStateBridge:
     def __init__(self):
         self.connected: bool = True
-        self.user_id: str = "492817291"
-        self.username: str = "Mortuis_V"
+        self.user_id: str = ""
+        self.username: str = ""
         self.active_drop: Optional[dict] = None
         self.status_text: str = "Инициализация Sentinel..."
         self.tray_icon: str = "idle"

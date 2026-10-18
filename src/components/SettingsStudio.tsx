@@ -18,6 +18,9 @@ import {
   Folder,
   Disc,
   Gamepad2,
+  Copy,
+  Check,
+  Laptop,
 } from 'lucide-react';
 import { SentinelSettings, SentinelStats } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
@@ -47,7 +50,62 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 }) => {
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
   const [isBrowsingFolder, setIsBrowsingFolder] = useState<boolean>(false);
+  const [autostartEnabled, setAutostartEnabled] = useState<boolean>(false);
+  const [isCopiedReport, setIsCopiedReport] = useState<boolean>(false);
+  const [isCopyingReport, setIsCopyingReport] = useState<boolean>(false);
   const { isMuted, toggleMute, playClick } = useTactileAudio();
+
+  React.useEffect(() => {
+    let isMounted = true;
+    fetch('http://127.0.0.1:28492/api/autostart')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isMounted && data && typeof data.enabled === 'boolean') {
+          setAutostartEnabled(data.enabled);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleToggleAutostart = async () => {
+    playClick();
+    const nextState = !autostartEnabled;
+    setAutostartEnabled(nextState);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/autostart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextState }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAutostartEnabled(data.enabled);
+      }
+    } catch (err) {
+      console.error('Failed to update autostart:', err);
+    }
+  };
+
+  const handleCopyDiagnosticReport = async () => {
+    playClick();
+    setIsCopyingReport(true);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/diagnostic-report');
+      if (res.ok) {
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        setIsCopiedReport(true);
+        setTimeout(() => setIsCopiedReport(false), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to copy diagnostic report:', err);
+    } finally {
+      setIsCopyingReport(false);
+    }
+  };
 
   const startTestShutdown = () => {
     playClick();
@@ -494,6 +552,60 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 className={`studio-switch ${!isMuted ? 'checked' : ''}`}
               >
                 <span />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Windows System & Diagnostics */}
+        <div className="card p-6 space-y-4 md:col-span-2">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
+              <Laptop className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Интеграция с Windows & Диагностика</h3>
+              <p className="text-xs text-[var(--muted)]">Автозапуск приложения при включении компьютера и отчет для техподдержки</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Windows Autostart */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
+              <div className="flex items-center gap-2.5">
+                <Power className="w-4 h-4 text-[var(--accent)]" />
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Автозапуск с Windows</div>
+                  <div className="text-[11px] text-[var(--muted)]">Старт в свернутом виде в трей при запуске ПК</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Переключить автозапуск с Windows"
+                onClick={handleToggleAutostart}
+                className={`studio-switch ${autostartEnabled ? 'checked' : ''}`}
+              >
+                <span />
+              </button>
+            </div>
+
+            {/* Diagnostic Report */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-4 h-4 text-[var(--accent)]" />
+                <div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Диагностический отчет</div>
+                  <div className="text-[11px] text-[var(--muted)]">Без токенов и паролей — готов для отправки в чат поддержки</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyDiagnosticReport}
+                disabled={isCopyingReport}
+                className="px-3.5 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {isCopiedReport ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{isCopiedReport ? 'Скопировано!' : 'Скопировать'}</span>
               </button>
             </div>
           </div>

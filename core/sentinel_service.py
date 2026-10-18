@@ -12,9 +12,12 @@ Core Microservice & Asynchronous Engine:
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
+import platform
+import re
 import subprocess
 import sys
 import time
@@ -38,6 +41,109 @@ CORE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = CORE_DIR.parent
 if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
+
+def set_sleep_guard(enable: bool):
+    """
+    Prevents Windows from entering sleep mode while farming is active.
+    ES_CONTINUOUS: 0x80000000
+    ES_SYSTEM_REQUIRED: 0x00000001
+    Note: Does NOT set ES_DISPLAY_REQUIRED so user's monitor can turn off cleanly.
+    """
+    if sys.platform == "win32":
+        try:
+            ES_CONTINUOUS = 0x80000000
+            ES_SYSTEM_REQUIRED = 0x00000001
+            flags = (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) if enable else ES_CONTINUOUS
+            ctypes.windll.kernel32.SetThreadExecutionState(flags)
+        except Exception as e:
+            pass
+
+def get_autostart_status() -> tuple[bool, str]:
+    if sys.platform != "win32":
+        return False, ""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ) as key:
+            val, _ = winreg.QueryValueEx(key, "TwitchDropsSentinel")
+            return True, str(val)
+    except FileNotFoundError:
+        return False, ""
+    except Exception:
+        return False, ""
+
+def set_autostart_status(enabled: bool) -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        exe_path = PROJECT_DIR / "TwitchDropsSentinel.exe"
+        if not exe_path.exists():
+            candidate = PROJECT_DIR / "desktop" / "publish" / "TwitchDropsSentinel.exe"
+            if candidate.exists():
+                exe_path = candidate
+        cmd = f'"{exe_path.resolve()}" --minimized'
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS) as key:
+            if enabled:
+                winreg.SetValueEx(key, "TwitchDropsSentinel", 0, winreg.REG_SZ, cmd)
+            else:
+                try:
+                    winreg.DeleteValue(key, "TwitchDropsSentinel")
+                except FileNotFoundError:
+                    pass
+        return True
+    except Exception:
+        return False
+
+def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -> str:
+    os_info = f"{platform.system()} {platform.release()} (Build {platform.version()})"
+    py_info = f"Python {platform.python_version()} ({platform.architecture()[0]})"
+    try:
+        ram = psutil.virtual_memory()
+        ram_info = f"Total: {round(ram.total / (1024**3), 1)} GB, Available: {round(ram.available / (1024**3), 1)} GB"
+    except Exception:
+        ram_info = "N/A"
+
+    active_drop = STATE_BRIDGE.active_drop or {}
+    streamer = STATE_BRIDGE.watching_channel or "None"
+    user_id_raw = STATE_BRIDGE.user_id or "Not logged in"
+    masked_user = f"{user_id_raw[:3]}***" if len(user_id_raw) > 3 else user_id_raw
+
+    log_lines = []
+    for log_item in STATE_BRIDGE.recent_logs[-40:]:
+        msg = f"[{log_item.get('time', '')}] [{log_item.get('level', 'INFO')}] {log_item.get('message', '')}"
+        sanitized_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
+        sanitized_msg = re.sub(r'(auth_token|client_secret|token|password)=["\']?[a-zA-Z0-9_\-]+["\']?', r'\1=[REDACTED]', sanitized_msg, flags=re.IGNORECASE)
+        sanitized_msg = re.sub(r'cookies\.jar', 'cookies.jar [PRESENT]', sanitized_msg)
+        log_lines.append(sanitized_msg)
+
+    report_lines = [
+        "==================================================",
+        "TWITCH DROPS SENTINEL v3.0 — DIAGNOSTIC REPORT",
+        "==================================================",
+        f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"OS: {os_info}",
+        f"Runtime: {py_info}",
+        f"RAM: {ram_info}",
+        f"CPU Load: {hardware_state.get('cpu_percent', 0)}%",
+        f"Battery Status: {'On Battery' if hardware_state.get('on_battery') else 'AC Connected'}",
+        f"Gaming Guard: {'Active (Playing: ' + str(hardware_state.get('detected_game')) + ')' if hardware_state.get('is_gaming') else 'Idle'}",
+        "",
+        "--- TWITCH & FARMING STATUS ---",
+        f"Session User: {masked_user}",
+        f"Streamer Watching: {streamer}",
+        f"Active Drop Game: {active_drop.get('game', 'None')}",
+        f"Active Drop Name: {active_drop.get('drop_name', 'None')}",
+        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress', 0)}%)",
+        f"Priority Games: {', '.join(settings.get('priority_games', [])) or 'None'}",
+        f"Installed Games Detected: {len([g for g in CAMPAIGNS_FETCHER.get_catalog() if g.get('is_installed')])}",
+        f"Game Directories: {len(settings.get('game_directories', []))} configured",
+        "",
+        "--- RECENT LOGS (SANITIZED) ---",
+        "\n".join(log_lines) if log_lines else "[No logs recorded yet]",
+        "==================================================",
+        "END OF DIAGNOSTIC REPORT"
+    ]
+    return "\n".join(report_lines)
 
 import truststore
 truststore.inject_into_ssl()
@@ -313,6 +419,9 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/browse-folder", self.handle_browse_folder)
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
         self.app.router.add_post("/api/toggle-daemon", self.handle_toggle_daemon)
+        self.app.router.add_get("/api/autostart", self.handle_get_autostart)
+        self.app.router.add_post("/api/autostart", self.handle_post_autostart)
+        self.app.router.add_get("/api/diagnostic-report", self.handle_get_diagnostic_report)
         self.app.router.add_get("/ws", self.handle_ws)
         self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
@@ -447,6 +556,7 @@ class SentinelSupervisor:
 
     async def handle_shutdown(self, request: web.Request) -> web.Response:
         logger.info("Shutdown requested via API.")
+        set_sleep_guard(False)
         self.is_running = False
         if self.twitch_client:
             self.twitch_client.close()
@@ -456,6 +566,25 @@ class SentinelSupervisor:
     async def _delayed_stop(self):
         await asyncio.sleep(0.5)
         sys.exit(0)
+
+    async def handle_get_autostart(self, request: web.Request) -> web.Response:
+        enabled, cmd = get_autostart_status()
+        return web.json_response({"enabled": enabled, "command": cmd})
+
+    async def handle_post_autostart(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            enable = bool(data.get("enabled", False))
+            success = set_autostart_status(enable)
+            enabled, cmd = get_autostart_status()
+            return web.json_response({"status": "ok" if success else "error", "enabled": enabled, "command": cmd})
+        except Exception as e:
+            logger.error(f"Error updating autostart: {e}")
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_get_diagnostic_report(self, request: web.Request) -> web.Response:
+        report = generate_sanitized_diagnostic_report(self.settings, self.hardware_state)
+        return web.Response(text=report, content_type="text/plain; charset=utf-8")
 
     async def handle_switch_streamer(self, request: web.Request) -> web.Response:
         try:
@@ -692,6 +821,14 @@ class SentinelSupervisor:
                                 send_windows_toast("Twitch Drops Sentinel 🛡️", f"Пауза: обнаружена игра {detected_game}")
                         else:
                             logger.info("Hardware Guard: Resumed farming.")
+
+                # Sleep Guard: Keep Windows awake while actively farming
+                is_actively_farming = (
+                    self.twitch_client is not None
+                    and not self.hardware_state.get("is_paused", False)
+                    and STATE_BRIDGE.active_drop is not None
+                )
+                set_sleep_guard(is_actively_farming)
 
                 # Broadcast to UI
                 await self.broadcast_ws()

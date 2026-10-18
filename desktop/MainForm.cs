@@ -140,8 +140,11 @@ namespace TwitchDropsSentinel
             }
         }
 
-        public MainForm()
+        private readonly bool _startMinimized;
+
+        public MainForm(bool startMinimized = false)
         {
+            _startMinimized = startMinimized;
             Text = "Twitch Drops Sentinel";
             MinimumSize = new Size(1180, 750);
             BackColor = Color.FromArgb(23, 29, 28);
@@ -181,7 +184,19 @@ namespace TwitchDropsSentinel
 
             Controls.Add(_webView);
 
-            Shown += async (s, e) => await InitializeWebViewAsync();
+            Shown += async (s, e) =>
+            {
+                await InitializeWebViewAsync();
+                if (_startMinimized)
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        WindowState = FormWindowState.Minimized;
+                        ShowInTaskbar = false;
+                        Hide();
+                    }));
+                }
+            };
         }
 
         private void StartBackendWatchdog()
@@ -311,7 +326,7 @@ namespace TwitchDropsSentinel
                     var psi = new ProcessStartInfo
                     {
                         FileName = pythonExe,
-                        Arguments = $"\"{scriptPath}\"",
+                        Arguments = $"-X utf8 \"{scriptPath}\"",
                         WorkingDirectory = projectRoot,
                         CreateNoWindow = true,
                         UseShellExecute = false,
@@ -327,6 +342,7 @@ namespace TwitchDropsSentinel
                     _pythonBackendProcess = Process.Start(psi);
                     if (_pythonBackendProcess != null)
                     {
+                        ChildProcessTracker.AddProcess(_pythonBackendProcess);
                         _pythonBackendProcess.EnableRaisingEvents = true;
                         string stdoutLog = Path.Combine(projectRoot, "sentinel_stdout.log");
                         string stderrLog = Path.Combine(projectRoot, "sentinel_stderr.log");
@@ -736,6 +752,16 @@ namespace TwitchDropsSentinel
             }
         }
 
+        protected override void WndProc(ref Message m)
+        {
+            if (Program.WM_SENTINEL_SHOW != 0 && m.Msg == (int)Program.WM_SENTINEL_SHOW)
+            {
+                RestoreFromTray();
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
         private void RestoreFromTray()
         {
             Show();
@@ -743,6 +769,110 @@ namespace TwitchDropsSentinel
             ShowInTaskbar = true;
             BringToFront();
             Activate();
+        }
+    }
+
+    public static class ChildProcessTracker
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
+
+        [DllImport("kernel32.dll")]
+        static extern bool SetInformationJobObject(IntPtr hJob, JobObjectInfoType infoType, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
+        private static readonly IntPtr _jobHandle;
+
+        static ChildProcessTracker()
+        {
+            try
+            {
+                _jobHandle = CreateJobObject(IntPtr.Zero, null);
+                if (_jobHandle != IntPtr.Zero)
+                {
+                    var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+                    {
+                        LimitFlags = 0x2000 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                    };
+                    var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+                    {
+                        BasicLimitInformation = info
+                    };
+                    int length = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+                    IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
+                    try
+                    {
+                        Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
+                        SetInformationJobObject(_jobHandle, JobObjectInfoType.ExtendedLimitInformation, extendedInfoPtr, (uint)length);
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(extendedInfoPtr);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to initialize JobObject: {ex.Message}");
+            }
+        }
+
+        public static void AddProcess(Process process)
+        {
+            if (_jobHandle != IntPtr.Zero && process != null)
+            {
+                try
+                {
+                    AssignProcessToJobObject(_jobHandle, process.Handle);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Failed to assign process to JobObject: {ex.Message}");
+                }
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct IO_COUNTERS
+        {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+        {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+            public IO_COUNTERS IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryLimit;
+            public UIntPtr PeakJobMemoryLimit;
+        }
+
+        enum JobObjectInfoType
+        {
+            ExtendedLimitInformation = 9
         }
     }
 }

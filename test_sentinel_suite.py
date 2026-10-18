@@ -565,6 +565,48 @@ def test_audio_mute_and_release_safety():
 
     print("      Audio Mute & Multi-User Release Safety: ALL PASS [OK]")
 
+def test_argon_public_hardening_and_resilience():
+    print("[23/23] Testing Argon Public Release Hardening & Host Resilience...")
+    # 1. Mutex and Single-Instance in C#
+    program_cs = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    assert "TwitchDropsSentinel_v3_Mutex" in program_cs, "Program.cs must register single instance mutex"
+    assert "WM_SENTINEL_SHOW_V3_0" in program_cs, "Program.cs must register WM_SENTINEL_SHOW message"
+    assert "PostMessage(HWND_BROADCAST" in program_cs, "Program.cs must broadcast wake up message on duplicate launch"
+
+    # 2. Job Object & WndProc in MainForm.cs
+    mainform_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "ChildProcessTracker" in mainform_cs, "MainForm.cs must include Win32 ChildProcessTracker"
+    assert "CreateJobObject" in mainform_cs, "MainForm.cs must bind to Job Object"
+    assert "WndProc" in mainform_cs, "MainForm.cs must override WndProc for WM_SENTINEL_SHOW"
+    assert "-X utf8" in mainform_cs, "MainForm.cs must launch python with -X utf8 argument"
+
+    # 3. Sleep guard and endpoints in sentinel_service.py
+    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "set_sleep_guard" in service_py, "sentinel_service.py must include set_sleep_guard"
+    assert "ES_SYSTEM_REQUIRED" in service_py, "set_sleep_guard must use ES_SYSTEM_REQUIRED"
+    assert "/api/autostart" in service_py, "sentinel_service.py must register /api/autostart"
+    assert "/api/diagnostic-report" in service_py, "sentinel_service.py must register /api/diagnostic-report"
+    assert "generate_sanitized_diagnostic_report" in service_py, "sentinel_service.py must include sanitized report generator"
+
+    # 4. SettingsStudio autostart & report
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "handleToggleAutostart" in settings_tsx, "SettingsStudio must have autostart handler"
+    assert "handleCopyDiagnosticReport" in settings_tsx, "SettingsStudio must have diagnostic report copy handler"
+    assert "Автозапуск с Windows" in settings_tsx, "SettingsStudio must render Windows autostart option"
+    assert "Диагностический отчет" in settings_tsx, "SettingsStudio must render diagnostic report button"
+
+    # 5. Diagnostic report sanitization unit test
+    sys.path.insert(0, str(WORKSPACE / "core"))
+    from sentinel_service import generate_sanitized_diagnostic_report
+    fake_settings = {"priority_games": ["Path of Exile 2"], "game_directories": []}
+    fake_hw = {"cpu_percent": 15, "on_battery": False, "is_gaming": False}
+    report = generate_sanitized_diagnostic_report(fake_settings, fake_hw)
+    assert "TWITCH DROPS SENTINEL v3.0 — DIAGNOSTIC REPORT" in report
+    assert "oauth:[REDACTED]" in report or "oauth:" not in report
+    assert "END OF DIAGNOSTIC REPORT" in report
+
+    print("      Argon Hardening & Host Resilience: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.0 — VERIFICATION TEST SUITE")
@@ -592,6 +634,7 @@ if __name__ == "__main__":
     test_universal_game_scanner()
     test_route_aliases_and_directory_management()
     test_audio_mute_and_release_safety()
+    test_argon_public_hardening_and_resilience()
     print("=" * 65)
-    print("  ALL 22 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 23 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
