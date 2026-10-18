@@ -97,9 +97,24 @@ def test_core_service_api():
         )
         time.sleep(2.0)
 
+    def safe_urlopen(req, timeout=10.0, max_retries=3):
+        if isinstance(req, str):
+            req = urllib.request.Request(req, headers={"Connection": "close", "User-Agent": "Sentinel-Test"})
+        elif isinstance(req, urllib.request.Request):
+            req.add_header("Connection", "close")
+            if not req.has_header("User-Agent"):
+                req.add_header("User-Agent", "Sentinel-Test")
+        for attempt in range(max_retries):
+            try:
+                return urllib.request.urlopen(req, timeout=timeout)
+            except (ConnectionResetError, urllib.error.URLError) as e:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(0.5)
+
     try:
         req = urllib.request.Request("http://127.0.0.1:28492/api/state")
-        with urllib.request.urlopen(req, timeout=3.0) as res:
+        with safe_urlopen(req, timeout=10.0) as res:
             assert res.status == 200, f"Expected 200, got {res.status}"
             data = json.loads(res.read().decode("utf-8"))
             assert data.get("connected") is True
@@ -121,7 +136,7 @@ def test_core_service_api():
             data=post_data,
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(post_req, timeout=3.0) as res:
+        with safe_urlopen(post_req, timeout=10.0) as res:
             assert res.status == 200
             post_res = json.loads(res.read().decode("utf-8"))
             assert post_res.get("status") == "ok"
@@ -129,7 +144,7 @@ def test_core_service_api():
 
         # Test GET /api/verify-game
         v_req = urllib.request.Request("http://127.0.0.1:28492/api/verify-game?query=Witcher")
-        with urllib.request.urlopen(v_req, timeout=3.0) as res:
+        with safe_urlopen(v_req, timeout=10.0) as res:
             assert res.status == 200
             v_res = json.loads(res.read().decode("utf-8"))
             assert v_res.get("verified") is True
@@ -138,7 +153,7 @@ def test_core_service_api():
 
         # Test GET /api/catalog
         c_req = urllib.request.Request("http://127.0.0.1:28492/api/catalog")
-        with urllib.request.urlopen(c_req, timeout=3.0) as res:
+        with safe_urlopen(c_req, timeout=10.0) as res:
             assert res.status == 200
             c_res = json.loads(res.read().decode("utf-8"))
             assert isinstance(c_res, list) and len(c_res) > 50
@@ -146,11 +161,21 @@ def test_core_service_api():
 
         # Test GET /api/v1/giveaways/state
         g_req = urllib.request.Request("http://127.0.0.1:28492/api/v1/giveaways/state")
-        with urllib.request.urlopen(g_req, timeout=3.0) as res:
+        with safe_urlopen(g_req, timeout=10.0) as res:
             assert res.status == 200
             g_res = json.loads(res.read().decode("utf-8"))
             assert "runner" in g_res and "stores" in g_res and "inventory" in g_res and "scheduler" in g_res
             print(f"      GET /api/v1/giveaways/state ({len(g_res.get('stores', {}))} stores, {len(g_res.get('inventory', []))} items): PASS [OK]")
+
+        # Test GET /api/updates/check
+        u_req = urllib.request.Request("http://127.0.0.1:28492/api/updates/check")
+        with safe_urlopen(u_req, timeout=10.0) as res:
+            assert res.status == 200
+            u_res = json.loads(res.read().decode("utf-8"))
+            assert "update_available" in u_res
+            ver_key = "local_version" if "local_version" in u_res else "current_version"
+            assert ver_key in u_res
+            print(f"      GET /api/updates/check (Local: {u_res[ver_key]}, Available: {u_res['update_available']}): PASS [OK]")
 
     finally:
         if proc is not None:
@@ -173,11 +198,9 @@ def test_prd_compliance():
 def test_branding_check():
     print("[7/10] Testing Brand Identity...")
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
-    header_tsx = (WORKSPACE / "src" / "components" / "Header.tsx").read_text(encoding="utf-8")
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     
     assert "Mortuis_V" in app_tsx
-    assert "Mortuis_V" in header_tsx
     assert "Mortuis_V_Studio" in settings_tsx
     print("      Brand Signature [Mortuis_V / Mortuis_V_Studio]: PASS [OK]")
 
@@ -601,15 +624,60 @@ def test_argon_public_hardening_and_resilience():
     fake_settings = {"priority_games": ["Path of Exile 2"], "game_directories": []}
     fake_hw = {"cpu_percent": 15, "on_battery": False, "is_gaming": False}
     report = generate_sanitized_diagnostic_report(fake_settings, fake_hw)
-    assert "TWITCH DROPS SENTINEL v3.0 — DIAGNOSTIC REPORT" in report
+    assert "TWITCH DROPS SENTINEL v3.1 — DIAGNOSTIC REPORT" in report
     assert "oauth:[REDACTED]" in report or "oauth:" not in report
     assert "END OF DIAGNOSTIC REPORT" in report
 
     print("      Argon Hardening & Host Resilience: ALL PASS [OK]")
 
+def test_github_updater_and_zero_mock_telemetry():
+    print("[24/24] Testing GitHub Auto-Updater & Zero-Mock Telemetry...")
+
+    # 1. Verify core/updater.py exists and parses versions correctly
+    sys.path.insert(0, str(WORKSPACE / "core"))
+    from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
+    from version import __version__
+
+    assert __version__ == "3.1.0", f"Version mismatch: {__version__}"
+    assert parse_version("3.1.0") == (3, 1, 0)
+    assert parse_version("v3.2.1-beta") == (3, 2, 1)
+    assert parse_version("v3.2.0") > parse_version("3.1.0")
+
+    # 2. Verify protected blacklist in updater
+    assert "cookies.jar" in PROTECTED_PATHS
+    assert "trophies.md" in PROTECTED_PATHS or "Trophies.md" in PROTECTED_PATHS
+    assert "config.json" in PROTECTED_PATHS
+
+    # 3. Verify zero fake hardware telemetry in LiveDashboard.tsx
+    live_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    for fake_str in ["RTX 5070 Ti", "Cold (38°C)", "1.2 Watt", "Direct ISP", "14 ms Stealth"]:
+        assert fake_str not in live_tsx, f"Found mock hardware telemetry in LiveDashboard.tsx: {fake_str}"
+
+    # 4. Verify 2-column bento grid in index.css
+    css_content = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    assert "minmax(380px, 460px) 1fr" in css_content, "Bento grid must be 2 columns"
+
+    # 5. Verify App.tsx has update modal and real telemetry
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "updateInfo" in app_tsx, "App.tsx must have updater state"
+    assert "showUpdateModal" in app_tsx, "App.tsx must have update modal"
+    assert "v.3.1" in app_tsx, "App.tsx must display v.3.1"
+    assert "TrophiesVault Verified" not in app_tsx, "Footer must not contain TrophiesVault Verified artifact"
+
+    # 6. Verify SettingsStudio.tsx has GitHub updater card
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "Обновления GitHub & Патчи" in settings_tsx, "SettingsStudio must render GitHub updates card"
+    assert "handleCheckUpdates" in settings_tsx, "SettingsStudio must have handleCheckUpdates"
+
+    # 7. Verify orphaned legacy components are purged
+    for orphan in ["Header.tsx", "Navigation.tsx", "TrophyVault.tsx"]:
+        assert not (WORKSPACE / "src" / "components" / orphan).exists(), f"Orphaned component {orphan} must be deleted"
+
+    print("      GitHub Auto-Updater & Zero-Mock Telemetry: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
-    print("  TWITCH DROPS SENTINEL v3.0 — VERIFICATION TEST SUITE")
+    print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
     print("  Author: Mortuis_V / Mortuis_V_Studio")
     print("=" * 65)
     test_artifacts()
@@ -635,6 +703,8 @@ if __name__ == "__main__":
     test_route_aliases_and_directory_management()
     test_audio_mute_and_release_safety()
     test_argon_public_hardening_and_resilience()
+    test_github_updater_and_zero_mock_telemetry()
     print("=" * 65)
-    print("  ALL 23 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 24 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
+

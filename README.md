@@ -1,4 +1,4 @@
-# 🛡️ Twitch Drops Sentinel v3.0
+# 🛡️ Twitch Drops Sentinel v3.1
 
 <div align="center">
 
@@ -10,7 +10,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows)](https://microsoft.com/windows)
 [![Architecture](https://img.shields.io/badge/Architecture-C%23%20WebView2%20%2B%20Python%203.12-368873)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
 [![Style](https://img.shields.io/badge/Design-Apple%20Luna%202.0-73bba5)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
-[![Status](https://img.shields.io/badge/Quality%20Gates-18%2F18%20PASS-success)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
+[![Status](https://img.shields.io/badge/Quality%20Gates-24%2F24%20PASS-success)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
 
 </div>
 
@@ -23,9 +23,11 @@
 В отличие от браузерного просмотра, Sentinel взаимодействует напрямую с Twitch GraphQL & Spade API на протокольном уровне:
 * **0% нагрузки на GPU:** Видеопоток не скачивается и не декодируется. Видеокарта полностью свободна для тяжелых игр или монтажа.
 * **Экономия до 98% интернет-трафика:** Расход сети снижается с ~3.2 ГБ/час до скромных ~5 МБ/час.
+* **GitHub Auto-Updater (1-клик обновления):** Встроенный модуль проверки релизов и безопасной установки патчей прямо из интерфейса с защитой сессионных файлов (`cookies.jar`, `Trophies.md`, `config.json`).
+* **2-колоночный Bento Grid:** Просторный и чистый интерфейс Apple Luna 2.0 без бутафорских карточек — только 100% реальные измеренные метрики.
 * **Hardware Guard (Автопауза при гейминге):** При запуске любой тяжелой игры (Steam, Epic, VK Play) Sentinel автоматически ставит опрос на паузу для 100% плавности фреймрейта и нулевого пинга, а после закрытия игры сам возобновляет сбор наград.
 * **Luna Auto-Shutdown:** Автоматическое выключение, переход в сон или блокировка компьютера после завершения всех дроп-кампаний на сегодня (идеально для ночного фарма).
-* **Полка Игр (138+ тайтлов):** Управление приоритетами фарма и списком исключений в один клик. Строгий алгоритм Sequel Guard исключает путаницу между номерными частями игр.
+* **Полка Игр (180+ тайтлов):** Управление приоритетами фарма и списком исключений в один клик. Строгий алгоритм Sequel Guard исключает путаницу между номерными частями игр.
 
 ---
 

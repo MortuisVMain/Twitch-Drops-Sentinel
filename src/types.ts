@@ -145,3 +145,17 @@ export interface GiveawaysStateResponse {
   fgcInstalled: boolean;
   totalClaimed: number;
 }
+
+export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'settings';
+
+export interface UpdateCheckResult {
+  update_available: boolean;
+  local_version: string;
+  remote_version: string;
+  release_name: string;
+  release_notes: string;
+  published_at: string;
+  download_url: string;
+  html_url: string;
+  error?: string;
+}

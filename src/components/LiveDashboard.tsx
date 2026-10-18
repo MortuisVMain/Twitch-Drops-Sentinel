@@ -1339,7 +1339,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             </div>
           </div>
 
-          {/* 4 Metric Pills (2x2 Grid) */}
+          {/* 4 Real Metric Pills (2x2 Grid) */}
           <div className="metric-pills">
             <div className="metric-pill">
               <span className="pill-label">Сэкономлено Трафика</span>
@@ -1349,21 +1349,23 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             </div>
 
             <div className="metric-pill">
-              <span className="pill-label">Нагрузка на GPU / CPU</span>
-              <span className="pill-value text-[var(--accent)]">
-                0.0% / {hardware.cpu_percent || 0.1}%
+              <span className="pill-label">Нагрузка на CPU</span>
+              <span className="pill-value text-[var(--accent)] tabular-nums">
+                {hardware.cpu_percent || 0.1}%
               </span>
             </div>
 
             <div className="metric-pill">
-              <span className="pill-label">Энергопотребление</span>
-              <span className="pill-value">~1.2 Watt</span>
+              <span className="pill-label">Время Сессии</span>
+              <span className="pill-value font-mono tabular-nums">
+                {formatUptime(uptimeSeconds)}
+              </span>
             </div>
 
             <div className="metric-pill">
-              <span className="pill-label">Сессионный Пинг</span>
-              <span className="pill-value">
-                {hardware.ping_ms || 14} ms (Stealth)
+              <span className="pill-label">Всего Наград</span>
+              <span className="pill-value text-[#ffaa00] tabular-nums">
+                {stats.total_drops_claimed} шт.
               </span>
             </div>
           </div>
@@ -1393,100 +1395,16 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               <span>Настройки</span>
             </button>
           </div>
-        </section>
 
-        {/* ==================== RIGHT COLUMN: HARDWARE & TELEMETRY ==================== */}
-        <section 
-          onMouseMove={handleCardMouseMove}
-          className="bento-card"
-        >
-          <div className="card-title-row">
-            <span className="card-heading">Hardware & Telemetry</span>
-            <span className="text-[11px] text-[var(--accent)] font-mono font-semibold">RTX 5070 Ti</span>
-          </div>
-
-          <div className="hardware-grid">
-            <div className="tele-row">
-              <span className="tele-name">🎮 GPU Status</span>
-              <span className="tele-num text-[#73bba5]">Cold (38°C)</span>
+          {/* Streamless Protocol Verified Indicator */}
+          <div className="mt-2 p-3 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+              <span>Streamless WebSocket Protocol: 0% нагрузки на GPU, фарм без видеопотока</span>
             </div>
-
-            <div className="tele-row">
-              <span className="tele-name">⚡ VRAM Usage</span>
-              <span className="tele-num">240 MB / 12 GB</span>
-            </div>
-
-            <div className="tele-row">
-              <span className="tele-name">🛡️ Anti-Ban Stealth</span>
-              <span className="tele-num text-[#73bba5]">Active (Patchright)</span>
-            </div>
-
-            <div className="tele-row">
-              <span className="tele-name">🌐 Proxy Egress</span>
-              <span className="tele-num">Direct ISP (Fast)</span>
-            </div>
-
-            <div className="tele-row">
-              <span className="tele-name">⏱️ Uptime</span>
-              <span className="tele-num">{formatUptime(uptimeSeconds)}</span>
-            </div>
-
-            <div className="tele-row">
-              <span className="tele-name">🏆 Total Claimed</span>
-              <span className="tele-num text-[#ffaa00]">{stats.total_drops_claimed} Drops</span>
-            </div>
-          </div>
-
-          {/* Luna Auto-Shutdown Engine Control */}
-          <div className="mt-3 p-3 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Moon className="w-4 h-4 text-[var(--accent)]" />
-                <span className="text-xs font-bold text-white">Luna Auto-Shutdown</span>
-              </div>
-              <button
-                onClick={() => {
-                  playClick();
-                  onToggleAutoShutdown();
-                }}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all ${
-                  settings.auto_shutdown_on_complete
-                    ? 'bg-[#368873]/30 text-[var(--accent)] border-[#73bba5]/60'
-                    : 'bg-white/5 text-white/40 border-white/10'
-                }`}
-              >
-                {settings.auto_shutdown_on_complete ? 'ВКЛЮЧЕНО' : 'ВЫКЛ'}
-              </button>
-            </div>
-            
-            {settings.auto_shutdown_on_complete && (
-              <div className="grid grid-cols-3 gap-1.5 pt-1">
-                {(['shutdown', 'sleep', 'lock'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    onClick={() => {
-                      playClick();
-                      onSelectShutdownMode(mode);
-                    }}
-                    className={`text-[10px] py-1 rounded-lg border font-semibold transition-all ${
-                      settings.auto_shutdown_mode === mode
-                        ? 'bg-[#368873] text-white border-[#73bba5] shadow-sm'
-                        : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
-                    }`}
-                  >
-                    {mode === 'shutdown' ? 'Выключение' : mode === 'sleep' ? 'Сон' : 'Блокировка'}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-auto p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)] leading-relaxed">
-            <div className="font-bold text-[var(--accent)] mb-1 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-[var(--accent)]" />
-              Streamless Protocol Active
-            </div>
-            Видепоток не декодируется. Сервер Twitch получает чистые WebSocket сигналы присутствия Spade GQL. Никаких лагов в играх.
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#368873]/15 text-[var(--accent)] border border-[#73bba5]/30 font-bold shrink-0">
+              ACTIVE
+            </span>
           </div>
         </section>
       </div>

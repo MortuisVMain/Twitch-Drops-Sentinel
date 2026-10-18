@@ -1,13 +1,10 @@
 """
-Twitch Drops Sentinel v3.0 — Clean Multi-User & Public Release Builder
+Twitch Drops Sentinel v3.1 — Clean Multi-User & Public Release Builder
 Mortuis_V_Studio
 
-Builds a 100% clean, standalone ZIP distribution ready for friends, Discord, or GitHub Releases:
-- Zero author credentials (cookies.jar excluded)
-- Zero personal logs or private trophy history
-- Embedded portable Python runtime
-- Universal game scanner and native folder selection
-- Pre-compiled single-file host TwitchDropsSentinel.exe
+Builds 100% clean, standalone distributions ready for friends, Discord, or GitHub Releases:
+1. Full Public Release ZIP (Twitch_Drops_Sentinel_v3.1_Public_Release.zip)
+2. Hot-Patch Update ZIP (Twitch_Drops_Sentinel_Patch_v3.1.zip) for GitHub Auto-Updater
 """
 
 import os
@@ -23,12 +20,13 @@ if hasattr(sys.stderr, "reconfigure"):
 
 WORKSPACE = Path(__file__).resolve().parent.parent
 DIST_STAGING = WORKSPACE / "dist_release"
-RELEASE_DIR = DIST_STAGING / "Twitch Drops Sentinel v3.0"
-ZIP_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_v3.0_Public_Release.zip"
+RELEASE_DIR = DIST_STAGING / "Twitch Drops Sentinel v3.1"
+ZIP_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_v3.1_Public_Release.zip"
+PATCH_OUTPUT = WORKSPACE / "Twitch_Drops_Sentinel_Patch_v3.1.zip"
 
 def create_release():
     print("=" * 65)
-    print("  BUILDING TWITCH DROPS SENTINEL v3.0 CLEAN PUBLIC RELEASE")
+    print("  BUILDING TWITCH DROPS SENTINEL v3.1 CLEAN PUBLIC RELEASE")
     print("=" * 65)
 
     if DIST_STAGING.exists():
@@ -113,7 +111,7 @@ def create_release():
     bat_content = (
         "@echo off\r\n"
         "chcp 65001 >nul\r\n"
-        "title Twitch Drops Sentinel v3.0\r\n"
+        "title Twitch Drops Sentinel v3.1\r\n"
         "start \"\" \"%~dp0TwitchDropsSentinel.exe\"\r\n"
     )
     (RELEASE_DIR / "Запустить_Twitch_Drops_Sentinel.bat").write_text(bat_content, encoding="utf-8")
@@ -127,8 +125,8 @@ def create_release():
     # 10. Data directory with empty initial cache
     (RELEASE_DIR / "data").mkdir(parents=True, exist_ok=True)
 
-    # 11. Create ZIP Archive
-    print(f"[*] Compressing into archive: {ZIP_OUTPUT.name}...")
+    # 11. Create Full Release ZIP Archive
+    print(f"[*] Compressing full release archive: {ZIP_OUTPUT.name}...")
     if ZIP_OUTPUT.exists():
         ZIP_OUTPUT.unlink()
 
@@ -139,21 +137,45 @@ def create_release():
                 zf.write(file, arcname)
 
     zip_mb = ZIP_OUTPUT.stat().st_size / (1024 * 1024)
-    print(f"      [PASS] Release package created successfully! Size: {zip_mb:.2f} MB")
+    print(f"      [PASS] Full release package created successfully! Size: {zip_mb:.2f} MB")
 
-    # 12. Security Audit on Created ZIP
-    print("[*] Performing Security Audit on generated archive...")
-    with zipfile.ZipFile(ZIP_OUTPUT, "r") as zf:
-        namelist = zf.namelist()
-        for name in namelist:
-            assert "cookies.jar" not in name.lower(), f"CRITICAL: Found cookies.jar in zip! {name}"
-            assert "sentinel_stdout" not in name.lower(), f"CRITICAL: Found log file in zip! {name}"
-            assert "sentinel_stderr" not in name.lower(), f"CRITICAL: Found log file in zip! {name}"
+    # 12. Create Hot-Patch ZIP Archive (core/ and dist/ only)
+    print(f"[*] Compressing hot-patch archive: {PATCH_OUTPUT.name}...")
+    if PATCH_OUTPUT.exists():
+        PATCH_OUTPUT.unlink()
+
+    with zipfile.ZipFile(PATCH_OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as pzf:
+        # Include dist/
+        for file in (RELEASE_DIR / "dist").rglob("*"):
+            if file.is_file():
+                arcname = file.relative_to(RELEASE_DIR)
+                pzf.write(file, arcname)
+        # Include core/
+        for file in (RELEASE_DIR / "core").rglob("*"):
+            if file.is_file():
+                arcname = file.relative_to(RELEASE_DIR)
+                pzf.write(file, arcname)
+
+    patch_mb = PATCH_OUTPUT.stat().st_size / (1024 * 1024)
+    print(f"      [PASS] Hot-Patch created successfully! Size: {patch_mb:.2f} MB")
+
+    # 13. Security Audit on Created ZIPs
+    print("[*] Performing Security Audit on generated archives...")
+    for target_zip in (ZIP_OUTPUT, PATCH_OUTPUT):
+        with zipfile.ZipFile(target_zip, "r") as zf:
+            namelist = zf.namelist()
+            for name in namelist:
+                assert "cookies.jar" not in name.lower(), f"CRITICAL: Found cookies.jar in {target_zip.name}! {name}"
+                assert "sentinel_stdout" not in name.lower(), f"CRITICAL: Found log file in {target_zip.name}! {name}"
+                assert "sentinel_stderr" not in name.lower(), f"CRITICAL: Found log file in {target_zip.name}! {name}"
 
     print(f"      [PASS] Security Audit Passed: ZERO private tokens, 0 cookies, 0 personal logs.")
     print("=" * 65)
-    print(f"  READY FOR DISTRIBUTION: {ZIP_OUTPUT}")
+    print(f"  READY FOR DISTRIBUTION:")
+    print(f"  1. Full Standalone: {ZIP_OUTPUT}")
+    print(f"  2. Hot-Patch Update: {PATCH_OUTPUT}")
     print("=" * 65)
 
 if __name__ == "__main__":
     create_release()
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavTab } from './components/Header';
+import { NavTab, UpdateCheckResult } from './types';
 import { LiveDashboard } from './components/LiveDashboard';
 import { GameShelf } from './components/GameShelf';
 import { GiveawaysView } from './components/GiveawaysView';
@@ -29,7 +29,8 @@ import {
   RotateCw,
   Monitor,
   Volume2,
-  VolumeX
+  VolumeX,
+  Download
 } from 'lucide-react';
 
 interface TabErrorBoundaryProps {
@@ -117,6 +118,53 @@ export const App: React.FC = () => {
     handleSwitchStreamer,
     handleReorderPriority,
   } = useSentinelState(showToast, playRewardChime, playClick);
+
+  // GitHub Auto-Updater State & Lifecycle
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
+
+  const checkUpdates = async (force: boolean = false) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:28492/api/updates/check?force=${force ? '1' : '0'}`);
+      if (res.ok) {
+        const data: UpdateCheckResult = await res.json();
+        setUpdateInfo(data);
+      }
+    } catch (err) {
+      console.warn('Could not check for updates:', err);
+    }
+  };
+
+  useEffect(() => {
+    checkUpdates(false);
+  }, []);
+
+  const handleApplyUpdate = async () => {
+    if (!updateInfo?.download_url) return;
+    setIsApplyingUpdate(true);
+    playClick();
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/updates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ download_url: updateInfo.download_url }),
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        playRewardChime();
+        showToast('✨ Обновление успешно установлено! Перезапустите Sentinel.');
+        setShowUpdateModal(false);
+        checkUpdates(true);
+      } else {
+        showToast(`Ошибка обновления: ${data.message}`);
+      }
+    } catch (err: any) {
+      showToast(`Сбой при обновлении: ${err.message || err}`);
+    } finally {
+      setIsApplyingUpdate(false);
+    }
+  };
 
   // WebView2 Native Message Listener (Folder selection from native dialog)
   useEffect(() => {
@@ -243,7 +291,7 @@ export const App: React.FC = () => {
 
           <div className="sidebar-version">
             <span>Twitch Drops Sentinel</span>
-            <span className="version-pro">v.3.0</span>
+            <span className="version-pro">v.3.1</span>
           </div>
         </div>
       </aside>
@@ -259,12 +307,22 @@ export const App: React.FC = () => {
           </div>
 
           <div className="topbar-right">
+            {updateInfo?.update_available && (
+              <button
+                aria-label="Доступно обновление"
+                title={`Доступна новая версия Sentinel v${updateInfo.remote_version}. Нажмите для обновления.`}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#368873]/20 border border-[#73bba5]/40 text-[#73bba5] text-xs font-semibold hover:bg-[#368873]/30 transition-all cursor-pointer shadow-sm animate-pulse"
+                onClick={() => setShowUpdateModal(true)}
+              >
+                <Sparkles size={13} className="text-[#73bba5]" />
+                <span>Обновление v{updateInfo.remote_version}</span>
+              </button>
+            )}
+
             <div className="telemetry-pill">
               <span>CPU {sentinelState.hardware.cpu_percent}%</span>
               <span>&bull;</span>
-              <span>GPU {sentinelState.hardware.gpu_percent}%</span>
-              <span>&bull;</span>
-              <span>{sentinelState.hardware.ping_ms} ms</span>
+              <span>{(sentinelState.stats.traffic_saved_mb / 1024).toFixed(1)} GB сэкономлено</span>
             </div>
 
             <span className="web-status">
@@ -277,7 +335,10 @@ export const App: React.FC = () => {
             <button
               aria-label="Синхронизировать"
               title="Синхронизировать данные"
-              onClick={handleManualRefresh}
+              onClick={() => {
+                handleManualRefresh();
+                checkUpdates(true);
+              }}
             >
               <RotateCw size={17} />
             </button>
@@ -525,9 +586,9 @@ export const App: React.FC = () => {
               Всё спокойно. Sentinel рядом.
             </span>
             <div className="flex items-center gap-4 text-[10px] text-[#828f88]">
-              <span>Sentinel v3.0 · Mortuis_V</span>
+              <span>Sentinel v3.1 · Mortuis_V</span>
               <span>&bull;</span>
-              <span>TrophiesVault Verified</span>
+              <span>Sentinel Engine Active</span>
             </div>
           </footer>
         </main>
@@ -548,6 +609,78 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
+
+      {/* GitHub Auto-Updater Modal (Apple Luna 2.0) */}
+      {showUpdateModal && updateInfo && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="card max-w-lg w-full p-6 md:p-8 space-y-5 border border-[#73bba5]/30 shadow-2xl relative bg-[var(--surface-elevated)]">
+            <button
+              onClick={() => setShowUpdateModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-white/[0.08] text-[var(--muted)] hover:text-white transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#368873]/20 border border-[#73bba5]/40 text-[#73bba5] flex items-center justify-center shrink-0">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[var(--foreground)]">Доступно обновление Sentinel</h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Текущая версия: v{updateInfo.local_version} &rarr;{' '}
+                  <span className="text-[#73bba5] font-semibold">Новая: v{updateInfo.remote_version}</span>
+                </p>
+              </div>
+            </div>
+
+            {updateInfo.release_name && (
+              <div className="text-xs font-semibold text-[var(--foreground)] px-3 py-1.5 rounded-lg bg-black/20 border border-[var(--line)]">
+                {updateInfo.release_name}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-[var(--muted)]">Что нового в релизе:</div>
+              <div className="max-h-48 overflow-y-auto p-3.5 rounded-xl bg-black/30 border border-[var(--line)] text-xs text-[var(--foreground)] font-mono whitespace-pre-wrap leading-relaxed select-text">
+                {updateInfo.release_notes || 'Улучшения стабильности, исправления ошибок и оптимизация работы.'}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#368873]/10 border border-[#73bba5]/20 text-[11px] text-[var(--accent)] flex items-center gap-2">
+              <ShieldCheck size={16} className="shrink-0 text-[#73bba5]" />
+              <span>Ваши сессии, токены, настройки и журнал наград 100% защищены и сохраняются.</span>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowUpdateModal(false)}
+                disabled={isApplyingUpdate}
+                className="px-4 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-[var(--muted)] hover:text-[var(--foreground)] border border-[var(--line)] transition-all cursor-pointer disabled:opacity-50"
+              >
+                Напомнить позже
+              </button>
+              <button
+                onClick={handleApplyUpdate}
+                disabled={isApplyingUpdate || !updateInfo.download_url}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              >
+                {isApplyingUpdate ? (
+                  <>
+                    <RotateCw size={15} className="animate-spin" />
+                    <span>Установка обновления...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={15} />
+                    <span>Установить в 1 клик</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

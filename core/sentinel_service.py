@@ -118,7 +118,7 @@ def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -
 
     report_lines = [
         "==================================================",
-        "TWITCH DROPS SENTINEL v3.0 — DIAGNOSTIC REPORT",
+        "TWITCH DROPS SENTINEL v3.1 — DIAGNOSTIC REPORT",
         "==================================================",
         f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"OS: {os_info}",
@@ -156,6 +156,7 @@ from utils import json_load, json_save
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from game_scanner import GameScanner
+from updater import UPDATER
 
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
@@ -422,6 +423,8 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/autostart", self.handle_get_autostart)
         self.app.router.add_post("/api/autostart", self.handle_post_autostart)
         self.app.router.add_get("/api/diagnostic-report", self.handle_get_diagnostic_report)
+        self.app.router.add_get("/api/updates/check", self.handle_check_updates)
+        self.app.router.add_post("/api/updates/apply", self.handle_apply_update)
         self.app.router.add_get("/ws", self.handle_ws)
         self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
@@ -585,6 +588,21 @@ class SentinelSupervisor:
     async def handle_get_diagnostic_report(self, request: web.Request) -> web.Response:
         report = generate_sanitized_diagnostic_report(self.settings, self.hardware_state)
         return web.Response(text=report, content_type="text/plain; charset=utf-8")
+
+    async def handle_check_updates(self, request: web.Request) -> web.Response:
+        force = request.query.get("force", "0") in ("1", "true")
+        res = await asyncio.to_thread(UPDATER.check_for_updates, force=force)
+        return web.json_response(res)
+
+    async def handle_apply_update(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            url = str(data.get("download_url", "")).strip()
+            success, message = await asyncio.to_thread(UPDATER.apply_update_from_url, url)
+            return web.json_response({"status": "ok" if success else "error", "message": message})
+        except Exception as e:
+            logger.error(f"Error applying update: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_switch_streamer(self, request: web.Request) -> web.Response:
         try:

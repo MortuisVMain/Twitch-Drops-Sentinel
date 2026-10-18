@@ -4,6 +4,8 @@
   "pause_on_gaming": true,
   "pause_on_battery": false,
   "native_toasts": false,
+  "ui_sound_enabled": true,
+  "game_directories": [],
   "priority_games": [
     "HITMAN World of Assassination",
     "Hunt: Showdown 1896",
@@ -82,10 +84,10 @@
     "Albion Online"
   ],
   "excluded_games": [
-    "Ace Combat Zero: The Belkan War",
-    "Airport Baggage Simulator",
     "ACE COMBAT 8: WINGS OF THEVE",
     "Out of the Park Baseball 27",
+    "Ace Combat Zero: The Belkan War",
+    "Airport Baggage Simulator",
     "RavenQuest"
   ],
   "priority_mode": 0,

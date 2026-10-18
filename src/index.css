@@ -248,26 +248,14 @@
 /* ==================== Adaptive Bento Grid ==================== */
 .bento-grid {
   display: grid;
-  grid-template-columns: minmax(380px, 440px) 1.2fr minmax(300px, 340px);
-  gap: 16px;
+  grid-template-columns: minmax(380px, 460px) 1fr;
+  gap: 18px;
   align-items: start;
-}
-
-@media (max-width: 1440px) {
-  .bento-grid {
-    grid-template-columns: minmax(360px, 1fr) minmax(340px, 1fr);
-  }
-  .bento-grid > :nth-child(3) {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 1080px) {
   .bento-grid {
     grid-template-columns: 1fr;
-  }
-  .bento-grid > :nth-child(3) {
-    grid-column: auto;
   }
 }
 

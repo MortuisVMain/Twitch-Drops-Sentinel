@@ -21,8 +21,10 @@ import {
   Copy,
   Check,
   Laptop,
+  Download,
+  Sparkles,
 } from 'lucide-react';
-import { SentinelSettings, SentinelStats } from '../types';
+import { SentinelSettings, SentinelStats, UpdateCheckResult } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface SettingsStudioProps {
@@ -53,7 +55,63 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [autostartEnabled, setAutostartEnabled] = useState<boolean>(false);
   const [isCopiedReport, setIsCopiedReport] = useState<boolean>(false);
   const [isCopyingReport, setIsCopyingReport] = useState<boolean>(false);
-  const { isMuted, toggleMute, playClick } = useTactileAudio();
+
+  // GitHub Auto-Updater States
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState<boolean>(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+
+  const { isMuted, toggleMute, playClick, playRewardChime } = useTactileAudio();
+
+  const handleCheckUpdates = async () => {
+    playClick();
+    setIsCheckingUpdate(true);
+    setUpdateMessage(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/updates/check?force=1');
+      if (res.ok) {
+        const data: UpdateCheckResult = await res.json();
+        setUpdateInfo(data);
+        if (data.update_available) {
+          setUpdateMessage(`Доступна новая версия: v${data.remote_version}`);
+        } else {
+          setUpdateMessage(`У вас актуальная версия (v${data.local_version})`);
+        }
+      } else {
+        setUpdateMessage('Не удалось проверить обновления');
+      }
+    } catch (err) {
+      setUpdateMessage('Ошибка связи со службой обновлений');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleApplyUpdate = async () => {
+    if (!updateInfo?.download_url) return;
+    playClick();
+    setIsApplyingUpdate(true);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/updates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ download_url: updateInfo.download_url }),
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        playRewardChime();
+        setUpdateMessage('✨ Обновление успешно установлено! Перезапустите Sentinel.');
+        setUpdateInfo(null);
+      } else {
+        setUpdateMessage(`Ошибка установки: ${data.message}`);
+      }
+    } catch (err: any) {
+      setUpdateMessage(`Сбой при установке: ${err.message || err}`);
+    } finally {
+      setIsApplyingUpdate(false);
+    }
+  };
 
   React.useEffect(() => {
     let isMounted = true;
@@ -201,7 +259,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div>
               <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[var(--foreground)]">Параметры & Архитектура</h2>
               <p className="text-xs text-[var(--muted)] mt-0.5">
-                Twitch Drops Sentinel v3.0 &bull; Универсальный клиент
+                Twitch Drops Sentinel v3.1 &bull; Универсальный клиент
               </p>
             </div>
           </div>
@@ -610,11 +668,85 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
           </div>
         </div>
+
+        {/* GitHub Auto-Updater Studio Card */}
+        <div className="card p-6 space-y-4 md:col-span-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
+                <Sparkles className="w-5 h-5 text-[#73bba5]" />
+              </div>
+              <div>
+                <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Обновления GitHub & Патчи</h3>
+                <p className="text-xs text-[var(--muted)]">Проверка и автоматическая установка обновлений программы в один клик</p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30">
+              v3.1.0 Public
+            </span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-2">
+                  <span>Репозиторий GitHub Releases:</span>
+                  <span className="text-[var(--accent)] font-mono">MortuisVMain/Twitch-Drops-Sentinel</span>
+                </div>
+                <div className="text-[11px] text-[var(--muted)] mt-0.5">
+                  {updateMessage || 'Проверьте наличие новых релизов с GitHub без потери пользовательских настроек и сессий.'}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCheckUpdates}
+                  disabled={isCheckingUpdate || isApplyingUpdate}
+                  className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-[var(--accent)]' : ''}`} />
+                  <span>{isCheckingUpdate ? 'Проверка...' : 'Проверить обновления'}</span>
+                </button>
+
+                {updateInfo?.update_available && (
+                  <button
+                    type="button"
+                    onClick={handleApplyUpdate}
+                    disabled={isApplyingUpdate || !updateInfo.download_url}
+                    className="px-4 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-pulse"
+                  >
+                    {isApplyingUpdate ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Установка...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Обновить до v{updateInfo.remote_version}</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {updateInfo?.update_available && updateInfo.release_notes && (
+              <div className="pt-2 border-t border-[var(--line)]/50">
+                <div className="text-[11px] font-semibold text-[var(--foreground)] mb-1">Что нового:</div>
+                <div className="max-h-28 overflow-y-auto p-2.5 rounded-lg bg-black/30 border border-[var(--line)] text-[11px] font-mono text-[var(--foreground)] whitespace-pre-wrap select-text">
+                  {updateInfo.release_notes}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Footer Branding */}
       <div className="text-center pt-4 pb-2 text-[11px] text-[var(--muted)] space-y-1">
-        <div>Twitch Drops Sentinel v3.0</div>
+        <div>Twitch Drops Sentinel v3.1</div>
         <div>Crafted with precision by Mortuis_V & Mortuis_V_Studio &bull; 2026</div>
       </div>
     </div>
