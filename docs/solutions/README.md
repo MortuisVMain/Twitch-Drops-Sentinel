@@ -28,5 +28,5 @@
 | **024** | [Full HLS Chunk HEAD Cadence & Drop Stall Resolution](./024-hls-chunk-head-cadence-and-drop-stall-resolution.md) | Bugfix / HLS 15-Chunk HEAD / 20s Watch Interval / Twitch CDN Buffer / Zero Stall / Python 3.12 Partitioned Cookie |
 | **025** | [Campaign Shelf Hero Pin, Alphabetical Sorting & Multi-Source Box Art Engine](./025-campaign-shelf-hero-pin-alphabetical-sort-and-multi-source-box-art.md) | Feature / Hero Pin / Alphabetical Sorting / Quick-Add Popover / Steam 600x900 Posters / IGDB Safe Titles |
 | **026** | [Repository Hygiene, Template Config Separation & Release Artifact Sanitization](./026-repository-hygiene-and-release-artifact-sanitization.md) | Hygiene / Public GitHub / Config Templates / Zero Leak / PRD Sanitization |
-
-
+| **027** | [Universal GameScanner & IPC Folder Bridge](./027-universal-game-scanner-and-ipc-bridge.md) | Feature / Steam VDF / Epic Manifests / GOG / Custom Deep Folders / WebView2 IPC |
+| **028** | [Hardware Guard Anti-False-Positive & Installed Cache Clear](./028-hardware-guard-false-positive-and-cache-clear.md) | Bugfix / Hardware Guard / 1-Click Ignore / Installed Games Clear / Release Sanitization |
