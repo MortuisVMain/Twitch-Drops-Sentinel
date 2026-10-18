@@ -11,7 +11,6 @@ import { useSentinelState } from './hooks/useSentinelState';
 import { 
   ShieldCheck, 
   Moon, 
-  Sun, 
   Sparkles, 
   CircleHelp, 
   ChevronRight, 
@@ -27,7 +26,6 @@ import {
   SlidersHorizontal, 
   X, 
   RotateCw,
-  Monitor,
   Volume2,
   VolumeX,
   Download
@@ -92,8 +90,6 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [isDarkTheme, setIsDarkTheme] = useState(true);
-  const [isZenMode, setIsZenMode] = useState(false);
 
   const { playClick, playRewardChime, isMuted, toggleMute } = useTactileAudio();
 
@@ -249,7 +245,7 @@ export const App: React.FC = () => {
   const currentNav = navItems.find((n) => n.id === activeTab) || navItems[0];
 
   return (
-    <div className={`app ${isDarkTheme ? 'dark' : ''} ${isZenMode ? 'zen-mode' : ''}`}>
+    <div className="app dark">
       {/* Living Ambient Canvas */}
       <LiquidCanvas />
 
@@ -377,30 +373,6 @@ export const App: React.FC = () => {
             </button>
 
             <button
-              aria-label="Переключить тему"
-              title="Переключить тему (Светлая / Тёмная)"
-              onClick={() => {
-                playClick();
-                setIsDarkTheme(!isDarkTheme);
-              }}
-            >
-              {isDarkTheme ? <Moon size={18} /> : <Sun size={18} />}
-            </button>
-
-            <button
-              aria-label="Zen HUD (Режим второго монитора)"
-              title={isZenMode ? "Выйти из Zen HUD (Показать полный интерфейс)" : "Zen HUD (Режим второго монитора)"}
-              className={`tactile-press ${isZenMode ? 'text-[var(--accent)] font-bold bg-[#368873]/20 border border-[var(--accent)]/40' : ''}`}
-              onClick={() => {
-                playClick();
-                setIsZenMode(!isZenMode);
-                showToast(isZenMode ? "Стандартный режим интерфейса" : "Zen HUD: Фокус на фарме для второго монитора");
-              }}
-            >
-              <Monitor size={17} />
-            </button>
-
-            <button
               aria-label="Полноэкранный режим"
               title="Полноэкранный режим"
               onClick={async () => {
@@ -506,8 +478,6 @@ export const App: React.FC = () => {
                   onToggleDaemon={handleToggleDaemon}
                   onSwitchStreamer={handleSwitchStreamer}
                   onReorderPriority={handleReorderPriority}
-                  isZenMode={isZenMode}
-                  onToggleZenMode={() => setIsZenMode(!isZenMode)}
                 />
               )}
 

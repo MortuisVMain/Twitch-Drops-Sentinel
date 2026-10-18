@@ -116,6 +116,24 @@ class GiveawaysOrchestrator:
         self._scheduler_cache = (now, result)
         return result
 
+    async def toggle_scheduler(self, enable: Optional[bool] = None) -> dict:
+        sched = await self._query_scheduler(force=True)
+        is_disabled = (sched.get("state") == "Disabled")
+        target_enable = is_disabled if enable is None else bool(enable)
+        cmd = "Enable-ScheduledTask" if target_enable else "Disable-ScheduledTask"
+        ps_script = f"{cmd} -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                creationflags=0x08000000
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            logger.info(f"Task scheduler {TASK_NAME} set to: {'Enabled' if target_enable else 'Disabled'}")
+        except Exception as e:
+            logger.error(f"Error toggling scheduler task: {e}")
+        return await self._query_scheduler(force=True)
+
     def _read_inventory_sync(self, force: bool = False) -> Tuple[Dict[str, dict], List[dict]]:
         changed = force
         current_mtimes: Dict[str, float] = {}

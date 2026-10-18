@@ -33,6 +33,7 @@ dist_staging/
 dist_package/
 dist_release/
 publish/
+publish_exe/
 backups/
 scratch/
 

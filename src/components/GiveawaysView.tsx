@@ -106,8 +106,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
   const [logs, setLogs] = useState<GiveawaysLogEntry[]>([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isTogglingScheduler, setIsTogglingScheduler] = useState(false);
 
-  const consoleEndRef = useRef<HTMLDivElement>(null);
+  const consoleContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const { playClick, playRewardChime } = useTactileAudio();
 
@@ -176,10 +177,32 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
   }, []);
 
   useEffect(() => {
-    if (autoScroll && isConsoleExpanded) {
-      consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (autoScroll && isConsoleExpanded && consoleContainerRef.current) {
+      consoleContainerRef.current.scrollTop = consoleContainerRef.current.scrollHeight;
     }
   }, [logs, autoScroll, isConsoleExpanded]);
+
+  const handleToggleScheduler = async () => {
+    playClick();
+    setIsTogglingScheduler(true);
+    try {
+      const isCurrentlyDisabled = (data?.scheduler.state === 'Disabled');
+      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/toggle-scheduler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enable: isCurrentlyDisabled }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setData((prev) => prev ? { ...prev, scheduler: json.scheduler } : prev);
+      }
+    } catch (e) {
+      console.error('Failed to toggle scheduler:', e);
+    } finally {
+      setIsTogglingScheduler(false);
+      fetchState(true);
+    }
+  };
 
   const handleToggleStore = (store: StoreId) => {
     playClick();
@@ -397,13 +420,17 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                   : data?.scheduler.state === 'Running'
                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                  : data?.scheduler.state === 'Disabled'
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                   : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30'
               }`}
             >
               {data?.scheduler.state === 'Ready'
-                ? '● Готов'
+                ? '● Активен'
                 : data?.scheduler.state === 'Running'
                 ? '● Работает'
+                : data?.scheduler.state === 'Disabled'
+                ? '● Отключен'
                 : '● Настроен'}
             </span>
           </div>
@@ -430,6 +457,36 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
                 {data?.totalClaimed ?? 0}
               </span>
             </div>
+
+            {data?.scheduler.exists && (
+              <button
+                type="button"
+                onClick={handleToggleScheduler}
+                disabled={isTogglingScheduler || data?.scheduler.state === 'Running'}
+                className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50 ${
+                  data?.scheduler.state === 'Disabled'
+                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300'
+                    : 'bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300'
+                }`}
+                title={
+                  data?.scheduler.state === 'Disabled'
+                    ? 'Включить автоматический сбор по расписанию'
+                    : 'Отключить автоматический сбор по расписанию'
+                }
+              >
+                {data?.scheduler.state === 'Disabled' ? (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />
+                    <span>Включить Синдикат Раздач</span>
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-3.5 h-3.5 fill-current text-rose-400" />
+                    <span>Отключить Синдикат Раздач</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="text-[11px] text-[var(--muted)] flex items-center gap-1.5 pt-1">
@@ -476,7 +533,17 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
         </button>
 
         {isConsoleExpanded && (
-          <div className="p-4 bg-[#0d1211] font-mono text-xs text-zinc-300 space-y-1 max-h-80 overflow-y-auto select-text scrollbar-thin">
+          <div
+            ref={consoleContainerRef}
+            onScroll={(e) => {
+              const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+              const isAtBottom = scrollHeight - scrollTop - clientHeight < 40;
+              if (autoScroll !== isAtBottom) {
+                setAutoScroll(isAtBottom);
+              }
+            }}
+            className="p-4 bg-[#0d1211] font-mono text-xs text-zinc-300 space-y-1 max-h-80 overflow-y-auto select-text scrollbar-thin"
+          >
             {logs.length === 0 ? (
               <div className="text-zinc-500 py-6 text-center italic">
                 Консоль чиста. Нажмите «Забрать всё», чтобы увидеть живой лог сбора в реальном времени.
@@ -505,7 +572,6 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
                 </div>
               ))
             )}
-            <div ref={consoleEndRef} />
           </div>
         )}
       </div>

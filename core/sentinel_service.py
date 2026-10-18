@@ -439,6 +439,7 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
         self.app.router.add_post("/api/v1/giveaways/abort", self.handle_giveaways_abort)
+        self.app.router.add_post("/api/v1/giveaways/toggle-scheduler", self.handle_giveaways_toggle_scheduler)
         self.app.router.add_get("/api/v1/giveaways/stream", self.handle_giveaways_stream)
 
         # CORS preflight middleware
@@ -781,6 +782,15 @@ class SentinelSupervisor:
     async def handle_giveaways_abort(self, request: web.Request) -> web.Response:
         res = await self.giveaways.abort_claim()
         return web.json_response(res)
+
+    async def handle_giveaways_toggle_scheduler(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        enable = body.get("enable")
+        sched = await self.giveaways.toggle_scheduler(enable=enable)
+        return web.json_response({"status": "ok", "scheduler": sched})
 
     async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
         return await self.giveaways.handle_stream(request)
