@@ -320,6 +320,16 @@ class GitHubUpdater:
                     target_file = PROJECT_DIR / rel_path
                     target_file.parent.mkdir(parents=True, exist_ok=True)
 
+                    # If target file is an existing .exe, rotate it first to avoid PermissionError on Windows!
+                    if target_file.exists() and target_file.suffix.lower() == ".exe":
+                        old_file = target_file.with_suffix(".exe.old")
+                        try:
+                            if old_file.exists():
+                                old_file.unlink(missing_ok=True)
+                            target_file.rename(old_file)
+                        except Exception as e:
+                            logger.warning(f"Could not rotate {target_file.name}: {e}")
+
                     with zf.open(member) as zf_in, open(target_file, "wb") as out_f:
                         shutil.copyfileobj(zf_in, out_f)
                     extracted_count += 1

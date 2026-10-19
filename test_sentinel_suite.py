@@ -611,6 +611,7 @@ def test_argon_public_hardening_and_resilience():
     assert "ShowWindow" in mainform_cs, "MainForm.cs must import Win32 ShowWindow for reliable tray restore"
     assert "SW_RESTORE" in mainform_cs, "MainForm.cs must use SW_RESTORE to unwrap minimized DWM stub"
     assert "EnsureValidWindowBounds" in mainform_cs, "MainForm.cs must include EnsureValidWindowBounds"
+    assert "SC_MINIMIZE" in mainform_cs, "MainForm.cs must intercept SC_MINIMIZE to prevent window geometry collapse"
     assert "ShowInTaskbar = false" not in mainform_cs, "MainForm.cs must never mutate ShowInTaskbar to prevent RecreateHandle()"
 
     # 3. Sleep guard and endpoints in sentinel_service.py
@@ -648,10 +649,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.2.0", f"Version mismatch: {__version__}"
-    assert parse_version("3.2.0") == (3, 2, 0)
-    assert parse_version("v3.2.1-beta") == (3, 2, 1)
-    assert parse_version("v3.2.0") > parse_version("3.1.9")
+    assert __version__ == "3.2.1", f"Version mismatch: {__version__}"
+    assert parse_version("3.2.1") == (3, 2, 1)
+    assert parse_version("v3.2.2-beta") == (3, 2, 2)
+    assert parse_version("v3.2.1") > parse_version("3.2.0")
 
     # 2. Verify protected blacklist in updater
     assert "cookies.jar" in PROTECTED_PATHS

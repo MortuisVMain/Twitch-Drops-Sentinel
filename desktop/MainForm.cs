@@ -834,6 +834,9 @@ namespace TwitchDropsSentinel
             }
         }
 
+        private const int WM_SYSCOMMAND = 0x0112;
+        private const int SC_MINIMIZE = 0xF020;
+
         protected override void WndProc(ref Message m)
         {
             if (Program.WM_SENTINEL_SHOW != 0 && m.Msg == (int)Program.WM_SENTINEL_SHOW)
@@ -841,6 +844,22 @@ namespace TwitchDropsSentinel
                 RestoreFromTray();
                 return;
             }
+
+            if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
+            {
+                if (WindowState != FormWindowState.Minimized)
+                {
+                    _lastNonMinimizedState = WindowState;
+                }
+                Hide();
+                if (_trayIcon != null)
+                {
+                    _trayIcon.Visible = true;
+                    _trayIcon.ShowBalloonTip(1500, "Twitch Drops Sentinel", "Приложение свернуто в системный трей. Фарм продолжается в фоне.", ToolTipIcon.Info);
+                }
+                return;
+            }
+
             base.WndProc(ref m);
         }
 
@@ -850,12 +869,34 @@ namespace TwitchDropsSentinel
             {
                 if (WindowState == FormWindowState.Normal)
                 {
-                    if (Width < 1000 || Height < 650)
+                    if (Width < 1000 || Height < 650 || ClientSize.Width < 900 || ClientSize.Height < 600)
                     {
-                        Rectangle workingArea = Screen.FromControl(this)?.WorkingArea 
-                            ?? Screen.PrimaryScreen?.WorkingArea 
-                            ?? new Rectangle(0, 0, 1920, 1080);
+                        // 1. Try restoring from saved window_state.json if valid
+                        string stateFile = GetWindowStateFilePath();
+                        if (File.Exists(stateFile))
+                        {
+                            try
+                            {
+                                string json = File.ReadAllText(stateFile);
+                                var state = JsonSerializer.Deserialize<WindowStateConfig>(json);
+                                if (state != null && state.Width >= 1000 && state.Height >= 650)
+                                {
+                                    Rectangle savedBounds = new Rectangle(state.X, state.Y, state.Width, state.Height);
+                                    foreach (var screen in Screen.AllScreens)
+                                    {
+                                        if (Rectangle.Intersect(screen.WorkingArea, savedBounds).Width >= 200)
+                                        {
+                                            Bounds = savedBounds;
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
 
+                        // 2. Comfortable fallback
+                        Rectangle workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
                         int safeWidth = Math.Min(1580, (int)(workingArea.Width * 0.92));
                         int safeHeight = Math.Min(980, (int)(workingArea.Height * 0.90));
                         Size = new Size(safeWidth, safeHeight);
@@ -901,12 +942,13 @@ namespace TwitchDropsSentinel
                     ? FormWindowState.Maximized
                     : FormWindowState.Normal;
 
+                WindowState = targetState;
+
                 if (!Visible)
                 {
-                    Visible = true;
+                    Show();
                 }
 
-                WindowState = targetState;
                 ShowWindow(Handle, targetState == FormWindowState.Maximized ? SW_MAXIMIZE : SW_RESTORE);
 
                 EnsureValidWindowBounds();

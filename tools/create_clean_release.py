@@ -143,12 +143,16 @@ def create_release():
     zip_mb = ZIP_OUTPUT.stat().st_size / (1024 * 1024)
     print(f"      [PASS] Full release package created successfully! Size: {zip_mb:.2f} MB")
 
-    # 12. Create Hot-Patch ZIP Archive (core/ and dist/ only)
+    # 12. Create Hot-Patch ZIP Archive (TwitchDropsSentinel.exe, core/ and dist/)
     print(f"[*] Compressing hot-patch archive: {PATCH_OUTPUT.name}...")
     if PATCH_OUTPUT.exists():
         PATCH_OUTPUT.unlink()
 
-    with zipfile.ZipFile(PATCH_OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as pzf:
+    with zipfile.ZipFile(PATCH_OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as pzf:
+        # Include TwitchDropsSentinel.exe so desktop host fixes are auto-updated
+        exe_file = RELEASE_DIR / "TwitchDropsSentinel.exe"
+        if exe_file.exists():
+            pzf.write(exe_file, "TwitchDropsSentinel.exe")
         # Include dist/
         for file in (RELEASE_DIR / "dist").rglob("*"):
             if file.is_file():
