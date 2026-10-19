@@ -145,6 +145,19 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     }
   };
 
+  const handleRemoveInstalled = async (gameName: string, gameId?: string) => {
+    try {
+      await fetch('http://127.0.0.1:28492/api/installed-games/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: gameId || '', name: gameName }),
+      });
+      if (onRescanGames) onRescanGames();
+    } catch (err) {
+      console.error('Failed to remove installed game:', err);
+    }
+  };
+
   // Filtered games
   const filteredGames = useMemo(() => {
     return games.filter((g: GameItem) => {
@@ -409,6 +422,17 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   >
                     <Ban className="w-4 h-4" />
                   </button>
+
+                  {/* Remove / Hide Installed Game Button */}
+                  {game.is_installed && (
+                    <button
+                      onClick={() => handleRemoveInstalled(game.name, game.id)}
+                      className="flex items-center justify-center p-2 rounded-xl text-xs transition-all cursor-pointer active:scale-95 bg-white/[0.04] text-[var(--muted)] hover:text-rose-400 hover:bg-rose-500/10 border border-[var(--line)]"
+                      title="Убрать из списка установленных игр"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             );

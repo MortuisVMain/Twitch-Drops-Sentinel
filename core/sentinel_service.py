@@ -474,6 +474,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/scan-games", self.handle_scan_games)
         self.app.router.add_post("/api/hardware/ignore-process", self.handle_ignore_process)
         self.app.router.add_post("/api/installed-games/clear", self.handle_clear_installed_games)
+        self.app.router.add_post("/api/installed-games/remove", self.handle_remove_installed_game)
         self.app.router.add_post("/api/open-vault", self.handle_open_vault)
         self.app.router.add_post("/api/open-trophies-file", self.handle_open_vault)
         self.app.router.add_post("/api/sync", self.handle_sync)
@@ -823,6 +824,23 @@ class SentinelSupervisor:
             return web.json_response({"status": "ok", "cleared": True, "installed_count": 0})
         except Exception as e:
             logger.error(f"Error clearing installed games: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_remove_installed_game(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            game_id = str(data.get("id") or data.get("game_id") or "").strip()
+            name = str(data.get("name") or "").strip()
+            if not game_id and not name:
+                return web.json_response({"status": "error", "message": "id or name required"}, status=400)
+            if hasattr(self.scanner, "remove_installed_game"):
+                self.scanner.remove_installed_game(game_id, name)
+            CAMPAIGNS_FETCHER.refresh_installed_games()
+            STATE_BRIDGE.add_log("INFO", f"Игра '{name or game_id}' удалена из списка установленных.")
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "removed": name or game_id})
+        except Exception as e:
+            logger.error(f"Error removing installed game: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_sync(self, request: web.Request) -> web.Response:

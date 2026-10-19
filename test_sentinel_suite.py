@@ -812,6 +812,76 @@ def test_channel_points_clipboard_and_feature_toggles():
 
     print("      Channel Points Auto-Claim, Multi-Layer Clipboard & Feature Toggles: ALL PASS [OK]")
 
+def test_game_scanner_anti_software_and_patch_filtering():
+    print("[27/27] Testing GameScanner Anti-Software, Patch & Container Stop-Word Filtering...")
+    import sys
+    core_dir = WORKSPACE / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from game_scanner import (
+        GameScanner, CONTAINER_STOP_WORDS, MOD_PATCH_PATTERNS,
+        NON_GAME_NAMES, NON_GAME_PUBLISHERS
+    )
+
+    # 1. Verify container stop words
+    for word in ["game", "games", "steamlibrary", "repack", "downloads"]:
+        assert word in CONTAINER_STOP_WORDS, f"Container stop word '{word}' missing"
+
+    # 2. Verify mod and patch pattern matching with zero false positives on real games
+    assert MOD_PATCH_PATTERNS.search("Clair Obscur Expedition 33 - Русификатор звука, текста v1.5") is not None
+    assert MOD_PATCH_PATTERNS.search("Cyberpunk 2077 - Mod Pack v2.1") is not None
+    assert MOD_PATCH_PATTERNS.search("Game Patch Update v1.03") is not None
+    assert MOD_PATCH_PATTERNS.search("Crack Fix") is not None
+    assert MOD_PATCH_PATTERNS.search("Hades II") is None
+    # Poison tests: Real games must NEVER be false-positive matched!
+    assert MOD_PATCH_PATTERNS.search("Lost Ark") is None
+    assert MOD_PATCH_PATTERNS.search("Call of Duty: Modern Warfare") is None
+    assert MOD_PATCH_PATTERNS.search("Ghost of Tsushima") is None
+    assert MOD_PATCH_PATTERNS.search("Frostpunk 2") is None
+
+    # 3. Verify non-game software names and publishers with zero false positives on real games
+    test_non_games = [
+        "calibre 64bit", "Capture One", "Gemini", "Happ - Proxy Utility 4.5.3(624)",
+        "AnVir Task Manager 9.4.0", "K-Lite Mega Codec Pack 18.0.5"
+    ]
+    for non_game in test_non_games:
+        assert NON_GAME_NAMES.search(non_game) is not None, f"Non-game '{non_game}' should be matched by NON_GAME_NAMES"
+
+    # Poison tests: Real games must NEVER be blocked as desktop software!
+    assert NON_GAME_NAMES.search("Mirror's Edge") is None
+    assert NON_GAME_NAMES.search("Sword Art Online") is None
+    assert NON_GAME_NAMES.search("We Happy Few") is None
+
+    # 4. Verify GameShelf.tsx has Trash2 button and handleRemoveInstalled
+    shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "handleRemoveInstalled" in shelf_tsx, "GameShelf must define handleRemoveInstalled"
+    assert "/api/installed-games/remove" in shelf_tsx, "GameShelf must call /api/installed-games/remove"
+    assert "Trash2" in shelf_tsx, "GameShelf must render Trash2 icon for installed games"
+
+    # 5. Verify live endpoint POST /api/installed-games/remove
+    req_remove = urllib.request.Request(
+        "http://127.0.0.1:28492/api/installed-games/remove",
+        data=json.dumps({"id": "test_game_sample_123", "name": "Sample Test Game"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_remove, timeout=5.0) as res:
+        assert res.status == 200
+        d = json.loads(res.read().decode("utf-8"))
+        assert d.get("status") == "ok"
+        assert d.get("removed") == "Sample Test Game"
+
+    # Clean up test artifact from ignored_games
+    scanner = GameScanner()
+    ignored = scanner.load_ignored_games()
+    ignored.discard("test_game_sample_123")
+    ignored.discard("sample test game")
+    ignored.discard("sampletestgame")
+    (scanner.data_dir / "ignored_games.json").write_text(
+        json.dumps(sorted(list(ignored)), indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    print("      GameScanner Anti-Software, Patch & Container Stop-Word Filtering: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -843,8 +913,9 @@ if __name__ == "__main__":
     test_github_updater_and_zero_mock_telemetry()
     test_hardware_guard_false_positive_and_installed_clear()
     test_channel_points_clipboard_and_feature_toggles()
+    test_game_scanner_anti_software_and_patch_filtering()
     print("=" * 65)
-    print("  ALL 26 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 27 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
 
 

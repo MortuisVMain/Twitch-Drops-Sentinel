@@ -29,6 +29,7 @@ logger = logging.getLogger("TwitchDropsSentinel.GameScanner")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 INSTALLED_GAMES_FILE = DATA_DIR / "installed_games.json"
+IGNORED_GAMES_FILE = DATA_DIR / "ignored_games.json"
 
 SYSTEM_BLACKLIST = {
     "$recycle.bin",
@@ -49,6 +50,78 @@ SYSTEM_BLACKLIST = {
     "tmp",
 }
 
+CONTAINER_STOP_WORDS = {
+    "game", "games", "steamlibrary", "steamapps", "common", "epic games",
+    "epicgames", "gog games", "gog galaxy", "ubisoft game launcher", "ea games",
+    "xboxgames", "program files", "program files (x86)", "installedgames",
+    "downloads", "download", "загрузки", "igry", "игры", "дистрибутивы",
+    "repack", "repacks", "репаки", "торренты", "torrents", "install", "installs", "установка"
+}
+
+MOD_PATCH_PATTERNS = re.compile(
+    r"\b(русификатор|озвучка|перевод|локализация|патч|патчер|patch|patcher|"
+    r"mod\s*pack|mods|мод\s*пак|моды|addon|addons|кряк|таблетка|trainer|трейнер|"
+    r"cheat|cheats|читы|update|апдейт|fix|фикс|dlc|ost|soundtrack|саундтрек|"
+    r"artbook|артбук|bonus|extras|repack|репак|fitgirl|dodi|xatab|v\d+\.\d+|"
+    r"bepinex|melonloader|manual|guide|utility|tools|утилиты|сейвы|backup|portable)\b",
+    re.IGNORECASE,
+)
+
+NON_GAME_PUBLISHERS = re.compile(
+    r"\b(microsoft|adobe|google|apple|nvidia|amd|intel|realtek|oracle|videolan|"
+    r"rarlab|7-zip|cpuid|finalwire|phase one|kovid goyal|lav filters|codec|driver|"
+    r"update|installshield|setup|runtime|redistributable|piriform|alef|jetbrains|"
+    r"canonical|vmware|blender foundation|gimp|inkscape|martin malik|realix|klcp|lrepacks|"
+    r"mozilla|opera software|yandex|telegram|whatsapp|spotify|docker|postman)\b",
+    re.IGNORECASE,
+)
+
+NON_GAME_NAMES = re.compile(
+    r"\b(calibre|capture\s*one|gemini|happ|anvir|task\s*manager|"
+    r"cpu-z|cpuz|gpu-z|hwinfo|aida64|k-lite|codec|vcredist|directx|dotnet|\.net|"
+    r"physx|vulkan|openal|steamworks|sdk|driver|utility|updater|unins\d+|"
+    r"crashhandler|wallpaper engine|obs studio|discord|overwolf|geforce|vlc|"
+    r"mpc-be|mpc-hc|winamp|foobar|aimp|itunes|acrobat|photoshop|lightroom|"
+    r"illustrator|premiere|after effects|audition|davinci|audacity|handbrake|"
+    r"gimp|inkscape|cinema 4d|maxon|blender|figma|zoom|telegram|whatsapp|"
+    r"spotify|docker|pycharm|visual studio|vscode|antigravity|office|libreoffice|"
+    r"ms\s*word|ms\s*excel|powerpoint|notion|obsidian|slack|postman|wireshark|putty|"
+    r"filezilla|torrent|qbittorrent|utorrent|anydesk|teamviewer|virtualbox|"
+    r"vmware|chrome|firefox|opera\s*gx|yandex\s*browser|ms\s*edge|thunderbird|cheat\s*engine|"
+    r"game cheats manager|game save manager|ghostscript|inno setup|asus framework|"
+    r"rog live service|armoury crate|msi center|alienware|ccleaner|defraggler)\b",
+    re.IGNORECASE,
+)
+
+KNOWN_GAME_PUBLISHERS = {
+    "electronic arts", "ea", "ea games", "ubisoft", "ubisoft entertainment",
+    "blizzard", "blizzard entertainment", "riot games", "valve", "bethesda",
+    "bethesda softworks", "cd projekt", "cd projekt red", "epic games",
+    "gog", "gog.com", "wargaming", "wargaming.net", "bandai namco", "capcom",
+    "square enix", "sega", "fromsoftware", "rockstar games", "2k", "2k games",
+    "techland", "warner bros", "warner bros. games", "konami", "focus home",
+    "focus entertainment", "thq nordic", "paradox", "paradox interactive",
+    "deep silver", "krafton", "amazon games", "ncsoft", "smilegate",
+    "pearl abyss", "netease", "tencent", "battlestate games", "digital extremes",
+    "cloud imperium", "frontier developments", "fatshark", "rebellion",
+    "io interactive", "bungie", "respawn", "larian studios", "obsidian entertainment",
+    "playdead", "supergiant games", "team cherry", "klei", "facepunch",
+    "decepticon", "sony interactive entertainment", "playstation publishing",
+    "xbox game studios", "activision", "activision blizzard", "remedy",
+    "crytek", "funcom", "tripwire", "gearbox", "embark studios",
+}
+
+KNOWN_GAME_DIR_MARKERS = (
+    "\\games\\", "\\game\\", "\\steam\\", "\\steamapps\\", "\\epic\\",
+    "\\epic games\\", "\\gog\\", "\\gog games\\", "\\riot games\\",
+    "\\battle.net\\", "\\ubisoft\\", "\\origin\\", "\\ea games\\",
+    "\\my games\\", "\\xboxgames\\", "\\pc games\\", "\\игры\\",
+    "/games/", "/game/", "/steam/", "/steamapps/", "/epic/",
+    "/epic games/", "/gog/", "/gog games/", "/riot games/",
+    "/battle.net/", "/ubisoft/", "/origin/", "/ea games/",
+    "/my games/", "/xboxgames/", "/pc games/", "/игры/",
+)
+
 EXE_BLACKLIST_SUBSTRINGS = (
     "unins", "setup", "install", "crash", "handler", "redist", "vcredist",
     "dxsetup", "dotnet", "ue4prereq", "ueprereq", "easyanticheat", "battleye",
@@ -60,24 +133,6 @@ EXE_BLACKLIST_SUBSTRINGS = (
 BINARY_SUBDIRS = (
     "bin", "binaries", "win64", "win32", "x64", "x86", "retail",
     "game", "client", "shipping", "engine", "release",
-)
-
-NON_GAME_KEYWORDS = (
-    "microsoft", "visual c++", "redistributable", "directx", "nvidia", "amd ",
-    "intel", "realtek", "driver", "sdk", "runtime", "vulkan", "windows",
-    "google", "mozilla", "discord", "obs studio", "steam", "epic games",
-    "gog galaxy", "ubisoft connect", "ea app", "battle.net", "riot vanguard",
-    "overwolf", "razer", "logitech", "corsair", "7-zip", "winrar", "vlc",
-    "python", "node.js", "git", "webview2", ".net", "physx", "openal",
-    "adobe", "abbyy", "autodesk", "corel", "blender", "figma", "zoom",
-    "telegram", "whatsapp", "spotify", "docker", "jetbrains", "pycharm",
-    "visual studio", "vscode", "antigravity", "office", "libreoffice",
-    "word", "excel", "powerpoint", "notion", "obsidian", "slack", "postman",
-    "wireshark", "putty", "filezilla", "torrent", "anydesk", "teamviewer",
-    "vmware", "virtualbox", "chrome", "firefox", "opera", "yandex", "edge",
-    "thunderbird", "winamp", "aimp", "foobar", "itunes", "acrobat", "photoshop",
-    "illustrator", "premiere", "after effects", "audition", "lightroom",
-    "davinci", "audacity", "handbrake", "gimp", "inkscape",
 )
 
 EDITION_STRIP_RE = re.compile(
@@ -157,6 +212,83 @@ class GameScanner:
         self.cache_file = self.data_dir / "installed_games.json"
         self._lock = asyncio.Lock()
         self._is_scanning = False
+
+    def load_ignored_games(self) -> set[str]:
+        if IGNORED_GAMES_FILE.exists():
+            try:
+                data = json.loads(IGNORED_GAMES_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return {str(item).lower().strip() for item in data}
+            except Exception:
+                pass
+        return set()
+
+    def is_ignored(self, name: str, key: str = "") -> bool:
+        ignored = self.load_ignored_games()
+        if not ignored:
+            return False
+        norm = normalize_game_name(name)
+        low_name = name.lower().strip()
+        low_key = key.lower().strip()
+        return (norm in ignored) or (low_name in ignored) or (low_key and low_key in ignored)
+
+    def ignore_game(self, game_id: str, name: str) -> None:
+        ignored = self.load_ignored_games()
+        if name:
+            ignored.add(name.lower().strip())
+            norm = normalize_game_name(name)
+            if norm:
+                ignored.add(norm)
+        if game_id:
+            ignored.add(game_id.lower().strip())
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            IGNORED_GAMES_FILE.write_text(json.dumps(sorted(list(ignored)), indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            logger.error(f"Failed to save ignored_games.json: {e}")
+
+    def remove_installed_game(self, game_id: str, name: str) -> bool:
+        self.ignore_game(game_id, name)
+        if self.cache_file.exists():
+            try:
+                data = json.loads(self.cache_file.read_text(encoding="utf-8"))
+                norm_target = normalize_game_name(name)
+                filtered = [
+                    g for g in data
+                    if g.get("id") != game_id and normalize_game_name(g.get("name", "")) != norm_target
+                ]
+                tmp_file = self.cache_file.with_suffix(".tmp")
+                tmp_file.write_text(json.dumps(filtered, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp_file.replace(self.cache_file)
+                return True
+            except Exception as e:
+                logger.error(f"Failed removing game {name} from cache: {e}")
+        return False
+
+    @staticmethod
+    def _get_known_catalog_names() -> set[str]:
+        catalog_names = set()
+        cat_file = DATA_DIR / "games_catalog.json"
+        if cat_file.exists():
+            try:
+                data = json.loads(cat_file.read_text(encoding="utf-8"))
+                for g in data:
+                    n = normalize_game_name(g.get("name", ""))
+                    if n:
+                        catalog_names.add(n)
+            except Exception:
+                pass
+        camp_file = DATA_DIR / "campaigns_cache.json"
+        if camp_file.exists():
+            try:
+                data = json.loads(camp_file.read_text(encoding="utf-8"))
+                for c in data:
+                    n = normalize_game_name(c.get("gameDisplayName", ""))
+                    if n:
+                        catalog_names.add(n)
+            except Exception:
+                pass
+        return catalog_names
 
     @staticmethod
     def _read_reg_str(hive: int, subkey: str, value_name: str, view: int = 0) -> Optional[str]:
@@ -465,10 +597,79 @@ class GameScanner:
 
         return games
 
+    @classmethod
+    def is_valid_game_directory(cls, path: Path) -> bool:
+        """Verifies if a directory contains actual game engine signatures and is not a patch/utility."""
+        if not path or not path.is_dir():
+            return False
+
+        folder_name = path.name.strip()
+        folder_name_low = folder_name.lower()
+
+        # 1. Reject generic container names
+        if folder_name_low in CONTAINER_STOP_WORDS:
+            return False
+
+        # 2. Reject mod/patch/localization folders
+        if MOD_PATCH_PATTERNS.search(folder_name):
+            return False
+
+        # 3. Reject software & utility names
+        if NON_GAME_NAMES.search(folder_name):
+            return False
+
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            return False
+
+        file_names = {e.name.lower() for e in entries if e.is_file(follow_symlinks=False)}
+        dir_names = {e.name.lower() for e in entries if e.is_dir(follow_symlinks=False)}
+
+        # Definitive Game Engine Signatures
+        if "unityplayer.dll" in file_names or any(d.endswith("_data") for d in dir_names):
+            return True  # Unity
+        if "engine" in dir_names and "binaries" in dir_names:
+            return True  # Unreal Engine
+        if any(f in file_names for f in ("steam_api.dll", "steam_api64.dll", "eossdk-win64-shipping.dll", "galaxy.dll", "galaxy64.dll")):
+            return True  # Storefront Game DRM/SDK
+
+        # Valid Game Executable check
+        for e in entries:
+            if e.is_file(follow_symlinks=False) and e.name.lower().endswith(".exe"):
+                exe_name = e.name
+                if cls._is_blacklisted_exe(exe_name):
+                    continue
+                if NON_GAME_NAMES.search(exe_name) or MOD_PATCH_PATTERNS.search(exe_name):
+                    continue
+                try:
+                    size = e.stat().st_size
+                except OSError:
+                    size = 0
+                if size > 10 * 1024 * 1024:  # > 10 MB executable
+                    return True
+                if any(fn.endswith((".pak", ".pck", ".assets", ".vpk", ".bundle", ".unity3d")) for fn in file_names):
+                    return True
+
+        # Check subdirectories (bin/x64, Binaries/Win64, etc.)
+        for binary_sub in ("bin", "binaries", "win64", "x64", "retail"):
+            if binary_sub in dir_names:
+                sub_path = path / binary_sub
+                try:
+                    for sub_e in os.scandir(sub_path):
+                        if sub_e.is_file(follow_symlinks=False) and sub_e.name.lower().endswith(".exe"):
+                            if not cls._is_blacklisted_exe(sub_e.name) and not NON_GAME_NAMES.search(sub_e.name) and not MOD_PATCH_PATTERNS.search(sub_e.name):
+                                return True
+                except OSError:
+                    pass
+
+        return False
+
     def scan_windows_uninstall(self) -> list[InstalledGame]:
         """
         Scans Windows Uninstall registry keys (HKLM & HKCU, 32/64 bit).
-        Discovers installed titles from Battle.net, Riot, EA, Ubisoft, and standalone games.
+        Discovers verified standalone games (Battle.net, Riot, EA, Ubisoft, GOG, repacks)
+        with strict publisher, path, and catalog validation to eliminate all desktop software.
         """
         games: list[InstalledGame] = []
         if sys.platform != "win32":
@@ -481,6 +682,8 @@ class GameScanner:
         views = (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY)
         seen_names: set[str] = set()
 
+        catalog_names = self._get_known_catalog_names()
+
         for hive in hives:
             for view in views:
                 try:
@@ -491,34 +694,61 @@ class GameScanner:
                                 sub_name = winreg.EnumKey(root, i)
                                 sub_path = f"{uninstall_key}\\{sub_name}"
                                 display_name = self._read_reg_str(hive, sub_path, "DisplayName", view)
+                                publisher = self._read_reg_str(hive, sub_path, "Publisher", view)
                                 install_loc = self._read_reg_str(hive, sub_path, "InstallLocation", view)
                                 sys_comp = self._read_reg_dword(hive, sub_path, "SystemComponent", view)
 
-                                if sys_comp == 1 or not display_name or not install_loc:
+                                if sys_comp == 1 or not display_name:
                                     continue
 
-                                low_name = display_name.lower().strip()
-                                if low_name in seen_names or any(kw in low_name for kw in NON_GAME_KEYWORDS):
+                                display_name = display_name.strip()
+                                low_name = display_name.lower()
+                                low_pub = (publisher or "").lower().strip()
+
+                                # 1. Hard Reject: Non-game names, software publishers, patch/mod patterns
+                                if NON_GAME_NAMES.search(display_name) or MOD_PATCH_PATTERNS.search(display_name):
+                                    continue
+                                if low_pub and NON_GAME_PUBLISHERS.search(low_pub):
+                                    continue
+                                if low_name in CONTAINER_STOP_WORDS:
+                                    continue
+                                if low_name in seen_names or self.is_ignored(display_name, sub_name):
                                     continue
 
-                                norm_loc = Path(os.path.normpath(install_loc.strip('"')))
-                                if not norm_loc.is_dir():
+                                # 2. Positive Verification:
+                                is_game_store = bool(re.search(r"(steam app|gog\.com|epic games|uplay|origin|battle\.net)", sub_name, re.I))
+                                is_game_publisher = any(gp in low_pub for gp in KNOWN_GAME_PUBLISHERS)
+                                has_game_dir = False
+                                if install_loc:
+                                    norm_loc_str = install_loc.lower().replace("/", "\\")
+                                    has_game_dir = any(marker in norm_loc_str for marker in KNOWN_GAME_DIR_MARKERS)
+                                in_catalog = normalize_game_name(display_name) in catalog_names
+
+                                if not (is_game_store or is_game_publisher or has_game_dir or in_catalog):
                                     continue
 
-                                # Verify the folder actually contains a game-like binary
-                                found_exe = self._find_game_executable(norm_loc, max_depth=3)
-                                if found_exe:
-                                    seen_names.add(low_name)
-                                    games.append(InstalledGame.create(
-                                        game_id=f"registry_{sanitize_slug(display_name)}",
-                                        name=display_name.strip(),
-                                        platform="registry",
-                                        category="Установлено",
-                                        install_path=str(norm_loc),
-                                        app_id=sub_name,
-                                        executable=found_exe.name,
-                                        box_art=None,
-                                    ))
+                                norm_loc = Path(os.path.normpath(install_loc.strip('"'))) if install_loc else None
+                                exe_name = ""
+                                if norm_loc and norm_loc.is_dir():
+                                    if not self.is_valid_game_directory(norm_loc):
+                                        continue
+                                    found_exe = self._find_game_executable(norm_loc, max_depth=3)
+                                    if found_exe:
+                                        exe_name = found_exe.name
+                                elif not is_game_store:
+                                    continue
+
+                                seen_names.add(low_name)
+                                games.append(InstalledGame.create(
+                                    game_id=f"registry_{sanitize_slug(display_name)}",
+                                    name=display_name,
+                                    platform="registry",
+                                    category="Установлено",
+                                    install_path=str(norm_loc) if norm_loc else "",
+                                    app_id=sub_name,
+                                    executable=exe_name,
+                                    box_art=None,
+                                ))
                             except OSError:
                                 continue
                 except OSError:
@@ -532,7 +762,7 @@ class GameScanner:
         Handles both:
         Case A: Directly selected game directory (e.g. D:\\Games\\Rust)
         Case B: Parent games library folder (e.g. D:\\Games)
-        Performs bounded search (max_depth=3) prioritizing engine binary folders.
+        Strictly excludes container stop words, patches, mods, and non-games.
         """
         games: list[InstalledGame] = []
         seen_paths: set[str] = set()
@@ -541,7 +771,7 @@ class GameScanner:
             if not dir_str or not isinstance(dir_str, str):
                 continue
 
-            folder_path = Path(dir_str.strip()).resolve()
+            folder_path = Path(dir_str.strip().strip('"')).resolve()
             if not folder_path.exists() or not folder_path.is_dir():
                 continue
 
@@ -549,12 +779,15 @@ class GameScanner:
             if folder_name_low in SYSTEM_BLACKLIST:
                 continue
 
-            # Case A: Check if folder_path itself is a single game root
-            direct_exe = self._find_direct_or_engine_exe(folder_path)
-            if direct_exe:
+            is_container = folder_name_low in CONTAINER_STOP_WORDS
+
+            # Case A: Directly selected game directory
+            # NEVER treat parent library container (e.g. D:\Game) as a single game!
+            if not is_container and self.is_valid_game_directory(folder_path):
                 canon_path = str(folder_path).lower()
-                if canon_path not in seen_paths:
+                if canon_path not in seen_paths and not self.is_ignored(folder_path.name, canon_path):
                     seen_paths.add(canon_path)
+                    direct_exe = self._find_direct_or_engine_exe(folder_path)
                     game_title = folder_path.name.replace("_", " ").strip()
                     games.append(InstalledGame.create(
                         game_id=f"custom_{sanitize_slug(game_title)}",
@@ -562,7 +795,7 @@ class GameScanner:
                         platform="custom",
                         category=f"Диск {folder_path.drive or 'Локальный'}",
                         install_path=str(folder_path),
-                        executable=direct_exe.name,
+                        executable=direct_exe.name if direct_exe else "",
                         box_art=None,
                     ))
                 continue
@@ -575,13 +808,27 @@ class GameScanner:
                             if not entry.is_dir(follow_symlinks=False):
                                 continue
 
-                            entry_name_low = entry.name.lower()
+                            entry_name = entry.name.strip()
+                            entry_name_low = entry_name.lower()
                             if entry_name_low in SYSTEM_BLACKLIST or entry_name_low.startswith((".", "$")):
+                                continue
+
+                            if entry_name_low in CONTAINER_STOP_WORDS:
+                                continue
+
+                            # Strictly reject patches, mods, and non-games
+                            if MOD_PATCH_PATTERNS.search(entry_name):
+                                continue
+                            if NON_GAME_NAMES.search(entry_name):
                                 continue
 
                             sub_path = Path(entry.path)
                             canon_sub = str(sub_path).lower()
-                            if canon_sub in seen_paths:
+                            if canon_sub in seen_paths or self.is_ignored(entry_name, canon_sub):
+                                continue
+
+                            # Validate game directory signatures
+                            if not self.is_valid_game_directory(sub_path):
                                 continue
 
                             found_exe = self._find_game_executable(sub_path, max_depth=3)
@@ -610,7 +857,7 @@ class GameScanner:
             # 1. Direct root .exe
             for entry in os.scandir(folder):
                 if entry.is_file(follow_symlinks=False) and entry.name.lower().endswith(".exe"):
-                    if not self._is_blacklisted_exe(entry.name):
+                    if not self._is_blacklisted_exe(entry.name) and not NON_GAME_NAMES.search(entry.name) and not MOD_PATCH_PATTERNS.search(entry.name):
                         return Path(entry.path)
 
             # 2. Known engine markers
@@ -637,7 +884,7 @@ class GameScanner:
                 subdirs: list[Path] = []
                 for entry in os.scandir(current_dir):
                     if entry.is_file(follow_symlinks=False) and entry.name.lower().endswith(".exe"):
-                        if not self._is_blacklisted_exe(entry.name):
+                        if not self._is_blacklisted_exe(entry.name) and not NON_GAME_NAMES.search(entry.name) and not MOD_PATCH_PATTERNS.search(entry.name):
                             try:
                                 size = entry.stat().st_size
                             except OSError:
@@ -674,8 +921,16 @@ class GameScanner:
 
         def register(source_games: list[InstalledGame]):
             for g in source_games:
-                norm = g.get("normalized_name") or normalize_game_name(g.get("name", ""))
+                name = g.get("name", "").strip()
+                norm = g.get("normalized_name") or normalize_game_name(name)
                 if not norm:
+                    continue
+                if norm in CONTAINER_STOP_WORDS or name.lower() in CONTAINER_STOP_WORDS:
+                    continue
+                # Heuristics apply strictly to unverified registry/custom items, NEVER trusted stores
+                if g.get("platform") in ("registry", "custom") and (NON_GAME_NAMES.search(name) or MOD_PATCH_PATTERNS.search(name)):
+                    continue
+                if self.is_ignored(name, g.get("id", "")):
                     continue
                 existing = discovered.get(norm)
                 # Primary manifests override generic registry / custom hits
