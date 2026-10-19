@@ -30,3 +30,4 @@
 | **026** | [Repository Hygiene, Template Config Separation & Release Artifact Sanitization](./026-repository-hygiene-and-release-artifact-sanitization.md) | Hygiene / Public GitHub / Config Templates / Zero Leak / PRD Sanitization |
 | **027** | [Universal GameScanner & IPC Folder Bridge](./027-universal-game-scanner-and-ipc-bridge.md) | Feature / Steam VDF / Epic Manifests / GOG / Custom Deep Folders / WebView2 IPC |
 | **028** | [Hardware Guard Anti-False-Positive & Installed Cache Clear](./028-hardware-guard-false-positive-and-cache-clear.md) | Bugfix / Hardware Guard / 1-Click Ignore / Installed Games Clear / Release Sanitization |
+| **029** | [Sleep Guard Watchdog, WebSocket Probe Watchdog & Account Protection](./029-sleep-guard-probe-watchdog-and-account-protection.md) | Hardening / Modern Standby Drift / WebSocket Idle Probe / 5MB Log Rotation / Twitch Logout / Linked Badge |
