@@ -644,10 +644,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.8", f"Version mismatch: {__version__}"
-    assert parse_version("3.1.8") == (3, 1, 8)
+    assert __version__ == "3.1.9", f"Version mismatch: {__version__}"
+    assert parse_version("3.1.9") == (3, 1, 9)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
-    assert parse_version("v3.2.0") > parse_version("3.1.8")
+    assert parse_version("v3.2.0") > parse_version("3.1.9")
 
     # 2. Verify protected blacklist in updater
     assert "cookies.jar" in PROTECTED_PATHS
@@ -1125,6 +1125,18 @@ def test_game_shelf_claimed_tab_and_trophies_integration():
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "trophies={sentinelState.trophies}" in app_tsx, "App.tsx must pass trophies to GameShelf"
     assert "onOpenVaultFile={handleOpenVaultFile}" in app_tsx, "App.tsx must pass onOpenVaultFile to GameShelf"
+
+    # 5. Verify excludedSet filters out ignored games from non-excluded tabs and persist-hides synthetic games
+    assert "excludedSet" in shelf_tsx, "GameShelf must define case-insensitive excludedSet"
+    assert "onAddToExcluded(gameName)" in shelf_tsx, "GameShelf must add non-installed games to excludedList on hide"
+
+    # 6. Verify Ace Combat 8 vs Ace Combat Zero distinction in smart_game_match
+    import sys
+    core_dir = WORKSPACE / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from campaigns_fetcher import smart_game_match
+    assert not smart_game_match("Ace Combat Zero: The Belkan War", "ACE COMBAT 8: WINGS OF THEVE")
 
     print("      GameShelf '🏆 Собрано' Tab & Trophies Synthesis: ALL PASS [OK]")
 

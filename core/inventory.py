@@ -246,10 +246,24 @@ class BaseDrop:
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                 reward = self.rewards_text().replace("|", "/")
                 game = self.campaign.game.name.replace("|", "/")
-                camp = self.campaign.name.replace("|", "/")
-                row = f"| {now_str} | **{game}** | {reward} | {camp} | ✅ Забран |\n"
-                with open(trophies_path, "a", encoding="utf-8") as tf:
-                    tf.write(row)
+                # Deduplication check: do not record the same trophy twice for the same game
+                is_duplicate = False
+                if trophies_path.exists():
+                    try:
+                        existing_text = trophies_path.read_text(encoding="utf-8").lower()
+                        g_low = game.lower().strip()
+                        r_low = reward.lower().strip()
+                        for line in existing_text.splitlines():
+                            if g_low in line and r_low in line and ("забран" in line or "✅" in line):
+                                is_duplicate = True
+                                break
+                    except Exception:
+                        pass
+
+                if not is_duplicate:
+                    row = f"| {now_str} | **{game}** | {reward} | {camp} | ✅ Забран |\n"
+                    with open(trophies_path, "a", encoding="utf-8") as tf:
+                        tf.write(row)
                 if hasattr(self._twitch, "gui") and hasattr(self._twitch.gui, "trophies"):
                     self._twitch.gui._root.after(0, self._twitch.gui.trophies.load_trophies)
             except Exception as e:

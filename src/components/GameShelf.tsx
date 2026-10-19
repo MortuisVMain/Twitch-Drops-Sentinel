@@ -200,6 +200,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const handleRemoveInstalled = async (gameName: string, gameId?: string) => {
     const key = (gameId || gameName).toLowerCase();
     setRemovedKeys(prev => new Set(prev).add(key).add(gameName.toLowerCase()));
+    // If game is not installed or synthetic from trophies, also add to excludedList so it persists
+    if (!games.some(g => g.name.toLowerCase().trim() === gameName.toLowerCase().trim() && g.is_installed)) {
+      onAddToExcluded(gameName);
+    }
     try {
       await fetch('http://127.0.0.1:28492/api/installed-games/remove', {
         method: 'POST',
@@ -212,26 +216,46 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     }
   };
 
+  const excludedSet = useMemo(() => {
+    return new Set(excludedList.map(n => n.toLowerCase().trim()));
+  }, [excludedList]);
+
+  const prioritySet = useMemo(() => {
+    return new Set(priorityList.map(n => n.toLowerCase().trim()));
+  }, [priorityList]);
+
   // Filtered games
   const filteredGames = useMemo(() => {
     return allShelfGames.filter((g: GameItem) => {
       const key = (g.id || g.name).toLowerCase();
-      if (removedKeys.has(key) || removedKeys.has(g.name.toLowerCase())) return false;
+      const gNameLow = g.name.toLowerCase().trim();
+      if (removedKeys.has(key) || removedKeys.has(gNameLow)) return false;
       const matchesSearch = g.name.toLowerCase().includes(search.toLowerCase().trim());
       if (!matchesSearch) return false;
 
+      const isExcluded = excludedSet.has(gNameLow);
+      if (filterMode === 'excluded') return isExcluded;
+      if (isExcluded) return false; // Strict gate: excluded games NEVER show in drops, priority, claimed, installed, or all
+
       if (filterMode === 'drops') return g.has_drops;
-      if (filterMode === 'priority') return priorityList.includes(g.name);
+      if (filterMode === 'priority') return prioritySet.has(gNameLow);
       if (filterMode === 'claimed') return isGameClaimed(g);
       if (filterMode === 'installed') return g.is_installed;
-      if (filterMode === 'excluded') return excludedList.includes(g.name);
       return true;
     });
-  }, [allShelfGames, search, filterMode, priorityList, excludedList, removedKeys, claimedTrophiesByGame]);
+  }, [allShelfGames, search, filterMode, prioritySet, excludedSet, removedKeys, claimedTrophiesByGame]);
 
-  const installedCount = allShelfGames.filter(g => g.is_installed).length;
-  const dropsCount = allShelfGames.filter(g => g.has_drops).length;
-  const claimedCount = allShelfGames.filter(g => isGameClaimed(g)).length;
+  const activeShelfGames = useMemo(() => {
+    return allShelfGames.filter(g => {
+      const gNameLow = g.name.toLowerCase().trim();
+      const key = (g.id || g.name).toLowerCase();
+      return !excludedSet.has(gNameLow) && !removedKeys.has(key) && !removedKeys.has(gNameLow);
+    });
+  }, [allShelfGames, excludedSet, removedKeys]);
+
+  const installedCount = activeShelfGames.filter(g => g.is_installed).length;
+  const dropsCount = activeShelfGames.filter(g => g.has_drops).length;
+  const claimedCount = activeShelfGames.filter(g => isGameClaimed(g)).length;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 select-none pb-12 animate-in fade-in duration-300">
@@ -526,7 +550,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     ) : (
                       <>
                         <Plus className="w-3.5 h-3.5" />
-                        <span>{game.has_drops ? '+ В ТОП (Фармить)' : '+ В ТОП (Ждать)'}</span>
+                        <span>{game.has_drops ? '+ В ТОП (Фармить)' : isGameClaimed(game) ? 'Собрано (В ТОП)' : '+ В ТОП (Ждать)'}</span>
                       </>
                     )}
                   </button>

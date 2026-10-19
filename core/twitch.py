@@ -720,30 +720,42 @@ class Twitch:
                 self.save()
                 self.change_state(State.GAMES_UPDATE)
             elif self._state is State.GAMES_UPDATE:
-                # claim drops from expired and active campaigns
                 if not hasattr(self, "_failed_claims"):
                     self._failed_claims: dict[str, int] = {}
-                for campaign in self.inventory:
-                    if not campaign.upcoming:
-                        for drop in campaign.drops:
-                            if drop.can_claim and self._failed_claims.get(drop.id, 0) < 3:
-                                ok = await drop.claim()
-                                if not ok:
-                                    self._failed_claims[drop.id] = self._failed_claims.get(drop.id, 0) + 1
-                # figure out which games we want
-                self.wanted_games.clear()
                 exclude = self.settings.exclude
                 priority = self.settings.priority
                 priority_mode = self.settings.priority_mode
                 priority_only = priority_mode is PriorityMode.PRIORITY_ONLY
-                next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
-                # sorted_campaigns: list[DropsCampaign] = list(self.inventory)
-                sorted_campaigns: list[DropsCampaign] = self.inventory
+                auto_claim_enabled = getattr(self, "auto_claim_drops_enabled", True)
+
                 def _fuzzy_priority(name: str) -> int:
                     for idx, p in enumerate(priority):
                         if smart_game_match(name, p):
                             return idx
                     return MAX_INT
+
+                # claim drops from expired and active campaigns (respecting exclude & priority_only)
+                if auto_claim_enabled:
+                    for campaign in self.inventory:
+                        if not campaign.upcoming:
+                            gname = campaign.game.name if campaign.game else ""
+                            # Do not claim drops for excluded games
+                            if any(smart_game_match(gname, ex) for ex in exclude):
+                                continue
+                            # In priority_only mode, do not claim drops for unselected games
+                            if priority_only and _fuzzy_priority(gname) == MAX_INT:
+                                continue
+                            for drop in campaign.drops:
+                                if drop.can_claim and self._failed_claims.get(drop.id, 0) < 3:
+                                    ok = await drop.claim()
+                                    if not ok:
+                                        self._failed_claims[drop.id] = self._failed_claims.get(drop.id, 0) + 1
+
+                # figure out which games we want
+                self.wanted_games.clear()
+                next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
+                # sorted_campaigns: list[DropsCampaign] = list(self.inventory)
+                sorted_campaigns: list[DropsCampaign] = self.inventory
 
                 if priority_mode is PriorityMode.LOW_AVBL_FIRST:
                     sorted_campaigns.sort(key=lambda c: (_fuzzy_priority(c.game.name), c.availability))

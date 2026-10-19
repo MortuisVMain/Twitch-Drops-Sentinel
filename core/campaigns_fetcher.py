@@ -24,8 +24,8 @@ def clean_title(title: str) -> str:
     t = re.sub(r'[\':;!?,.\-_/\\()\[\]]', ' ', title.lower())
     return ' '.join(t.split())
 
-_ROMAN_MAP = {"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7"}
-_SEQUEL_NUMS = {"2", "3", "4", "5", "6", "7"}
+_ROMAN_MAP = {"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10"}
+_SEQUEL_NUMS = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "zero"}
 
 def smart_game_match(candidate: str, target: str) -> bool:
     """
