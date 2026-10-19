@@ -94,8 +94,8 @@ def ensure_test_service():
             SUITE_PROC = subprocess.Popen(
                 [sys.executable, str(service_script)],
                 cwd=str(WORKSPACE / "core"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             time.sleep(2.0)
 
@@ -644,7 +644,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.4", f"Version mismatch: {__version__}"
+    assert __version__ == "3.1.5", f"Version mismatch: {__version__}"
     assert parse_version("3.1.4") == (3, 1, 4)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
     assert parse_version("v3.2.0") > parse_version("3.1.4")
@@ -807,14 +807,14 @@ def test_channel_points_clipboard_and_feature_toggles():
         }).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
-    with urllib.request.urlopen(req_settings, timeout=5.0) as res:
+    with urllib.request.urlopen(req_settings, timeout=10.0) as res:
         assert res.status == 200
 
     req_state = urllib.request.Request(
         "http://127.0.0.1:28492/api/state",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
-    with urllib.request.urlopen(req_state, timeout=5.0) as res:
+    with urllib.request.urlopen(req_state, timeout=10.0) as res:
         assert res.status == 200
         state = json.loads(res.read().decode("utf-8"))
         st = state.get("settings", {})

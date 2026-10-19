@@ -12,6 +12,8 @@ core/cookies.jar
 
 # 🔴 LOGS & RUNTIME DIAGNOSTICS (PII Leak Prevention)
 *.log
+*.log.old
+*.old
 sentinel_stdout.log
 sentinel_stderr.log
 core/sentinel_service.log

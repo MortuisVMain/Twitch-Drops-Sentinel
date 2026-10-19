@@ -112,14 +112,10 @@ def create_release():
     (RELEASE_DIR / "config.json").write_text(clean_config, encoding="utf-8")
 
     # 8. 1-Click Launcher BAT
-    print("[*] Generating 1-click launcher batch file...")
-    bat_content = (
-        "@echo off\r\n"
-        "chcp 65001 >nul\r\n"
-        "title Twitch Drops Sentinel v3.1\r\n"
-        "start \"\" \"%~dp0TwitchDropsSentinel.exe\"\r\n"
-    )
-    (RELEASE_DIR / "Запустить_Twitch_Drops_Sentinel.bat").write_text(bat_content, encoding="utf-8")
+    print("[*] Copying 1-click launcher batch file with SmartScreen unblock...")
+    bat_src = WORKSPACE / "Запустить_Twitch_Drops_Sentinel.bat"
+    assert bat_src.exists(), f"Missing launcher bat: {bat_src}"
+    shutil.copy2(bat_src, RELEASE_DIR / "Запустить_Twitch_Drops_Sentinel.bat")
 
     # 9. User Guide & Documentation
     if (WORKSPACE / "ИНСТРУКЦИЯ.md").exists():
