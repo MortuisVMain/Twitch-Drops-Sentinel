@@ -1259,6 +1259,11 @@ class SentinelSupervisor:
         )
 
 if __name__ == "__main__":
+    try:
+        from updater import check_and_apply_pending_exe_update
+        check_and_apply_pending_exe_update()
+    except Exception as e:
+        logger.warning(f"Error checking pending exe update: {e}")
     supervisor = SentinelSupervisor()
     try:
         asyncio.run(supervisor.start())

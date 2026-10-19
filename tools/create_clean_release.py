@@ -149,10 +149,10 @@ def create_release():
         PATCH_OUTPUT.unlink()
 
     with zipfile.ZipFile(PATCH_OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as pzf:
-        # Include TwitchDropsSentinel.exe so desktop host fixes are auto-updated
+        # Include TwitchDropsSentinel.update so older clients extract without [Errno 13] Permission denied
         exe_file = RELEASE_DIR / "TwitchDropsSentinel.exe"
         if exe_file.exists():
-            pzf.write(exe_file, "TwitchDropsSentinel.exe")
+            pzf.write(exe_file, "TwitchDropsSentinel.update")
         # Include dist/
         for file in (RELEASE_DIR / "dist").rglob("*"):
             if file.is_file():

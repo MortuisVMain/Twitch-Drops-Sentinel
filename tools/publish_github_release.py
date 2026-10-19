@@ -24,19 +24,20 @@ FULL_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip
 PATCH_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
 
 TAG_NAME = f"v{__version__}"
-RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Полная изоляция от сжатия окна (SC_MINIMIZE Interceptor & Exe Hot-Patch)"
+RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Бесшовное автообновление (Staged Executable Swap & Zero Permission Denied)"
 RELEASE_NOTES = f"""## 🛡️ Twitch Drops Sentinel v{__version__}
 
 ### ⚡ Что нового:
-- **Перехват системного события `SC_MINIMIZE` в `WndProc`:** Окно больше физически не переходит в системное свернутое состояние Win32 при нажатии кнопки «Свернуть» (`_`). Окно мгновенно скрывается (`Hide()`) с сохранением 100% исходных экранных координат и геометрии.
-- **Включение `TwitchDropsSentinel.exe` в Hot-Patch архив:** Хот-патч обновления (`Patch_v{__version__}.zip`) теперь включает обновленный исполняемый файл десктоп-хоста. 
-- **Атомарная ротация запущенных бинарников в `updater.py`:** Авто-апдейтер на лету ротирует запущенный `.exe` в `.exe.old` без системной блокировки `PermissionError`, позволяя обновлять десктоп-хост в один клик.
-- **Гарантированное восстановление геометрии из `window_state.json`:** Метод `EnsureValidWindowBounds` при любых сбоях мультимониторных конфигураций или DWM-стабов мгновенно считывает и применяет сохраненные пользовательские границы.
-- **Устранение `ShowInTaskbar` мутаций:** Полное исключение `RecreateHandle()`, обеспечивающее монолитную стабильность нативного WebView2.
+- **Бесшовное обновление без `[Errno 13] Permission denied` (Staged Executable Swap):** В хот-патч обновлений (`Patch_v{__version__}.zip`) исполняемый файл десктоп-хоста теперь упаковывается как `TwitchDropsSentinel.update`. Это гарантирует, что клиенты старых версий (v3.1.x) распаковывают обновление со 100% успехом без ошибок блокировки файла операционной системой Windows NTFS.
+- **Двухконтурная ротация и применение исполняемого файла:**
+  1. *На лету в Python-сервисе (`updater.py` & `sentinel_service.py`):* Автоматическая атомарная ротация запущенного бинарника в `.exe.old` и подстановка нового `.exe`.
+  2. *В предстартовом скрипте (`Запустить_Twitch_Drops_Sentinel.bat`):* Автоматическая замена `TwitchDropsSentinel.update` на `TwitchDropsSentinel.exe` перед стартом десктоп-хоста.
+- **Монолитная защита от сжатия окна из трея (Win32 WndProc SC_MINIMIZE Interceptor):** Окно не сворачивается в 160×32px DWM-стаб при нажатии «_», а мгновенно скрывается в трей с полным сохранением пользовательских координат и размеров экрана.
+- **Гарантированное восстановление геометрии из `window_state.json`:** Метод `EnsureValidWindowBounds` при любых сбоях мультимониторных конфигураций или DWM-стабов восстанавливает корректный размер и положение окна.
 
 ### 📦 Файлы релиза:
 1. `Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip` (~60 MB) — Полная автономная версия со встроенным portable Python 3.12 для новых пользователей и друзей.
-2. `Twitch_Drops_Sentinel_Patch_v{__version__}.zip` (~35 MB) — Полный хот-патч (десктоп-хост + core + dist) для встроенного Auto-Updater прямо из интерфейса.
+2. `Twitch_Drops_Sentinel_Patch_v{__version__}.zip` (~35 MB) — Полный хот-патч (десктоп-хост + core + dist) для встроенного Auto-Updater прямо из интерфейса без `Permission denied`.
 
 *Crafted with precision by Mortuis_V_Studio (2026).*
 """

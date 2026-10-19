@@ -10,6 +10,9 @@ echo ========================================================
 echo Разблокировка файлов после распаковки (SmartScreen fix)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~dp0TwitchDropsSentinel.exe' -ErrorAction SilentlyContinue; Get-ChildItem -Path '%~dp0' -Recurse -Filter '*.dll' -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
 echo Запуск автономного комплекса...
+if exist "%~dp0TwitchDropsSentinel.update" (
+    move /y "%~dp0TwitchDropsSentinel.update" "%~dp0TwitchDropsSentinel.exe" >nul 2>&1
+)
 
 start "" "%~dp0TwitchDropsSentinel.exe"
 exit

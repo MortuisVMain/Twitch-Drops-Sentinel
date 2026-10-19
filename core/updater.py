@@ -93,6 +93,34 @@ def get_optional_github_token() -> str:
 
     return ""
 
+def check_and_apply_pending_exe_update() -> bool:
+    """
+    Checks for TwitchDropsSentinel.update and swaps it to TwitchDropsSentinel.exe.
+    On Windows NTFS, a running executable cannot be overwritten directly, but can be renamed.
+    """
+    update_file = PROJECT_DIR / "TwitchDropsSentinel.update"
+    target_exe = PROJECT_DIR / "TwitchDropsSentinel.exe"
+    if not update_file.exists():
+        return False
+    try:
+        old_exe = PROJECT_DIR / "TwitchDropsSentinel.exe.old"
+        if old_exe.exists():
+            try:
+                old_exe.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if target_exe.exists():
+            try:
+                target_exe.rename(old_exe)
+            except Exception as e:
+                logger.warning(f"Could not rotate running exe to .old: {e}")
+        update_file.rename(target_exe)
+        logger.info("Successfully applied pending executable update: TwitchDropsSentinel.update -> TwitchDropsSentinel.exe")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not swap TwitchDropsSentinel.update to .exe: {e}")
+        return False
+
 class SafeAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
     """
     Prevents leaking or conflicting Authorization headers when redirected
@@ -336,6 +364,10 @@ class GitHubUpdater:
 
             # Cleanup staging
             shutil.rmtree(staging_dir, ignore_errors=True)
+
+            # Immediately attempt to swap pending TwitchDropsSentinel.update to TwitchDropsSentinel.exe
+            check_and_apply_pending_exe_update()
+
             # Invalidate update cache so subsequent checks immediately see new version
             self._cached_result = None
             self.last_check_time = 0.0
