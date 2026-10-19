@@ -128,6 +128,7 @@ EXE_BLACKLIST_SUBSTRINGS = (
     "launcher", "updater", "patcher", "benchmark", "config", "server",
     "unitycrashhandler", "cefprocess", "crs-handler", "cleanup", "touchup",
     "helper", "crashpad", "errorreport", "report", "activation",
+    "elevate", "bootstrapper", "quicksfv", "patchkit", "unrealcefsubprocess",
 )
 
 BINARY_SUBDIRS = (
@@ -137,7 +138,7 @@ BINARY_SUBDIRS = (
 
 EDITION_STRIP_RE = re.compile(
     r"\b(goty|game of the year|complete|definitive|ultimate|deluxe|standard|"
-    r"edition|director'?s cut|remastered|anniversary|enhanced|remake|playtest)\b",
+    r"edition|director'?s cut|dc|remastered|anniversary|enhanced|remake|playtest)\b",
     re.IGNORECASE,
 )
 NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -428,10 +429,17 @@ class GameScanner:
                         name = name_match.group(1).strip()
                         installdir = installdir_match.group(1).strip() if installdir_match else ""
 
+                        # If Steam manifest has appid_XXXXXX as name, fallback to human-readable installdir
+                        if name.lower().startswith("appid_") or name.lower().startswith("app_"):
+                            if installdir:
+                                name = installdir
+
                         if not name or appid in ignored_appids or appid in seen_appids:
                             continue
 
-                        # Filter out Steamworks, Proton runtimes, dedicated servers
+                        # Filter out non-games (e.g. Blender, tools) and Steamworks, Proton runtimes, dedicated servers
+                        if NON_GAME_NAMES.search(name):
+                            continue
                         if any(term in name for term in ("Steamworks", "Proton", "Dedicated Server", "Soundtrack", "Bonus Content")):
                             continue
 
@@ -507,8 +515,17 @@ class GameScanner:
                         if not display_name or not install_loc or app_name in seen_appids:
                             continue
 
-                        # Skip Unreal Engine versions, plugins, vault cache
-                        if any(c in ("plugins", "engines") for c in categories):
+                        # Skip Unreal Engine versions, plugins, vault cache, and developer software
+                        app_low = app_name.lower()
+                        name_low = display_name.lower()
+                        path_low = install_loc.lower()
+                        if (
+                            any(c.lower() in ("plugins", "engines", "editors", "vault") for c in categories)
+                            or any(x in app_low for x in ("ue_", "unrealengine", "fab", "quixel", "vault"))
+                            or any(x in name_low for x in ("unreal engine", "quixel bridge", "fab ue plugin", "twinmotion"))
+                            or any(x in path_low for x in ("ue_", "unreal engine", "epic games\\ue_"))
+                            or NON_GAME_NAMES.search(display_name)
+                        ):
                             continue
 
                         install_path = Path(os.path.normpath(install_loc))
@@ -629,12 +646,21 @@ class GameScanner:
         # Definitive Game Engine Signatures
         if "unityplayer.dll" in file_names or any(d.endswith("_data") for d in dir_names):
             return True  # Unity
-        if "engine" in dir_names and "binaries" in dir_names:
+        if "engine" in dir_names or "windowsnoeditor" in dir_names:
             return True  # Unreal Engine
-        if any(f in file_names for f in ("steam_api.dll", "steam_api64.dll", "eossdk-win64-shipping.dll", "galaxy.dll", "galaxy64.dll")):
+        if any(f.startswith("goggame-") for f in file_names) or "goggame.dll" in file_names:
+            return True  # GOG Game
+        if any(f in file_names for f in ("steam_api.dll", "steam_api64.dll", "eossdk-win64-shipping.dll", "galaxy.dll", "galaxy64.dll", "steam_emu.ini", "codex.ini", "flt.ini", "rld.ini")):
             return True  # Storefront Game DRM/SDK
+        if any(fn.endswith((".pak", ".pck", ".assets", ".vpk", ".bundle", ".unity3d", ".wad", ".bank", ".cpk")) for fn in file_names):
+            return True  # Game asset package
 
-        # Valid Game Executable check
+        # Known game binary subdirectories
+        for binary_sub in ("bin", "binaries", "win64", "x64", "retail", "game", "content", "client", "shipping"):
+            if binary_sub in dir_names:
+                return True
+
+        # Valid Game Executable check in root
         for e in entries:
             if e.is_file(follow_symlinks=False) and e.name.lower().endswith(".exe"):
                 exe_name = e.name
@@ -642,26 +668,14 @@ class GameScanner:
                     continue
                 if NON_GAME_NAMES.search(exe_name) or MOD_PATCH_PATTERNS.search(exe_name):
                     continue
-                try:
-                    size = e.stat().st_size
-                except OSError:
-                    size = 0
-                if size > 10 * 1024 * 1024:  # > 10 MB executable
-                    return True
-                if any(fn.endswith((".pak", ".pck", ".assets", ".vpk", ".bundle", ".unity3d")) for fn in file_names):
-                    return True
+                return True
 
-        # Check subdirectories (bin/x64, Binaries/Win64, etc.)
-        for binary_sub in ("bin", "binaries", "win64", "x64", "retail"):
-            if binary_sub in dir_names:
-                sub_path = path / binary_sub
-                try:
-                    for sub_e in os.scandir(sub_path):
-                        if sub_e.is_file(follow_symlinks=False) and sub_e.name.lower().endswith(".exe"):
-                            if not cls._is_blacklisted_exe(sub_e.name) and not NON_GAME_NAMES.search(sub_e.name) and not MOD_PATCH_PATTERNS.search(sub_e.name):
-                                return True
-                except OSError:
-                    pass
+        # Check if folder has a single subfolder that contains a game (e.g. Dredge/DREDGEmKMzx)
+        subdirs = [e for e in entries if e.is_dir(follow_symlinks=False) and not e.name.startswith((".", "$", "__"))]
+        if len(subdirs) == 1:
+            child_path = path / subdirs[0].name
+            if cls.is_valid_game_directory(child_path):
+                return True
 
         return False
 
@@ -779,7 +793,25 @@ class GameScanner:
             if folder_name_low in SYSTEM_BLACKLIST:
                 continue
 
-            is_container = folder_name_low in CONTAINER_STOP_WORDS
+            is_container = (
+                folder_name_low in CONTAINER_STOP_WORDS
+                or any(word in CONTAINER_STOP_WORDS for word in folder_name_low.split())
+                or any(token in folder_name_low for token in ("steamlibrary", "steamapps", "repack", "repacks", "торрент"))
+            )
+
+            # Heuristic: If folder has multiple subdirectories and no root game executable, it is a library container
+            if not is_container:
+                try:
+                    subdirs_count = sum(1 for e in os.scandir(folder_path) if e.is_dir(follow_symlinks=False))
+                    if subdirs_count >= 2:
+                        has_root_exe = any(
+                            e.is_file(follow_symlinks=False) and e.name.lower().endswith(".exe") and not self._is_blacklisted_exe(e.name)
+                            for e in os.scandir(folder_path)
+                        )
+                        if not has_root_exe:
+                            is_container = True
+                except OSError:
+                    pass
 
             # Case A: Directly selected game directory
             # NEVER treat parent library container (e.g. D:\Game) as a single game!
@@ -871,7 +903,8 @@ class GameScanner:
             pass
         return None
 
-    def _find_game_executable(self, base_dir: Path, max_depth: int = 3) -> Optional[Path]:
+    @classmethod
+    def _find_game_executable(cls, base_dir: Path, max_depth: int = 3) -> Optional[Path]:
         """Breadth-first search for the primary game executable (max_depth=3)."""
         queue: list[tuple[Path, int]] = [(base_dir, 0)]
         candidates: list[tuple[int, int, Path]] = []
@@ -884,7 +917,7 @@ class GameScanner:
                 subdirs: list[Path] = []
                 for entry in os.scandir(current_dir):
                     if entry.is_file(follow_symlinks=False) and entry.name.lower().endswith(".exe"):
-                        if not self._is_blacklisted_exe(entry.name) and not NON_GAME_NAMES.search(entry.name) and not MOD_PATCH_PATTERNS.search(entry.name):
+                        if not cls._is_blacklisted_exe(entry.name) and not NON_GAME_NAMES.search(entry.name) and not MOD_PATCH_PATTERNS.search(entry.name):
                             try:
                                 size = entry.stat().st_size
                             except OSError:
@@ -918,6 +951,7 @@ class GameScanner:
         Deduplicates by normalized name and saves atomically.
         """
         discovered: dict[str, InstalledGame] = {}
+        seen_install_paths: dict[str, str] = {}
 
         def register(source_games: list[InstalledGame]):
             for g in source_games:
@@ -927,15 +961,37 @@ class GameScanner:
                     continue
                 if norm in CONTAINER_STOP_WORDS or name.lower() in CONTAINER_STOP_WORDS:
                     continue
+                # Discard standalone DLC/upgrade packages
+                if re.search(r"\b(upgrade|dlc pack|season pass|expansion pass|bonus content|soundtrack|artbook|ost)\b", name, re.IGNORECASE):
+                    continue
                 # Heuristics apply strictly to unverified registry/custom items, NEVER trusted stores
                 if g.get("platform") in ("registry", "custom") and (NON_GAME_NAMES.search(name) or MOD_PATCH_PATTERNS.search(name)):
                     continue
                 if self.is_ignored(name, g.get("id", "")):
                     continue
+
+                install_path_raw = g.get("install_path", "")
+                canon_path = str(Path(install_path_raw).resolve()).lower() if install_path_raw else ""
+
+                # Check if exact directory path on disk was already registered
+                if canon_path and canon_path in seen_install_paths:
+                    existing_platform = seen_install_paths[canon_path]
+                    # If already registered by official store, discard secondary duplicate from custom/registry
+                    if existing_platform in ("steam", "epic", "gog") and g.get("platform") in ("registry", "custom"):
+                        continue
+                    # If newly discovered from official store, replace secondary registry/custom duplicate
+                    if g.get("platform") in ("steam", "epic", "gog") and existing_platform in ("registry", "custom"):
+                        for k, v in list(discovered.items()):
+                            if str(Path(v.get("install_path", "")).resolve()).lower() == canon_path:
+                                del discovered[k]
+                                break
+
                 existing = discovered.get(norm)
                 # Primary manifests override generic registry / custom hits
                 if existing is None or existing.get("platform") in ("registry", "custom"):
                     discovered[norm] = g
+                    if canon_path:
+                        seen_install_paths[canon_path] = g.get("platform", "custom")
 
         # 1. Steam (Fastest & most comprehensive)
         try:

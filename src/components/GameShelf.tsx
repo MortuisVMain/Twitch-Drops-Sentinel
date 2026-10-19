@@ -128,6 +128,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'drops' | 'installed' | 'priority' | 'excluded' | 'all'>('drops');
   const [isClearingInstalled, setIsClearingInstalled] = useState(false);
+  const [removedKeys, setRemovedKeys] = useState<Set<string>>(new Set());
 
   const handleClearInstalled = async () => {
     setIsClearingInstalled(true);
@@ -146,6 +147,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   };
 
   const handleRemoveInstalled = async (gameName: string, gameId?: string) => {
+    const key = (gameId || gameName).toLowerCase();
+    setRemovedKeys(prev => new Set(prev).add(key).add(gameName.toLowerCase()));
     try {
       await fetch('http://127.0.0.1:28492/api/installed-games/remove', {
         method: 'POST',
@@ -161,6 +164,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   // Filtered games
   const filteredGames = useMemo(() => {
     return games.filter((g: GameItem) => {
+      const key = (g.id || g.name).toLowerCase();
+      if (removedKeys.has(key) || removedKeys.has(g.name.toLowerCase())) return false;
       const matchesSearch = g.name.toLowerCase().includes(search.toLowerCase().trim());
       if (!matchesSearch) return false;
 
@@ -170,7 +175,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       if (filterMode === 'excluded') return excludedList.includes(g.name);
       return true;
     });
-  }, [games, search, filterMode, priorityList, excludedList]);
+  }, [games, search, filterMode, priorityList, excludedList, removedKeys]);
 
   const installedCount = games.filter(g => g.is_installed).length;
   const dropsCount = games.filter(g => g.has_drops).length;
@@ -423,16 +428,15 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     <Ban className="w-4 h-4" />
                   </button>
 
-                  {/* Remove / Hide Installed Game Button */}
-                  {game.is_installed && (
-                    <button
-                      onClick={() => handleRemoveInstalled(game.name, game.id)}
-                      className="flex items-center justify-center p-2 rounded-xl text-xs transition-all cursor-pointer active:scale-95 bg-white/[0.04] text-[var(--muted)] hover:text-rose-400 hover:bg-rose-500/10 border border-[var(--line)]"
-                      title="Убрать из списка установленных игр"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  {/* Remove / Hide Game Button */}
+                  <button
+                    onClick={() => handleRemoveInstalled(game.name, game.id)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer active:scale-95 bg-rose-500/10 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 hover:text-rose-200 hover:border-rose-500/50 shadow-sm"
+                    title="Удалить / скрыть игру из списка навсегда"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span className="hidden sm:inline">Скрыть</span>
+                  </button>
                 </div>
               </div>
             );

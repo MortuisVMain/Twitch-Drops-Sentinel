@@ -61,6 +61,11 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [isCopyingReport, setIsCopyingReport] = useState<boolean>(false);
   const [isClearingGames, setIsClearingGames] = useState<boolean>(false);
   const [clearedGamesMessage, setClearedGamesMessage] = useState<string | null>(null);
+  const [isClearingTrophies, setIsClearingTrophies] = useState<boolean>(false);
+  const [clearedTrophiesMessage, setClearedTrophiesMessage] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState<boolean>(false);
+  const [reportContent, setReportContent] = useState<string>('');
+  const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
 
   // GitHub Auto-Updater States
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
@@ -234,6 +239,25 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       console.error('Failed to copy diagnostic report:', err);
     } finally {
       setIsCopyingReport(false);
+    }
+  };
+
+  const handleClearTrophies = async () => {
+    playClick();
+    if (!window.confirm('Вы уверены, что хотите очистить весь журнал полученных наград (Trophies.md)?')) return;
+    setIsClearingTrophies(true);
+    setClearedTrophiesMessage(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' });
+      if (res.ok) {
+        playRewardChime();
+        setClearedTrophiesMessage('✓ Журнал наград очищен');
+        setTimeout(() => setClearedTrophiesMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to clear trophies:', err);
+    } finally {
+      setIsClearingTrophies(false);
     }
   };
 
@@ -415,6 +439,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 <FileText className="w-3.5 h-3.5 text-[var(--accent)]" />
                 <span>Журнал Trophies.md</span>
               </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClearTrophies}
+              disabled={isClearingTrophies}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+              title="Очистить весь список полученных наград (Trophies.md)"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>{isClearingTrophies ? 'Очистка...' : 'Очистить трофеи'}</span>
+            </button>
+            {clearedTrophiesMessage && (
+              <span className="text-xs text-[var(--accent)] font-medium animate-in fade-in duration-200">
+                {clearedTrophiesMessage}
+              </span>
             )}
             <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#368873]/15 border border-[#73bba5]/30 text-[var(--accent)] text-xs font-semibold">
               <CheckCircle2 className="w-4 h-4 text-[#73bba5]" />
@@ -1069,15 +1108,42 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   <div className="text-[11px] text-[var(--muted)]">Без токенов и паролей — готов для отправки в чат поддержки</div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleCopyDiagnosticReport}
-                disabled={isCopyingReport}
-                className="px-3.5 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
-              >
-                {isCopiedReport ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{isCopiedReport ? 'Скопировано!' : 'Скопировать'}</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playClick();
+                    setIsLoadingReport(true);
+                    try {
+                      const res = await fetch('http://127.0.0.1:28492/api/diagnostic-report');
+                      if (res.ok) {
+                        const t = await res.text();
+                        setReportContent(t);
+                        setShowReportModal(true);
+                      }
+                    } catch (e) {
+                      console.error('Failed to load diagnostic report:', e);
+                    } finally {
+                      setIsLoadingReport(false);
+                    }
+                  }}
+                  disabled={isLoadingReport}
+                  className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Просмотреть отчет на экране"
+                >
+                  <FileText className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span>{isLoadingReport ? 'Загрузка...' : 'Просмотреть'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyDiagnosticReport}
+                  disabled={isCopyingReport}
+                  className="px-3.5 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  {isCopiedReport ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{isCopiedReport ? 'Скопировано!' : 'Скопировать'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1173,6 +1239,50 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         <div>Twitch Drops Sentinel v{updateInfo?.local_version || '3.1.2'}</div>
         <div>Crafted with precision by Mortuis_V & Mortuis_V_Studio &bull; 2026</div>
       </div>
+
+      {/* Diagnostic Report Viewer Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="card max-w-2xl w-full max-h-[85vh] flex flex-col p-6 space-y-4 shadow-2xl border border-[var(--line)] bg-[#171d1c]">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-5 h-5 text-[var(--accent)]" />
+                <h3 className="text-base font-bold text-white">Диагностический отчет Sentinel</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportModal(false)}
+                className="p-1.5 rounded-lg text-[var(--muted)] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto max-h-[55vh] p-3.5 rounded-xl bg-black/50 border border-[var(--line)] text-xs font-mono text-emerald-200/90 whitespace-pre-wrap select-text leading-relaxed">
+              {reportContent}
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-[11px] text-[var(--muted)]">Конфиденциальные токены скрыты</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyDiagnosticReport}
+                  className="px-4 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                >
+                  {isCopiedReport ? <Check className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
+                  <span>{isCopiedReport ? 'Скопировано!' : 'Скопировать весь отчет'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReportModal(false)}
+                  className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] cursor-pointer"
+                >
+                  Закрыть
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

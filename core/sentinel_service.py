@@ -477,6 +477,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/installed-games/remove", self.handle_remove_installed_game)
         self.app.router.add_post("/api/open-vault", self.handle_open_vault)
         self.app.router.add_post("/api/open-trophies-file", self.handle_open_vault)
+        self.app.router.add_post("/api/trophies/clear", self.handle_clear_trophies)
         self.app.router.add_post("/api/sync", self.handle_sync)
         self.app.router.add_get("/api/game-directories", self.handle_get_game_directories)
         self.app.router.add_post("/api/game-directories/add", self.handle_add_game_directory)
@@ -664,7 +665,7 @@ class SentinelSupervisor:
 
     async def handle_get_diagnostic_report(self, request: web.Request) -> web.Response:
         report = generate_sanitized_diagnostic_report(self.settings, self.hardware_state)
-        return web.Response(text=report, content_type="text/plain; charset=utf-8")
+        return web.Response(text=report, content_type="text/plain", charset="utf-8")
 
     async def handle_clipboard_copy(self, request: web.Request) -> web.Response:
         try:
@@ -929,6 +930,23 @@ class SentinelSupervisor:
             return web.json_response({"status": "opened"})
         except Exception as e:
             logger.error("Error opening trophies file: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_clear_trophies(self, request: web.Request) -> web.Response:
+        try:
+            clean_header = (
+                "# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n"
+                "| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n"
+                "| :--- | :--- | :--- | :--- | :--- |\n"
+            )
+            with open(TROPHIES_FILE, "w", encoding="utf-8") as f:
+                f.write(clean_header)
+            STATE_BRIDGE.drops_claimed_session = 0
+            STATE_BRIDGE.add_log("INFO", "Журнал трофеев очищен.")
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "cleared": True})
+        except Exception as e:
+            logger.error("Error clearing trophies: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_giveaways_state(self, request: web.Request) -> web.Response:

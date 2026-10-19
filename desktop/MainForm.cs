@@ -611,7 +611,14 @@ namespace TwitchDropsSentinel
                     {
                         this.BeginInvoke(new Action(() =>
                         {
-                            try { Clipboard.SetText(textToCopy); } catch { }
+                            try
+                            {
+                                Clipboard.SetDataObject(textToCopy, true, 5, 100);
+                            }
+                            catch
+                            {
+                                try { Clipboard.SetText(textToCopy); } catch { }
+                            }
                         }));
                     }
                 }

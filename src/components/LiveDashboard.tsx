@@ -1410,8 +1410,28 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               </span>
             </div>
 
-            <div className="metric-pill">
-              <span className="pill-label">Всего Наград</span>
+            <div className="metric-pill relative group">
+              <div className="flex items-center justify-between w-full">
+                <span className="pill-label">Всего Наград</span>
+                {stats.total_drops_claimed > 0 && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      playClick();
+                      if (window.confirm('Очистить журнал полученных наград (Trophies.md)?')) {
+                        try {
+                          await fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' });
+                          onManualRefresh();
+                        } catch {}
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-rose-400 hover:text-rose-300 px-1.5 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
+                    title="Очистить журнал трофеев"
+                  >
+                    Очистить
+                  </button>
+                )}
+              </div>
               <span className="pill-value text-[#ffaa00] tabular-nums">
                 {stats.total_drops_claimed} шт.
               </span>
