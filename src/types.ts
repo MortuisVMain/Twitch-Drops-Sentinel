@@ -69,6 +69,8 @@ export interface SentinelSettings {
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
+  giveaways_selected_stores?: StoreId[];
+  giveaways_headless?: boolean;
   streamer_watchdog_enabled?: boolean;
   game_directories?: string[];
   priority_games: string[];
@@ -83,6 +85,7 @@ export interface SentinelLogEntry {
 }
 
 export interface FullSentinelState {
+  version?: string;
   connected: boolean;
   user_id: string;
   username: string;

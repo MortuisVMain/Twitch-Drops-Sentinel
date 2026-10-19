@@ -19,7 +19,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
           <ShieldCheck size={24} />
         </div>
         <h2>Всё просто. Всё под контролем.</h2>
-        <p>Горячие клавиши и управление автономным стражем Sentinel v3.0.</p>
+        <p>Горячие клавиши и управление автономным стражем Sentinel.</p>
         
         <div className="shortcut-row">
           <span>Обновить данные и статус Twitch</span>

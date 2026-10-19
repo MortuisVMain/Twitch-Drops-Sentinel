@@ -25,12 +25,15 @@ import {
   StoreId,
   GiveawaysStateResponse,
   ClaimedGameItem,
-  GiveawaysLogEntry
+  GiveawaysLogEntry,
+  SentinelSettings
 } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface GiveawaysViewProps {
   onBackToDashboard?: () => void;
+  settings?: SentinelSettings;
+  onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
 }
 
 const STORE_CONFIG: Record<
@@ -88,19 +91,59 @@ const STORE_CONFIG: Record<
   },
 };
 
-export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard }) => {
+export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
+  onBackToDashboard,
+  settings,
+  onUpdateSettings,
+}) => {
   const [data, setData] = useState<GiveawaysStateResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isClaiming, setIsClaiming] = useState(false);
-  const [headless, setHeadless] = useState(true);
-  const [selectedStores, setSelectedStores] = useState<StoreId[]>([
-    'epic',
-    'gog',
-    'steam',
-    'fab',
-    'unity',
-  ]);
-  const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>('all');
+
+  const [headless, setHeadless] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sentinel_giveaways_headless');
+      if (saved !== null) return saved === 'true';
+    }
+    return settings?.giveaways_headless !== undefined ? settings.giveaways_headless : true;
+  });
+
+  const [selectedStores, setSelectedStores] = useState<StoreId[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sentinel_giveaways_selected_stores');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed as StoreId[];
+        } catch {}
+      }
+    }
+    if (settings?.giveaways_selected_stores && settings.giveaways_selected_stores.length > 0) {
+      return settings.giveaways_selected_stores;
+    }
+    return ['epic', 'gog', 'steam', 'fab', 'unity'];
+  });
+
+  const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sentinel_giveaways_store_filter');
+      if (saved) return saved;
+    }
+    return 'all';
+  });
+
+  useEffect(() => {
+    if (settings?.giveaways_selected_stores && settings.giveaways_selected_stores.length > 0) {
+      if (typeof window !== 'undefined' && !localStorage.getItem('sentinel_giveaways_selected_stores')) {
+        setSelectedStores(settings.giveaways_selected_stores);
+      }
+    }
+    if (settings?.giveaways_headless !== undefined) {
+      if (typeof window !== 'undefined' && localStorage.getItem('sentinel_giveaways_headless') === null) {
+        setHeadless(settings.giveaways_headless);
+      }
+    }
+  }, [settings?.giveaways_selected_stores, settings?.giveaways_headless]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
   const [logs, setLogs] = useState<GiveawaysLogEntry[]>([]);
@@ -206,9 +249,30 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
 
   const handleToggleStore = (store: StoreId) => {
     playClick();
-    setSelectedStores((prev) =>
-      prev.includes(store) ? prev.filter((s) => s !== store) : [...prev, store]
-    );
+    setSelectedStores((prev) => {
+      const next = prev.includes(store) ? prev.filter((s) => s !== store) : [...prev, store];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sentinel_giveaways_selected_stores', JSON.stringify(next));
+      }
+      if (onUpdateSettings) {
+        onUpdateSettings({ giveaways_selected_stores: next });
+      }
+      return next;
+    });
+  };
+
+  const handleToggleHeadless = () => {
+    playClick();
+    setHeadless((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sentinel_giveaways_headless', String(next));
+      }
+      if (onUpdateSettings) {
+        onUpdateSettings({ giveaways_headless: next });
+      }
+      return next;
+    });
   };
 
   const handleStartClaim = async () => {
@@ -282,10 +346,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
           <div className="flex flex-wrap items-center gap-3">
             {/* Headless Mode Switch */}
             <button
-              onClick={() => {
-                playClick();
-                setHeadless(!headless);
-              }}
+              onClick={handleToggleHeadless}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
                 headless
                   ? 'bg-white/[0.04] border-[var(--line)] text-[var(--muted)] hover:text-white'
@@ -613,6 +674,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({ onBackToDashboard 
                   onClick={() => {
                     playClick();
                     setSelectedStoreFilter(store);
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('sentinel_giveaways_store_filter', store);
+                    }
                   }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     selectedStoreFilter === store

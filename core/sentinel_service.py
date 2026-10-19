@@ -317,6 +317,8 @@ class SentinelSupervisor:
             "claim_channel_points": True,
             "auto_claim_drops": True,
             "giveaways_enabled": True,
+            "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
+            "giveaways_headless": True,
             "streamer_watchdog_enabled": True,
             "game_directories": [],
             "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
@@ -515,6 +517,19 @@ class SentinelSupervisor:
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return response
 
+    def get_app_version(self) -> str:
+        try:
+            v_file = PROJECT_ROOT / "core" / "version.py"
+            if v_file.exists():
+                text = v_file.read_text(encoding="utf-8")
+                match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
+                if match:
+                    return match.group(1)
+        except Exception:
+            pass
+        from version import __version__
+        return __version__
+
     async def get_full_state(self) -> dict:
         trophies = self.load_trophies()
         uptime_hours = round((datetime.now().timestamp() - STATE_BRIDGE.start_time) / 3600, 1)
@@ -548,6 +563,7 @@ class SentinelSupervisor:
         installed_games = [g for g in catalog_games if g.get("is_installed")]
 
         return {
+            "version": self.get_app_version(),
             "connected": True,
             "user_id": STATE_BRIDGE.user_id,
             "username": STATE_BRIDGE.username,

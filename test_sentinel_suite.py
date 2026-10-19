@@ -644,10 +644,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.6", f"Version mismatch: {__version__}"
-    assert parse_version("3.1.5") == (3, 1, 5)
+    assert __version__ == "3.1.7", f"Version mismatch: {__version__}"
+    assert parse_version("3.1.7") == (3, 1, 7)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
-    assert parse_version("v3.2.0") > parse_version("3.1.6")
+    assert parse_version("v3.2.0") > parse_version("3.1.7")
 
     # 2. Verify protected blacklist in updater
     assert "cookies.jar" in PROTECTED_PATHS
@@ -1058,6 +1058,52 @@ def test_r6s_showcase_acl_and_strict_priority_guard():
 
     print("      Showcase ACL Matching, Drops Discovery & Strict Priority Guard: ALL PASS [OK]")
 
+def test_giveaways_stores_persistence_and_version_standardization():
+    print("[31/31] Testing Giveaways Store Persistence & Single-Location Dynamic Version...")
+
+    # 1. Verify sentinel_service.py returns version in state and defaults giveaways stores
+    sentinel_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert '"version": self.get_app_version()' in sentinel_py, "sentinel_service must include version in get_full_state"
+    assert '"giveaways_selected_stores"' in sentinel_py, "sentinel_service must include giveaways_selected_stores in load_settings"
+    assert '"giveaways_headless"' in sentinel_py, "sentinel_service must include giveaways_headless in load_settings"
+
+    # 2. Verify updater.py dynamic local version reading and cache invalidation
+    updater_py = (WORKSPACE / "core" / "updater.py").read_text(encoding="utf-8")
+    assert "def get_live_local_version()" in updater_py, "updater.py must contain get_live_local_version"
+    assert "local_ver = parse_version(live_current)" in updater_py, "updater.py must compare against live_current"
+    assert "self._cached_result = None" in updater_py, "updater.py must invalidate cache on update apply"
+
+    # 3. Verify GiveawaysView.tsx two-tier persistence
+    gv_tsx = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "sentinel_giveaways_selected_stores" in gv_tsx, "GiveawaysView must use sentinel_giveaways_selected_stores in localStorage"
+    assert "sentinel_giveaways_headless" in gv_tsx, "GiveawaysView must use sentinel_giveaways_headless in localStorage"
+    assert "onUpdateSettings" in gv_tsx, "GiveawaysView must support onUpdateSettings"
+
+    # 4. Verify App.tsx uses dynamic version in sidebar only and removed from footer
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "sentinelState?.version || updateInfo?.local_version" in app_tsx, "App.tsx must use dynamic sentinelState version in sidebar"
+    assert "Sentinel v{" not in app_tsx, "App.tsx must not contain hardcoded version string in footer"
+
+    # 5. Verify SettingsStudio and HelpModal clean headers
+    help_tsx = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
+    assert "Sentinel v3.0" not in help_tsx, "HelpModal must not contain hardcoded Sentinel v3.0"
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "Twitch Drops Sentinel v{" not in settings_tsx, "SettingsStudio header must not have hardcoded version string"
+
+    # 6. Verify live REST API /api/state returns dynamic version
+    ensure_test_service()
+    req_state = urllib.request.Request(
+        "http://127.0.0.1:28492/api/state",
+        headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_state, timeout=5.0) as res:
+        assert res.status == 200
+        st = json.loads(res.read().decode("utf-8"))
+        assert "version" in st, "/api/state must return version key"
+        assert len(st["version"]) >= 3, "version string must be valid"
+
+    print("      Giveaways Store Persistence & Single-Location Version: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1093,8 +1139,9 @@ if __name__ == "__main__":
     test_game_scanner_deduplication_and_trophies_clear()
     test_sleep_guard_watchdog_and_account_protection()
     test_r6s_showcase_acl_and_strict_priority_guard()
+    test_giveaways_stores_persistence_and_version_standardization()
     print("=" * 65)
-    print("  ALL 30 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 31 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

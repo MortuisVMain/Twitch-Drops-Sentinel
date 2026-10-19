@@ -107,6 +107,18 @@ class SafeAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
                 del new_req.headers["Authorization"]
         return new_req
 
+def get_live_local_version() -> str:
+    try:
+        v_file = CORE_DIR / "version.py"
+        if v_file.exists():
+            text = v_file.read_text(encoding="utf-8")
+            match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+    return CURRENT_VERSION
+
 class GitHubUpdater:
     def __init__(self):
         self.last_check_time: float = 0.0
@@ -137,12 +149,13 @@ class GitHubUpdater:
         if not force and self._cached_result and (now - self.last_check_time) < 21600:
             return self._cached_result
 
+        live_current = get_live_local_version()
         result: dict[str, Any] = {
-            "current_version": CURRENT_VERSION,
-            "latest_version": CURRENT_VERSION,
-            "local_version": CURRENT_VERSION,
-            "remote_version": CURRENT_VERSION,
-            "release_name": f"Twitch Drops Sentinel v{CURRENT_VERSION}",
+            "current_version": live_current,
+            "latest_version": live_current,
+            "local_version": live_current,
+            "remote_version": live_current,
+            "release_name": f"Twitch Drops Sentinel v{live_current}",
             "release_notes": "",
             "update_available": False,
             "changelog": "",
@@ -169,7 +182,7 @@ class GitHubUpdater:
                 data = json.loads(resp.read().decode("utf-8"))
                 remote_tag = data.get("tag_name", "3.0.0")
                 remote_ver = parse_version(remote_tag)
-                local_ver = parse_version(CURRENT_VERSION)
+                local_ver = parse_version(live_current)
 
                 update_avail = remote_ver > local_ver
                 assets = data.get("assets", [])
@@ -312,6 +325,14 @@ class GitHubUpdater:
 
             # Cleanup staging
             shutil.rmtree(staging_dir, ignore_errors=True)
+            # Invalidate update cache so subsequent checks immediately see new version
+            self._cached_result = None
+            self.last_check_time = 0.0
+            if CACHE_FILE.exists():
+                try:
+                    CACHE_FILE.unlink(missing_ok=True)
+                except Exception:
+                    pass
             logger.info(f"Update successfully applied! Extracted {extracted_count} files.")
             return True, f"Успешно обновлено ({extracted_count} файлов заменено). Перезапустите Sentinel."
 

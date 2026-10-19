@@ -447,7 +447,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div>
               <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[var(--foreground)]">Параметры & Архитектура</h2>
               <p className="text-xs text-[var(--muted)] mt-0.5">
-                Twitch Drops Sentinel v{updateInfo?.local_version || '3.1.4'} &bull; Универсальный клиент
+                Twitch Drops Sentinel &bull; Универсальный клиент
               </p>
             </div>
           </div>
@@ -1199,7 +1199,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </div>
             </div>
             <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30">
-              v{updateInfo?.local_version || '3.1.4'} Public
+              Public Release
             </span>
           </div>
 
@@ -1274,7 +1274,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
       {/* Footer Branding */}
       <div className="text-center pt-4 pb-2 text-[11px] text-[var(--muted)] space-y-1">
-        <div>Twitch Drops Sentinel v{updateInfo?.local_version || '3.1.4'}</div>
+        <div>Twitch Drops Sentinel &bull; Windows Native Host</div>
         <div>Crafted with precision by Mortuis_V & Mortuis_V_Studio &bull; 2026</div>
       </div>
 
