@@ -188,6 +188,8 @@ class CampaignsFetcher:
                     "box_art": box_art,
                     "drops_end_at": matched_c.get("endAt"),
                     "rewards_count": len(matched_c.get("rewards", [])),
+                    "is_account_connected": matched_c.get("isAccountConnected", True),
+                    "account_link_url": matched_c.get("accountLinkURL") or "https://www.twitch.tv/settings/connections",
                 })
             else:
                 catalog.append({
@@ -227,6 +229,8 @@ class CampaignsFetcher:
                 "box_art": box_art,
                 "drops_end_at": c.get("endAt"),
                 "rewards_count": len(c.get("rewards", [])),
+                "is_account_connected": c.get("isAccountConnected", True),
+                "account_link_url": c.get("accountLinkURL") or "https://www.twitch.tv/settings/connections",
             })
 
         # Sort: Active drops on installed games first, then all other active drops, then remaining installed games

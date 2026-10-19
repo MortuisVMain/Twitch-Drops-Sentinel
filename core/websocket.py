@@ -54,6 +54,8 @@ class Websocket:
         # ping timestamps
         self._next_ping: float = time()
         self._max_pong: float = self._next_ping + PING_TIMEOUT.total_seconds()
+        self._last_msg_time: float = time()
+        self._probe_sent: bool = False
         # main task, responsible for receiving messages, sending them, and websocket ping
         self._handle_task: asyncio.Task[None] | None = None
         # topics stuff
@@ -155,6 +157,8 @@ class Websocket:
         ):
             self._ws.set(websocket)
             self._reconnect_requested.clear()
+            self._last_msg_time = time()
+            self._probe_sent = False
             # NOTE: _topics_changed doesn't start set,
             # because there's no initial topics we can sub to right away
             self.set_status(_("gui", "websocket", "connected"))
@@ -192,6 +196,13 @@ class Websocket:
         if now >= self._next_ping:
             self._next_ping = now + PING_INTERVAL.total_seconds()
             self._max_pong = now + PING_TIMEOUT.total_seconds()  # wait for a PONG for up to 10s
+            self._probe_sent = False
+            await self.send({"type": "PING"})
+        elif now - self._last_msg_time > 45.0 and not self._probe_sent and now < self._next_ping - 20.0:
+            # Heartbeat watchdog for dead TCP sockets (VPN / Wi-Fi drops)
+            ws_logger.debug(f"Websocket[{self._idx}] idle >45s. Sending probe PING...")
+            self._probe_sent = True
+            self._max_pong = now + PING_TIMEOUT.total_seconds()
             await self.send({"type": "PING"})
         elif now >= self._max_pong:
             # it's been more than 10s and there was no PONG
@@ -285,6 +296,9 @@ class Websocket:
         with suppress(asyncio.TimeoutError):
             await self._gather_recv(messages, timeout=0.5)
         # process them
+        if messages:
+            self._last_msg_time = time()
+            self._probe_sent = False
         for message in messages:
             msg_type = message["type"]
             if msg_type == "MESSAGE":
@@ -292,6 +306,8 @@ class Websocket:
             elif msg_type == "PONG":
                 # move the timestamp to something much later
                 self._max_pong = self._next_ping
+                self._last_msg_time = time()
+                self._probe_sent = False
             elif msg_type == "RESPONSE":
                 # no special handling for these (for now)
                 pass

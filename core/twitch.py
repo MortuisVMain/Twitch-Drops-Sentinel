@@ -972,8 +972,11 @@ class Twitch:
                             and self.get_priority(ch) < MAX_INT
                             and (ch.id not in self.streamer_cooldowns or self.streamer_cooldowns[ch.id] <= now_ts)
                         )
+                        active_camp = self.get_active_campaign(ch)
+                        is_linked = getattr(active_camp, "linked", True) if active_camp else True
                         return (
                             self.get_priority(ch),
+                            0 if is_linked else 1,
                             0 if ch.acl_based else 1,
                             0 if ch.drops_enabled else 1,
                             0 if is_valid_session else 1,
@@ -1051,8 +1054,18 @@ class Twitch:
                     continue
 
                 now = time()
-                step_elapsed = max(0.0, now - last_loop_timestamp)
+                raw_step_elapsed = max(0.0, now - last_loop_timestamp)
                 last_loop_timestamp = now
+                if raw_step_elapsed > 60.0:
+                    sleep_gap = raw_step_elapsed - 20.0
+                    logger.info(
+                        f"[SLEEP GUARD] Обнаружен выход из спящего режима/гибернации ({round(raw_step_elapsed)}с). "
+                        f"Коррекция сторожевых таймеров на -{round(sleep_gap)}с."
+                    )
+                    streamer_watch_start += sleep_gap
+                    step_elapsed = 20.0
+                else:
+                    step_elapsed = raw_step_elapsed
 
                 game_name = channel.game.name if channel.game else ""
                 active_camp = self.get_active_campaign(channel)

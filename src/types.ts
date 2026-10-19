@@ -41,6 +41,8 @@ export interface GameItem {
   category?: string;
   drops_end_at?: string;
   rewards_count?: number;
+  is_account_connected?: boolean;
+  account_link_url?: string;
 }
 
 export interface TrophyItem {

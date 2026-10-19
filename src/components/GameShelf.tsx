@@ -373,6 +373,19 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                             <span>Ожидание Drops</span>
                           </span>
                         )}
+                        {game.has_drops && game.is_account_connected === false && (
+                          <a
+                            href={game.account_link_url || "https://www.twitch.tv/settings/connections"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                            title="Аккаунт игры не привязан к Twitch! Нажмите, чтобы открыть привязку."
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <AlertCircle className="w-3 h-3 text-amber-400" />
+                            <span>⚠️ Требуется привязка</span>
+                          </a>
+                        )}
                         {game.is_installed && (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-[var(--surface-elevated)] text-[var(--muted)] border border-[var(--line)]">
                             💾 ПК

@@ -484,6 +484,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/game-directories/remove", self.handle_remove_game_directory)
         self.app.router.add_post("/api/browse-folder", self.handle_browse_folder)
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
+        self.app.router.add_post("/api/auth/logout", self.handle_logout)
         self.app.router.add_post("/api/restart", self.handle_restart)
         self.app.router.add_post("/api/system/restart", self.handle_restart)
         self.app.router.add_post("/api/toggle-daemon", self.handle_toggle_daemon)
@@ -524,6 +525,19 @@ class SentinelSupervisor:
 
         # Authentic Twitch Drops catalog + detected installed games
         catalog_games = CAMPAIGNS_FETCHER.get_catalog()
+        if self.twitch_client and hasattr(self.twitch_client, "inventory"):
+            inv_camps = getattr(self.twitch_client.inventory, "campaigns", {})
+            camp_map = {}
+            for camp in inv_camps.values():
+                if hasattr(camp, "game") and camp.game and camp.game.name:
+                    camp_map[camp.game.name.strip().lower()] = camp
+            for g in catalog_games:
+                gn = g.get("name", "").strip().lower()
+                if gn in camp_map:
+                    camp = camp_map[gn]
+                    g["is_account_connected"] = getattr(camp, "linked", True)
+                    g["account_link_url"] = getattr(camp, "link_url", "") or "https://www.twitch.tv/settings/connections"
+
         installed_games = [g for g in catalog_games if g.get("is_installed")]
 
         return {
@@ -747,6 +761,48 @@ class SentinelSupervisor:
         except Exception as e:
             logger.error("Error switching streamer: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_logout(self, request: web.Request) -> web.Response:
+        logger.info("[AUTH] Пользователь запросил выход / смену аккаунта Twitch.")
+        try:
+            # 1. Stop watching if active
+            if self.twitch_client:
+                if hasattr(self.twitch_client, "stop_watching"):
+                    self.twitch_client.stop_watching()
+                if hasattr(self.twitch_client, "_auth") and self.twitch_client._auth:
+                    self.twitch_client._auth.invalidate(delete_cookies=True)
+
+            # 2. Safely remove cookies.jar on disk
+            for c_path in [
+                Path("cookies.jar"),
+                Path("core/cookies.jar"),
+                Path(os.path.join(os.path.dirname(__file__), "..", "cookies.jar")),
+                Path(os.path.join(os.path.dirname(__file__), "cookies.jar")),
+            ]:
+                try:
+                    if c_path.exists():
+                        c_path.unlink()
+                except Exception:
+                    pass
+
+            # 3. Reset STATE_BRIDGE
+            STATE_BRIDGE.user_id = ""
+            STATE_BRIDGE.username = ""
+            STATE_BRIDGE.status_text = "Требуется авторизация Twitch"
+            STATE_BRIDGE.active_drop = None
+            STATE_BRIDGE.watching_channel = None
+            STATE_BRIDGE.available_channels = []
+            STATE_BRIDGE.watchdog_status = "Ожидание авторизации"
+
+            # 4. Trigger reload/restart of client loop to enter OAuth login flow
+            if self.twitch_client and hasattr(self.twitch_client, "change_state"):
+                self.twitch_client.change_state(State.RESTART)
+
+            await self.broadcast_ws()
+            return web.json_response({"success": True, "message": "Успешный выход из аккаунта Twitch"})
+        except Exception as e:
+            logger.error("Error during logout: %s", e, exc_info=True)
+            return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def handle_scan_games(self, request: web.Request) -> web.Response:
         logger.info("Rescanning local game libraries (Steam, Epic, GOG, Custom folders)...")

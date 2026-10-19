@@ -27,6 +27,7 @@ import {
   Bell,
   Radio,
   ToggleRight,
+  LogOut,
 } from 'lucide-react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
@@ -63,6 +64,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [clearedGamesMessage, setClearedGamesMessage] = useState<string | null>(null);
   const [isClearingTrophies, setIsClearingTrophies] = useState<boolean>(false);
   const [clearedTrophiesMessage, setClearedTrophiesMessage] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
+  const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
   const [reportContent, setReportContent] = useState<string>('');
   const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
@@ -258,6 +261,26 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       console.error('Failed to clear trophies:', err);
     } finally {
       setIsClearingTrophies(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    playClick();
+    if (!window.confirm('Вы уверены, что хотите сменить аккаунт Twitch? Текущие сессионные куки будут удалены, и Sentinel перейдёт в режим новой авторизации.')) return;
+    setIsLoggingOut(true);
+    setLogoutMessage(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/auth/logout', { method: 'POST' });
+      if (res.ok) {
+        setLogoutMessage('✓ Сессия сброшена');
+        setTimeout(() => setLogoutMessage(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to logout:', err);
+      setLogoutMessage('Ошибка связи');
+      setTimeout(() => setLogoutMessage(null), 3000);
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
@@ -459,6 +482,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <CheckCircle2 className="w-4 h-4 text-[#73bba5]" />
               <span>Twitch Session: {username || 'Активна'}</span>
             </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+              title="Выйти из текущего аккаунта Twitch и авторизовать другой"
+            >
+              <LogOut className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isLoggingOut ? 'Выход...' : 'Сменить аккаунт'}</span>
+            </button>
+            {logoutMessage && (
+              <span className="text-xs text-amber-400 font-medium animate-in fade-in duration-200">
+                {logoutMessage}
+              </span>
+            )}
           </div>
         </div>
       </div>

@@ -348,19 +348,29 @@ namespace TwitchDropsSentinel
                         string stdoutLog = Path.Combine(projectRoot, "sentinel_stdout.log");
                         string stderrLog = Path.Combine(projectRoot, "sentinel_stderr.log");
 
+                        Action<string, string> writeRotatedLog = (filePath, line) =>
+                        {
+                            try
+                            {
+                                var fi = new FileInfo(filePath);
+                                if (fi.Exists && fi.Length > 5 * 1024 * 1024)
+                                {
+                                    string oldPath = filePath + ".old";
+                                    if (File.Exists(oldPath)) File.Delete(oldPath);
+                                    File.Move(filePath, oldPath);
+                                }
+                                File.AppendAllText(filePath, line + Environment.NewLine, Encoding.UTF8);
+                            }
+                            catch { }
+                        };
+
                         _pythonBackendProcess.OutputDataReceived += (s, e) =>
                         {
-                            if (e.Data != null)
-                            {
-                                try { File.AppendAllText(stdoutLog, e.Data + Environment.NewLine, Encoding.UTF8); } catch { }
-                            }
+                            if (e.Data != null) writeRotatedLog(stdoutLog, e.Data);
                         };
                         _pythonBackendProcess.ErrorDataReceived += (s, e) =>
                         {
-                            if (e.Data != null)
-                            {
-                                try { File.AppendAllText(stderrLog, e.Data + Environment.NewLine, Encoding.UTF8); } catch { }
-                            }
+                            if (e.Data != null) writeRotatedLog(stderrLog, e.Data);
                         };
                         _pythonBackendProcess.BeginOutputReadLine();
                         _pythonBackendProcess.BeginErrorReadLine();
