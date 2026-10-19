@@ -24,19 +24,16 @@ FULL_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip
 PATCH_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
 
 TAG_NAME = f"v{__version__}"
-RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Channel Points, Diagnostic Clipboard & Smart Filter"
+RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Deep Game Scanner, Trophies Clear & Diagnostic Modal"
 RELEASE_NOTES = f"""## 🛡️ Twitch Drops Sentinel v{__version__}
 
 ### ⚡ Что нового:
-- **Автосбор баллов канала (Channel Points):** Автоматический сбор сундучков на стримах через WebSocket-топик `CommunityPoints` и мутацию `ClaimCommunityPoints` со счетчиком баллов.
-- **Мульти-слойный буфер обмена:** 4-уровневый отказоустойчивый контур копирования диагностического отчета (C# WebView2 IPC ➔ clip.exe ➔ PowerShell Set-Clipboard ➔ REST fallback).
-- **Пульт управления модулями:** 10 tactile-тумблеров в Настройках для раздельного включения/выключения подсистем (Channel Points, Auto-Claim, Watchdog, Free Games, Sleep Guard).
-- **Интеллектуальный фильтр сканера игр:**
-  - 100% отсечение стороннего десктопного софта (`calibre`, `Capture One`, `Gemini`, `Happ`, `AnVir`, `K-Lite`).
-  - Защита папок-контейнеров (`Game`, `Games`, `SteamLibrary`, `repack`).
-  - Фильтрация русификаторов, озвучек и патчей с защитой реальных игр (`Lost Ark`, `Call of Duty`, `Frostpunk`, `Ghost of Tsushima`, `Mirror's Edge`).
-- **1-Click скрытие из полок:** Кнопка корзины (`Trash2`) на карточках установленных игр с персистентным сохранением в `data/ignored_games.json`.
-- **Быстрый Mute звуков:** Мгновенное глушение аудио в Topbar и Настройках.
+- **1-Click очистка трофеев:** Удобная кнопка очистки журнала `Trophies.md` прямо из интерфейса (Настройки и Дэшборд) с моментальным сбросом счетчиков без повреждения сессий.
+- **Заметное скрытие игр на полках:** Яркая кнопка удаления/скрытия на карточках установленных игр с мгновенным исчезновением и сохранением в черный список `data/ignored_games.json`.
+- **Встроенный просмотрщик диагностического отчета:** Полный диагностический отчет теперь можно не только надежно скопировать в буфер обмена (с 5-кратным retry), но и просмотреть прямо в окне приложения во всплывающем модальном окне.
+- **Глубокое сканирование пользовательских папок:** Обновлен алгоритм поиска: сканер распознает игры на Unreal Engine (`Binaries/Win64/*-Shipping.exe`), Unity (`UnityPlayer.dll`), GOG, эмуляторы Steam (`steam_api.dll`) и вложенные подпапки на дисках `E:\\Games` и других.
+- **Каноническая дедупликация путей:** Устранено дублирование игр по реальным путям установки (`seen_install_paths`) и отсечены повторные standalone DLC-апгрейды.
+- **Умный фоллбэк названий игр Steam:** Автоматическое восстановление нормальных читаемых имен вместо внутренних `appid_XXXXXX` и строгое отсечение сторонних программ (Blender, Unreal Engine, Fab).
 
 ### 📦 Файлы релиза:
 1. `Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip` (~60 MB) — Полная автономная версия со встроенным portable Python 3.12 для новых пользователей и друзей.

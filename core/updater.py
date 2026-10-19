@@ -28,7 +28,7 @@ CORE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = CORE_DIR.parent
 CACHE_FILE = PROJECT_DIR / "data" / "update_check_cache.json"
 
-CURRENT_VERSION = "3.1.3"
+from version import __version__ as CURRENT_VERSION
 REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest"
 
 # Files that MUST NEVER be overwritten by an update
@@ -41,6 +41,8 @@ PROTECTED_PATHS = {
     "data/window_state.json",
     "installed_games.json",
     "data/installed_games.json",
+    "ignored_games.json",
+    "data/ignored_games.json",
 }
 
 def parse_version(v: str) -> tuple[int, ...]:
@@ -109,6 +111,7 @@ class GitHubUpdater:
     def __init__(self):
         self.last_check_time: float = 0.0
         self._cached_result: Optional[dict[str, Any]] = None
+        self._is_updating: bool = False
         self._load_cache()
 
     def _load_cache(self):
@@ -222,6 +225,10 @@ class GitHubUpdater:
         if not download_url or not download_url.startswith("http"):
             return False, "Некорректная ссылка на скачивание обновления."
 
+        if self._is_updating:
+            return False, "Обновление уже загружается и устанавливается."
+        self._is_updating = True
+
         staging_dir = PROJECT_DIR / "_staging"
         zip_path = staging_dir / "update.zip"
         backup_dir = PROJECT_DIR / ".backup_state"
@@ -311,5 +318,7 @@ class GitHubUpdater:
         except Exception as e:
             logger.error(f"Error applying update: {e}", exc_info=True)
             return False, f"Ошибка установки обновления: {e}"
+        finally:
+            self._is_updating = False
 
 UPDATER = GitHubUpdater()

@@ -308,7 +308,7 @@ export const App: React.FC = () => {
 
           <div className="sidebar-version">
             <span>Twitch Drops Sentinel</span>
-            <span className="version-pro">v.{updateInfo?.local_version || '3.1.3'}</span>
+            <span className="version-pro">v.{updateInfo?.local_version || '3.1.4'}</span>
           </div>
         </div>
       </aside>

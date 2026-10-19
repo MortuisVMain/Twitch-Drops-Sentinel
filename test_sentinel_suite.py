@@ -640,10 +640,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.3", f"Version mismatch: {__version__}"
-    assert parse_version("3.1.3") == (3, 1, 3)
+    assert __version__ == "3.1.4", f"Version mismatch: {__version__}"
+    assert parse_version("3.1.4") == (3, 1, 4)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
-    assert parse_version("v3.2.0") > parse_version("3.1.3")
+    assert parse_version("v3.2.0") > parse_version("3.1.4")
 
     # 2. Verify protected blacklist in updater
     assert "cookies.jar" in PROTECTED_PATHS
