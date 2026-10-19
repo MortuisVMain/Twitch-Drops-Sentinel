@@ -77,6 +77,21 @@ def create_release():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
 
+    # 5b. Giveaways Engine Module
+    fgc_src = WORKSPACE / "giveaways_engine"
+    if fgc_src.exists():
+        print("[*] Packaging giveaways_engine module...")
+        fgc_dest = RELEASE_DIR / "giveaways_engine"
+        fgc_dest.mkdir(parents=True, exist_ok=True)
+        for item in fgc_src.rglob("*"):
+            if item.is_file():
+                rel = item.relative_to(fgc_src)
+                if any(part in rel.parts for part in ("node_modules", ".git", ".vscode", ".github", "scratch", "docs")) or rel.name.endswith(".log") or rel.name == "settings.json":
+                    continue
+                target = fgc_dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, target)
+
     # 6. Clean Default Trophies.md
     print("[*] Generating clean Trophies.md template...")
     trophies_content = (
@@ -163,6 +178,13 @@ def create_release():
             if file.is_file():
                 arcname = file.relative_to(RELEASE_DIR)
                 pzf.write(file, arcname)
+        # Include giveaways_engine/
+        fgc_dir = RELEASE_DIR / "giveaways_engine"
+        if fgc_dir.exists():
+            for file in fgc_dir.rglob("*"):
+                if file.is_file():
+                    arcname = file.relative_to(RELEASE_DIR)
+                    pzf.write(file, arcname)
 
     patch_mb = PATCH_OUTPUT.stat().st_size / (1024 * 1024)
     print(f"      [PASS] Hot-Patch created successfully! Size: {patch_mb:.2f} MB")

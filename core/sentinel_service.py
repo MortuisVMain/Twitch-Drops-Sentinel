@@ -157,6 +157,7 @@ from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from game_scanner import GameScanner
 from updater import UPDATER
+from dimmer_controller import DimmerController
 
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
@@ -303,6 +304,7 @@ class SentinelSupervisor:
         }
         self.luna_countdown: Optional[int] = None
         self.giveaways = GiveawaysOrchestrator()
+        self.dimmer = DimmerController()
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
 
@@ -477,10 +479,14 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/hardware/ignore-process", self.handle_ignore_process)
         self.app.router.add_post("/api/installed-games/clear", self.handle_clear_installed_games)
         self.app.router.add_post("/api/installed-games/remove", self.handle_remove_installed_game)
+        self.app.router.add_post("/api/installed-games/restore", self.handle_restore_installed_game)
+        self.app.router.add_get("/api/ignored-games", self.handle_get_ignored_games)
+        self.app.router.add_post("/api/ignored-games/restore", self.handle_restore_installed_game)
         self.app.router.add_post("/api/open-vault", self.handle_open_vault)
         self.app.router.add_post("/api/open-trophies-file", self.handle_open_vault)
         self.app.router.add_post("/api/trophies/clear", self.handle_clear_trophies)
         self.app.router.add_post("/api/sync", self.handle_sync)
+        self.app.router.add_post("/api/campaigns/sync", self.handle_sync)
         self.app.router.add_get("/api/game-directories", self.handle_get_game_directories)
         self.app.router.add_post("/api/game-directories/add", self.handle_add_game_directory)
         self.app.router.add_post("/api/game-directories/remove", self.handle_remove_game_directory)
@@ -502,6 +508,10 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/giveaways/abort", self.handle_giveaways_abort)
         self.app.router.add_post("/api/v1/giveaways/toggle-scheduler", self.handle_giveaways_toggle_scheduler)
         self.app.router.add_get("/api/v1/giveaways/stream", self.handle_giveaways_stream)
+        self.app.router.add_get("/api/v1/dimmer/state", self.handle_dimmer_state)
+        self.app.router.add_post("/api/v1/dimmer/brightness", self.handle_dimmer_brightness)
+        self.app.router.add_post("/api/v1/dimmer/blackout", self.handle_dimmer_blackout)
+        self.app.router.add_post("/api/v1/dimmer/timer", self.handle_dimmer_timer)
 
         # CORS preflight middleware
         self.app.middlewares.append(self.cors_middleware)
@@ -510,11 +520,31 @@ class SentinelSupervisor:
     async def cors_middleware(self, request, handler):
         if request.method == "OPTIONS":
             response = web.Response()
-        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            return response
+        try:
             response = await handler(request)
+        except web.HTTPException as ex:
+            ex.headers["Access-Control-Allow-Origin"] = "*"
+            ex.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+            ex.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            raise ex
+        except Exception as err:
+            logger.error(f"Unhandled exception in request {request.path}: {err}", exc_info=True)
+            ex = web.HTTPInternalServerError(
+                text=json.dumps({"error": str(err)}, ensure_ascii=False),
+                content_type="application/json"
+            )
+            ex.headers["Access-Control-Allow-Origin"] = "*"
+            ex.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+            ex.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            raise ex
+
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     def get_app_version(self) -> str:
@@ -586,6 +616,7 @@ class SentinelSupervisor:
             "recent_logs": STATE_BRIDGE.recent_logs,
             "all_catalog_games": catalog_games,
             "installed_games": installed_games,
+            "ignored_games": sorted(list(self.scanner.load_ignored_games())) if hasattr(self.scanner, "load_ignored_games") else [],
         }
 
     async def handle_get_state(self, request: web.Request) -> web.Response:
@@ -923,11 +954,48 @@ class SentinelSupervisor:
             logger.error(f"Error removing installed game: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+    async def handle_get_ignored_games(self, request: web.Request) -> web.Response:
+        ignored = list(self.scanner.load_ignored_games()) if hasattr(self.scanner, "load_ignored_games") else []
+        return web.json_response({"status": "ok", "ignored_games": sorted(ignored)})
+
+    async def handle_restore_installed_game(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            game_id = str(data.get("id") or data.get("game_id") or "").strip()
+            name = str(data.get("name") or "").strip()
+            if not game_id and not name:
+                return web.json_response({"status": "error", "message": "id or name required"}, status=400)
+            if hasattr(self.scanner, "unignore_game"):
+                self.scanner.unignore_game(game_id, name)
+            custom_dirs = self.settings.get("game_directories", [])
+            await self.scanner.scan_all_async(custom_dirs)
+            CAMPAIGNS_FETCHER.refresh_installed_games()
+            STATE_BRIDGE.add_log("INFO", f"Игра '{name or game_id}' восстановлена на полку.")
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "restored": name or game_id})
+        except Exception as e:
+            logger.error(f"Error restoring installed game: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
     async def handle_sync(self, request: web.Request) -> web.Response:
-        logger.info("Syncing campaigns and game catalog...")
-        await asyncio.to_thread(CAMPAIGNS_FETCHER.fetch_active_campaigns_and_cache)
-        CAMPAIGNS_FETCHER.refresh_installed_games()
-        return web.json_response({"status": "ok", "synced": True})
+        logger.info("Syncing active Twitch drops and game catalog...")
+        try:
+            res = await asyncio.to_thread(CAMPAIGNS_FETCHER.sync_active_drops, True)
+            CAMPAIGNS_FETCHER.refresh_installed_games()
+            await self.broadcast_ws()
+            active_count = res.get("active_drops_count", 0)
+            total_cat = res.get("total_catalog", 0)
+            STATE_BRIDGE.add_log("INFO", f"Раздачи Twitch синхронизированы: {active_count} активных кампаний онлайн.")
+            return web.json_response({
+                "status": "ok",
+                "synced": True,
+                "active_drops_count": active_count,
+                "total_catalog": total_cat,
+                "message": f"Синхронизировано {active_count} действующих раздач Twitch",
+            })
+        except Exception as e:
+            logger.error(f"Error syncing campaigns: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_get_game_directories(self, request: web.Request) -> web.Response:
         dirs = self.settings.get("game_directories", [])
@@ -1058,6 +1126,42 @@ class SentinelSupervisor:
 
     async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
         return await self.giveaways.handle_stream(request)
+
+    async def handle_dimmer_state(self, request: web.Request) -> web.Response:
+        state = self.dimmer.get_state()
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_brightness(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        monitor_id = body.get("monitorId") or body.get("monitor_id") or "master"
+        level = body.get("level") if body.get("level") is not None else body.get("brightness", 80)
+        level = int(level)
+        state = await self.dimmer.set_brightness(monitor_id, level)
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_blackout(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        enabled = bool(body.get("enabled", True))
+        solo_index = body.get("soloIndex") or body.get("solo_index")
+        if solo_index is not None:
+            solo_index = int(solo_index)
+        state = await self.dimmer.set_blackout(enabled, solo_index)
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_timer(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        minutes = int(body.get("minutes", 0))
+        state = await self.dimmer.set_timer(minutes)
+        return web.json_response({"status": "ok", "state": state, **state})
 
     async def _on_app_shutdown(self, app):
         logger.info("Cleaning up Giveaways processes on shutdown...")

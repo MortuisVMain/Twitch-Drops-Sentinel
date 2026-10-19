@@ -649,10 +649,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.2.2", f"Version mismatch: {__version__}"
-    assert parse_version("3.2.2") == (3, 2, 2)
-    assert parse_version("v3.2.3-beta") == (3, 2, 3)
-    assert parse_version("v3.2.2") > parse_version("3.2.1")
+    assert __version__ == "3.3.0", f"Version mismatch: {__version__}"
+    assert parse_version("3.3.0") == (3, 3, 0)
+    assert parse_version("v3.3.1-beta") == (3, 3, 1)
+    assert parse_version("v3.3.0") > parse_version("3.2.2")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -976,14 +976,11 @@ def test_game_scanner_deduplication_and_trophies_clear():
     lines = [l for l in content.splitlines() if l.strip()]
     assert len(lines) <= 5, "Cleared Trophies.md must contain only the header table"
 
-    # 5. Verify SettingsStudio.tsx and LiveDashboard.tsx have clear buttons
+    # 5. Verify SettingsStudio.tsx has clear button
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     assert "handleClearTrophies" in settings_tsx, "SettingsStudio must have handleClearTrophies"
     assert "/api/trophies/clear" in settings_tsx, "SettingsStudio must call /api/trophies/clear"
     assert "showReportModal" in settings_tsx, "SettingsStudio must support showReportModal"
-
-    dashboard_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
-    assert "/api/trophies/clear" in dashboard_tsx, "LiveDashboard must call /api/trophies/clear"
 
     shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
     assert "removedKeys" in shelf_tsx, "GameShelf must support optimistic removedKeys"
@@ -1119,7 +1116,7 @@ def test_game_shelf_claimed_tab_and_trophies_integration():
     assert "onOpenVaultFile?: () => void;" in shelf_tsx, "GameShelfProps must include onOpenVaultFile"
 
     # 2. Verify filterMode includes 'claimed'
-    assert "'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'all'" in shelf_tsx, "filterMode must include 'claimed'"
+    assert "'drops' | 'priority' | 'claimed'" in shelf_tsx and "filterMode" in shelf_tsx, "filterMode must include 'claimed'"
 
     # 3. Verify claimed tab and banner
     assert "🏆 Собрано" in shelf_tsx, "GameShelf must display '🏆 Собрано' tab"
@@ -1145,6 +1142,230 @@ def test_game_shelf_claimed_tab_and_trophies_integration():
     assert not smart_game_match("Ace Combat Zero: The Belkan War", "ACE COMBAT 8: WINGS OF THEVE")
 
     print("      GameShelf '🏆 Собрано' Tab & Trophies Synthesis: ALL PASS [OK]")
+
+def test_twitch_drops_sync_and_active_filter():
+    print("[33/33] Testing Live Twitch Drops Sync & Active-Only Drops Filter...")
+    import sys
+    from datetime import datetime, timezone, timedelta
+    core_dir = WORKSPACE / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from campaigns_fetcher import is_campaign_active_now, CAMPAIGNS_FETCHER
+
+    # 1. Test is_campaign_active_now timestamp & status validation
+    now_dt = datetime.now(timezone.utc)
+    active_camp = {
+        "id": "test_active",
+        "status": "ACTIVE",
+        "startAt": (now_dt - timedelta(hours=2)).isoformat(),
+        "endAt": (now_dt + timedelta(days=2)).isoformat(),
+        "timeBasedDrops": [{"id": "d1", "startAt": (now_dt - timedelta(hours=2)).isoformat(), "endAt": (now_dt + timedelta(days=2)).isoformat()}]
+    }
+    assert is_campaign_active_now(active_camp, now_dt), "Active campaign should return True"
+
+    expired_status_camp = dict(active_camp, status="EXPIRED")
+    assert not is_campaign_active_now(expired_status_camp, now_dt), "EXPIRED status must return False"
+
+    past_camp = dict(active_camp, endAt=(now_dt - timedelta(minutes=5)).isoformat())
+    assert not is_campaign_active_now(past_camp, now_dt), "Past endAt must return False"
+
+    future_camp = dict(active_camp, startAt=(now_dt + timedelta(hours=1)).isoformat())
+    assert not is_campaign_active_now(future_camp, now_dt), "Future startAt must return False"
+
+    # 2. Test CAMPAIGNS_FETCHER.sync_active_drops signature
+    assert hasattr(CAMPAIGNS_FETCHER, "sync_active_drops"), "CAMPAIGNS_FETCHER must have sync_active_drops method"
+
+    # 3. Test types.ts definition
+    types_ts = (WORKSPACE / "src" / "types.ts").read_text(encoding="utf-8")
+    assert "drops_start_at?: string;" in types_ts, "GameItem must declare drops_start_at"
+    assert "is_active_now?: boolean;" in types_ts, "GameItem must declare is_active_now"
+
+    # 4. Test GameShelf.tsx integration
+    shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "handleSyncDrops" in shelf_tsx, "GameShelf must have handleSyncDrops"
+    assert "isDropActiveNow" in shelf_tsx, "GameShelf must define isDropActiveNow"
+    assert "isSyncingDrops" in shelf_tsx, "GameShelf must track isSyncingDrops"
+    assert "isSyncSuccess" in shelf_tsx, "GameShelf must track isSyncSuccess"
+    assert "Синхронизировать Drops" in shelf_tsx, "GameShelf must have sync button"
+    assert "filterMode === 'drops'" in shelf_tsx and "isDropActiveNow(g)" in shelf_tsx, "Guaranteed Drops tab must filter with isDropActiveNow"
+
+    # 5. Test App.tsx passes onShowToast and onManualRefresh
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "onShowToast={showToast}" in app_tsx, "App.tsx must pass onShowToast to GameShelf"
+    assert "onManualRefresh={handleManualRefresh}" in app_tsx, "App.tsx must pass onManualRefresh to GameShelf"
+
+    # 6. Test sentinel_service routes
+    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "/api/campaigns/sync" in service_py, "sentinel_service must register /api/campaigns/sync"
+    assert "handle_sync" in service_py, "sentinel_service must have handle_sync"
+
+    print("      Live Twitch Drops Sync & Active-Only Drops Filter: ALL PASS [OK]")
+
+def test_shelf_removed_tab_and_startup_sync():
+    print("[34/34] Testing Removed Tab, Startup Drops Sync & Protected Action Buttons...")
+    import sys
+    core_dir = WORKSPACE / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from game_scanner import GameScanner
+
+    # 1. Test GameScanner unignore_game functionality
+    scanner = GameScanner()
+    scanner.ignore_game("test_gate34_game", "Test Gate 34 Game")
+    ignored_before = scanner.load_ignored_games()
+    assert "test_gate34_game" in ignored_before, "Game must be in ignored set after ignore_game"
+    
+    unignore_ok = scanner.unignore_game("test_gate34_game", "Test Gate 34 Game")
+    assert unignore_ok, "unignore_game must return True"
+    ignored_after = scanner.load_ignored_games()
+    assert "test_gate34_game" not in ignored_after, "Game must be removed from ignored set after unignore_game"
+
+    # 2. Test sentinel_service endpoints and full state keys
+    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "/api/installed-games/restore" in service_py, "sentinel_service must register /api/installed-games/restore"
+    assert "/api/ignored-games/restore" in service_py, "sentinel_service must register /api/ignored-games/restore"
+    assert "/api/ignored-games" in service_py, "sentinel_service must register /api/ignored-games"
+    assert "handle_restore_installed_game" in service_py, "sentinel_service must implement handle_restore_installed_game"
+    assert '"ignored_games":' in service_py, "sentinel_service must return ignored_games in get_full_state"
+
+    # 3. Test campaigns_fetcher startup sync in background loop
+    camp_fetcher_py = (WORKSPACE / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
+    assert "await asyncio.to_thread(self.sync_active_drops, True)" in camp_fetcher_py, "campaigns_fetcher must trigger sync_active_drops on startup"
+
+    # 4. Test GameShelf.tsx removed tab, banners, disabled buttons, and restore button
+    shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "🗑️ Удалённые" in shelf_tsx, "GameShelf must have '🗑️ Удалённые' tab"
+    assert "filterMode === 'removed'" in shelf_tsx, "GameShelf must handle filterMode === 'removed'"
+    assert "handleRestoreGame" in shelf_tsx, "GameShelf must have handleRestoreGame"
+    assert "В исключениях (нельзя в ТОП)" in shelf_tsx, "GameShelf must disable priority button for excluded games"
+    assert "В удалённых (нельзя в ТОП)" in shelf_tsx, "GameShelf must disable priority button for removed games"
+    assert "Восстановить" in shelf_tsx, "GameShelf must provide 'Восстановить' button"
+
+    # 5. Test GameSearchAutocomplete.tsx badges and disabled buttons
+    search_tsx = (WORKSPACE / "src" / "components" / "GameSearchAutocomplete.tsx").read_text(encoding="utf-8")
+    assert "ignoredList" in search_tsx, "GameSearchAutocomplete must accept ignoredList"
+    assert "В исключениях" in search_tsx, "GameSearchAutocomplete must show 'В исключениях' badge"
+    assert "В удалённых" in search_tsx, "GameSearchAutocomplete must show 'В удалённых' badge"
+    assert "inExcluded ?" in search_tsx and "inRemoved ?" in search_tsx and "disabled={true}" in search_tsx, "GameSearchAutocomplete must disable button for excluded/removed"
+
+    # 6. Test App.tsx passes ignoredGames
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "ignoredGames={sentinelState.ignored_games}" in app_tsx, "App.tsx must pass ignoredGames to GameShelf"
+
+    # 7. Test live REST endpoint for ignored games & restore
+    ensure_test_service()
+    req_ignored = urllib.request.Request(
+        "http://127.0.0.1:28492/api/ignored-games",
+        headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_ignored, timeout=5.0) as res:
+        assert res.status == 200
+        ig_data = json.loads(res.read().decode("utf-8"))
+        assert "ignored_games" in ig_data, "/api/ignored-games must return ignored_games"
+
+    print("      Removed Tab, Startup Drops Sync & Protected Action Buttons: ALL PASS [OK]")
+
+def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite():
+    print("[35/35] Verifying Telemetry Cleanliness, Giveaways Self-Containment & ScreenDimmer Integration...")
+
+    # 1. Zero Noise Telemetry Purge
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "telemetry-pill" not in app_tsx, "App.tsx topbar must not contain telemetry-pill"
+    assert "0% GPU" not in app_tsx, "App.tsx must not contain 0% GPU telemetry"
+
+    dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "metric-pills" not in dash_tsx, "LiveDashboard must not contain metric-pills container"
+    assert "0.8 GB" not in dash_tsx, "LiveDashboard must not contain '0.8 GB сэкономлено'"
+    assert "Spade Stealth: 0% GPU" not in dash_tsx, "LiveDashboard must not contain Spade Stealth GPU mock"
+    assert "Streamless WebSocket Protocol: 0% нагрузки на GPU" not in dash_tsx, "LiveDashboard must not contain 0% GPU banner"
+    assert "Фарм активен" in dash_tsx, "LiveDashboard must show clean '● Фарм активен' badge"
+
+    # 2. Giveaways Engine Self-Containment
+    fgc_local = WORKSPACE / "giveaways_engine"
+    assert fgc_local.is_dir(), "Local giveaways_engine directory must exist in workspace root"
+    assert (fgc_local / "ClaimGames.cmd").is_file(), "giveaways_engine/ClaimGames.cmd must exist"
+    assert (fgc_local / "package.json").is_file(), "giveaways_engine/package.json must exist"
+    
+    from giveaways_controller import resolve_fgc_root
+    resolved = resolve_fgc_root()
+    assert resolved == fgc_local, f"resolve_fgc_root() must resolve to workspace root {fgc_local}, got {resolved}"
+
+    # 3. Settings Studio Unification
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "Luna Auto-Shutdown Engine" not in settings_tsx, "SettingsStudio must not have duplicate lower card"
+    assert "Hardware Guard</h3>" not in settings_tsx, "SettingsStudio must not have duplicate Hardware Guard lower card"
+    assert "handlePowerModeChange" in settings_tsx, "SettingsStudio must embed power mode selector in module item"
+
+    # 4. ScreenDimmer Integration
+    types_ts = (WORKSPACE / "src" / "types.ts").read_text(encoding="utf-8")
+    assert "'dimmer'" in types_ts, "NavTab type must include 'dimmer'"
+    assert "DimmerState" in types_ts, "types.ts must define DimmerState"
+
+    dimmer_tsx = WORKSPACE / "src" / "components" / "ScreenDimmerView.tsx"
+    assert dimmer_tsx.is_file(), "src/components/ScreenDimmerView.tsx must exist"
+    dimmer_code = dimmer_tsx.read_text(encoding="utf-8")
+    assert "ScreenDimmerView" in dimmer_code, "ScreenDimmerView component must be exported"
+    assert "Alt + Backspace" in dimmer_code, "ScreenDimmerView must mention tactile blackout shortcut"
+
+    main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "BlackoutOverlayForm" in main_cs, "desktop/MainForm.cs must contain BlackoutOverlayForm"
+    assert "SetBlackout" in main_cs, "desktop/MainForm.cs must contain SetBlackout method"
+
+    # 5. Live Dimmer REST API
+    ensure_test_service()
+    req_dimmer = urllib.request.Request(
+        "http://127.0.0.1:28492/api/v1/dimmer/state",
+        headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_dimmer, timeout=5.0) as res:
+        assert res.status == 200
+        dimmer_data = json.loads(res.read().decode("utf-8"))
+        assert "master_brightness" in dimmer_data, "Dimmer state must include master_brightness"
+        assert "is_blackout" in dimmer_data, "Dimmer state must include is_blackout"
+
+    req_br = urllib.request.Request(
+        "http://127.0.0.1:28492/api/v1/dimmer/brightness",
+        data=json.dumps({"brightness": 75}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req_br, timeout=5.0) as res:
+        assert res.status == 200
+        resp_br = json.loads(res.read().decode("utf-8"))
+        assert resp_br.get("status") == "ok"
+        assert resp_br.get("state", {}).get("master_brightness") == 75
+
+    req_bo = urllib.request.Request(
+        "http://127.0.0.1:28492/api/v1/dimmer/blackout",
+        data=json.dumps({"enabled": True}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req_bo, timeout=5.0) as res:
+        assert res.status == 200
+        resp_bo = json.loads(res.read().decode("utf-8"))
+        assert resp_bo.get("status") == "ok"
+        assert resp_bo.get("state", {}).get("is_blackout") is True
+
+    req_bo_off = urllib.request.Request(
+        "http://127.0.0.1:28492/api/v1/dimmer/blackout",
+        data=json.dumps({"enabled": False}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req_bo_off, timeout=5.0) as res:
+        assert res.status == 200
+
+    req_br_reset = urllib.request.Request(
+        "http://127.0.0.1:28492/api/v1/dimmer/brightness",
+        data=json.dumps({"brightness": 100}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req_br_reset, timeout=5.0) as res:
+        assert res.status == 200
+
+    print("      Telemetry Cleanliness, Giveaways Engine & ScreenDimmer Suite: ALL PASS [OK]")
 
 if __name__ == "__main__":
     print("=" * 65)
@@ -1183,13 +1404,17 @@ if __name__ == "__main__":
     test_r6s_showcase_acl_and_strict_priority_guard()
     test_giveaways_stores_persistence_and_version_standardization()
     test_game_shelf_claimed_tab_and_trophies_integration()
+    test_twitch_drops_sync_and_active_filter()
+    test_shelf_removed_tab_and_startup_sync()
+    test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite()
     print("=" * 65)
-    print("  ALL 32 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 35 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()
         with suppress(Exception):
             SUITE_PROC.wait(timeout=3)
         print("  Test daemon terminated cleanly.")
+
 
 

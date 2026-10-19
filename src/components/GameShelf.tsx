@@ -1,15 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  HardDrive, Flame, Plus, Check, Ban, Star, ArrowLeft, Gamepad2, Calendar, ShieldCheck, AlertCircle, ChevronUp, ChevronDown, Trash2, Trophy
+  HardDrive, Flame, Plus, Check, Ban, Star, ArrowLeft, Gamepad2, Calendar, ShieldCheck, AlertCircle, ChevronUp, ChevronDown, Trash2, Trophy, RefreshCw, RotateCcw
 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
 import { GameSearchAutocomplete } from './GameSearchAutocomplete';
 import { resolveGameBoxArtSources } from '../utils/gameBoxArts';
+import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface GameShelfProps {
   games: GameItem[];
   priorityList: string[];
   excludedList: string[];
+  ignoredGames?: string[];
   trophies?: TrophyItem[];
   onAddToPriority: (gameName: string) => void;
   onRemoveFromPriority: (gameName: string) => void;
@@ -19,6 +21,8 @@ interface GameShelfProps {
   onRescanGames?: () => void;
   onBack?: () => void;
   onOpenVaultFile?: () => void;
+  onShowToast?: (msg: string) => void;
+  onManualRefresh?: () => void;
 }
 
 const ShelfItemPoster: React.FC<{ name: string; boxArt?: string }> = ({ name, boxArt }) => {
@@ -119,6 +123,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   games,
   priorityList,
   excludedList,
+  ignoredGames = [],
   trophies,
   onAddToPriority,
   onRemoveFromPriority,
@@ -128,11 +133,118 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   onRescanGames,
   onBack,
   onOpenVaultFile,
+  onShowToast,
+  onManualRefresh,
 }) => {
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'all'>('drops');
+  const [filterMode, setFilterMode] = useState<'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed' | 'all'>('drops');
   const [isClearingInstalled, setIsClearingInstalled] = useState(false);
+  const [isSyncingDrops, setIsSyncingDrops] = useState(false);
+  const [isSyncSuccess, setIsSyncSuccess] = useState(false);
   const [removedKeys, setRemovedKeys] = useState<Set<string>>(new Set());
+
+  const { playClick, playRewardChime } = useTactileAudio();
+
+  const removedSet = useMemo(() => {
+    const set = new Set<string>();
+    (ignoredGames || []).forEach(n => set.add(n.toLowerCase().trim()));
+    removedKeys.forEach(n => set.add(n.toLowerCase().trim()));
+    return set;
+  }, [ignoredGames, removedKeys]);
+
+  const isGameRemoved = (g: GameItem): boolean => {
+    const key = (g.id || g.name).toLowerCase().trim();
+    const gNameLow = g.name.toLowerCase().trim();
+    return removedSet.has(key) || removedSet.has(gNameLow);
+  };
+
+  const handleRestoreGame = async (gameName: string, gameId?: string) => {
+    playClick();
+    const key = (gameId || gameName).toLowerCase().trim();
+    const nameLow = gameName.toLowerCase().trim();
+    setRemovedKeys(prev => {
+      const next = new Set(prev);
+      next.delete(key);
+      next.delete(nameLow);
+      return next;
+    });
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/installed-games/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: gameId || '', name: gameName }),
+      });
+      if (res.ok) {
+        playRewardChime();
+        if (onManualRefresh) onManualRefresh();
+        else if (onRescanGames) onRescanGames();
+        if (onShowToast) onShowToast(`✓ Игра "${gameName}" восстановлена на полку`);
+      } else {
+        if (onShowToast) onShowToast(`Не удалось восстановить игру "${gameName}"`);
+      }
+    } catch (err) {
+      console.error('Failed to restore game:', err);
+      if (onShowToast) onShowToast(`Ошибка при восстановлении игры`);
+    }
+  };
+
+  const isDropActiveNow = (g: GameItem): boolean => {
+    if (!g.has_drops) return false;
+    const now = Date.now();
+    if (g.drops_end_at) {
+      try {
+        const endMs = new Date(g.drops_end_at).getTime();
+        if (!isNaN(endMs) && endMs <= now) return false;
+      } catch {
+        // ignore
+      }
+    }
+    if (g.drops_start_at) {
+      try {
+        const startMs = new Date(g.drops_start_at).getTime();
+        if (!isNaN(startMs) && startMs > now) return false;
+      } catch {
+        // ignore
+      }
+    }
+    return true;
+  };
+
+  const handleSyncDrops = async () => {
+    if (isSyncingDrops) return;
+    playClick();
+    setIsSyncingDrops(true);
+    setIsSyncSuccess(false);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/campaigns/sync', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (onManualRefresh) {
+          onManualRefresh();
+        } else if (onRescanGames) {
+          onRescanGames();
+        }
+        setIsSyncSuccess(true);
+        playRewardChime();
+        if (onShowToast) {
+          const count = data.active_drops_count !== undefined ? data.active_drops_count : dropsCount;
+          onShowToast(`✨ Раздачи Twitch синхронизированы: найдено ${count} действующих кампаний онлайн.`);
+        }
+        setTimeout(() => {
+          setIsSyncSuccess(false);
+        }, 2500);
+      } else {
+        if (onShowToast) onShowToast('Не удалось синхронизировать раздачи Twitch.');
+      }
+    } catch (err) {
+      console.error('Failed to sync Twitch drops:', err);
+      if (onShowToast) onShowToast('Ошибка соединения с Twitch API.');
+    } finally {
+      setIsSyncingDrops(false);
+    }
+  };
 
   // Map of normalized game name -> list of claimed trophies
   const claimedTrophiesByGame = useMemo(() => {
@@ -227,35 +339,37 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   // Filtered games
   const filteredGames = useMemo(() => {
     return allShelfGames.filter((g: GameItem) => {
-      const key = (g.id || g.name).toLowerCase();
       const gNameLow = g.name.toLowerCase().trim();
-      if (removedKeys.has(key) || removedKeys.has(gNameLow)) return false;
       const matchesSearch = g.name.toLowerCase().includes(search.toLowerCase().trim());
       if (!matchesSearch) return false;
+
+      const isRemoved = isGameRemoved(g);
+      if (filterMode === 'removed') return isRemoved;
+      if (isRemoved) return false; // Strict gate: removed games NEVER show in other tabs
 
       const isExcluded = excludedSet.has(gNameLow);
       if (filterMode === 'excluded') return isExcluded;
       if (isExcluded) return false; // Strict gate: excluded games NEVER show in drops, priority, claimed, installed, or all
 
-      if (filterMode === 'drops') return g.has_drops;
+      if (filterMode === 'drops') return isDropActiveNow(g);
       if (filterMode === 'priority') return prioritySet.has(gNameLow);
       if (filterMode === 'claimed') return isGameClaimed(g);
       if (filterMode === 'installed') return g.is_installed;
       return true;
     });
-  }, [allShelfGames, search, filterMode, prioritySet, excludedSet, removedKeys, claimedTrophiesByGame]);
+  }, [allShelfGames, search, filterMode, prioritySet, excludedSet, removedSet, claimedTrophiesByGame]);
 
   const activeShelfGames = useMemo(() => {
     return allShelfGames.filter(g => {
       const gNameLow = g.name.toLowerCase().trim();
-      const key = (g.id || g.name).toLowerCase();
-      return !excludedSet.has(gNameLow) && !removedKeys.has(key) && !removedKeys.has(gNameLow);
+      return !excludedSet.has(gNameLow) && !isGameRemoved(g);
     });
-  }, [allShelfGames, excludedSet, removedKeys]);
+  }, [allShelfGames, excludedSet, removedSet]);
 
   const installedCount = activeShelfGames.filter(g => g.is_installed).length;
-  const dropsCount = activeShelfGames.filter(g => g.has_drops).length;
+  const dropsCount = activeShelfGames.filter(g => isDropActiveNow(g)).length;
   const claimedCount = activeShelfGames.filter(g => isGameClaimed(g)).length;
+  const removedCount = allShelfGames.filter(g => isGameRemoved(g)).length;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 select-none pb-12 animate-in fade-in duration-300">
@@ -283,22 +397,47 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           </div>
         </div>
 
-        {/* Quick Add & Autocomplete Suggestions Search */}
-        <div className="w-full md:w-96 relative z-30">
-          <GameSearchAutocomplete
-            allGames={games}
-            priorityList={priorityList}
-            onAddToPriority={onAddToPriority}
-            onRemoveFromPriority={onRemoveFromPriority}
-            query={search}
-            onQueryChange={setSearch}
-            placeholder="Поиск или ввод названия игры..."
-          />
+        {/* Quick Add, Sync Drops & Autocomplete Suggestions Search */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto relative z-30">
+          <button
+            type="button"
+            onClick={handleSyncDrops}
+            disabled={isSyncingDrops}
+            className={`flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 cursor-pointer shrink-0 ${
+              isSyncSuccess
+                ? 'bg-[#217C5E]/25 border-[#3AD29F]/60 text-[#7CE8C2] shadow-[0_0_15px_rgba(58,210,159,0.3)]'
+                : 'bg-white/[0.04] hover:bg-white/[0.08] border-[var(--line)] text-[var(--foreground)] hover:border-[var(--accent)]/50'
+            }`}
+            title="Синхронизировать действующие сейчас раздачи напрямую с Twitch API"
+          >
+            {isSyncSuccess ? (
+              <Check className="w-4 h-4 text-[#3AD29F] animate-in zoom-in-75 duration-200" />
+            ) : (
+              <RefreshCw className={`w-4 h-4 text-[var(--accent)] ${isSyncingDrops ? 'animate-spin' : ''}`} />
+            )}
+            <span>
+              {isSyncingDrops ? 'Синхронизация...' : isSyncSuccess ? 'Синхронизировано!' : 'Синхронизировать Drops'}
+            </span>
+          </button>
+
+          <div className="w-full sm:w-72 md:w-80">
+            <GameSearchAutocomplete
+              allGames={games}
+              priorityList={priorityList}
+              excludedList={excludedList}
+              ignoredList={Array.from(removedSet)}
+              onAddToPriority={onAddToPriority}
+              onRemoveFromPriority={onRemoveFromPriority}
+              query={search}
+              onQueryChange={setSearch}
+              placeholder="Поиск или ввод названия игры..."
+            />
+          </div>
         </div>
       </div>
 
       {/* Guaranteed Drops Assurance Banner */}
-      <div className="p-4 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--line-accent)] flex items-center justify-between gap-4 shadow-sm backdrop-blur-xl">
+      <div className="p-4 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--line-accent)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-[#217C5E]/20 text-[var(--accent)] flex items-center justify-center shrink-0 border border-[var(--accent)]/30">
             <Flame className="w-5 h-5 text-[var(--accent)]" />
@@ -306,7 +445,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           <div>
             <h4 className="text-xs font-bold text-[var(--foreground)] flex items-center gap-2">
               <span>Гарантированный сбор Twitch Drops</span>
-              <span className="px-2 py-0.5 rounded-full bg-[#217C5E]/20 text-[var(--accent)] text-[10px] font-mono border border-[var(--accent)]/30">
+              <span className="px-2 py-0.5 rounded-full bg-[#217C5E]/20 text-[var(--accent)] text-[10px] font-mono border border-[var(--accent)]/30 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#3AD29F] animate-pulse" />
                 100% Live Verified
               </span>
             </h4>
@@ -315,6 +455,25 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             </p>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={handleSyncDrops}
+          disabled={isSyncingDrops}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 cursor-pointer shrink-0 self-end sm:self-auto ${
+            isSyncSuccess
+              ? 'bg-[#217C5E]/25 border border-[#3AD29F]/50 text-[#7CE8C2]'
+              : 'bg-white/[0.05] hover:bg-white/[0.1] text-[var(--foreground)] border border-[var(--line)] hover:border-[var(--accent)]/40'
+          }`}
+          title="Обновить список активных раздач с Twitch"
+        >
+          {isSyncSuccess ? (
+            <Check className="w-3.5 h-3.5 text-[#3AD29F]" />
+          ) : (
+            <RefreshCw className={`w-3.5 h-3.5 text-[var(--accent)] ${isSyncingDrops ? 'animate-spin' : ''}`} />
+          )}
+          <span>{isSyncingDrops ? 'Проверка...' : isSyncSuccess ? 'Обновлено!' : 'Обновить Drops'}</span>
+        </button>
       </div>
 
       {/* Filter Tabs & Badges */}
@@ -325,6 +484,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           { id: 'claimed' as const, label: `🏆 Собрано (${claimedCount})` },
           { id: 'installed' as const, label: `💾 Установлено на ПК (${installedCount})` },
           { id: 'excluded' as const, label: `🚫 Исключения (${excludedList.length})` },
+          { id: 'removed' as const, label: `🗑️ Удалённые (${removedCount})` },
           { id: 'all' as const, label: `Все игры каталога (${allShelfGames.length})` }
         ].map((f) => (
           <button
@@ -396,6 +556,50 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         </div>
       )}
 
+      {/* Excluded Games Management Banner */}
+      {filterMode === 'excluded' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-xs text-[var(--muted)] shadow-sm backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+              <Ban className="w-4 h-4 text-rose-400" />
+            </div>
+            <div>
+              <div className="font-bold text-[var(--foreground)] flex items-center gap-2">
+                <span>Исключённые из фарма игры</span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-mono font-bold border border-rose-500/30">
+                  {excludedList.length}
+                </span>
+              </div>
+              <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                Игры из этого списка игнорируются авто-фармом. Добавление в ТОП заблокировано. Нажмите на иконку исключения, чтобы вернуть игру на полку.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Removed Games Management Banner */}
+      {filterMode === 'removed' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-xs text-[var(--muted)] shadow-sm backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+              <Trash2 className="w-4 h-4 text-rose-400" />
+            </div>
+            <div>
+              <div className="font-bold text-[var(--foreground)] flex items-center gap-2">
+                <span>Удалённые и скрытые игры</span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-mono font-bold border border-rose-500/30">
+                  {removedCount} {removedCount === 1 ? 'игра' : (removedCount > 1 && removedCount < 5 ? 'игры' : 'игр')}
+                </span>
+              </div>
+              <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                Игры, скрытые с вашей полки. Кнопка «+ В ТОП» заблокирована. Нажмите «Восстановить», чтобы вернуть игру на полку.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Games Catalog Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredGames.length === 0 ? (
@@ -408,13 +612,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           filteredGames.map((game: GameItem) => {
             const inPriority = priorityList.includes(game.name);
             const inExcluded = excludedList.includes(game.name);
+            const isRemoved = isGameRemoved(game);
 
             return (
               <div
                 key={game.id}
                 className={`card p-4 flex flex-col justify-between group relative overflow-hidden transition-all hover:border-[var(--accent)]/50 ${
                   inPriority ? 'border-[var(--accent)] shadow-[0_4px_20px_rgba(58,210,159,0.15)] ring-1 ring-[var(--accent)]/30' : ''
-                } ${inExcluded ? 'opacity-60 border-red-500/20' : ''}`}
+                } ${inExcluded || isRemoved ? 'opacity-60 border-rose-500/20' : ''}`}
               >
                 {/* Glow accent for priority or active drops */}
                 {inPriority ? (
@@ -473,10 +678,26 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
                       {/* Badges */}
                       <div className="flex flex-wrap gap-1.5 mt-2">
-                        {game.has_drops ? (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-[#217C5E]/20 text-[var(--accent)] border border-[var(--accent)]/30 flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3 text-[var(--accent)]" />
-                            <span>Гарантированный фарм {game.rewards_count ? `(${game.rewards_count})` : ''}</span>
+                        {isRemoved ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                            <Trash2 className="w-3 h-3 text-rose-400" />
+                            <span>В удалённых</span>
+                          </span>
+                        ) : inExcluded ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                            <Ban className="w-3 h-3 text-rose-400" />
+                            <span>В исключениях</span>
+                          </span>
+                        ) : null}
+                        {isDropActiveNow(game) ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-[#217C5E]/20 text-[var(--accent)] border border-[var(--accent)]/30 flex items-center gap-1.5 shadow-sm">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#3AD29F] animate-pulse" />
+                            <span>Действует сейчас {game.rewards_count ? `(${game.rewards_count})` : ''}</span>
+                          </span>
+                        ) : game.has_drops ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-white/[0.04] text-[var(--muted)] border border-white/10 flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-[var(--muted)]" />
+                            <span>Drops {game.rewards_count ? `(${game.rewards_count})` : ''}</span>
                           </span>
                         ) : (
                           <span className="text-[10px] text-amber-400/90 bg-amber-400/10 px-2 py-0.5 rounded-lg border border-amber-400/25 flex items-center gap-1">
@@ -503,9 +724,13 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                           </span>
                         )}
                         {game.drops_end_at && (
-                          <span className="text-[10px] font-medium text-[var(--muted)] bg-[var(--surface-elevated)] px-2 py-0.5 rounded-lg border border-[var(--line)] flex items-center gap-1">
+                          <span className="text-[10px] font-medium text-[var(--muted)] bg-[var(--surface-elevated)] px-2 py-0.5 rounded-lg border border-[var(--line)] flex items-center gap-1" title={`Окончание: ${new Date(game.drops_end_at).toLocaleString('ru-RU')}`}>
                             <Calendar className="w-3 h-3 text-[var(--accent)]" />
-                            <span className="tabular-nums">до {new Date(game.drops_end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+                            <span className="tabular-nums">
+                              {new Date(game.drops_end_at).getTime() < Date.now()
+                                ? 'Завершено'
+                                : `до ${new Date(game.drops_end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}`}
+                            </span>
                           </span>
                         )}
                         {isGameClaimed(game) && (
@@ -531,52 +756,85 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
                 {/* Action Buttons */}
                 <div className="mt-4 pt-3 border-t border-[var(--line)] flex items-center gap-2">
-                  {/* Priority Button */}
-                  <button
-                    onClick={() => inPriority ? onRemoveFromPriority(game.name) : onAddToPriority(game.name)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer active:scale-95 ${
-                      inPriority
-                        ? 'bg-gradient-to-r from-[#217C5E] to-[#3AD29F] text-[#050608] font-bold border border-[#7CE8C2]/40 shadow-sm'
-                        : game.has_drops
-                          ? 'bg-[var(--accent)]/15 hover:bg-[var(--accent)] hover:text-[#050608] text-[var(--accent)] border border-[var(--accent)]/30 font-bold'
-                          : 'bg-white/[0.04] text-[var(--muted)] hover:text-white hover:bg-white/[0.08] border border-[var(--line)]'
-                    }`}
-                  >
-                    {inPriority ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-[#050608]" />
-                        <span>В ТОП-приоритете</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>{game.has_drops ? '+ В ТОП (Фармить)' : isGameClaimed(game) ? 'Собрано (В ТОП)' : '+ В ТОП (Ждать)'}</span>
-                      </>
-                    )}
-                  </button>
+                  {/* Priority Button: disabled if game is excluded or removed */}
+                  {inExcluded ? (
+                    <button
+                      disabled
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold bg-white/[0.02] text-[var(--muted)]/50 border border-[var(--line)]/50 cursor-not-allowed opacity-50"
+                      title="Игра находится в исключениях. Сначала верните её из исключений (кнопка справа), чтобы добавить в ТОП."
+                    >
+                      <Ban className="w-3.5 h-3.5 text-rose-400/60" />
+                      <span>В исключениях (нельзя в ТОП)</span>
+                    </button>
+                  ) : isRemoved ? (
+                    <button
+                      disabled
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold bg-white/[0.02] text-[var(--muted)]/50 border border-[var(--line)]/50 cursor-not-allowed opacity-50"
+                      title="Игра находится в удалённых. Сначала нажмите «Восстановить», чтобы вернуть её на полку."
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400/60" />
+                      <span>В удалённых (нельзя в ТОП)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => inPriority ? onRemoveFromPriority(game.name) : onAddToPriority(game.name)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer active:scale-95 ${
+                        inPriority
+                          ? 'bg-gradient-to-r from-[#217C5E] to-[#3AD29F] text-[#050608] font-bold border border-[#7CE8C2]/40 shadow-sm'
+                          : game.has_drops
+                            ? 'bg-[var(--accent)]/15 hover:bg-[var(--accent)] hover:text-[#050608] text-[var(--accent)] border border-[var(--accent)]/30 font-bold'
+                            : 'bg-white/[0.04] text-[var(--muted)] hover:text-white hover:bg-white/[0.08] border border-[var(--line)]'
+                      }`}
+                    >
+                      {inPriority ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-[#050608]" />
+                          <span>В ТОП-приоритете</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{game.has_drops ? '+ В ТОП (Фармить)' : isGameClaimed(game) ? 'Собрано (В ТОП)' : '+ В ТОП (Ждать)'}</span>
+                        </>
+                      )}
+                    </button>
+                  )}
 
-                  {/* Exclude Button */}
-                  <button
-                    onClick={() => inExcluded ? onRemoveFromExcluded(game.name) : onAddToExcluded(game.name)}
-                    className={`flex items-center justify-center p-2 rounded-xl text-xs transition-all cursor-pointer active:scale-95 ${
-                      inExcluded
-                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
-                        : 'bg-white/[0.04] text-[var(--muted)] hover:text-rose-400 hover:bg-rose-500/10 border border-[var(--line)]'
-                    }`}
-                    title={inExcluded ? 'Убрать из исключений' : 'Исключить из фарма'}
-                  >
-                    <Ban className="w-4 h-4" />
-                  </button>
+                  {/* Exclude Button: available only if not removed */}
+                  {!isRemoved && (
+                    <button
+                      onClick={() => inExcluded ? onRemoveFromExcluded(game.name) : onAddToExcluded(game.name)}
+                      className={`flex items-center justify-center p-2 rounded-xl text-xs transition-all cursor-pointer active:scale-95 ${
+                        inExcluded
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm hover:bg-rose-500/30'
+                          : 'bg-white/[0.04] text-[var(--muted)] hover:text-rose-400 hover:bg-rose-500/10 border border-[var(--line)]'
+                      }`}
+                      title={inExcluded ? 'Убрать из исключений (вернуть возможность фарма)' : 'Исключить из фарма'}
+                    >
+                      <Ban className="w-4 h-4" />
+                    </button>
+                  )}
 
-                  {/* Remove / Hide Game Button */}
-                  <button
-                    onClick={() => handleRemoveInstalled(game.name, game.id)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer active:scale-95 bg-rose-500/10 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 hover:text-rose-200 hover:border-rose-500/50 shadow-sm"
-                    title="Удалить / скрыть игру из списка навсегда"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                    <span className="hidden sm:inline">Скрыть</span>
-                  </button>
+                  {/* Restore / Remove Button */}
+                  {isRemoved ? (
+                    <button
+                      onClick={() => handleRestoreGame(game.name, game.id)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer active:scale-95 bg-[#217C5E]/20 text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[#217C5E]/35 hover:border-[var(--accent)]/60 shadow-sm"
+                      title="Восстановить игру обратно на полку"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-[var(--accent)]" />
+                      <span>Восстановить</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRemoveInstalled(game.name, game.id)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer active:scale-95 bg-rose-500/10 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 hover:text-rose-200 hover:border-rose-500/50 shadow-sm"
+                      title="Удалить / скрыть игру из списка навсегда"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span className="hidden sm:inline">Скрыть</span>
+                    </button>
+                  )}
                 </div>
               </div>
             );

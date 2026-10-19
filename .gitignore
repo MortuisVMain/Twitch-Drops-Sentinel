@@ -76,3 +76,13 @@ desktop.ini
 Thumbs.db
 [Ee]xternal/
 .DS_Store
+
+# 🎁 GIVEAWAYS ENGINE ARTIFACTS
+giveaways_engine/.vscode/
+giveaways_engine/.github/
+giveaways_engine/scratch/
+giveaways_engine/node_modules/
+giveaways_engine/data/browser/
+giveaways_engine/data/screenshots/
+giveaways_engine/data/*.log
+

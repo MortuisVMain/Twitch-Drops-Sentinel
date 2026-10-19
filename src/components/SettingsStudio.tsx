@@ -264,6 +264,11 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     }
   };
 
+  const handlePowerModeChange = (mode: 'shutdown' | 'sleep' | 'lock') => {
+    playClick();
+    onUpdateSettings({ auto_shutdown_mode: mode });
+  };
+
   const handleLogout = async () => {
     playClick();
     if (!window.confirm('Вы уверены, что хотите сменить аккаунт Twitch? Текущие сессионные куки будут удалены, и Sentinel перейдёт в режим новой авторизации.')) return;
@@ -698,24 +703,59 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             {/* 9. Luna Auto-Shutdown on Complete */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-rose-500/15 text-rose-400 shrink-0">
-                  <Power className="w-4 h-4" />
+            <div className="flex flex-col p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-rose-500/15 text-rose-400 shrink-0">
+                    <Power className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-[var(--foreground)]">Luna Auto-Shutdown</div>
+                    <div className="text-[11px] text-[var(--muted)]">Выключение или сон ПК после сбора всех дропов</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Luna Auto-Shutdown</div>
-                  <div className="text-[11px] text-[var(--muted)]">Выключение или сон ПК после сбора всех дропов</div>
-                </div>
+                <button
+                  type="button"
+                  aria-label="Переключить автовыключение ПК"
+                  onClick={() => onUpdateSettings({ auto_shutdown_on_complete: !(settings.auto_shutdown_on_complete ?? false) })}
+                  className={`studio-switch ${(settings.auto_shutdown_on_complete ?? false) ? 'checked' : ''}`}
+                >
+                  <span />
+                </button>
               </div>
-              <button
-                type="button"
-                aria-label="Переключить автовыключение ПК"
-                onClick={() => onUpdateSettings({ auto_shutdown_on_complete: !settings.auto_shutdown_on_complete })}
-                className={`studio-switch ${settings.auto_shutdown_on_complete ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
+
+              {(settings.auto_shutdown_on_complete ?? false) && (
+                <div className="pt-2 border-t border-[var(--line)] space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--muted)]">Режим питания:</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(['shutdown', 'sleep', 'lock'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => handlePowerModeChange(mode)}
+                          className={`py-1 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                            (settings.auto_shutdown_mode || 'shutdown') === mode
+                              ? 'bg-[#368873]/20 border-[#73bba5] text-[var(--accent)] font-semibold'
+                              : 'bg-black/20 border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'
+                          }`}
+                        >
+                          {mode === 'shutdown' ? 'Выключение' : mode === 'sleep' ? 'Сон' : 'Блокировка'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={startTestShutdown}
+                    disabled={testCountdown !== null}
+                    className="w-full py-2 px-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-[var(--foreground)] border border-[var(--line)] transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+                  >
+                    {testCountdown !== null ? `Тест питания... (${testCountdown}s)` : 'Проверить таймер питания (5 сек)'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 10. Windows Autostart */}
@@ -738,125 +778,6 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 <span />
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* Luna Auto-Shutdown Engine */}
-        <div className="card p-6 flex flex-col justify-between space-y-5">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-                <Power className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Luna Auto-Shutdown</h3>
-                <p className="text-xs text-[var(--muted)]">Автовыключение ПК после завершения всех дропов</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Выключать при завершении</div>
-                  <div className="text-[11px] text-[var(--muted)]">После фарма всех выбранных игр</div>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Переключить автовыключение"
-                  onClick={() => onUpdateSettings({ auto_shutdown_on_complete: !settings.auto_shutdown_on_complete })}
-                  className={`studio-switch ${settings.auto_shutdown_on_complete ? 'checked' : ''}`}
-                >
-                  <span />
-                </button>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] space-y-2">
-                <div className="text-xs font-semibold text-[var(--foreground)]">Режим питания</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['shutdown', 'sleep', 'lock'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => onUpdateSettings({ auto_shutdown_mode: mode })}
-                      className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-                        settings.auto_shutdown_mode === mode
-                          ? 'bg-[#368873]/20 border-[#73bba5] text-[var(--accent)] font-semibold'
-                          : 'bg-black/20 border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'
-                      }`}
-                    >
-                      {mode === 'shutdown' ? 'Выключение' : mode === 'sleep' ? 'Сон' : 'Блокировка'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-2">
-            <button
-              onClick={startTestShutdown}
-              disabled={testCountdown !== null}
-              className="w-full py-2.5 px-4 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-[var(--foreground)] border border-[var(--line)] transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
-            >
-              {testCountdown !== null ? `Тест питания... (${testCountdown}s)` : 'Проверить таймер питания (5 сек)'}
-            </button>
-          </div>
-        </div>
-
-        {/* Hardware Guard (Gaming Detection & Battery) */}
-        <div className="card p-6 flex flex-col justify-between space-y-5">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-                <Shield className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Hardware Guard</h3>
-                <p className="text-xs text-[var(--muted)]">Защита от просадок FPS и разрядки батареи</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-                <div className="flex items-center gap-2.5">
-                  <Gamepad2 className="w-4 h-4 text-[var(--accent)]" />
-                  <div>
-                    <div className="text-xs font-semibold text-[var(--foreground)]">Автопауза при запуске игр</div>
-                    <div className="text-[11px] text-[var(--muted)]">Освобождает CPU и сеть во время гейминга</div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Переключить автопаузу в играх"
-                  onClick={() => onUpdateSettings({ pause_on_gaming: !settings.pause_on_gaming })}
-                  className={`studio-switch ${settings.pause_on_gaming ? 'checked' : ''}`}
-                >
-                  <span />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-                <div className="flex items-center gap-2.5">
-                  <BatteryCharging className="w-4 h-4 text-amber-400" />
-                  <div>
-                    <div className="text-xs font-semibold text-[var(--foreground)]">Энергосбережение батареи</div>
-                    <div className="text-[11px] text-[var(--muted)]">Пауза при работе от аккумулятора</div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Переключить энергосбережение батареи"
-                  onClick={() => onUpdateSettings({ pause_on_battery: !settings.pause_on_battery })}
-                  className={`studio-switch ${settings.pause_on_battery ? 'checked' : ''}`}
-                >
-                  <span />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-xs text-[var(--muted)] flex items-center justify-between font-mono">
-            <span>Процесс мониторинга: 0% CPU</span>
-            <span className="font-semibold text-[var(--accent)]">Hardware Guard OK</span>
           </div>
         </div>
       </div>

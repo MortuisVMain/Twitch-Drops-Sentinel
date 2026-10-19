@@ -24,20 +24,23 @@ FULL_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip
 PATCH_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
 
 TAG_NAME = f"v{__version__}"
-RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Бесшовное автообновление (Staged Executable Swap & Zero Permission Denied)"
+RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Telemetry Purge, Autonomous Giveaways & ScreenDimmer Apple Luna Integration"
 RELEASE_NOTES = f"""## 🛡️ Twitch Drops Sentinel v{__version__}
 
-### ⚡ Что нового:
-- **Бесшовное обновление без `[Errno 13] Permission denied` (Staged Executable Swap):** В хот-патч обновлений (`Patch_v{__version__}.zip`) исполняемый файл десктоп-хоста теперь упаковывается как `TwitchDropsSentinel.update`. Это гарантирует, что клиенты старых версий (v3.1.x) распаковывают обновление со 100% успехом без ошибок блокировки файла операционной системой Windows NTFS.
-- **Двухконтурная ротация и применение исполняемого файла:**
-  1. *На лету в Python-сервисе (`updater.py` & `sentinel_service.py`):* Автоматическая атомарная ротация запущенного бинарника в `.exe.old` и подстановка нового `.exe`.
-  2. *В предстартовом скрипте (`Запустить_Twitch_Drops_Sentinel.bat`):* Автоматическая замена `TwitchDropsSentinel.update` на `TwitchDropsSentinel.exe` перед стартом десктоп-хоста.
-- **Монолитная защита от сжатия окна из трея (Win32 WndProc SC_MINIMIZE Interceptor):** Окно не сворачивается в 160×32px DWM-стаб при нажатии «_», а мгновенно скрывается в трей с полным сохранением пользовательских координат и размеров экрана.
-- **Гарантированное восстановление геометрии из `window_state.json`:** Метод `EnsureValidWindowBounds` при любых сбоях мультимониторных конфигураций или DWM-стабов восстанавливает корректный размер и положение окна.
+### ⚡ Что нового в v{__version__}:
+- **Очистка от путающей телеметрии (Zero Noise):** Убраны все технические метрики («0.8 GB сэкономлено», «CPU 12%», «0% GPU», «Spade Stealth», «0% нагрузки на GPU»). На Дашборде теперь лаконичный живой статус «● Фарм активен».
+- **Полная автономность Раздач Игр (Giveaways Hub Self-Containment):** Движок `giveaways_engine/` (~550 КБ) встроен прямо в корень дистрибутива. Приложение больше не зависит от путей разработчика и работает автономно на любых ПК друзей и пользователей.
+- **Устранение CORS-ошибок (Zero Failed to Fetch):** В `core/sentinel_service.py` обработчик CORS защищен перехватом исключений, гарантируя доставку заголовков CORS даже при HTTP-ошибках.
+- **Единая Студия Настроек & Двусторонняя синхронизация Mute:** Устранены дублирующие нижние карточки в Настройках. Управление режимом сна/выключения интегрировано прямо в карточку модуля. Кнопка звука (Mute) в Topbar синхронизирована с сервером.
+- **Полнофункциональный ScreenDimmer (Apple Luna 2.0):** Новая вкладка «Затемнение» в сайдбаре:
+  - Мастер-слайдер яркости и тактильные пресеты (100%, 75%, 50%, 25%, 10%, 🌑 Blackout).
+  - Аппаратные оверлеи Win32 на чистом C# без мерцания и утечек памяти.
+  - Таймеры автоматического сна экрана (15 мин, 30 мин, 1 час, 2 часа).
+- **Вкладка «Удаленные» & Синхронизация раздач Twitch:** Удаленные игры попадают в отдельную вкладку «🗑️ Удаленные» с восстановлением в 1 клик. Кнопка «+ В ТОП» надежно заблокирована для удаленных и исключенных игр.
 
 ### 📦 Файлы релиза:
-1. `Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip` (~60 MB) — Полная автономная версия со встроенным portable Python 3.12 для новых пользователей и друзей.
-2. `Twitch_Drops_Sentinel_Patch_v{__version__}.zip` (~35 MB) — Полный хот-патч (десктоп-хост + core + dist) для встроенного Auto-Updater прямо из интерфейса без `Permission denied`.
+1. `Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip` (~60 MB) — Полная автономная версия со встроенным portable Python 3.12 и автономным Giveaways Engine для чистой установки в 1 клик.
+2. `Twitch_Drops_Sentinel_Patch_v{__version__}.zip` (~35 MB) — Полный хот-патч для встроенного Auto-Updater прямо из интерфейса.
 
 *Crafted with precision by Mortuis_V_Studio (2026).*
 """

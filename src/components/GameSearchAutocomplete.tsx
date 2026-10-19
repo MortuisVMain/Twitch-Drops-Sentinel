@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Search, X, Plus, Check, Flame, HardDrive, Sparkles, 
-  Gamepad2, ShieldCheck, AlertCircle, Loader2
+  Gamepad2, ShieldCheck, AlertCircle, Loader2, Ban, Trash2
 } from 'lucide-react';
 import { GameItem } from '../types';
 
 interface GameSearchAutocompleteProps {
   allGames: GameItem[];
   priorityList: string[];
+  excludedList?: string[];
+  ignoredList?: string[];
   onAddToPriority: (gameName: string) => void;
   onRemoveFromPriority: (gameName: string) => void;
   query?: string;
@@ -30,6 +32,8 @@ interface VerificationResult {
 export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
   allGames,
   priorityList,
+  excludedList = [],
+  ignoredList = [],
   onAddToPriority,
   onRemoveFromPriority,
   query: externalQuery,
@@ -154,6 +158,11 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
   };
 
   const handleToggle = (gameName: string) => {
+    const isExcluded = excludedList.some(e => e.toLowerCase().trim() === gameName.toLowerCase().trim());
+    const isRemoved = ignoredList.some(r => r.toLowerCase().trim() === gameName.toLowerCase().trim());
+    if (isExcluded || isRemoved) {
+      return;
+    }
     if (priorityList.includes(gameName)) {
       onRemoveFromPriority(gameName);
     } else {
@@ -165,6 +174,11 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
   };
 
   const handleCustomAdd = (gameName: string) => {
+    const isExcluded = excludedList.some(e => e.toLowerCase().trim() === gameName.toLowerCase().trim());
+    const isRemoved = ignoredList.some(r => r.toLowerCase().trim() === gameName.toLowerCase().trim());
+    if (isExcluded || isRemoved) {
+      return;
+    }
     onAddToPriority(gameName);
     if (onSelectGame) {
       onSelectGame(gameName);
@@ -251,6 +265,8 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                 <div className="space-y-1 mt-1">
                   {activeDropsSuggestions.map((game, idx) => {
                     const inPriority = priorityList.includes(game.name);
+                    const inExcluded = excludedList.some(e => e.toLowerCase().trim() === game.name.toLowerCase().trim());
+                    const inRemoved = ignoredList.some(r => r.toLowerCase().trim() === game.name.toLowerCase().trim() || r.toLowerCase().trim() === (game.id || '').toLowerCase().trim());
                     const isSelected = selectedIndex === idx;
 
                     return (
@@ -268,19 +284,35 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
                             inPriority 
                               ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--accent)]' 
-                              : 'bg-[#368873]/10 border-[#73bba5]/30 text-[var(--accent)]'
+                              : inExcluded
+                                ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                                : inRemoved
+                                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                  : 'bg-[#368873]/10 border-[#73bba5]/30 text-[var(--accent)]'
                           }`}>
-                            <Flame className="w-3.5 h-3.5" />
+                            {inExcluded ? <Ban className="w-3.5 h-3.5" /> : inRemoved ? <Trash2 className="w-3.5 h-3.5" /> : <Flame className="w-3.5 h-3.5" />}
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold text-[var(--foreground)] truncate">
                                 {highlightMatch(game.name, query.trim())}
                               </span>
                               {inPriority && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/40 shrink-0">
                                   В ТОПе #{priorityList.indexOf(game.name) + 1}
+                                </span>
+                              )}
+                              {inExcluded && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 shrink-0 flex items-center gap-1">
+                                  <Ban className="w-2.5 h-2.5 text-rose-300" />
+                                  <span>В исключениях</span>
+                                </span>
+                              )}
+                              {inRemoved && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 flex items-center gap-1">
+                                  <Trash2 className="w-2.5 h-2.5 text-amber-300" />
+                                  <span>В удалённых</span>
                                 </span>
                               )}
                             </div>
@@ -303,30 +335,52 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggle(game.name);
-                          }}
-                          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
-                            inPriority
-                              ? 'bg-[#368873] text-white border border-[#73bba5] shadow-sm hover:bg-rose-500 hover:border-rose-400'
-                              : 'bg-[#368873]/20 hover:bg-[#368873] hover:text-white text-[var(--accent)] border border-[#73bba5]/40 font-bold'
-                          }`}
-                        >
-                          {inPriority ? (
-                            <>
-                              <Check className="w-3 h-3 text-white" />
-                              <span>В ТОПе</span>
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="w-3 h-3" />
-                              <span>+ В ТОП</span>
-                            </>
-                          )}
-                        </button>
+                        {inExcluded ? (
+                          <button
+                            type="button"
+                            disabled={true}
+                            className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 opacity-60 cursor-not-allowed bg-rose-500/10 text-rose-300 border border-rose-500/30"
+                            title="Игра находится в исключениях. Сначала уберите её из исключений на полке."
+                          >
+                            <Ban className="w-3 h-3 text-rose-300" />
+                            <span>Исключена</span>
+                          </button>
+                        ) : inRemoved ? (
+                          <button
+                            type="button"
+                            disabled={true}
+                            className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 opacity-60 cursor-not-allowed bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                            title="Игра находится в удалённых. Сначала восстановите её на полке."
+                          >
+                            <Trash2 className="w-3 h-3 text-amber-300" />
+                            <span>Удалена</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggle(game.name);
+                            }}
+                            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
+                              inPriority
+                                ? 'bg-[#368873] text-white border border-[#73bba5] shadow-sm hover:bg-rose-500 hover:border-rose-400'
+                                : 'bg-[#368873]/20 hover:bg-[#368873] hover:text-white text-[var(--accent)] border border-[#73bba5]/40 font-bold'
+                            }`}
+                          >
+                            {inPriority ? (
+                              <>
+                                <Check className="w-3 h-3 text-white" />
+                                <span>В ТОПе</span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="w-3 h-3" />
+                                <span>+ В ТОП</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -345,6 +399,8 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                   {otherSuggestions.map((game, idx) => {
                     const globalIdx = activeDropsSuggestions.length + idx;
                     const inPriority = priorityList.includes(game.name);
+                    const inExcluded = excludedList.some(e => e.toLowerCase().trim() === game.name.toLowerCase().trim());
+                    const inRemoved = ignoredList.some(r => r.toLowerCase().trim() === game.name.toLowerCase().trim() || r.toLowerCase().trim() === (game.id || '').toLowerCase().trim());
                     const isSelected = selectedIndex === globalIdx;
 
                     return (
@@ -362,19 +418,35 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
                             inPriority 
                               ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--accent)]' 
-                              : 'bg-white/[0.04] border-[var(--line)] text-[var(--muted)]'
+                              : inExcluded
+                                ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                                : inRemoved
+                                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                  : 'bg-white/[0.04] border-[var(--line)] text-[var(--muted)]'
                           }`}>
-                            <Gamepad2 className="w-3.5 h-3.5" />
+                            {inExcluded ? <Ban className="w-3.5 h-3.5" /> : inRemoved ? <Trash2 className="w-3.5 h-3.5" /> : <Gamepad2 className="w-3.5 h-3.5" />}
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-bold text-[var(--foreground)] truncate">
                                 {highlightMatch(game.name, query.trim())}
                               </span>
                               {inPriority && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/40 shrink-0">
                                   В очереди
+                                </span>
+                              )}
+                              {inExcluded && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 shrink-0 flex items-center gap-1">
+                                  <Ban className="w-2.5 h-2.5 text-rose-300" />
+                                  <span>В исключениях</span>
+                                </span>
+                              )}
+                              {inRemoved && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 flex items-center gap-1">
+                                  <Trash2 className="w-2.5 h-2.5 text-amber-300" />
+                                  <span>В удалённых</span>
                                 </span>
                               )}
                             </div>
@@ -392,30 +464,52 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggle(game.name);
-                          }}
-                          className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
-                            inPriority
-                              ? 'bg-[#368873] text-white border border-[#73bba5] shadow-sm'
-                              : 'bg-white/[0.06] hover:bg-white/[0.15] text-[var(--muted)] hover:text-white border border-[var(--line)]'
-                          }`}
-                        >
-                          {inPriority ? (
-                            <>
-                              <Check className="w-3 h-3 text-white" />
-                              <span>В очереди</span>
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="w-3 h-3" />
-                              <span>В очередь</span>
-                            </>
-                          )}
-                        </button>
+                        {inExcluded ? (
+                          <button
+                            type="button"
+                            disabled={true}
+                            className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 opacity-60 cursor-not-allowed bg-rose-500/10 text-rose-300 border border-rose-500/30"
+                            title="Игра находится в исключениях. Сначала уберите её из исключений на полке."
+                          >
+                            <Ban className="w-3 h-3 text-rose-300" />
+                            <span>Исключена</span>
+                          </button>
+                        ) : inRemoved ? (
+                          <button
+                            type="button"
+                            disabled={true}
+                            className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 opacity-60 cursor-not-allowed bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                            title="Игра находится в удалённых. Сначала восстановите её на полке."
+                          >
+                            <Trash2 className="w-3 h-3 text-amber-300" />
+                            <span>Удалена</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggle(game.name);
+                            }}
+                            className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
+                              inPriority
+                                ? 'bg-[#368873] text-white border border-[#73bba5] shadow-sm'
+                                : 'bg-white/[0.06] hover:bg-white/[0.15] text-[var(--muted)] hover:text-white border border-[var(--line)]'
+                            }`}
+                          >
+                            {inPriority ? (
+                              <>
+                                <Check className="w-3 h-3 text-white" />
+                                <span>В очереди</span>
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="w-3 h-3" />
+                                <span>В очередь</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     );
                   })}

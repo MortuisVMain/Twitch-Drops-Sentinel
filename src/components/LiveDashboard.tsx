@@ -851,9 +851,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           ) : (
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/40 border border-[var(--line)] text-[11px] text-[var(--muted)] font-mono">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Spade Stealth: 0% GPU</span>
-              <span className="text-white/20">&bull;</span>
-              <span className="text-emerald-400 font-bold">{hardware.ping_ms || 18} ms</span>
+              <span className="text-[#73bba5] font-semibold">Фарм активен</span>
             </div>
           )}
         </div>
@@ -1484,59 +1482,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             )}
           </div>
 
-          {/* 4 Real Metric Pills (2x2 Grid) */}
-          <div className="metric-pills">
-            <div className="metric-pill">
-              <span className="pill-label">Сэкономлено Трафика</span>
-              <span className="pill-value text-[#73bba5]">
-                {(stats.traffic_saved_mb / 1024).toFixed(1)} GB
-              </span>
-            </div>
-
-            <div className="metric-pill">
-              <span className="pill-label">Нагрузка на CPU</span>
-              <span className="pill-value text-[var(--accent)] tabular-nums">
-                {hardware.cpu_percent || 0.1}%
-              </span>
-            </div>
-
-            <div className="metric-pill">
-              <span className="pill-label">Время Сессии</span>
-              <span className="pill-value font-mono tabular-nums">
-                {formatUptime(uptimeSeconds)}
-              </span>
-            </div>
-
-            <div className="metric-pill relative group">
-              <div className="flex items-center justify-between w-full">
-                <span className="pill-label">Всего Наград</span>
-                {stats.total_drops_claimed > 0 && (
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      playClick();
-                      if (window.confirm('Очистить журнал полученных наград (Trophies.md)?')) {
-                        try {
-                          await fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' });
-                          onManualRefresh();
-                        } catch {}
-                      }
-                    }}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-rose-400 hover:text-rose-300 px-1.5 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
-                    title="Очистить журнал трофеев"
-                  >
-                    Очистить
-                  </button>
-                )}
-              </div>
-              <span className="pill-value text-[#ffaa00] tabular-nums">
-                {stats.total_drops_claimed} шт.
-              </span>
-            </div>
-          </div>
-
           {/* Action Row */}
-          <div className="action-row">
+          <div className="action-row mt-4">
             <button 
               onClick={handleClaim}
               className="btn-claim tactile-press"
@@ -1559,17 +1506,6 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               <Settings className="w-4 h-4 text-[#94a3b8]" />
               <span>Настройки</span>
             </button>
-          </div>
-
-          {/* Streamless Protocol Verified Indicator */}
-          <div className="mt-2 p-3 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)] flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Zap className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
-              <span>Streamless WebSocket Protocol: 0% нагрузки на GPU, фарм без видеопотока</span>
-            </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#368873]/15 text-[var(--accent)] border border-[#73bba5]/30 font-bold shrink-0">
-              ACTIVE
-            </span>
           </div>
         </section>
       </div>

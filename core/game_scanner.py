@@ -266,6 +266,27 @@ class GameScanner:
                 logger.error(f"Failed removing game {name} from cache: {e}")
         return False
 
+    def unignore_game(self, game_id: str, name: str) -> bool:
+        ignored = self.load_ignored_games()
+        targets = set()
+        if name:
+            targets.add(name.lower().strip())
+            norm = normalize_game_name(name)
+            if norm:
+                targets.add(norm)
+        if game_id:
+            targets.add(game_id.lower().strip())
+
+        new_ignored = {item for item in ignored if item not in targets}
+        if len(new_ignored) != len(ignored):
+            try:
+                self.data_dir.mkdir(parents=True, exist_ok=True)
+                IGNORED_GAMES_FILE.write_text(json.dumps(sorted(list(new_ignored)), indent=2, ensure_ascii=False), encoding="utf-8")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to update ignored_games.json: {e}")
+        return False
+
     @staticmethod
     def _get_known_catalog_names() -> set[str]:
         catalog_names = set()

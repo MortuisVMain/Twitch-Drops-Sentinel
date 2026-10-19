@@ -38,8 +38,9 @@ export interface GameItem {
   install_path?: string;
   has_drops: boolean;
   box_art?: string;
-  category?: string;
+  drops_start_at?: string;
   drops_end_at?: string;
+  is_active_now?: boolean;
   rewards_count?: number;
   is_account_connected?: boolean;
   account_link_url?: string;
@@ -97,6 +98,7 @@ export interface FullSentinelState {
   settings: SentinelSettings;
   installed_games: GameItem[];
   all_catalog_games: GameItem[];
+  ignored_games?: string[];
   trophies: TrophyItem[];
   recent_logs?: SentinelLogEntry[];
   watchdog_status?: string | null;
@@ -160,7 +162,30 @@ export interface GiveawaysStateResponse {
   totalClaimed: number;
 }
 
-export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'settings';
+export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'dimmer' | 'settings';
+
+export interface DisplayMonitor {
+  id: string;
+  name: string;
+  device_name: string;
+  is_primary: boolean;
+  is_laptop_internal: boolean;
+  current_brightness: number;
+  min_brightness: number;
+  max_brightness: number;
+  supports_control: boolean;
+}
+
+export interface DimmerState {
+  monitors: DisplayMonitor[];
+  master_brightness: number;
+  is_dimmed: boolean;
+  is_blackout: boolean;
+  solo_screen_index: number | null;
+  sleep_timer_minutes: number;
+  away_mode_active: boolean;
+  mute_audio_on_blackout: boolean;
+}
 
 export interface UpdateCheckResult {
   update_available: boolean;
@@ -174,3 +199,4 @@ export interface UpdateCheckResult {
   html_url: string;
   error?: string;
 }
+

@@ -19,7 +19,21 @@ from aiohttp import web
 
 logger = logging.getLogger("sentinel.giveaways")
 
-FGC_ROOT = Path(os.environ.get("FGC_PATH", r"C:\AI Local Projects\Scripts\Free Games Claimer"))
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+LOCAL_FGC = PROJECT_DIR / "giveaways_engine"
+DEV_FGC = Path(r"C:\AI Local Projects\Scripts\Free Games Claimer")
+
+def resolve_fgc_root() -> Path:
+    env_path = os.environ.get("FGC_PATH")
+    if env_path and Path(env_path).is_dir():
+        return Path(env_path)
+    if LOCAL_FGC.is_dir() and (LOCAL_FGC / "ClaimGames.cmd").is_file():
+        return LOCAL_FGC
+    if DEV_FGC.is_dir() and (DEV_FGC / "ClaimGames.cmd").is_file():
+        return DEV_FGC
+    return LOCAL_FGC
+
+FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
 CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
 TASK_NAME = "FreeGamesClaimerStudio"
@@ -135,10 +149,12 @@ class GiveawaysOrchestrator:
         return await self._query_scheduler(force=True)
 
     def _read_inventory_sync(self, force: bool = False) -> Tuple[Dict[str, dict], List[dict]]:
+        fgc_dir = resolve_fgc_root()
+        data_dir = fgc_dir / "data"
         changed = force
         current_mtimes: Dict[str, float] = {}
         for store, filename in STORE_FILE_MAP.items():
-            fpath = DATA_DIR / filename
+            fpath = data_dir / filename
             if fpath.is_file():
                 mtime = fpath.stat().st_mtime
                 current_mtimes[store] = mtime
@@ -154,7 +170,7 @@ class GiveawaysOrchestrator:
         stores_meta: Dict[str, dict] = {}
 
         for store, filename in STORE_FILE_MAP.items():
-            fpath = DATA_DIR / filename
+            fpath = data_dir / filename
             claimed_cnt = 0
             existed_cnt = 0
             latest_ts = 0.0
@@ -227,12 +243,15 @@ class GiveawaysOrchestrator:
         return stores_meta, inventory
 
     def _get_latest_log_file(self) -> Optional[Path]:
-        if not FGC_ROOT.is_dir():
+        fgc_dir = resolve_fgc_root()
+        if not fgc_dir.is_dir():
             return None
-        logs = sorted(FGC_ROOT.glob("ClaimOutput_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        logs = sorted(fgc_dir.glob("ClaimOutput_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
         return logs[0] if logs else None
 
     async def get_state(self, force_refresh: bool = False) -> dict:
+        fgc_dir = resolve_fgc_root()
+        cmd_file = fgc_dir / "ClaimGames.cmd"
         scheduler = await self._query_scheduler(force=force_refresh)
         stores, inventory = await asyncio.to_thread(self._read_inventory_sync, force_refresh)
 
@@ -257,25 +276,27 @@ class GiveawaysOrchestrator:
             "inventory": inventory,
             "recentLogs": list(self._log_buffer),
             "lastLogFile": latest_log.name if latest_log else None,
-            "fgcInstalled": CMD_ENTRY.is_file(),
+            "fgcInstalled": cmd_file.is_file(),
             "totalClaimed": sum(s.get("claimedCount", 0) for s in stores.values()),
         }
 
     async def start_claim(self, stores: List[str], headless: bool = True) -> dict:
         async with self._lock:
+            fgc_dir = resolve_fgc_root()
+            cmd_file = fgc_dir / "ClaimGames.cmd"
             if self._proc and self._proc.returncode is None:
                 raise web.HTTPConflict(reason="Сбор раздач уже запущен.")
             sched = await self._query_scheduler(force=True)
             if sched.get("state") == "Running":
                 raise web.HTTPConflict(reason="Системное задание 'FreeGamesClaimerStudio' сейчас активно в фоне.")
-            if not CMD_ENTRY.is_file():
-                raise web.HTTPNotFound(reason=f"ClaimGames.cmd не найден по пути {CMD_ENTRY}")
+            if not cmd_file.is_file():
+                raise web.HTTPNotFound(reason=f"ClaimGames.cmd не найден по пути {cmd_file}")
 
             valid_stores = [s for s in stores if s in STORE_FILE_MAP]
             if not valid_stores:
                 valid_stores = ["epic", "gog", "steam", "fab", "unity"]
 
-            args = ["cmd.exe", "/c", str(CMD_ENTRY)]
+            args = ["cmd.exe", "/c", str(cmd_file)]
             if headless:
                 args.append("--headless")
             else:
@@ -292,7 +313,7 @@ class GiveawaysOrchestrator:
             logger.info(f"Starting FGC claim run: stores={valid_stores}, headless={headless}")
             self._proc = await asyncio.create_subprocess_exec(
                 *args,
-                cwd=str(FGC_ROOT),
+                cwd=str(fgc_dir),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 creationflags=0x08000000  # CREATE_NO_WINDOW

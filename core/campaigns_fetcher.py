@@ -55,6 +55,69 @@ def smart_game_match(candidate: str, target: str) -> bool:
         return True
     return False
 
+def is_campaign_active_now(c: dict[str, Any], now_dt: datetime | None = None) -> bool:
+    """
+    Checks if a Twitch drop campaign is genuinely active right now:
+    - Status is not EXPIRED
+    - End date is in the future (endAt > now)
+    - Start date has begun (startAt <= now)
+    - Has at least one valid, unexpired reward
+    """
+    if not isinstance(c, dict):
+        return False
+
+    if now_dt is None:
+        now_dt = datetime.now(timezone.utc)
+
+    status = str(c.get("status", "")).upper()
+    if status == "EXPIRED":
+        return False
+
+    # Check endAt
+    end_at_str = c.get("endAt")
+    if end_at_str:
+        try:
+            end_dt = datetime.fromisoformat(str(end_at_str).replace("Z", "+00:00"))
+            if end_dt <= now_dt:
+                return False
+        except Exception:
+            pass
+
+    # Check startAt
+    start_at_str = c.get("startAt")
+    if start_at_str:
+        try:
+            start_dt = datetime.fromisoformat(str(start_at_str).replace("Z", "+00:00"))
+            if start_dt > now_dt:
+                return False
+        except Exception:
+            pass
+
+    # Check rewards if present
+    rewards = c.get("rewards")
+    if rewards and isinstance(rewards, list) and len(rewards) > 0:
+        has_valid_reward = False
+        for r in rewards:
+            if not isinstance(r, dict):
+                continue
+            r_status = str(r.get("status", "")).upper()
+            if r_status == "EXPIRED":
+                continue
+            r_end = r.get("endAt")
+            if r_end:
+                try:
+                    r_end_dt = datetime.fromisoformat(str(r_end).replace("Z", "+00:00"))
+                    if r_end_dt <= now_dt:
+                        continue
+                except Exception:
+                    pass
+            has_valid_reward = True
+            break
+        if not has_valid_reward:
+            return False
+
+    return True
+
 class CampaignsFetcher:
     def __init__(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,8 +174,12 @@ class CampaignsFetcher:
         except Exception as e:
             logger.error(f"Failed to save campaigns cache: {e}")
 
-    def fetch_sync(self) -> list[dict[str, Any]]:
+    def fetch_sync(self, force: bool = False) -> list[dict[str, Any]]:
         """Synchronously fetch active campaigns from the public Twitch drops API."""
+        now = datetime.now(timezone.utc).timestamp()
+        if not force and self._cached_campaigns and (now - self._last_fetch_time < 300):
+            return self._cached_campaigns
+
         req = urllib.request.Request(
             API_URL,
             headers={
@@ -121,7 +188,7 @@ class CampaignsFetcher:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 campaigns = data.get("data", [])
                 if campaigns:
@@ -135,15 +202,30 @@ class CampaignsFetcher:
             logger.warning(f"Failed to fetch live campaigns from {API_URL}: {e}")
         return self._cached_campaigns
 
-    async def fetch_async(self) -> list[dict[str, Any]]:
+    async def fetch_async(self, force: bool = False) -> list[dict[str, Any]]:
         """Fetch active campaigns without blocking the async event loop."""
-        return await asyncio.to_thread(self.fetch_sync)
+        return await asyncio.to_thread(self.fetch_sync, force)
+
+    def sync_active_drops(self, force: bool = True) -> dict[str, Any]:
+        """Forces a fresh sync from Twitch API and returns metrics on active drops."""
+        campaigns = self.fetch_sync(force=force)
+        self._build_catalog()
+        active_count = len([g for g in self._cached_catalog if g.get("has_drops")])
+        logger.info(f"Sync complete: {active_count} active drops found across {len(self._cached_catalog)} total games.")
+        return {
+            "active_drops_count": active_count,
+            "total_campaigns": len(campaigns),
+            "total_catalog": len(self._cached_catalog),
+        }
 
     def _build_catalog(self) -> None:
         """
         Merge user's installed games with live Twitch campaigns to form the
-        authentic all_catalog_games dataset.
+        authentic all_catalog_games dataset. Only genuinely active campaigns
+        get has_drops=True.
         """
+        now_dt = datetime.now(timezone.utc)
+
         # Map cleaned titles to campaign objects
         campaign_map: dict[str, dict[str, Any]] = {}
         exact_campaign_map: dict[str, dict[str, Any]] = {}
@@ -166,14 +248,12 @@ class CampaignsFetcher:
 
             matched_c = exact_campaign_map.get(exact_norm) or campaign_map.get(norm)
             matched_key = None
+            is_active = matched_c is not None and is_campaign_active_now(matched_c, now_dt)
 
-            if matched_c:
+            if is_active and matched_c:
                 matched_key = matched_c.get("gameDisplayName", "").strip().lower()
-
-            if matched_c:
-                if matched_key:
-                    matched_campaign_keys.add(matched_key)
-                    matched_campaign_keys.add(clean_title(matched_key))
+                matched_campaign_keys.add(matched_key)
+                matched_campaign_keys.add(clean_title(matched_key))
                 
                 box_art = matched_c.get("gameBoxArtURL") or ig.get("box_art")
                 if box_art and "120x160" in box_art:
@@ -184,8 +264,10 @@ class CampaignsFetcher:
                     "name": name,
                     "is_installed": True,
                     "has_drops": True,
+                    "is_active_now": True,
                     "category": ig.get("category") or "Установлено / Drops",
                     "box_art": box_art,
+                    "drops_start_at": matched_c.get("startAt"),
                     "drops_end_at": matched_c.get("endAt"),
                     "rewards_count": len(matched_c.get("rewards", [])),
                     "is_account_connected": matched_c.get("isAccountConnected", True),
@@ -197,12 +279,15 @@ class CampaignsFetcher:
                     "name": name,
                     "is_installed": True,
                     "has_drops": False,
+                    "is_active_now": False,
                     "category": ig.get("category") or "Установлено",
                     "box_art": ig.get("box_art"),
                 })
 
         # 2. Add remaining active Twitch Drop games (not installed locally)
         for c in self._cached_campaigns:
+            if not is_campaign_active_now(c, now_dt):
+                continue
             gname = c.get("gameDisplayName")
             if not gname:
                 continue
@@ -225,8 +310,10 @@ class CampaignsFetcher:
                 "name": gname,
                 "is_installed": False,
                 "has_drops": True,
+                "is_active_now": True,
                 "category": "Twitch Drops",
                 "box_art": box_art,
+                "drops_start_at": c.get("startAt"),
                 "drops_end_at": c.get("endAt"),
                 "rewards_count": len(c.get("rewards", [])),
                 "is_account_connected": c.get("isAccountConnected", True),
@@ -258,16 +345,18 @@ class CampaignsFetcher:
         if not q_clean:
             return None
 
+        now_dt = datetime.now(timezone.utc)
+
         # 1. Exact match
         for c in self._cached_campaigns:
             gname = c.get("gameDisplayName", "")
-            if gname.strip().lower() == q_raw:
+            if gname.strip().lower() == q_raw and is_campaign_active_now(c, now_dt):
                 return c
 
         # 2. Smart match (with version guard & subtitle support)
         for c in self._cached_campaigns:
             gname = c.get("gameDisplayName", "")
-            if smart_game_match(gname, query):
+            if smart_game_match(gname, query) and is_campaign_active_now(c, now_dt):
                 return c
 
         return None
@@ -471,13 +560,19 @@ class CampaignsFetcher:
         return self._cached_campaigns
 
     async def start_background_loop(self, interval_seconds: int = 900) -> None:
-        """Periodic background refresh (default every 15 minutes)."""
+        """Periodic background refresh (default every 15 minutes) with immediate startup sync."""
+        try:
+            logger.info("Executing initial startup sync for live Twitch Drops campaigns...")
+            await asyncio.to_thread(self.sync_active_drops, True)
+        except Exception as e:
+            logger.warning(f"Initial startup drops sync encountered error: {e}")
+
         while True:
+            await asyncio.sleep(interval_seconds)
             try:
                 await self.fetch_async()
             except Exception as e:
                 logger.error(f"Error in background campaigns refresh loop: {e}")
-            await asyncio.sleep(interval_seconds)
 
 CAMPAIGNS_FETCHER = CampaignsFetcher()
 

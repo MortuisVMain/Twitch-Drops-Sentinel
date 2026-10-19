@@ -51,6 +51,7 @@ namespace TwitchDropsSentinel
         private volatile bool _isShuttingDown = false;
         private volatile bool _isForceClosing = false;
         private FormWindowState _lastNonMinimizedState = FormWindowState.Normal;
+        private readonly List<BlackoutOverlayForm> _activeBlackoutForms = new();
 
         private class WindowStateConfig
         {
@@ -403,6 +404,11 @@ namespace TwitchDropsSentinel
             _isShuttingDown = true;
             try
             {
+                SetBlackout(false);
+            }
+            catch { }
+            try
+            {
                 _backendWatchdogTimer?.Stop();
                 _backendWatchdogTimer?.Dispose();
                 _backendWatchdogTimer = null;
@@ -675,6 +681,16 @@ namespace TwitchDropsSentinel
                         Application.Restart();
                         Environment.Exit(0);
                     }));
+                }
+                else if (type == "DIMMER_COMMAND")
+                {
+                    string action = root.TryGetProperty("action", out var actProp) ? actProp.GetString() ?? "" : "";
+                    if (action == "SET_BLACKOUT")
+                    {
+                        bool enabled = root.TryGetProperty("enabled", out var enProp) && enProp.GetBoolean();
+                        int? solo = root.TryGetProperty("soloIndex", out var sProp) && sProp.ValueKind == JsonValueKind.Number ? sProp.GetInt32() : (int?)null;
+                        SetBlackout(enabled, solo);
+                    }
                 }
             }
             catch (Exception ex)
@@ -964,6 +980,63 @@ namespace TwitchDropsSentinel
             {
                 Debug.WriteLine($"RestoreFromTray error: {ex.Message}");
             }
+        }
+
+        private void SetBlackout(bool enabled, int? soloIndex = null)
+        {
+            this.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    foreach (var form in _activeBlackoutForms)
+                    {
+                        try { form.Close(); form.Dispose(); } catch { }
+                    }
+                    _activeBlackoutForms.Clear();
+
+                    if (enabled)
+                    {
+                        var screens = Screen.AllScreens;
+                        for (int i = 0; i < screens.Length; i++)
+                        {
+                            if (soloIndex.HasValue && soloIndex.Value != i) continue;
+                            var bf = new BlackoutOverlayForm(screens[i].Bounds);
+                            bf.Show();
+                            _activeBlackoutForms.Add(bf);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error toggling blackout: {ex.Message}");
+                }
+            }));
+        }
+
+        internal class BlackoutOverlayForm : Form
+        {
+            public BlackoutOverlayForm(Rectangle bounds)
+            {
+                AutoScaleMode = AutoScaleMode.None;
+                FormBorderStyle = FormBorderStyle.None;
+                StartPosition = FormStartPosition.Manual;
+                Bounds = bounds;
+                BackColor = Color.Black;
+                TopMost = true;
+                DoubleBuffered = true;
+            }
+
+            protected override CreateParams CreateParams
+            {
+                get
+                {
+                    CreateParams cp = base.CreateParams;
+                    cp.ExStyle |= 0x80 | 0x08 | 0x08000000; // WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE
+                    return cp;
+                }
+            }
+
+            protected override bool ShowWithoutActivation => true;
         }
     }
 

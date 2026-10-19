@@ -4,6 +4,7 @@ import { LiveDashboard } from './components/LiveDashboard';
 import { GameShelf } from './components/GameShelf';
 import { GiveawaysView } from './components/GiveawaysView';
 import { SettingsStudio } from './components/SettingsStudio';
+import { ScreenDimmerView } from './components/ScreenDimmerView';
 import { LiquidCanvas } from './components/LiquidCanvas';
 import { HelpModal } from './components/HelpModal';
 import { useTactileAudio } from './hooks/useTactileAudio';
@@ -239,6 +240,7 @@ export const App: React.FC = () => {
     { id: 'dashboard' as NavTab, label: 'Дашборд', icon: LayoutDashboard, badge: 'PRO' },
     { id: 'shelf' as NavTab, label: 'Полка Игр', icon: Gamepad2, badge: `${sentinelState.installed_games.length}` },
     { id: 'giveaways' as NavTab, label: 'Раздачи', icon: Gift, badge: 'FREE' },
+    { id: 'dimmer' as NavTab, label: 'Затемнение', icon: Moon, badge: 'OLED' },
     { id: 'settings' as NavTab, label: 'Настройки', icon: SlidersHorizontal },
   ];
 
@@ -336,12 +338,6 @@ export const App: React.FC = () => {
               </button>
             )}
 
-            <div className="telemetry-pill">
-              <span>CPU {sentinelState.hardware.cpu_percent}%</span>
-              <span>&bull;</span>
-              <span>{(sentinelState.stats.traffic_saved_mb / 1024).toFixed(1)} GB сэкономлено</span>
-            </div>
-
             <span className="web-status">
               <span />
               Windows Native
@@ -365,8 +361,10 @@ export const App: React.FC = () => {
               title={isMuted ? "Включить звуки интерфейса (сейчас Muted)" : "Отключить звуки интерфейса (Mute)"}
               className={`tactile-press ${isMuted ? 'text-amber-400 font-bold bg-amber-500/15 border border-amber-500/30' : ''}`}
               onClick={() => {
+                const nextMuted = !isMuted;
                 toggleMute();
-                showToast(isMuted ? "Звуки интерфейса включены" : "Звуки интерфейса отключены (Mute)");
+                handleUpdateSettings({ ui_sound_enabled: !nextMuted });
+                showToast(nextMuted ? "Звуки интерфейса отключены (Mute)" : "Звуки интерфейса включены");
               }}
             >
               {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
@@ -399,25 +397,28 @@ export const App: React.FC = () => {
                 {activeTab === 'dashboard' && 'SENTINEL PRO · ТИХИЙ АВТОНОМНЫЙ ФАРМ ДРОПОВ 24/7'}
                 {activeTab === 'shelf' && 'БИБЛИОТЕКА ИГР · ПРИОРИТЕТЫ И ИСКЛЮЧЕНИЯ'}
                 {activeTab === 'giveaways' && 'СИНДИКАТ ХАЛЯВЫ · АВТОМАТИЧЕСКИЙ СБОР РАЗДАЧ'}
+                {activeTab === 'dimmer' && 'УПРАВЛЕНИЕ ЭКРАНАМИ · DDC/CI ДИСПЛЕИ И НОЧНОЙ BLACKOUT'}
                 {activeTab === 'settings' && 'КОНФИГУРАЦИЯ · ПОВЕДЕНИЕ ДЕМОНА И ПИТАНИЕ'}
               </div>
               <h1>
                 {activeTab === 'dashboard' && 'Все трофеи под контролем.'}
                 {activeTab === 'shelf' && 'Каждой игре — свой приоритет.'}
                 {activeTab === 'giveaways' && 'Все магазины под контролем.'}
+                {activeTab === 'dimmer' && 'Полный контроль ночной темноты.'}
                 {activeTab === 'settings' && 'Тонкая настройка по вашим правилам.'}
               </h1>
               <p>
                 {activeTab === 'dashboard' && 'Автономный сбор наград Twitch без видеопотока, лагов и нагрузки на видеокарту.'}
                 {activeTab === 'shelf' && 'Управляйте приоритетами дропов и исключайте ненужные игры в один клик.'}
                 {activeTab === 'giveaways' && 'Автоматический забор бесплатных игр и ассетов в Epic Games, GOG, Steam, Fab и Unity без открытого браузера.'}
+                {activeTab === 'dimmer' && 'Плавная регулировка подсветки мониторов, таймеры сна и ночной режим Blackout без прерывания фонового фарма.'}
                 {activeTab === 'settings' && 'Управление поведением при гейминге, питанием и сканированием локальных дисков.'}
               </p>
             </div>
 
             <div className="local-badge">
               <ShieldCheck size={15} className="text-[#73bba5]" />
-              <span>Локально и приватно &bull; 0% GPU &bull; {(sentinelState.stats.traffic_saved_mb / 1024).toFixed(1)} GB сэкономлено</span>
+              <span>Локально и приватно</span>
             </div>
           </div>
 
@@ -465,6 +466,7 @@ export const App: React.FC = () => {
                   games={sentinelState.all_catalog_games}
                   priorityList={sentinelState.settings.priority_games}
                   excludedList={sentinelState.settings.excluded_games}
+                  ignoredGames={sentinelState.ignored_games}
                   trophies={sentinelState.trophies}
                   onAddToPriority={(name) => handleTogglePriority(name)}
                   onRemoveFromPriority={(name) => handleTogglePriority(name)}
@@ -472,6 +474,8 @@ export const App: React.FC = () => {
                   onRemoveFromExcluded={(name) => handleToggleExclude(name)}
                   onReorderPriority={handleReorderPriority}
                   onRescanGames={handleRescanGames}
+                  onManualRefresh={handleManualRefresh}
+                  onShowToast={showToast}
                   onBack={() => handleTabChange('dashboard')}
                   onOpenVaultFile={handleOpenVaultFile}
                 />
@@ -482,6 +486,13 @@ export const App: React.FC = () => {
                   onBackToDashboard={() => handleTabChange('dashboard')}
                   settings={sentinelState.settings}
                   onUpdateSettings={handleUpdateSettings}
+                />
+              )}
+
+              {activeTab === 'dimmer' && (
+                <ScreenDimmerView
+                  onBackToDashboard={() => handleTabChange('dashboard')}
+                  showToast={showToast}
                 />
               )}
 
@@ -511,7 +522,7 @@ export const App: React.FC = () => {
                   </span>
                   <div>
                     <h3>Streamless-протокол</h3>
-                    <p>Фарм на уровне WebSocket, 0% нагрузки на GPU</p>
+                    <p>Фарм на уровне WebSocket без тяжелого видеопотока</p>
                   </div>
                   <Check size={14} className="feature-check" />
                 </div>

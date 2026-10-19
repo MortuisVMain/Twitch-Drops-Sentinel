@@ -1,0 +1,170 @@
+import fs from 'fs';
+import path from 'path';
+
+// Browser automation engines that can be used to run the storefront scripts.
+// Each entry maps the value of the AUTOMATION option to the npm package to load
+// and the browser type to launch. Adding another Playwright-compatible library
+// only requires a new entry here - the storefront scripts stay the same.
+const ENGINES = {
+  patchright: {
+    package: 'patchright',
+    browser: 'chromium',
+    install: 'npm install && npx patchright install chromium chrome',
+  },
+  playwright: {
+    package: 'playwright',
+    browser: 'chromium',
+    install: 'npm install playwright && npx playwright install chromium chrome',
+  },
+};
+
+/**
+ * Minimizes the browser window via CDP, best-effort. Some stores cannot run
+ * headless without risking captchas and always launch a visible browser; a
+ * minimized window keeps working and is as little intrusive as possible.
+ * Only Chromium-based engines support `newCDPSession`, so other engines are skipped.
+ * @param {object} context the launched browser context
+ */
+const minimizeWindow = async context => {
+  if (typeof context.newCDPSession != 'function') return;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const page = context.pages()[0] || await context.newPage();
+      const session = await context.newCDPSession(page);
+      const { windowId } = await session.send('Browser.getWindowForTarget');
+      // Position off-screen in 'normal' state so Chromium doesn't throttle RAF / timers or report hidden=true
+      await session.send('Browser.setWindowBounds', {
+        windowId,
+        bounds: { left: -32000, top: -32000, width: 1280, height: 900, windowState: 'normal' },
+      });
+      await session.detach(); // don't leave a CDP connection around
+      return;
+    } catch (error) {
+      if (attempt == 5) console.warn(`could not move the browser window off-screen: ${error.message}`);
+      else await new Promise(resolve => setTimeout(resolve, 200)); // window may not be ready yet, retry
+    }
+  }
+};
+
+/**
+ * Launches a persistent browser context with the automation engine selected via
+ * the AUTOMATION option (default: patchright). Options are passed through as-is,
+ * so the storefront scripts don't need to know which library is used.
+ * `cfg` is passed in by the caller (instead of importing src/config.js here) to
+ * avoid a circular import while config.js and util.js are still initializing.
+ * @param {object} cfg the loaded configuration (src/config.js)
+ * @param {object} options options for `launchPersistentContext` (without the user data dir)
+ * @returns {Promise<object>} the launched browser context
+ */
+export const launchContext = async (cfg, options) => {
+  const engine = ENGINES[cfg.automation];
+  if (!engine) {
+    throw new Error(`Unknown AUTOMATION "${cfg.automation}". Supported values: ${Object.keys(ENGINES).join(', ')}.`);
+  }
+  let module;
+  try {
+    module = await import(engine.package);
+  } catch (error) {
+    // Give a clear error instead of the obscure "Cannot find package" module error
+    if (error?.code == 'ERR_MODULE_NOT_FOUND') {
+      throw new Error(`Browser automation "${cfg.automation}" is not installed. Install it with: ${engine.install}`);
+    }
+    throw error;
+  }
+  const browser = module[engine.browser];
+  if (!browser) {
+    throw new Error(`Package "${engine.package}" does not export "${engine.browser}".`);
+  }
+  // The storefront scripts request a GL backend for rendering; on Windows that
+  // EGL backend is unavailable and Chrome silently falls back to software rendering,
+  // so drop those flags to let Chrome pick the native (D3D11) backend instead.
+  if (process.platform == 'win32') {
+    const linuxGlArgs = ['--use-gl', '--use-angle'];
+    options.args = (options.args ?? []).filter(a => !linuxGlArgs.some(p => a.startsWith(p)));
+  }
+  // On Windows, Chrome resolves the system proxy configuration (WinINET, including WPAD
+  // auto-detection) on its first request, which can block the first navigation for 30s+
+  // before the store is even contacted. The storefront scripts use no proxy, so force
+  // direct access. An explicitly configured proxy in `args` is left untouched.
+  const proxyArgs = ['--proxy-server', '--proxy-pac-url', '--proxy-auto-detect'];
+  const args = options.args ?? [];
+  const hasProxyArg = args.some(a => proxyArgs.some(p => a.startsWith(p)));
+  if (!hasProxyArg) options.args = [...args, '--no-proxy-server'];
+
+  // If running in background/minimized mode, launch directly off-screen with unthrottled background timers
+  if (options.headless === false && process.env.FGC_MINIMIZE == '1') {
+    const offscreenArgs = [
+      '--window-position=-32000,-32000',
+      '--window-size=1280,900',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--no-default-browser-check',
+    ];
+    options.args = [...(options.args ?? []), ...offscreenArgs];
+  }
+
+  // Stale profile lock cleanup to prevent crashes from previous interrupted runs
+  if (cfg.dir?.browser) {
+    const lockFile = path.resolve(cfg.dir.browser, 'SingletonLock');
+    if (fs.existsSync(lockFile)) {
+      try {
+        fs.unlinkSync(lockFile);
+      } catch {
+        // file might be held by active process
+      }
+    }
+  }
+
+  let context;
+  const launch = opts => browser.launchPersistentContext(cfg.dir.browser, opts);
+
+  try {
+    context = await launch(options);
+  } catch (error) {
+    const isChannelError = options.channel && (
+      error.message.includes('Chromium distribution') ||
+      error.message.includes('not found') ||
+      error.message.includes("Executable doesn't exist") ||
+      error.message.includes('Cannot find') ||
+      error.message.toLowerCase().includes('channel')
+    );
+
+    if (isChannelError) {
+      console.warn(`[WARN] Browser channel "${options.channel}" is not available on this system.`);
+      // On Windows, Microsoft Edge is always pre-installed
+      if (process.platform === 'win32' && options.channel !== 'msedge') {
+        try {
+          console.log('[INFO] Attempting fallback to Microsoft Edge (msedge)...');
+          context = await launch({ ...options, channel: 'msedge' });
+        } catch {
+          // Edge not available or failed, fall through to bundled Chromium
+        }
+      }
+      if (!context) {
+        console.log('[INFO] Falling back to bundled Patchright Chromium...');
+        const fallbackOpts = { ...options };
+        delete fallbackOpts.channel;
+        try {
+          context = await launch(fallbackOpts);
+        } catch (bundledError) {
+          if (bundledError.message.includes("Executable doesn't exist")) {
+            console.log('[INFO] Bundled Chromium binary not found. Automatically running "npx patchright install chromium"...');
+            const { execSync } = await import('child_process');
+            execSync('npx patchright install chromium', { stdio: 'inherit' });
+            context = await launch(fallbackOpts);
+          } else {
+            throw bundledError;
+          }
+        }
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  // minimize only when a store forces a visible browser although headless was requested;
+  // ClaimGames.cmd sets FGC_MINIMIZE for that case, so an explicit SHOW=1 stays visible
+  if (options.headless === false && process.env.FGC_MINIMIZE == '1') await minimizeWindow(context);
+  return context;
+};

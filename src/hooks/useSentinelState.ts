@@ -116,6 +116,7 @@ export function useSentinelState(
                 connected: true,
                 installed_games: data.installed_games || prev.installed_games,
                 all_catalog_games: data.all_catalog_games || prev.all_catalog_games,
+                ignored_games: data.ignored_games || prev.ignored_games || [],
               };
             });
           }
@@ -126,6 +127,11 @@ export function useSentinelState(
     };
 
     fetchState();
+    // On startup, execute initial live drops sync in background once
+    fetch('http://127.0.0.1:28492/api/campaigns/sync', { method: 'POST' })
+      .then(() => fetchState())
+      .catch(() => {});
+
     const interval = setInterval(fetchState, 3000);
     return () => {
       isMounted = false;
@@ -325,8 +331,17 @@ export function useSentinelState(
     try {
       const res = await fetch('http://127.0.0.1:28492/api/sync', { method: 'POST' });
       if (res.ok) {
-        const data = await res.json();
-        setSentinelState((prev) => ({ ...prev, ...data }));
+        const stateRes = await fetch('http://127.0.0.1:28492/api/state');
+        if (stateRes.ok) {
+          const stateData = await stateRes.json();
+          setSentinelState((prev) => ({
+            ...prev,
+            ...stateData,
+            connected: true,
+            installed_games: stateData.installed_games || prev.installed_games,
+            all_catalog_games: stateData.all_catalog_games || prev.all_catalog_games,
+          }));
+        }
         showToast('✓ Данные Twitch Drops успешно обновлены');
       }
     } catch {
