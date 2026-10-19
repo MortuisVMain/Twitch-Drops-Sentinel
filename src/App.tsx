@@ -456,6 +456,7 @@ export const App: React.FC = () => {
                   onToggleDaemon={handleToggleDaemon}
                   onSwitchStreamer={handleSwitchStreamer}
                   onReorderPriority={handleReorderPriority}
+                  onUpdateSettings={handleUpdateSettings}
                 />
               )}
 

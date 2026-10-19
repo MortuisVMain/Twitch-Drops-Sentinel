@@ -526,9 +526,10 @@ class SentinelSupervisor:
         # Authentic Twitch Drops catalog + detected installed games
         catalog_games = CAMPAIGNS_FETCHER.get_catalog()
         if self.twitch_client and hasattr(self.twitch_client, "inventory"):
-            inv_camps = getattr(self.twitch_client.inventory, "campaigns", {})
+            raw_inv = self.twitch_client.inventory
+            inv_list = raw_inv if isinstance(raw_inv, list) else list(getattr(raw_inv, "campaigns", {}).values())
             camp_map = {}
-            for camp in inv_camps.values():
+            for camp in inv_list:
                 if hasattr(camp, "game") and camp.game and camp.game.name:
                     camp_map[camp.game.name.strip().lower()] = camp
             for g in catalog_games:
@@ -537,6 +538,12 @@ class SentinelSupervisor:
                     camp = camp_map[gn]
                     g["is_account_connected"] = getattr(camp, "linked", True)
                     g["account_link_url"] = getattr(camp, "link_url", "") or "https://www.twitch.tv/settings/connections"
+                    g["is_finished"] = getattr(camp, "finished", False)
+                    g["total_drops"] = getattr(camp, "total_drops", 0)
+                    g["claimed_drops"] = getattr(camp, "claimed_drops", 0)
+                    g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
+                    if hasattr(camp, "allowed_channels") and camp.allowed_channels:
+                        g["allowed_channels"] = [ch.name for ch in camp.allowed_channels]
 
         installed_games = [g for g in catalog_games if g.get("is_installed")]
 

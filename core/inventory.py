@@ -574,8 +574,14 @@ class DropsCampaign:
             and self.active  # campaign is active (and valid)
             and (
                 channel is None or (  # channel isn't specified,
-                    # or there's no ACL, or the channel is in the ACL
-                    (not self.allowed_channels or channel in self.allowed_channels)
+                    # or there's no ACL, or channel in ACL, or confirmed in AvailableDrops,
+                    # or channel has drops enabled and ACL is a showcase ("в том числе", <= 10 channels)
+                    (
+                        not self.allowed_channels
+                        or channel in self.allowed_channels
+                        or self.id in getattr(channel, "available_campaign_ids", set())
+                        or (getattr(channel, "drops_enabled", False) and len(self.allowed_channels) <= 10)
+                    )
                     # and the channel is live and playing the campaign's game,
                     # or this campaign can be earned anywhere (special game)
                     and (

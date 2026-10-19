@@ -43,6 +43,11 @@ export interface GameItem {
   rewards_count?: number;
   is_account_connected?: boolean;
   account_link_url?: string;
+  is_finished?: boolean;
+  progress_percent?: number;
+  claimed_drops?: number;
+  total_drops?: number;
+  allowed_channels?: string[];
 }
 
 export interface TrophyItem {

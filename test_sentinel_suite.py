@@ -644,10 +644,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.5", f"Version mismatch: {__version__}"
-    assert parse_version("3.1.4") == (3, 1, 4)
+    assert __version__ == "3.1.6", f"Version mismatch: {__version__}"
+    assert parse_version("3.1.5") == (3, 1, 5)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
-    assert parse_version("v3.2.0") > parse_version("3.1.4")
+    assert parse_version("v3.2.0") > parse_version("3.1.6")
 
     # 2. Verify protected blacklist in updater
     assert "cookies.jar" in PROTECTED_PATHS
@@ -1026,6 +1026,38 @@ def test_sleep_guard_watchdog_and_account_protection():
 
     print("      Sleep Guard, WebSocket Watchdog, Log Rotation & Account Protection: ALL PASS [OK]")
 
+def test_r6s_showcase_acl_and_strict_priority_guard():
+    print("[30/30] Testing Showcase ACL Matching, Twitch Drops Directory Discovery & Strict Priority Guard...")
+
+    # 1. Verify core/channel.py has available_campaign_ids and showcase ACL check
+    channel_py = (WORKSPACE / "core" / "channel.py").read_text(encoding="utf-8")
+    assert "available_campaign_ids" in channel_py, "Channel.__slots__ must include available_campaign_ids"
+    assert "self.available_campaign_ids = {" in channel_py, "_check_drops_enabled must store available_campaign_ids"
+    assert "len(campaign.allowed_channels) <= 10" in channel_py, "_check_drops_enabled must allow showcase ACLs <= 10"
+
+    # 2. Verify core/inventory.py allows showcase ACLs & AvailableDrops confirmed channels
+    inv_py = (WORKSPACE / "core" / "inventory.py").read_text(encoding="utf-8")
+    assert "available_campaign_ids" in inv_py, "inventory.py _base_can_earn must check available_campaign_ids"
+    assert "len(self.allowed_channels) <= 10" in inv_py, "inventory.py _base_can_earn must check len(allowed_channels) <= 10"
+
+    # 3. Verify core/twitch.py discovers live streams for games with showcase ACLs
+    twitch_py = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert "len(campaign.allowed_channels) <= 10" in twitch_py, "twitch.py must add campaign.game to no_acl when ACL <= 10"
+
+    # 4. Verify LiveDashboard.tsx keeps all games visible in default ALL tab
+    dashboard_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "Все (${sortedQueuedCampaigns.length})" in dashboard_tsx, "LiveDashboard must display 'Все' tab with full count"
+    assert "if (shelfFilter === 'ALL') return true;" in dashboard_tsx, "LiveDashboard ALL tab must return true"
+
+    # 5. Verify settings.json priority clean from unwanted games
+    settings_raw = (WORKSPACE / "core" / "settings.json").read_text(encoding="utf-8")
+    settings_json = json.loads(settings_raw)
+    priority_list = settings_json.get("priority", [])
+    assert "Infestation: The New Z" not in priority_list, "Infestation: The New Z must not be in priority list"
+    assert settings_json.get("priority_mode", {}).get("data") == 0, "priority_mode must be strictly 0"
+
+    print("      Showcase ACL Matching, Drops Discovery & Strict Priority Guard: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1060,8 +1092,9 @@ if __name__ == "__main__":
     test_game_scanner_anti_software_and_patch_filtering()
     test_game_scanner_deduplication_and_trophies_clear()
     test_sleep_guard_watchdog_and_account_protection()
+    test_r6s_showcase_acl_and_strict_priority_guard()
     print("=" * 65)
-    print("  ALL 29 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 30 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

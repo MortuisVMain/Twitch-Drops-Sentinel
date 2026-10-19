@@ -834,7 +834,9 @@ class Twitch:
                     ):
                         if campaign.allowed_channels:
                             acl_channels.update(campaign.allowed_channels)
-                        else:
+                        # If campaign has no ACL or has a showcase tournament list ("в том числе", <= 10 channels),
+                        # discover active live streams for the game from Twitch directory
+                        if not campaign.allowed_channels or len(campaign.allowed_channels) <= 10:
                             no_acl.add(campaign.game)
                 # remove all ACL channels that already exist from the other set
                 acl_channels.difference_update(new_channels)

@@ -252,6 +252,7 @@ interface LiveDashboardProps {
   onToggleDaemon?: () => void;
   onSwitchStreamer?: (skipGame?: boolean) => void;
   onReorderPriority?: (gameName: string, direction: 'up' | 'down') => void;
+  onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
 }
@@ -279,6 +280,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   onToggleDaemon,
   onSwitchStreamer,
   onReorderPriority,
+  onUpdateSettings,
   isZenMode,
   onToggleZenMode
 }) => {
@@ -482,12 +484,23 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
       catalogMatch?.box_art
     ]);
 
+    const isFinished = catalogMatch?.is_finished === true;
     const emoji = getGameEmoji(gameName);
     const dropName = isCurrentlyActive && activeDrop 
       ? activeDrop.name 
-      : (hasActiveDrops 
-          ? 'Раздача активна на Twitch' 
-          : 'Ожидание раздачи на Twitch');
+      : (isFinished
+          ? 'Все награды получены ✔'
+          : (hasActiveDrops 
+              ? 'Раздача активна на Twitch' 
+              : 'Ожидание раздачи на Twitch'));
+
+    const gameStatus: 'FARMING' | 'CLAIMED' | 'QUEUED' | 'IDLE' = isCurrentlyActive && activeDrop 
+      ? (activeDrop.is_claimed ? 'CLAIMED' : 'FARMING') 
+      : (isFinished ? 'CLAIMED' : 'QUEUED');
+
+    const progressPct = isCurrentlyActive && activeDrop 
+      ? activeDrop.progress_percent 
+      : (isFinished ? 100 : (catalogMatch?.progress_percent || 0));
 
     campaigns.push({
       name: isCurrentlyActive && activeDrop ? activeDrop.game : gameName,
@@ -498,10 +511,10 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
       box_art_sources: boxArtSources,
       has_drops: hasActiveDrops,
       drops_end_at: catalogMatch?.drops_end_at,
-      progress_percent: isCurrentlyActive && activeDrop ? activeDrop.progress_percent : 0,
+      progress_percent: progressPct,
       current_minutes: isCurrentlyActive && activeDrop ? activeDrop.current_minutes : undefined,
       required_minutes: isCurrentlyActive && activeDrop ? activeDrop.required_minutes : undefined,
-      status: isCurrentlyActive && activeDrop ? (activeDrop.is_claimed ? 'CLAIMED' : 'FARMING') : 'QUEUED',
+      status: gameStatus,
       bgGradient: GAME_GRADIENTS[idx % GAME_GRADIENTS.length]
     });
   });
@@ -547,8 +560,11 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     return list;
   }, [queuedCampaigns, shelfSortMode]);
 
-  const firstAvailableDropIndex = campaigns.findIndex(c => !c.drop_name.includes('Нет дропов'));
-  const fallbackIndex = firstAvailableDropIndex !== -1 ? firstAvailableDropIndex : 0;
+  const firstUnclaimedDropIndex = campaigns.findIndex(c => c.status !== 'CLAIMED' && c.has_drops);
+  const firstUnclaimedIndex = campaigns.findIndex(c => c.status !== 'CLAIMED');
+  const fallbackIndex = firstUnclaimedDropIndex !== -1 
+    ? firstUnclaimedDropIndex 
+    : (firstUnclaimedIndex !== -1 ? firstUnclaimedIndex : 0);
   const selectedIndex = userSelectedIndex !== null && userSelectedIndex < campaigns.length
     ? userSelectedIndex
     : (activeFarmIndex !== -1 ? activeFarmIndex : fallbackIndex);
@@ -852,13 +868,23 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
         >
           <div className="card-title-row">
             <span className="card-heading">Полка Кампаний ({campaigns.length})</span>
-            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-              (settings.priority_mode ?? 0) === 0
-                ? 'bg-[#368873]/20 text-[var(--accent)] border-[#73bba5]/30'
-                : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-            }`}>
-              {(settings.priority_mode ?? 0) === 0 ? '🎯 ТОЛЬКО ТОП' : '⚡ FALLBACK'}
-            </span>
+            <button
+              onClick={() => {
+                playClick();
+                const curMode = settings.priority_mode ?? 0;
+                const nextMode = curMode === 0 ? 1 : 0;
+                onUpdateSettings?.({ priority_mode: nextMode });
+              }}
+              title="Кликните для переключения стратегии: Только ТОП vs ТОП + Любые активные раздачи Twitch"
+              className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 active:scale-95 select-none ${
+                (settings.priority_mode ?? 0) === 0
+                  ? 'bg-[#368873]/20 text-[var(--accent)] border-[#73bba5]/30 hover:bg-[#368873]/35'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/35'
+              }`}
+            >
+              <span>{(settings.priority_mode ?? 0) === 0 ? '🎯 ТОЛЬКО ТОП' : '⚡ ТОП + ЛЮБЫЕ'}</span>
+              <span className="text-[9px] opacity-60">⇄</span>
+            </button>
           </div>
 
           {/* ==================== 1. ACTIVE FARMING HERO CARD ==================== */}
@@ -1059,9 +1085,9 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           <div className="flex items-center justify-between gap-1.5 mb-2">
             <div className="flex items-center gap-1 p-0.5 bg-black/40 rounded-xl border border-[var(--line)] text-[10px] font-mono flex-1">
               {[
-                { id: 'ALL' as const, label: `Очередь (${sortedQueuedCampaigns.length})` },
-                { id: 'QUEUED' as const, label: 'Ждут' },
-                { id: 'CLAIMED' as const, label: 'Собрано' },
+                { id: 'ALL' as const, label: `Все (${sortedQueuedCampaigns.length})` },
+                { id: 'QUEUED' as const, label: `В очереди (${sortedQueuedCampaigns.filter(c => c.status !== 'CLAIMED').length})` },
+                { id: 'CLAIMED' as const, label: `Собрано (${sortedQueuedCampaigns.filter(c => c.status === 'CLAIMED').length})` },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -1112,7 +1138,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             {sortedQueuedCampaigns
               .filter(c => {
                 if (shelfFilter === 'ALL') return true;
-                if (shelfFilter === 'QUEUED') return c.status === 'QUEUED';
+                if (shelfFilter === 'QUEUED') return c.status !== 'CLAIMED';
                 if (shelfFilter === 'CLAIMED') return c.status === 'CLAIMED';
                 return true;
               })
@@ -1211,9 +1237,35 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                   </div>
                 );
               })}
-            {sortedQueuedCampaigns.length === 0 && (
-              <div className="p-6 text-center text-xs text-[var(--muted)]">
-                Очередь пуста. Воспользуйтесь поиском выше для добавления игр!
+            {sortedQueuedCampaigns.filter(c => {
+                if (shelfFilter === 'ALL') return true;
+                if (shelfFilter === 'QUEUED') return c.status !== 'CLAIMED';
+                if (shelfFilter === 'CLAIMED') return c.status === 'CLAIMED';
+                return true;
+              }).length === 0 && (
+              <div className="p-5 text-center text-xs text-[var(--muted)] bg-black/20 rounded-xl border border-white/5 my-2">
+                {shelfFilter === 'CLAIMED' ? (
+                  <div>
+                    <div className="text-base mb-1">🎁</div>
+                    <div>Список собранных наград пока пуст.</div>
+                  </div>
+                ) : sortedQueuedCampaigns.some(c => c.status === 'CLAIMED') ? (
+                  <div className="space-y-2">
+                    <div className="text-base">🎉</div>
+                    <div className="font-semibold text-white">Все награды из списка уже получены!</div>
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setShelfFilter('CLAIMED');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#368873]/30 text-[var(--accent)] border border-[#73bba5]/40 text-[10.5px] font-bold font-mono transition-all cursor-pointer hover:bg-[#368873]/50"
+                    >
+                      Посмотреть собранные ({sortedQueuedCampaigns.filter(c => c.status === 'CLAIMED').length})
+                    </button>
+                  </div>
+                ) : (
+                  <div>Очередь пуста. Воспользуйтесь поиском выше для добавления игр!</div>
+                )}
               </div>
             )}
           </div>
@@ -1240,7 +1292,9 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             <span className="card-heading flex items-center gap-2">
               <span>Целевая Награда</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.05] text-[var(--muted)] border border-white/[0.08]">
-                {currentFocus.status === 'FARMING' ? '⚡ АКТИВНЫЙ ФАРМ' : `ОЧЕРЕДЬ #${selectedIndex + 1}`}
+                {currentFocus.status === 'FARMING' 
+                  ? '⚡ АКТИВНЫЙ ФАРМ' 
+                  : (currentFocus.status === 'CLAIMED' ? '✓ ВСЕ НАГРАДЫ ПОЛУЧЕНЫ' : `ОЧЕРЕДЬ #${selectedIndex + 1}`)}
               </span>
             </span>
             <span className={`text-xs font-mono font-bold flex items-center gap-1.5 ${watchingChannel ? 'text-[#73bba5]' : 'text-amber-400'}`}>
@@ -1300,9 +1354,11 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                     {currentFocus.progress_percent}%
                   </span>
                   <span className="text-[10px] font-semibold text-[var(--accent)] font-mono tracking-wide uppercase mt-0.5">
-                    {remainingMin !== null 
-                      ? (remainingMin > 0 ? `~${remainingMin} мин` : 'Готов!')
-                      : (currentFocus.status === 'QUEUED' ? 'В очереди' : 'Ожидание')}
+                    {currentFocus.status === 'CLAIMED'
+                      ? 'Получено 100%'
+                      : (remainingMin !== null 
+                          ? (remainingMin > 0 ? `~${remainingMin} мин` : 'Готов!')
+                          : (currentFocus.status === 'QUEUED' ? 'В очереди' : 'Ожидание'))}
                   </span>
                 </div>
               </div>
@@ -1336,55 +1392,96 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               </div>
             </div>
 
-            {/* Interactive Streamer Sub-Card */}
-            <div className="mt-4 pt-3.5 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center font-bold font-mono shrink-0">
-                  <Tv className="w-4 h-4 text-[var(--accent)]" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-[var(--muted)]">Стример:</span>
-                    <strong className="text-white font-mono">{watchingChannel || activeDrop?.channel_name || 'Автономный GQL поток'}</strong>
-                    {watchingChannel && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" title="Трансляция активна" />
-                    )}
+            {/* Interactive Streamer Sub-Card OR Standby Intelligence Card */}
+            {!watchingChannel && !activeDrop ? (
+              <div className="mt-4 pt-3.5 border-t border-white/[0.08] text-xs">
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center font-bold text-sm shrink-0">
+                      ⏳
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-amber-300">Режим ожидания стримеров</span>
+                        {settings.priority_mode === 0 && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                            ТОЛЬКО ТОП
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[var(--muted)] mt-0.5 leading-relaxed">
+                        {settings.priority_mode === 0
+                          ? 'Стримеры с раздачей для ваших приоритетных игр сейчас офлайн. Sentinel проверяет их появление в эфире.'
+                          : 'Поиск подходящих стримеров с активными раздачами на Twitch...'}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-[var(--muted)] font-mono">
-                    Spade Beacon: каждые 20 сек &bull; 15-чанков HEAD
-                  </p>
+
+                  {settings.priority_mode === 0 && onUpdateSettings && (
+                    <button
+                      onClick={() => {
+                        playClick();
+                        onUpdateSettings({ priority_mode: 1 });
+                      }}
+                      className="shrink-0 w-full sm:w-auto px-3 py-2 rounded-xl bg-[#368873]/30 hover:bg-[#368873]/50 text-[var(--accent)] border border-[#73bba5]/40 text-xs font-bold font-mono transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                      title="Разрешить фармить другие активные игры на Twitch, пока стримеры из ТОПа офлайн"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                      <span>Включить «ТОП + Любые»</span>
+                    </button>
+                  )}
                 </div>
               </div>
+            ) : (
+              <div className="mt-4 pt-3.5 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center font-bold font-mono shrink-0">
+                    <Tv className="w-4 h-4 text-[var(--accent)]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-[var(--muted)]">Стример:</span>
+                      <strong className="text-white font-mono">{watchingChannel || activeDrop?.channel_name || 'Автономный GQL поток'}</strong>
+                      {watchingChannel && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" title="Трансляция активна" />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-[var(--muted)] font-mono">
+                      Spade Beacon: каждые 20 сек &bull; 15-чанков HEAD
+                    </p>
+                  </div>
+                </div>
 
-              <div className="flex items-center gap-1.5">
-                {watchingChannel && (
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(watchingChannel);
-                      playClick();
-                      setCopiedStreamer(true);
-                      setTimeout(() => setCopiedStreamer(false), 2000);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] font-mono text-white/80 border border-white/10 flex items-center gap-1 transition-all cursor-pointer active:scale-95"
-                    title="Скопировать никнейм стримера"
-                  >
-                    {copiedStreamer ? <Check className="w-3 h-3 text-[#73bba5]" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedStreamer ? 'Скопирован' : 'Ник'}</span>
-                  </button>
-                )}
-                {(watchingChannel || activeDrop?.channel_name) && (
-                  <a
-                    href={`https://twitch.tv/${watchingChannel || activeDrop?.channel_name}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-2.5 py-1.5 rounded-lg bg-[#368873]/20 hover:bg-[#3AD29F]/30 text-[10px] font-mono text-[var(--accent)] border border-[#73bba5]/30 flex items-center gap-1 transition-all"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>Стрим ↗</span>
-                  </a>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {watchingChannel && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(watchingChannel);
+                        playClick();
+                        setCopiedStreamer(true);
+                        setTimeout(() => setCopiedStreamer(false), 2000);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] font-mono text-white/80 border border-white/10 flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                      title="Скопировать никнейм стримера"
+                    >
+                      {copiedStreamer ? <Check className="w-3 h-3 text-[#73bba5]" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedStreamer ? 'Скопирован' : 'Ник'}</span>
+                    </button>
+                  )}
+                  {(watchingChannel || activeDrop?.channel_name) && (
+                    <a
+                      href={`https://twitch.tv/${watchingChannel || activeDrop?.channel_name}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1.5 rounded-lg bg-[#368873]/20 hover:bg-[#3AD29F]/30 text-[10px] font-mono text-[var(--accent)] border border-[#73bba5]/30 flex items-center gap-1 transition-all"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Стрим ↗</span>
+                    </a>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 4 Real Metric Pills (2x2 Grid) */}

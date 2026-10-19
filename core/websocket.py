@@ -392,11 +392,14 @@ class WebsocketPool:
                 self.websockets.append(ws)
             # ask websocket to take any topics it can - this modifies the set in-place
             ws.add_topics(topics_set)
-            # see if there's any leftover topics for the next websocket connection
             if not topics_set:
                 return
         # if we're here, there were leftover topics after filling up all websockets
-        raise MinerException("Maximum topics limit has been reached")
+        ws_logger.warning(
+            f"Maximum topics limit reached across {MAX_WEBSOCKETS} websockets. "
+            f"Skipped {len(topics_set)} surplus channel topics; priority channels remain fully monitored."
+        )
+        return
 
     def remove_topics(self, topics: abc.Iterable[str]):
         topics_set = set(topics)

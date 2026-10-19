@@ -162,7 +162,7 @@ class Stream:
 class Channel:
     __slots__ = (
         "_twitch", "_gui_channels", "id", "_login", "_display_name", "_spade_url",
-        "_stream", "_pending_stream_up", "acl_based"
+        "_stream", "_pending_stream_up", "acl_based", "available_campaign_ids"
     )
 
     def __init__(
@@ -182,6 +182,7 @@ class Channel:
         self._spade_url: URLType | None = None
         self._stream: Stream | None = None
         self._pending_stream_up: asyncio.Task[Any] | None = None
+        self.available_campaign_ids: set[str] = set()
         # ACL-based channels are:
         # • considered first when switching channels
         # • if we're watching a non-based channel, a based channel going up triggers a switch
@@ -327,6 +328,10 @@ class Channel:
     def _check_drops_enabled(self, available_drops: list[JsonType]) -> bool:
         if not available_drops:
             return False
+        # Save available campaign IDs confirmed directly by Twitch GQL
+        self.available_campaign_ids = {
+            c.get("id") for c in available_drops if isinstance(c, dict) and c.get("id")
+        }
         # Direct check against known campaigns
         for campaign_data in available_drops:
             cid = campaign_data.get("id")
@@ -338,7 +343,7 @@ class Channel:
         if self.game is not None:
             for campaign in self._twitch._campaigns.values():
                 if campaign.game == self.game and campaign.active:
-                    if not campaign.allowed_channels or self in campaign.allowed_channels:
+                    if not campaign.allowed_channels or self in campaign.allowed_channels or len(campaign.allowed_channels) <= 10:
                         return True
         return False
 
