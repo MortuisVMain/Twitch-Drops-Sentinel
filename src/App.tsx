@@ -465,6 +465,7 @@ export const App: React.FC = () => {
                   games={sentinelState.all_catalog_games}
                   priorityList={sentinelState.settings.priority_games}
                   excludedList={sentinelState.settings.excluded_games}
+                  trophies={sentinelState.trophies}
                   onAddToPriority={(name) => handleTogglePriority(name)}
                   onRemoveFromPriority={(name) => handleTogglePriority(name)}
                   onAddToExcluded={(name) => handleToggleExclude(name)}
@@ -472,6 +473,7 @@ export const App: React.FC = () => {
                   onReorderPriority={handleReorderPriority}
                   onRescanGames={handleRescanGames}
                   onBack={() => handleTabChange('dashboard')}
+                  onOpenVaultFile={handleOpenVaultFile}
                 />
               )}
 

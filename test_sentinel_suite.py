@@ -1104,6 +1104,30 @@ def test_giveaways_stores_persistence_and_version_standardization():
 
     print("      Giveaways Store Persistence & Single-Location Version: ALL PASS [OK]")
 
+def test_game_shelf_claimed_tab_and_trophies_integration():
+    print("[32/32] Testing GameShelf '🏆 Собрано' Tab & Trophies Synthesis...")
+
+    shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    # 1. Verify GameShelf accepts trophies and onOpenVaultFile
+    assert "trophies?: TrophyItem[];" in shelf_tsx, "GameShelfProps must include trophies"
+    assert "onOpenVaultFile?: () => void;" in shelf_tsx, "GameShelfProps must include onOpenVaultFile"
+
+    # 2. Verify filterMode includes 'claimed'
+    assert "'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'all'" in shelf_tsx, "filterMode must include 'claimed'"
+
+    # 3. Verify claimed tab and banner
+    assert "🏆 Собрано" in shelf_tsx, "GameShelf must display '🏆 Собрано' tab"
+    assert "filterMode === 'claimed'" in shelf_tsx, "GameShelf must handle filterMode === 'claimed'"
+    assert "isGameClaimed" in shelf_tsx, "GameShelf must have isGameClaimed function"
+    assert "claimedTrophiesByGame" in shelf_tsx, "GameShelf must have claimedTrophiesByGame mapping"
+
+    # 4. Verify App.tsx passes trophies and onOpenVaultFile to GameShelf
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "trophies={sentinelState.trophies}" in app_tsx, "App.tsx must pass trophies to GameShelf"
+    assert "onOpenVaultFile={handleOpenVaultFile}" in app_tsx, "App.tsx must pass onOpenVaultFile to GameShelf"
+
+    print("      GameShelf '🏆 Собрано' Tab & Trophies Synthesis: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1140,8 +1164,9 @@ if __name__ == "__main__":
     test_sleep_guard_watchdog_and_account_protection()
     test_r6s_showcase_acl_and_strict_priority_guard()
     test_giveaways_stores_persistence_and_version_standardization()
+    test_game_shelf_claimed_tab_and_trophies_integration()
     print("=" * 65)
-    print("  ALL 31 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 32 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

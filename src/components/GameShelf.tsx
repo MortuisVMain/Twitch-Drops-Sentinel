@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  HardDrive, Flame, Plus, Check, Ban, Star, ArrowLeft, Gamepad2, Calendar, ShieldCheck, AlertCircle, ChevronUp, ChevronDown, Trash2
+  HardDrive, Flame, Plus, Check, Ban, Star, ArrowLeft, Gamepad2, Calendar, ShieldCheck, AlertCircle, ChevronUp, ChevronDown, Trash2, Trophy
 } from 'lucide-react';
-import { GameItem } from '../types';
+import { GameItem, TrophyItem } from '../types';
 import { GameSearchAutocomplete } from './GameSearchAutocomplete';
 import { resolveGameBoxArtSources } from '../utils/gameBoxArts';
 
@@ -10,6 +10,7 @@ interface GameShelfProps {
   games: GameItem[];
   priorityList: string[];
   excludedList: string[];
+  trophies?: TrophyItem[];
   onAddToPriority: (gameName: string) => void;
   onRemoveFromPriority: (gameName: string) => void;
   onAddToExcluded: (gameName: string) => void;
@@ -17,6 +18,7 @@ interface GameShelfProps {
   onReorderPriority?: (gameName: string, direction: 'up' | 'down') => void;
   onRescanGames?: () => void;
   onBack?: () => void;
+  onOpenVaultFile?: () => void;
 }
 
 const ShelfItemPoster: React.FC<{ name: string; boxArt?: string }> = ({ name, boxArt }) => {
@@ -117,18 +119,67 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   games,
   priorityList,
   excludedList,
+  trophies,
   onAddToPriority,
   onRemoveFromPriority,
   onAddToExcluded,
   onRemoveFromExcluded,
   onReorderPriority,
   onRescanGames,
-  onBack
+  onBack,
+  onOpenVaultFile,
 }) => {
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'drops' | 'installed' | 'priority' | 'excluded' | 'all'>('drops');
+  const [filterMode, setFilterMode] = useState<'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'all'>('drops');
   const [isClearingInstalled, setIsClearingInstalled] = useState(false);
   const [removedKeys, setRemovedKeys] = useState<Set<string>>(new Set());
+
+  // Map of normalized game name -> list of claimed trophies
+  const claimedTrophiesByGame = useMemo(() => {
+    const map = new Map<string, TrophyItem[]>();
+    if (!trophies) return map;
+    for (const t of trophies) {
+      if (!t.game) continue;
+      const key = t.game.toLowerCase().trim();
+      const list = map.get(key) || [];
+      list.push(t);
+      map.set(key, list);
+    }
+    return map;
+  }, [trophies]);
+
+  // Synthesize games from trophies if they're not in the active catalog
+  const allShelfGames = useMemo(() => {
+    const existingKeys = new Set(games.map(g => g.name.toLowerCase().trim()));
+    const synthetic: GameItem[] = [];
+    claimedTrophiesByGame.forEach((items, gameKey) => {
+      if (!existingKeys.has(gameKey) && items.length > 0) {
+        const origName = items[0].game;
+        synthetic.push({
+          id: `claimed_${origName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+          name: origName,
+          is_installed: false,
+          has_drops: false,
+          is_finished: true,
+          claimed_drops: items.length,
+          total_drops: items.length,
+          progress_percent: 100,
+          category: 'Twitch Drops / Собрано',
+        });
+      }
+    });
+    return [...games, ...synthetic];
+  }, [games, claimedTrophiesByGame]);
+
+  const isGameClaimed = (g: GameItem) => {
+    const key = g.name.toLowerCase().trim();
+    const trophiesList = claimedTrophiesByGame.get(key);
+    if (trophiesList && trophiesList.length > 0) return true;
+    if (g.is_finished) return true;
+    if (g.claimed_drops && g.total_drops && g.claimed_drops >= g.total_drops) return true;
+    if (g.progress_percent !== undefined && g.progress_percent >= 100) return true;
+    return false;
+  };
 
   const handleClearInstalled = async () => {
     setIsClearingInstalled(true);
@@ -163,22 +214,24 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
   // Filtered games
   const filteredGames = useMemo(() => {
-    return games.filter((g: GameItem) => {
+    return allShelfGames.filter((g: GameItem) => {
       const key = (g.id || g.name).toLowerCase();
       if (removedKeys.has(key) || removedKeys.has(g.name.toLowerCase())) return false;
       const matchesSearch = g.name.toLowerCase().includes(search.toLowerCase().trim());
       if (!matchesSearch) return false;
 
       if (filterMode === 'drops') return g.has_drops;
-      if (filterMode === 'installed') return g.is_installed;
       if (filterMode === 'priority') return priorityList.includes(g.name);
+      if (filterMode === 'claimed') return isGameClaimed(g);
+      if (filterMode === 'installed') return g.is_installed;
       if (filterMode === 'excluded') return excludedList.includes(g.name);
       return true;
     });
-  }, [games, search, filterMode, priorityList, excludedList, removedKeys]);
+  }, [allShelfGames, search, filterMode, priorityList, excludedList, removedKeys, claimedTrophiesByGame]);
 
-  const installedCount = games.filter(g => g.is_installed).length;
-  const dropsCount = games.filter(g => g.has_drops).length;
+  const installedCount = allShelfGames.filter(g => g.is_installed).length;
+  const dropsCount = allShelfGames.filter(g => g.has_drops).length;
+  const claimedCount = allShelfGames.filter(g => isGameClaimed(g)).length;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 select-none pb-12 animate-in fade-in duration-300">
@@ -245,9 +298,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         {[
           { id: 'drops' as const, label: `🔥 Гарантированные Drops (${dropsCount})` },
           { id: 'priority' as const, label: `⭐ В моем ТОПе (${priorityList.length})` },
+          { id: 'claimed' as const, label: `🏆 Собрано (${claimedCount})` },
           { id: 'installed' as const, label: `💾 Установлено на ПК (${installedCount})` },
           { id: 'excluded' as const, label: `🚫 Исключения (${excludedList.length})` },
-          { id: 'all' as const, label: `Все игры каталога (${games.length})` }
+          { id: 'all' as const, label: `Все игры каталога (${allShelfGames.length})` }
         ].map((f) => (
           <button
             key={f.id}
@@ -262,6 +316,39 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           </button>
         ))}
       </div>
+
+      {/* Claimed Drops Management Banner */}
+      {filterMode === 'claimed' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#368873]/10 border border-[#73bba5]/30 text-xs text-[var(--muted)] shadow-sm backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-[#368873]/20 text-[#73bba5] flex items-center justify-center shrink-0 border border-[#73bba5]/30">
+              <Trophy className="w-4 h-4 text-[#73bba5]" />
+            </div>
+            <div>
+              <div className="font-bold text-[var(--foreground)] flex items-center gap-2">
+                <span>Коллекция собранных наград Twitch Drops</span>
+                <span className="px-2 py-0.5 rounded-full bg-[#368873]/20 text-[#73bba5] text-[10px] font-mono font-bold border border-[#73bba5]/30">
+                  {claimedCount} {claimedCount === 1 ? 'игра' : (claimedCount > 1 && claimedCount < 5 ? 'игры' : 'игр')}
+                </span>
+              </div>
+              <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                Игры, по которым получены награды на вашем аккаунте Twitch. Все трофеи зафиксированы в локальном журнале.
+              </p>
+            </div>
+          </div>
+          {onOpenVaultFile && (
+            <button
+              type="button"
+              onClick={onOpenVaultFile}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] border border-[var(--line)] hover:border-[#73bba5]/40 text-xs font-semibold transition-all active:scale-95 cursor-pointer shrink-0 self-end sm:self-auto"
+              title="Открыть файл Trophies.md в проводнике"
+            >
+              <Trophy className="w-3.5 h-3.5 text-[#73bba5]" />
+              <span>Открыть Trophies.md</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Installed Games Management Banner */}
       {filterMode === 'installed' && (
@@ -397,7 +484,23 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                             <span className="tabular-nums">до {new Date(game.drops_end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
                           </span>
                         )}
+                        {isGameClaimed(game) && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1" title="Награды получены">
+                            <Trophy className="w-3 h-3 text-emerald-400" />
+                            <span>
+                              Собрано {claimedTrophiesByGame.get(game.name.toLowerCase().trim())?.length
+                                ? `(${claimedTrophiesByGame.get(game.name.toLowerCase().trim())!.length} шт.)`
+                                : '✓'}
+                            </span>
+                          </span>
+                        )}
                       </div>
+                      {claimedTrophiesByGame.get(game.name.toLowerCase().trim()) && (
+                        <div className="text-[10px] text-emerald-400/90 font-mono mt-1.5 flex items-center gap-1 truncate">
+                          <span className="text-[var(--muted)]">Последний:</span>
+                          <span className="truncate">{claimedTrophiesByGame.get(game.name.toLowerCase().trim())!.slice(-1)[0].drop_name}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
