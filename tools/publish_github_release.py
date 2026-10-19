@@ -16,24 +16,31 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-WORKSPACE = Path(__file__).resolve().parent.parent
-FULL_ZIP = WORKSPACE / "Twitch_Drops_Sentinel_v3.1_Public_Release.zip"
-PATCH_ZIP = WORKSPACE / "Twitch_Drops_Sentinel_Patch_v3.1.zip"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
+from version import __version__
 
-TAG_NAME = "v3.1.0"
-RELEASE_TITLE = "Twitch Drops Sentinel v3.1.0 — Public Release & Auto-Updater"
-RELEASE_NOTES = """## 🛡️ Twitch Drops Sentinel v3.1.0
+WORKSPACE = Path(__file__).resolve().parent.parent
+FULL_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"
+PATCH_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
+
+TAG_NAME = f"v{__version__}"
+RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Channel Points, Diagnostic Clipboard & Smart Filter"
+RELEASE_NOTES = f"""## 🛡️ Twitch Drops Sentinel v{__version__}
 
 ### ⚡ Что нового:
-- **GitHub Auto-Updater:** Встроенный модуль 1-клик проверки и установки обновлений без потери сессий (`cookies.jar`, `Trophies.md`, `config.json` защищены железным блэклистом).
-- **2-колоночный Bento Grid:** Просторная компоновка дашборда на 2 колонки вместо 3, оптимизированная под Apple Luna 2.0.
-- **Zero-Mock Telemetry:** Полная ликвидация фейковых данных — в дашборде и topbar отображаются только 100% измеренные метрики (сэкономленный трафик в GB, CPU%, аптайм, реальные клеймы).
-- **Чистый мульти-пользовательский дистрибутив:** Новые пользователи получают чистую систему с автосканером Steam/Epic/GOG и возможностью добавления своих папок с играми.
-- **Управление звуками:** Мгновенный Mute тактильных звуков интерфейса в Topbar и SettingsStudio с сохранением состояния.
+- **Автосбор баллов канала (Channel Points):** Автоматический сбор сундучков на стримах через WebSocket-топик `CommunityPoints` и мутацию `ClaimCommunityPoints` со счетчиком баллов.
+- **Мульти-слойный буфер обмена:** 4-уровневый отказоустойчивый контур копирования диагностического отчета (C# WebView2 IPC ➔ clip.exe ➔ PowerShell Set-Clipboard ➔ REST fallback).
+- **Пульт управления модулями:** 10 tactile-тумблеров в Настройках для раздельного включения/выключения подсистем (Channel Points, Auto-Claim, Watchdog, Free Games, Sleep Guard).
+- **Интеллектуальный фильтр сканера игр:**
+  - 100% отсечение стороннего десктопного софта (`calibre`, `Capture One`, `Gemini`, `Happ`, `AnVir`, `K-Lite`).
+  - Защита папок-контейнеров (`Game`, `Games`, `SteamLibrary`, `repack`).
+  - Фильтрация русификаторов, озвучек и патчей с защитой реальных игр (`Lost Ark`, `Call of Duty`, `Frostpunk`, `Ghost of Tsushima`, `Mirror's Edge`).
+- **1-Click скрытие из полок:** Кнопка корзины (`Trash2`) на карточках установленных игр с персистентным сохранением в `data/ignored_games.json`.
+- **Быстрый Mute звуков:** Мгновенное глушение аудио в Topbar и Настройках.
 
 ### 📦 Файлы релиза:
-1. `Twitch_Drops_Sentinel_v3.1_Public_Release.zip` (~61 MB) — Полная автономная версия со встроенным portable Python 3.12 для новых пользователей.
-2. `Twitch_Drops_Sentinel_Patch_v3.1.zip` (~1.4 MB) — Легковесный хот-патч для встроенного Auto-Updater.
+1. `Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip` (~60 MB) — Полная автономная версия со встроенным portable Python 3.12 для новых пользователей и друзей.
+2. `Twitch_Drops_Sentinel_Patch_v{__version__}.zip` (~0.4 MB) — Легковесный хот-патч для встроенного Auto-Updater прямо из интерфейса.
 
 *Crafted with precision by Mortuis_V_Studio (2026).*
 """
@@ -150,8 +157,8 @@ def main():
 
     # 3. Upload assets
     assets_to_upload = [
-        (FULL_ZIP, "Twitch_Drops_Sentinel_v3.1_Public_Release.zip"),
-        (PATCH_ZIP, "Twitch_Drops_Sentinel_Patch_v3.1.zip"),
+        (FULL_ZIP, f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"),
+        (PATCH_ZIP, f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"),
     ]
 
     for file_path, asset_name in assets_to_upload:

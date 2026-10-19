@@ -28,7 +28,7 @@ CORE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = CORE_DIR.parent
 CACHE_FILE = PROJECT_DIR / "data" / "update_check_cache.json"
 
-CURRENT_VERSION = "3.1.2"
+CURRENT_VERSION = "3.1.3"
 REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest"
 
 # Files that MUST NEVER be overwritten by an update
