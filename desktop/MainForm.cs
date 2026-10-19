@@ -35,6 +35,14 @@ namespace TwitchDropsSentinel
         private const int DWMWA_BORDER_COLOR = 34;
         private const int DWMWA_CAPTION_COLOR = 35;
         private const int DWMWA_TEXT_COLOR = 36;
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private const int SW_RESTORE = 9;
+        private const int SW_MAXIMIZE = 3;
 
         private readonly WebView2 _webView;
         private NotifyIcon? _trayIcon;
@@ -42,6 +50,7 @@ namespace TwitchDropsSentinel
         private System.Windows.Forms.Timer? _backendWatchdogTimer;
         private volatile bool _isShuttingDown = false;
         private volatile bool _isForceClosing = false;
+        private FormWindowState _lastNonMinimizedState = FormWindowState.Normal;
 
         private class WindowStateConfig
         {
@@ -193,7 +202,6 @@ namespace TwitchDropsSentinel
                     BeginInvoke(new Action(() =>
                     {
                         WindowState = FormWindowState.Minimized;
-                        ShowInTaskbar = false;
                         Hide();
                     }));
                 }
@@ -754,6 +762,7 @@ namespace TwitchDropsSentinel
                         RestoreFromTray();
                     }
                 };
+                _trayIcon.DoubleClick += (s, e) => RestoreFromTray();
             }
             catch (Exception ex)
             {
@@ -764,10 +773,15 @@ namespace TwitchDropsSentinel
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
+
+            if (WindowState != FormWindowState.Minimized)
+            {
+                _lastNonMinimizedState = WindowState;
+            }
+
             if (WindowState == FormWindowState.Minimized)
             {
                 Hide();
-                ShowInTaskbar = false;
                 if (_trayIcon != null)
                 {
                     _trayIcon.Visible = true;
@@ -791,8 +805,11 @@ namespace TwitchDropsSentinel
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
+                if (WindowState != FormWindowState.Minimized)
+                {
+                    _lastNonMinimizedState = WindowState;
+                }
                 Hide();
-                ShowInTaskbar = false;
                 if (_trayIcon != null)
                 {
                     _trayIcon.Visible = true;
@@ -827,13 +844,84 @@ namespace TwitchDropsSentinel
             base.WndProc(ref m);
         }
 
+        private void EnsureValidWindowBounds()
+        {
+            try
+            {
+                if (WindowState == FormWindowState.Normal)
+                {
+                    if (Width < 1000 || Height < 650)
+                    {
+                        Rectangle workingArea = Screen.FromControl(this)?.WorkingArea 
+                            ?? Screen.PrimaryScreen?.WorkingArea 
+                            ?? new Rectangle(0, 0, 1920, 1080);
+
+                        int safeWidth = Math.Min(1580, (int)(workingArea.Width * 0.92));
+                        int safeHeight = Math.Min(980, (int)(workingArea.Height * 0.90));
+                        Size = new Size(safeWidth, safeHeight);
+                        Location = new Point(
+                            workingArea.X + Math.Max(0, (workingArea.Width - safeWidth) / 2),
+                            workingArea.Y + Math.Max(0, (workingArea.Height - safeHeight) / 2)
+                        );
+                    }
+                    else
+                    {
+                        bool isVisible = false;
+                        foreach (var screen in Screen.AllScreens)
+                        {
+                            Rectangle intersection = Rectangle.Intersect(screen.WorkingArea, Bounds);
+                            if (intersection.Width >= 200 && intersection.Height >= 200)
+                            {
+                                isVisible = true;
+                                break;
+                            }
+                        }
+                        if (!isVisible)
+                        {
+                            Rectangle primary = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
+                            Location = new Point(
+                                primary.X + Math.Max(0, (primary.Width - Width) / 2),
+                                primary.Y + Math.Max(0, (primary.Height - Height) / 2)
+                            );
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"EnsureValidWindowBounds error: {ex.Message}");
+            }
+        }
+
         private void RestoreFromTray()
         {
-            Show();
-            WindowState = FormWindowState.Normal;
-            ShowInTaskbar = true;
-            BringToFront();
-            Activate();
+            try
+            {
+                FormWindowState targetState = (_lastNonMinimizedState == FormWindowState.Maximized)
+                    ? FormWindowState.Maximized
+                    : FormWindowState.Normal;
+
+                if (!Visible)
+                {
+                    Visible = true;
+                }
+
+                WindowState = targetState;
+                ShowWindow(Handle, targetState == FormWindowState.Maximized ? SW_MAXIMIZE : SW_RESTORE);
+
+                EnsureValidWindowBounds();
+
+                SetForegroundWindow(Handle);
+                BringToFront();
+                Activate();
+                Focus();
+
+                _webView?.Invalidate();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RestoreFromTray error: {ex.Message}");
+            }
         }
     }
 

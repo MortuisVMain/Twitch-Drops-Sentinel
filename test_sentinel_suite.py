@@ -608,6 +608,10 @@ def test_argon_public_hardening_and_resilience():
     assert "CreateJobObject" in mainform_cs, "MainForm.cs must bind to Job Object"
     assert "WndProc" in mainform_cs, "MainForm.cs must override WndProc for WM_SENTINEL_SHOW"
     assert "-X utf8" in mainform_cs, "MainForm.cs must launch python with -X utf8 argument"
+    assert "ShowWindow" in mainform_cs, "MainForm.cs must import Win32 ShowWindow for reliable tray restore"
+    assert "SW_RESTORE" in mainform_cs, "MainForm.cs must use SW_RESTORE to unwrap minimized DWM stub"
+    assert "EnsureValidWindowBounds" in mainform_cs, "MainForm.cs must include EnsureValidWindowBounds"
+    assert "ShowInTaskbar = false" not in mainform_cs, "MainForm.cs must never mutate ShowInTaskbar to prevent RecreateHandle()"
 
     # 3. Sleep guard and endpoints in sentinel_service.py
     service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
@@ -644,8 +648,8 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS
     from version import __version__
 
-    assert __version__ == "3.1.9", f"Version mismatch: {__version__}"
-    assert parse_version("3.1.9") == (3, 1, 9)
+    assert __version__ == "3.2.0", f"Version mismatch: {__version__}"
+    assert parse_version("3.2.0") == (3, 2, 0)
     assert parse_version("v3.2.1-beta") == (3, 2, 1)
     assert parse_version("v3.2.0") > parse_version("3.1.9")
 
