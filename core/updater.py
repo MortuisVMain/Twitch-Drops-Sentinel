@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import time
@@ -211,8 +212,8 @@ class GitHubUpdater:
                 result.update({
                     "latest_version": rel_ver,
                     "remote_version": rel_ver,
-                    "local_version": CURRENT_VERSION,
-                    "current_version": CURRENT_VERSION,
+                    "local_version": live_current,
+                    "current_version": live_current,
                     "release_name": data.get("name") or f"Twitch Drops Sentinel v{rel_ver}",
                     "release_notes": body_notes,
                     "changelog": body_notes,

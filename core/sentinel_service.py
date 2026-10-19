@@ -519,7 +519,7 @@ class SentinelSupervisor:
 
     def get_app_version(self) -> str:
         try:
-            v_file = PROJECT_ROOT / "core" / "version.py"
+            v_file = PROJECT_DIR / "core" / "version.py"
             if v_file.exists():
                 text = v_file.read_text(encoding="utf-8")
                 match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
