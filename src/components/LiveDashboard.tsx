@@ -586,6 +586,44 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     return list;
   }, [queuedCampaigns, shelfSortMode]);
 
+  // Dedicated list of games that currently have ACTIVE Drops on Twitch (strictly has_drops: true)
+  const activeTwitchDropsGames = useMemo(() => {
+    const list = (allGames || []).filter(g => g.has_drops && g.is_active_now !== false);
+    const prioritySet = new Set((settings.priority_games || []).map(p => p.toLowerCase()));
+
+    // Fallback if allGames is still loading or offline
+    if (list.length === 0) {
+      const fallbackList: GameItem[] = campaigns
+        .filter(c => c.has_drops)
+        .map(c => ({
+          id: c.name.toLowerCase().replace(/\s+/g, '-'),
+          name: c.name,
+          is_installed: false,
+          has_drops: true,
+          is_active_now: true,
+          box_art: c.box_art,
+          box_art_sources: c.box_art_sources,
+          progress_percent: c.progress_percent,
+        }));
+      if (fallbackList.length > 0) return fallbackList;
+    }
+
+    return [...list].sort((a, b) => {
+      // 1. Forced game stays first
+      if (forcedGame) {
+        if (a.name.toLowerCase() === forcedGame.toLowerCase()) return -1;
+        if (b.name.toLowerCase() === forcedGame.toLowerCase()) return 1;
+      }
+      // 2. Games in user's priority queue come next
+      const aInTop = prioritySet.has(a.name.toLowerCase());
+      const bInTop = prioritySet.has(b.name.toLowerCase());
+      if (aInTop && !bInTop) return -1;
+      if (!aInTop && bInTop) return 1;
+      // 3. Alphabetical
+      return a.name.localeCompare(b.name, 'ru');
+    });
+  }, [allGames, settings.priority_games, campaigns, forcedGame]);
+
   const firstUnclaimedDropIndex = campaigns.findIndex(c => c.status !== 'CLAIMED' && c.has_drops);
   const firstUnclaimedIndex = campaigns.findIndex(c => c.status !== 'CLAIMED');
   const fallbackIndex = firstUnclaimedDropIndex !== -1 
@@ -1545,10 +1583,15 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             }`}
           >
             <div className="card-title-row">
-              <span className="card-heading flex items-center gap-2">
-                <Zap className={`w-4 h-4 ${forcedGame ? 'text-[#73bba5] animate-pulse' : 'text-amber-400'}`} />
-                <span>Выбрать игру для фарма ▾</span>
-              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className="card-heading flex items-center gap-2">
+                  <Zap className={`w-4 h-4 ${forcedGame ? 'text-[#73bba5] animate-pulse' : 'text-amber-400'}`} />
+                  <span>Фарм вне очереди (Ручной фокус)</span>
+                </span>
+                <span className="text-[10px] text-[#8b9a94] font-medium pl-6">
+                  Выбрать игру для фарма ▾
+                </span>
+              </div>
 
               {forcedGame ? (
                 <div className="flex items-center gap-2">
@@ -1568,9 +1611,17 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               ) : (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.04] text-[#8b9a94] border border-white/[0.08] flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Авто-очередь</span>
+                  <span>Стандартная авто-очередь ТОП</span>
                 </span>
               )}
+            </div>
+
+            {/* Explanatory Distinction Tip */}
+            <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-start gap-2.5 text-[11px] leading-relaxed">
+              <span className="text-amber-400 text-xs shrink-0 mt-0.5">💡</span>
+              <p className="text-[#8b9a94]">
+                <strong className="text-white">Отличие от стандарта:</strong> Стандартный режим автоматически перебирает игры из вашего ТОПа. <strong className="text-[#73bba5]">Ручной фокус</strong> переключает бота на выбранную игру немедленно и фармит только её до упора, даже если её нет в вашем списке.
+              </p>
             </div>
 
             {/* Active Forced Focus Banner */}
@@ -1607,7 +1658,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 type="text"
                 value={pickerSearchQuery}
                 onChange={(e) => setPickerSearchQuery(e.target.value)}
-                placeholder="Быстрый поиск среди раздач Twitch..."
+                placeholder="Быстрый поиск среди активных раздач Twitch..."
                 className="w-full bg-transparent text-xs text-white placeholder-[#8b9a94] outline-none font-medium"
               />
               {pickerSearchQuery && (
@@ -1621,43 +1672,56 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               )}
             </div>
 
-            {/* Quick Game Cards Grid */}
+            {/* Quick Game Cards Grid — ONLY ACTIVE TWITCH DROPS GAMES */}
             <div className="space-y-1.5 max-h-[220px] overflow-y-auto scrollbar-thin pr-1">
-              {campaigns
-                .filter(c => !pickerSearchQuery || c.name.toLowerCase().includes(pickerSearchQuery.toLowerCase()))
+              {activeTwitchDropsGames
+                .filter(g => !pickerSearchQuery || g.name.toLowerCase().includes(pickerSearchQuery.toLowerCase()))
                 .slice(0, 10)
-                .map((camp) => {
-                  const isCurrentForced = forcedGame?.toLowerCase() === camp.name.toLowerCase();
+                .map((game) => {
+                  const isCurrentForced = forcedGame?.toLowerCase() === game.name.toLowerCase();
+                  const isInTop = (settings.priority_games || []).some(
+                    pg => pg.toLowerCase() === game.name.toLowerCase()
+                  );
+                  const activeCamp = campaigns.find(c => c.name.toLowerCase() === game.name.toLowerCase());
+                  const progressPct = activeCamp?.progress_percent ?? (game.progress_percent ?? 0);
+
                   return (
                     <div
-                      key={camp.name}
-                      onClick={() => handleForceFarmGame(camp.name)}
+                      key={game.id || game.name}
+                      onClick={() => handleForceFarmGame(game.name)}
                       className={`p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-3 transition-all active:scale-[0.99] ${
                         isCurrentForced
                           ? 'bg-[#368873]/20 border-[#73bba5] shadow-[0_0_12px_rgba(58,210,159,0.15)]'
                           : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.06] hover:border-white/15'
                       }`}
-                      title={isCurrentForced ? 'Эта игра уже фармится принудительно' : `Кликните, чтобы принудительно запустить фарм ${camp.name}`}
+                      title={isCurrentForced ? 'Эта игра уже фармится принудительно' : `Кликните, чтобы принудительно запустить фарм ${game.name} вне очереди`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-8 h-10 rounded-md overflow-hidden shrink-0 bg-black/40 border border-white/10">
                           <GameBoxArt
-                            boxArt={camp.box_art}
-                            boxArtSources={camp.box_art_sources}
-                            name={camp.name}
-                            fallbackEmoji={camp.icon}
+                            boxArt={game.box_art}
+                            boxArtSources={game.box_art_sources}
+                            name={game.name}
+                            fallbackEmoji="🎮"
                           />
                         </div>
                         <div className="min-w-0">
-                          <div className={`text-xs font-bold truncate ${isCurrentForced ? 'text-[#73bba5]' : 'text-white'}`}>
-                            {camp.name}
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs font-bold truncate ${isCurrentForced ? 'text-[#73bba5]' : 'text-white'}`}>
+                              {game.name}
+                            </span>
+                            {isInTop && (
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold shrink-0" title="Игра уже в вашем списке приоритетов ТОП">
+                                ⭐ ТОП
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-[#8b9a94] flex items-center gap-1.5 mt-0.5">
-                            <span className="font-mono text-[#73bba5] font-semibold">{camp.progress_percent}% готово</span>
-                            {camp.drops_count ? (
+                            <span className="font-mono text-[#73bba5] font-semibold">{progressPct}% готово</span>
+                            {game.rewards_count ? (
                               <>
                                 <span className="opacity-40">•</span>
-                                <span>{camp.drops_count} наград</span>
+                                <span>{game.rewards_count} наград</span>
                               </>
                             ) : null}
                           </div>
@@ -1673,7 +1737,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                         ) : (
                           <span className="text-[10.5px] font-bold text-[#73bba5] px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-[#368873]/25 border border-white/10 hover:border-[#73bba5]/40 transition-all flex items-center gap-1">
                             <Zap className="w-3 h-3 text-amber-400" />
-                            <span>Фармить</span>
+                            <span>Вне очереди</span>
                           </span>
                         )}
                       </div>
@@ -1691,7 +1755,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 }}
                 className="btn-secondary w-full justify-center tactile-press"
               >
-                <span>Развернуть полный каталог игр ({allGames?.length || 138}) ↗</span>
+                <span>Развернуть все активные раздачи на Twitch ({activeTwitchDropsGames.length}) ↗</span>
               </button>
             </div>
           </section>
@@ -1905,13 +1969,13 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             <div className="p-6 border-b border-[#303a35] flex items-center justify-between bg-[#202725]">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <span>Каталог игр Twitch & Steam</span>
+                  <span>Активные раздачи Twitch Drops</span>
                   <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30">
-                    {allGames?.length || 0} игр
+                    {activeTwitchDropsGames.length} игр в эфире
                   </span>
                 </h2>
                 <p className="text-xs text-[#8b9a94] mt-1">
-                  Выберите любую игру для мгновенного ручного переключения фарма
+                  Каталог игр Twitch & Steam — только игры с активными раздачами прямо сейчас на Twitch
                 </p>
               </div>
 
@@ -1934,7 +1998,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                   type="text"
                   value={catalogSearchQuery}
                   onChange={(e) => setCatalogSearchQuery(e.target.value)}
-                  placeholder="Поиск по названию игры (например, Rust, Hitman, Witcher)..."
+                  placeholder="Поиск по названию игры среди активных раздач (Rust, Hitman, Rainbow Six, AION 2)..."
                   className="w-full bg-transparent text-sm text-white placeholder-[#8b9a94] outline-none font-medium"
                   autoFocus
                 />
@@ -1943,49 +2007,68 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
             {/* Games Grid */}
             <div className="p-6 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 scrollbar-thin">
-              {(allGames || [])
+              {activeTwitchDropsGames
                 .filter(g => !catalogSearchQuery || g.name.toLowerCase().includes(catalogSearchQuery.toLowerCase()))
-                .map((game) => (
-                  <div
-                    key={game.id || game.name}
-                    className="p-4 rounded-2xl bg-[#202725] border border-[#303a35] hover:border-[#73bba5]/40 transition-all flex flex-col justify-between space-y-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-16 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
-                        <GameBoxArt
-                          boxArt={game.box_art}
-                          boxArtSources={game.box_art_sources}
-                          name={game.name}
-                          fallbackEmoji="🎮"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-bold text-white truncate" title={game.name}>
-                          {game.name}
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          {game.has_drops ? (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
-                              РАЗДАЧА
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/5 text-[#8b9a94]">
-                              В БИБЛИОТЕКЕ
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                .map((game) => {
+                  const isCurrentForced = forcedGame?.toLowerCase() === game.name.toLowerCase();
+                  const isInTop = (settings.priority_games || []).some(
+                    pg => pg.toLowerCase() === game.name.toLowerCase()
+                  );
 
-                    <button
-                      onClick={() => handleForceFarmGame(game.name)}
-                      className="w-full py-2.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold shadow transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                  return (
+                    <div
+                      key={game.id || game.name}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 ${
+                        isCurrentForced
+                          ? 'bg-[#368873]/15 border-[#73bba5] shadow-[0_0_16px_rgba(58,210,159,0.2)]'
+                          : 'bg-[#202725] border-[#303a35] hover:border-[#73bba5]/40'
+                      }`}
                     >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Фармить сейчас</span>
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-16 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                          <GameBoxArt
+                            boxArt={game.box_art}
+                            boxArtSources={game.box_art_sources}
+                            name={game.name}
+                            fallbackEmoji="🎮"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-white truncate" title={game.name}>
+                            {game.name}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                              🔥 АКТИВНЫЙ ДРОП
+                            </span>
+                            {isInTop && (
+                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                                ⭐ ТОП
+                              </span>
+                            )}
+                          </div>
+                          {game.rewards_count ? (
+                            <div className="text-[10px] text-[#8b9a94] mt-1">
+                              Доступно наград: <strong className="text-white font-mono">{game.rewards_count}</strong>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleForceFarmGame(game.name)}
+                        className={`w-full py-2.5 rounded-xl text-xs font-bold shadow transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 ${
+                          isCurrentForced
+                            ? 'bg-[#368873] text-white border border-[#73bba5]/50'
+                            : 'bg-[#368873] hover:bg-[#2d7462] text-white'
+                        }`}
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>{isCurrentForced ? 'Фармится сейчас' : 'Фармить сейчас'}</span>
+                      </button>
+                    </div>
+                  );
+                })}
             </div>
           </div>
         </div>

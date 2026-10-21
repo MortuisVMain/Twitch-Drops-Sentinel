@@ -1449,6 +1449,8 @@ def test_manual_farm_override_and_native_screendimmer_suite():
 
     dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "Выбрать игру для фарма ▾" in dash_tsx, "LiveDashboard must contain 'Выбрать игру для фарма ▾' button"
+    assert "Фарм вне очереди" in dash_tsx, "LiveDashboard must contain clear title 'Фарм вне очереди'"
+    assert "activeTwitchDropsGames" in dash_tsx, "LiveDashboard must filter only active Twitch Drops games"
     assert "⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС:" in dash_tsx, "LiveDashboard must contain Active Forced Focus banner"
     assert "Сбросить фокус / В авто" in dash_tsx, "LiveDashboard must contain cancel button 'Сбросить фокус / В авто'"
     assert "showFullCatalogModal" in dash_tsx, "LiveDashboard must contain showFullCatalogModal state"
