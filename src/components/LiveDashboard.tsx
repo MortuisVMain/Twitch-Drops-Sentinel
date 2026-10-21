@@ -313,25 +313,12 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
   // Manual Farm Override States
-  const [showGamePickerDropdown, setShowGamePickerDropdown] = useState(false);
   const [showFullCatalogModal, setShowFullCatalogModal] = useState(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [pickerSearchQuery, setPickerSearchQuery] = useState('');
-  const pickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowGamePickerDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const handleForceFarmGame = (gameName: string) => {
     playClick();
-    setShowGamePickerDropdown(false);
     setShowFullCatalogModal(false);
     if (onForceFarm) {
       onForceFarm(gameName);
@@ -876,91 +863,6 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             </a>
           )}
 
-          {/* Manual Game Farm Override Picker Dropdown */}
-          <div className="relative" ref={pickerRef}>
-            <button
-              onClick={() => {
-                playClick();
-                setShowGamePickerDropdown(prev => !prev);
-              }}
-              className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer active:scale-95 ${
-                forcedGame
-                  ? 'bg-[#368873]/25 text-[#73bba5] border-[#73bba5]/50 shadow-sm'
-                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] border-[var(--line)]'
-              }`}
-              title="Принудительно запустить фарм выбранной игры"
-            >
-              <Zap className={`w-3.5 h-3.5 ${forcedGame ? 'text-[#73bba5] animate-pulse' : 'text-amber-400'}`} />
-              <span>{forcedGame ? `Фокус: ${forcedGame}` : 'Выбрать игру для фарма ▾'}</span>
-              <ChevronDown className={`w-3 h-3 text-[#8b9a94] transition-transform ${showGamePickerDropdown ? 'rotate-180' : ''}`} />
-            </button>
-
-            {/* Luna Glass Popover */}
-            {showGamePickerDropdown && (
-              <div className="absolute top-full left-0 mt-2 w-80 bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-[0_16px_40px_rgba(0,0,0,0.85)] z-50 overflow-hidden divide-y divide-white/5 animate-in fade-in zoom-in-95 duration-150">
-                <div className="p-3 bg-[#202725]/80">
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-[#303a35]">
-                    <Search className="w-3.5 h-3.5 text-[#8b9a94]" />
-                    <input
-                      type="text"
-                      value={pickerSearchQuery}
-                      onChange={(e) => setPickerSearchQuery(e.target.value)}
-                      placeholder="Быстрый фильтр..."
-                      className="w-full bg-transparent text-xs text-white placeholder-[#8b9a94] outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 scrollbar-thin">
-                  {campaigns
-                    .filter(c => !pickerSearchQuery || c.name.toLowerCase().includes(pickerSearchQuery.toLowerCase()))
-                    .slice(0, 8)
-                    .map((camp) => (
-                      <div
-                        key={camp.name}
-                        onClick={() => handleForceFarmGame(camp.name)}
-                        className="p-2 rounded-xl hover:bg-white/[0.06] cursor-pointer flex items-center justify-between gap-3 transition-colors"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-8 h-10 rounded overflow-hidden shrink-0 bg-black/40 border border-white/10">
-                            <GameBoxArt 
-                              boxArt={camp.box_art} 
-                              boxArtSources={camp.box_art_sources}
-                              name={camp.name} 
-                              fallbackEmoji={camp.icon} 
-                            />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-white truncate">{camp.name}</div>
-                            <div className="text-[10px] text-[#73bba5] flex items-center gap-1">
-                              <Gift className="w-2.5 h-2.5" />
-                              <span>{camp.progress_percent}% готово</span>
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-bold text-[#73bba5] px-2 py-1 rounded-lg bg-[#368873]/20 border border-[#73bba5]/30 shrink-0">
-                          Фарм ⚡
-                        </span>
-                      </div>
-                    ))}
-                </div>
-
-                <div className="p-2.5 bg-[#202725] text-center">
-                  <button
-                    onClick={() => {
-                      playClick();
-                      setShowGamePickerDropdown(false);
-                      setShowFullCatalogModal(true);
-                    }}
-                    className="w-full py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-[#73bba5] border border-[#303a35] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <span>Развернуть полный каталог игр ({allGames?.length || 138})</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Right: Golden Claim Ready Drop or Stealth Telemetry Badge */}
@@ -981,36 +883,6 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           )}
         </div>
       </section>
-
-      {/* ==================== ACTIVE MANUAL OVERRIDE BANNER ==================== */}
-      {forcedGame && (
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-[#202725] via-[#1a2420] to-[#171d1c] border-2 border-[#73bba5]/60 shadow-[0_4px_24px_rgba(58,210,159,0.2)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-300">
-          <div className="flex items-center gap-3.5">
-            <div className="p-2.5 rounded-xl bg-[#368873]/25 border border-[#73bba5]/40 text-[#73bba5] shrink-0">
-              <Zap className="w-5 h-5 animate-pulse text-[#73bba5]" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-white flex items-center gap-2">
-                <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame.toUpperCase()}</span>
-                <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#368873] text-white font-bold">
-                  MANUAL OVERRIDE
-                </span>
-              </div>
-              <p className="text-[11px] text-[#8b9a94] mt-0.5">
-                Автоматическая ротация очереди приостановлена. Демон фармит только эту игру до полного сбора всех доступных наград.
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={handleResetManualFocus}
-            className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold border border-white/20 transition-all cursor-pointer active:scale-95 flex items-center gap-2 shrink-0 self-end sm:self-auto"
-          >
-            <X className="w-3.5 h-3.5 text-rose-400" />
-            <span>Сбросить фокус / В авто</span>
-          </button>
-        </div>
-      )}
 
       {/* Main 3-Column Bento Grid Layout */}
       <div className="bento-grid">
@@ -1436,233 +1308,394 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           </div>
         </section>
 
-        {/* ==================== CENTER COLUMN: ACTIVE DROP DETAIL & CONTROLS ==================== */}
-        <section 
-          onMouseMove={handleCardMouseMove}
-          className="bento-card relative overflow-hidden"
-        >
-          <div className="card-title-row">
-            <span className="card-heading flex items-center gap-2">
-              <span>Целевая Награда</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.05] text-[var(--muted)] border border-white/[0.08]">
-                {currentFocus.status === 'FARMING' 
-                  ? '⚡ АКТИВНЫЙ ФАРМ' 
-                  : (currentFocus.status === 'CLAIMED' ? '✓ ВСЕ НАГРАДЫ ПОЛУЧЕНЫ' : `ОЧЕРЕДЬ #${selectedIndex + 1}`)}
+        {/* ==================== RIGHT COLUMN: ACTIVE DROP DETAIL & MANUAL FARM ==================== */}
+        <div className="flex flex-col gap-[18px]">
+          <section 
+            onMouseMove={handleCardMouseMove}
+            className="bento-card relative overflow-hidden"
+          >
+            <div className="card-title-row">
+              <span className="card-heading flex items-center gap-2">
+                <span>Целевая Награда</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.05] text-[var(--muted)] border border-white/[0.08]">
+                  {currentFocus.status === 'FARMING' 
+                    ? '⚡ АКТИВНЫЙ ФАРМ' 
+                    : (currentFocus.status === 'CLAIMED' ? '✓ ВСЕ НАГРАДЫ ПОЛУЧЕНЫ' : `ОЧЕРЕДЬ #${selectedIndex + 1}`)}
+                </span>
               </span>
-            </span>
-            <span className={`text-xs font-mono font-bold flex items-center gap-1.5 ${watchingChannel ? 'text-[#73bba5]' : 'text-amber-400'}`}>
-              <span className={`w-2 h-2 rounded-full ${watchingChannel ? 'bg-[#73bba5] animate-pulse' : 'bg-amber-400'}`} />
-              {watchingChannel ? 'STREAMLESS LIVE' : 'STANDBY'}
-            </span>
-          </div>
-
-          {/* Hero Content: Radial Gauge + Loot Details */}
-          <div className="p-4 md:p-5 rounded-2xl bg-gradient-to-b from-white/[0.05] to-transparent border border-white/[0.08] relative overflow-hidden">
-            {/* Ambient Background Glow */}
-            <div 
-              className="absolute -top-12 -right-12 w-48 h-48 rounded-full blur-3xl opacity-25 pointer-events-none"
-              style={{ background: 'var(--accent)' }}
-            />
-
-            <div className="flex flex-col sm:flex-row items-center gap-5 relative z-10">
-              {/* Radial Progress Ring */}
-              <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
-                <svg className="w-32 h-32 -rotate-90 transform" viewBox="0 0 120 120">
-                  <defs>
-                    <linearGradient id="lunaMintGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#217C5E" />
-                      <stop offset="60%" stopColor="#3AD29F" />
-                      <stop offset="100%" stopColor="#7CE8C2" />
-                    </linearGradient>
-                  </defs>
-                  {/* Background Track */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="48"
-                    className="text-white/[0.06]"
-                    strokeWidth="9"
-                    stroke="currentColor"
-                    fill="transparent"
-                  />
-                  {/* Glowing Progress Arc */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="48"
-                    stroke="url(#lunaMintGlow)"
-                    strokeWidth="9"
-                    strokeDasharray={2 * Math.PI * 48}
-                    strokeDashoffset={2 * Math.PI * 48 * (1 - Math.min(100, Math.max(2, currentFocus.progress_percent)) / 100)}
-                    strokeLinecap="round"
-                    fill="transparent"
-                    className="transition-all duration-700 ease-out"
-                    style={{ filter: 'drop-shadow(0 0 6px rgba(58, 210, 159, 0.45))' }}
-                  />
-                </svg>
-
-                {/* Center of Ring */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center select-none">
-                  <span className="text-2xl font-black text-white font-mono tracking-tight tabular-nums">
-                    {currentFocus.progress_percent}%
-                  </span>
-                  <span className="text-[10px] font-semibold text-[var(--accent)] font-mono tracking-wide uppercase mt-0.5">
-                    {currentFocus.status === 'CLAIMED'
-                      ? 'Получено 100%'
-                      : (remainingMin !== null 
-                          ? (remainingMin > 0 ? `~${remainingMin} мин` : 'Готов!')
-                          : (currentFocus.status === 'QUEUED' ? 'В очереди' : 'Ожидание'))}
-                  </span>
-                </div>
-              </div>
-
-              {/* Loot Details & Rarity Frame */}
-              <div className="flex-1 text-center sm:text-left space-y-2">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#368873]/20 border border-[#73bba5]/30 text-[10px] font-bold text-[var(--accent)] tracking-wider uppercase">
-                  <Sparkles className="w-3 h-3 text-[var(--accent)]" />
-                  <span>Twitch Drops Exclusive</span>
-                </div>
-
-                <div>
-                  <h3 className="text-base md:text-lg font-extrabold text-white leading-snug tracking-tight">
-                    {currentFocus.drop_name}
-                  </h3>
-                  <p className="text-xs text-[var(--muted)] font-medium mt-0.5">
-                    Игра: <strong className="text-[var(--foreground)]">{currentFocus.name}</strong>
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1 text-[11px] font-mono">
-                  <span className="px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 text-white">
-                    ⏱️ {curMin !== undefined && reqMin !== undefined ? `${curMin} из ${reqMin} мин` : `${currentFocus.progress_percent}%`}
-                  </span>
-                  {activeDrop?.is_claimed && (
-                    <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                      ✓ Уже в инвентаре
-                    </span>
-                  )}
-                </div>
-              </div>
+              <span className={`text-xs font-mono font-bold flex items-center gap-1.5 ${watchingChannel ? 'text-[#73bba5]' : 'text-amber-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${watchingChannel ? 'bg-[#73bba5] animate-pulse' : 'bg-amber-400'}`} />
+                {watchingChannel ? 'STREAMLESS LIVE' : 'STANDBY'}
+              </span>
             </div>
 
-            {/* Interactive Streamer Sub-Card OR Standby Intelligence Card */}
-            {!watchingChannel && !activeDrop ? (
-              <div className="mt-4 pt-3.5 border-t border-white/[0.08] text-xs">
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center font-bold text-sm shrink-0">
-                      ⏳
+            {/* Hero Content: Radial Gauge + Loot Details */}
+            <div className="p-4 md:p-5 rounded-2xl bg-gradient-to-b from-white/[0.05] to-transparent border border-white/[0.08] relative overflow-hidden">
+              {/* Ambient Background Glow */}
+              <div 
+                className="absolute -top-12 -right-12 w-48 h-48 rounded-full blur-3xl opacity-25 pointer-events-none"
+                style={{ background: 'var(--accent)' }}
+              />
+
+              <div className="flex flex-col sm:flex-row items-center gap-5 relative z-10">
+                {/* Radial Progress Ring */}
+                <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
+                  <svg className="w-32 h-32 -rotate-90 transform" viewBox="0 0 120 120">
+                    <defs>
+                      <linearGradient id="lunaMintGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#217C5E" />
+                        <stop offset="60%" stopColor="#3AD29F" />
+                        <stop offset="100%" stopColor="#7CE8C2" />
+                      </linearGradient>
+                    </defs>
+                    {/* Background Track */}
+                    <circle
+                      cx="60"
+                      cy="60"
+                      r="48"
+                      className="text-white/[0.06]"
+                      strokeWidth="9"
+                      stroke="currentColor"
+                      fill="transparent"
+                    />
+                    {/* Glowing Progress Arc */}
+                    <circle
+                      cx="60"
+                      cy="60"
+                      r="48"
+                      stroke="url(#lunaMintGlow)"
+                      strokeWidth="9"
+                      strokeDasharray={2 * Math.PI * 48}
+                      strokeDashoffset={2 * Math.PI * 48 * (1 - Math.min(100, Math.max(2, currentFocus.progress_percent)) / 100)}
+                      strokeLinecap="round"
+                      fill="transparent"
+                      className="transition-all duration-700 ease-out"
+                      style={{ filter: 'drop-shadow(0 0 6px rgba(58, 210, 159, 0.45))' }}
+                    />
+                  </svg>
+
+                  {/* Center of Ring */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center select-none">
+                    <span className="text-2xl font-black text-white font-mono tracking-tight tabular-nums">
+                      {currentFocus.progress_percent}%
+                    </span>
+                    <span className="text-[10px] font-semibold text-[var(--accent)] font-mono tracking-wide uppercase mt-0.5">
+                      {currentFocus.status === 'CLAIMED'
+                        ? 'Получено 100%'
+                        : (remainingMin !== null 
+                            ? (remainingMin > 0 ? `~${remainingMin} мин` : 'Готов!')
+                            : (currentFocus.status === 'QUEUED' ? 'В очереди' : 'Ожидание'))}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Loot Details & Rarity Frame */}
+                <div className="flex-1 text-center sm:text-left space-y-2">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#368873]/20 border border-[#73bba5]/30 text-[10px] font-bold text-[var(--accent)] tracking-wider uppercase">
+                    <Sparkles className="w-3 h-3 text-[var(--accent)]" />
+                    <span>Twitch Drops Exclusive</span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-base md:text-lg font-extrabold text-white leading-snug tracking-tight">
+                      {currentFocus.drop_name}
+                    </h3>
+                    <p className="text-xs text-[var(--muted)] font-medium mt-0.5">
+                      Игра: <strong className="text-[var(--foreground)]">{currentFocus.name}</strong>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1 text-[11px] font-mono">
+                    <span className="px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 text-white">
+                      ⏱️ {curMin !== undefined && reqMin !== undefined ? `${curMin} из ${reqMin} мин` : `${currentFocus.progress_percent}%`}
+                    </span>
+                    {activeDrop?.is_claimed && (
+                      <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                        ✓ Уже в инвентаре
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Interactive Streamer Sub-Card OR Standby Intelligence Card */}
+              {!watchingChannel && !activeDrop ? (
+                <div className="mt-4 pt-3.5 border-t border-white/[0.08] text-xs">
+                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center font-bold text-sm shrink-0">
+                        ⏳
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-amber-300">Режим ожидания стримеров</span>
+                          {settings.priority_mode === 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                              ТОЛЬКО ТОП
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[var(--muted)] mt-0.5 leading-relaxed">
+                          {settings.priority_mode === 0
+                            ? 'Стримеры с раздачей для ваших приоритетных игр сейчас офлайн. Sentinel проверяет их появление в эфире.'
+                            : 'Поиск подходящих стримеров с активными раздачами на Twitch...'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {settings.priority_mode === 0 && onUpdateSettings && (
+                      <button
+                        onClick={() => {
+                          playClick();
+                          onUpdateSettings({ priority_mode: 1 });
+                        }}
+                        className="shrink-0 w-full sm:w-auto px-3 py-2 rounded-xl bg-[#368873]/30 hover:bg-[#368873]/50 text-[var(--accent)] border border-[#73bba5]/40 text-xs font-bold font-mono transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                        title="Разрешить фармить другие активные игры на Twitch, пока стримеры из ТОПа офлайн"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                        <span>Включить «ТОП + Любые»</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 pt-3.5 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center font-bold font-mono shrink-0">
+                      <Tv className="w-4 h-4 text-[var(--accent)]" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-amber-300">Режим ожидания стримеров</span>
-                        {settings.priority_mode === 0 && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-200 border border-amber-500/30">
-                            ТОЛЬКО ТОП
-                          </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[var(--muted)]">Стример:</span>
+                        <strong className="text-white font-mono">{watchingChannel || activeDrop?.channel_name || 'Автономный GQL поток'}</strong>
+                        {watchingChannel && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" title="Трансляция активна" />
                         )}
                       </div>
-                      <p className="text-[11px] text-[var(--muted)] mt-0.5 leading-relaxed">
-                        {settings.priority_mode === 0
-                          ? 'Стримеры с раздачей для ваших приоритетных игр сейчас офлайн. Sentinel проверяет их появление в эфире.'
-                          : 'Поиск подходящих стримеров с активными раздачами на Twitch...'}
+                      <p className="text-[10px] text-[var(--muted)] font-mono">
+                        Spade Beacon: каждые 20 сек &bull; 15-чанков HEAD
                       </p>
                     </div>
                   </div>
 
-                  {settings.priority_mode === 0 && onUpdateSettings && (
-                    <button
-                      onClick={() => {
-                        playClick();
-                        onUpdateSettings({ priority_mode: 1 });
-                      }}
-                      className="shrink-0 w-full sm:w-auto px-3 py-2 rounded-xl bg-[#368873]/30 hover:bg-[#368873]/50 text-[var(--accent)] border border-[#73bba5]/40 text-xs font-bold font-mono transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                      title="Разрешить фармить другие активные игры на Twitch, пока стримеры из ТОПа офлайн"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
-                      <span>Включить «ТОП + Любые»</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 pt-3.5 border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center font-bold font-mono shrink-0">
-                    <Tv className="w-4 h-4 text-[var(--accent)]" />
+                  <div className="flex items-center gap-1.5">
+                    {watchingChannel && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(watchingChannel);
+                          playClick();
+                          setCopiedStreamer(true);
+                          setTimeout(() => setCopiedStreamer(false), 2000);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] font-mono text-white/80 border border-white/10 flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                        title="Скопировать никнейм стримера"
+                      >
+                        {copiedStreamer ? <Check className="w-3 h-3 text-[#73bba5]" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedStreamer ? 'Скопирован' : 'Ник'}</span>
+                      </button>
+                    )}
+                    {(watchingChannel || activeDrop?.channel_name) && (
+                      <a
+                        href={`https://twitch.tv/${watchingChannel || activeDrop?.channel_name}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1.5 rounded-lg bg-[#368873]/20 hover:bg-[#3AD29F]/30 text-[10px] font-mono text-[var(--accent)] border border-[#73bba5]/30 flex items-center gap-1 transition-all"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Стрим ↗</span>
+                      </a>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-[var(--muted)]">Стример:</span>
-                      <strong className="text-white font-mono">{watchingChannel || activeDrop?.channel_name || 'Автономный GQL поток'}</strong>
-                      {watchingChannel && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" title="Трансляция активна" />
-                      )}
+                </div>
+              )}
+            </div>
+
+            {/* Action Row */}
+            <div className="action-row mt-4">
+              <button 
+                onClick={handleClaim}
+                className="btn-claim tactile-press"
+              >
+                <Gift className="w-4.5 h-4.5 text-white" />
+                <span>Забрать Полученный Дроп</span>
+              </button>
+
+              <button 
+                onClick={() => {
+                  playClick();
+                  if (onGoToSettings) {
+                    onGoToSettings();
+                  } else if (onGoToShelf) {
+                    onGoToShelf();
+                  }
+                }}
+                className="btn-secondary tactile-press"
+              >
+                <Settings className="w-4 h-4 text-[#94a3b8]" />
+                <span>Настройки</span>
+              </button>
+            </div>
+          </section>
+
+          {/* ==================== MANUAL GAME FARM OVERRIDE CARD ==================== */}
+          <section
+            onMouseMove={handleCardMouseMove}
+            className={`bento-card relative overflow-hidden transition-all duration-300 ${
+              forcedGame ? 'border-[#73bba5]/50 shadow-[0_0_24px_rgba(58,210,159,0.12)]' : ''
+            }`}
+          >
+            <div className="card-title-row">
+              <span className="card-heading flex items-center gap-2">
+                <Zap className={`w-4 h-4 ${forcedGame ? 'text-[#73bba5] animate-pulse' : 'text-amber-400'}`} />
+                <span>Выбрать игру для фарма ▾</span>
+              </span>
+
+              {forcedGame ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#368873]/30 text-[#73bba5] border border-[#73bba5]/40 font-bold flex items-center gap-1 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#73bba5]" />
+                    <span>ФОКУС АКТИВЕН</span>
+                  </span>
+                  <button
+                    onClick={handleResetManualFocus}
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10.5px] font-bold font-mono transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+                    title="Вернуться к стандартной автоматической ротации очереди"
+                  >
+                    <X className="w-3 h-3 text-rose-400" />
+                    <span>Сбросить фокус / В авто</span>
+                  </button>
+                </div>
+              ) : (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.04] text-[#8b9a94] border border-white/[0.08] flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Авто-очередь</span>
+                </span>
+              )}
+            </div>
+
+            {/* Active Forced Focus Banner */}
+            {forcedGame && (
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-[#202725] via-[#1a2420] to-[#171d1c] border border-[#73bba5]/50 flex items-center justify-between gap-3 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-[#368873]/25 border border-[#73bba5]/40 text-[#73bba5] flex items-center justify-center shrink-0">
+                    <Zap className="w-4 h-4 animate-pulse text-[#73bba5]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-black text-white truncate flex items-center gap-1.5">
+                      <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame.toUpperCase()}</span>
                     </div>
-                    <p className="text-[10px] text-[var(--muted)] font-mono">
-                      Spade Beacon: каждые 20 сек &bull; 15-чанков HEAD
+                    <p className="text-[11px] text-[#8b9a94] truncate mt-0.5">
+                      Ротация очереди на паузе. Sentinel фармит только эту игру до получения всех наград.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  {watchingChannel && (
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(watchingChannel);
-                        playClick();
-                        setCopiedStreamer(true);
-                        setTimeout(() => setCopiedStreamer(false), 2000);
-                      }}
-                      className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] font-mono text-white/80 border border-white/10 flex items-center gap-1 transition-all cursor-pointer active:scale-95"
-                      title="Скопировать никнейм стримера"
-                    >
-                      {copiedStreamer ? <Check className="w-3 h-3 text-[#73bba5]" /> : <Copy className="w-3 h-3" />}
-                      <span>{copiedStreamer ? 'Скопирован' : 'Ник'}</span>
-                    </button>
-                  )}
-                  {(watchingChannel || activeDrop?.channel_name) && (
-                    <a
-                      href={`https://twitch.tv/${watchingChannel || activeDrop?.channel_name}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-2.5 py-1.5 rounded-lg bg-[#368873]/20 hover:bg-[#3AD29F]/30 text-[10px] font-mono text-[var(--accent)] border border-[#73bba5]/30 flex items-center gap-1 transition-all"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>Стрим ↗</span>
-                    </a>
-                  )}
-                </div>
+                <button
+                  onClick={handleResetManualFocus}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white text-[11px] font-bold border border-white/20 transition-all cursor-pointer shrink-0 active:scale-95 flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3 h-3 text-amber-300" />
+                  <span>В авто</span>
+                </button>
               </div>
             )}
-          </div>
 
-          {/* Action Row */}
-          <div className="action-row mt-4">
-            <button 
-              onClick={handleClaim}
-              className="btn-claim tactile-press"
-            >
-              <Gift className="w-4.5 h-4.5 text-white" />
-              <span>Забрать Полученный Дроп</span>
-            </button>
+            {/* Search Input for fast filtering */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/40 border border-[#303a35] focus-within:border-[#73bba5]/60 transition-all">
+              <Search className="w-3.5 h-3.5 text-[#8b9a94] shrink-0" />
+              <input
+                type="text"
+                value={pickerSearchQuery}
+                onChange={(e) => setPickerSearchQuery(e.target.value)}
+                placeholder="Быстрый поиск среди раздач Twitch..."
+                className="w-full bg-transparent text-xs text-white placeholder-[#8b9a94] outline-none font-medium"
+              />
+              {pickerSearchQuery && (
+                <button
+                  onClick={() => setPickerSearchQuery('')}
+                  className="text-[#8b9a94] hover:text-white p-0.5 rounded cursor-pointer"
+                  title="Очистить поиск"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
 
-            <button 
-              onClick={() => {
-                playClick();
-                if (onGoToSettings) {
-                  onGoToSettings();
-                } else if (onGoToShelf) {
-                  onGoToShelf();
-                }
-              }}
-              className="btn-secondary tactile-press"
-            >
-              <Settings className="w-4 h-4 text-[#94a3b8]" />
-              <span>Настройки</span>
-            </button>
-          </div>
-        </section>
+            {/* Quick Game Cards Grid */}
+            <div className="space-y-1.5 max-h-[220px] overflow-y-auto scrollbar-thin pr-1">
+              {campaigns
+                .filter(c => !pickerSearchQuery || c.name.toLowerCase().includes(pickerSearchQuery.toLowerCase()))
+                .slice(0, 10)
+                .map((camp) => {
+                  const isCurrentForced = forcedGame?.toLowerCase() === camp.name.toLowerCase();
+                  return (
+                    <div
+                      key={camp.name}
+                      onClick={() => handleForceFarmGame(camp.name)}
+                      className={`p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-3 transition-all active:scale-[0.99] ${
+                        isCurrentForced
+                          ? 'bg-[#368873]/20 border-[#73bba5] shadow-[0_0_12px_rgba(58,210,159,0.15)]'
+                          : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.06] hover:border-white/15'
+                      }`}
+                      title={isCurrentForced ? 'Эта игра уже фармится принудительно' : `Кликните, чтобы принудительно запустить фарм ${camp.name}`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-10 rounded-md overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                          <GameBoxArt
+                            boxArt={camp.box_art}
+                            boxArtSources={camp.box_art_sources}
+                            name={camp.name}
+                            fallbackEmoji={camp.icon}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className={`text-xs font-bold truncate ${isCurrentForced ? 'text-[#73bba5]' : 'text-white'}`}>
+                            {camp.name}
+                          </div>
+                          <div className="text-[10px] text-[#8b9a94] flex items-center gap-1.5 mt-0.5">
+                            <span className="font-mono text-[#73bba5] font-semibold">{camp.progress_percent}% готово</span>
+                            {camp.drops_count ? (
+                              <>
+                                <span className="opacity-40">•</span>
+                                <span>{camp.drops_count} наград</span>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {isCurrentForced ? (
+                          <span className="text-[10px] font-bold text-[#73bba5] px-2.5 py-1 rounded-lg bg-[#368873]/30 border border-[#73bba5]/50 flex items-center gap-1">
+                            <Check className="w-3 h-3 text-[#73bba5]" />
+                            <span>Фармится</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10.5px] font-bold text-[#73bba5] px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-[#368873]/25 border border-white/10 hover:border-[#73bba5]/40 transition-all flex items-center gap-1">
+                            <Zap className="w-3 h-3 text-amber-400" />
+                            <span>Фармить</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Expand Full Catalog Button */}
+            <div className="pt-1">
+              <button
+                onClick={() => {
+                  playClick();
+                  setShowFullCatalogModal(true);
+                }}
+                className="btn-secondary w-full justify-center tactile-press"
+              >
+                <span>Развернуть полный каталог игр ({allGames?.length || 138}) ↗</span>
+              </button>
+            </div>
+          </section>
+        </div>
       </div>
 
       {/* ==================== LIVE ACTIVITY & COMMAND CONSOLE ==================== */}
