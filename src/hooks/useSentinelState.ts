@@ -9,6 +9,7 @@ const INITIAL_STATE: FullSentinelState = {
   status_text: 'Инициализация Sentinel & опрос Twitch API...',
   watching_channel: null,
   active_drop: null,
+  forced_game: null,
   recent_logs: [],
   hardware: {
     is_gaming: false,
@@ -449,6 +450,41 @@ export function useSentinelState(
     showToast(`⭐ Приоритет обновлен: ${gameName} перемещен ${direction === 'up' ? 'выше' : 'ниже'}`);
   };
 
+  // Manual Farm Override (Принудительный запуск фарма выбранной игры)
+  const handleForceFarm = async (gameName: string) => {
+    playClick();
+    setSentinelState((prev) => ({ ...prev, forced_game: gameName }));
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/farm/force', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game: gameName }),
+      });
+      if (res.ok) {
+        showToast(`⚡ Принудительный фокус: ${gameName}`);
+      } else {
+        showToast(`⚠️ Не удалось переключить фарм на ${gameName}`);
+      }
+    } catch {
+      showToast(`⚡ Принудительный фокус: ${gameName}`);
+    }
+  };
+
+  // Cancel Manual Farm Override (Возврат в авто-очередь)
+  const handleCancelForceFarm = async () => {
+    playClick();
+    setSentinelState((prev) => ({ ...prev, forced_game: null }));
+    try {
+      await fetch('http://127.0.0.1:28492/api/farm/cancel-force', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      showToast('✕ Ручной фокус сброшен. Возврат в авто-очередь.');
+    } catch {
+      showToast('✕ Ручной фокус сброшен.');
+    }
+  };
+
   return {
     sentinelState,
     setSentinelState,
@@ -463,5 +499,7 @@ export function useSentinelState(
     handleToggleDaemon,
     handleSwitchStreamer,
     handleReorderPriority,
+    handleForceFarm,
+    handleCancelForceFarm,
   };
 }

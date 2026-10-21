@@ -10,6 +10,9 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using System.Collections.Generic;
+using System.Linq;
+using System.Management;
 
 namespace TwitchDropsSentinel
 {
@@ -35,6 +38,55 @@ namespace TwitchDropsSentinel
         private const int DWMWA_BORDER_COLOR = 34;
         private const int DWMWA_CAPTION_COLOR = 35;
         private const int DWMWA_TEXT_COLOR = 36;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct PHYSICAL_MONITOR
+        {
+            public IntPtr hPhysicalMonitor;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string szPhysicalMonitorDescription;
+        }
+
+        public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint SetThreadExecutionState(uint esFlags);
+
+        public const uint ES_CONTINUOUS = 0x80000000;
+        public const uint ES_SYSTEM_REQUIRED = 0x00000001;
+        public const uint ES_AWAYMODE_REQUIRED = 0x00000040;
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, out uint pdwNumberOfPhysicalMonitors);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetMonitorBrightness(IntPtr hMonitor, out uint pdwMinimumBrightness, out uint pdwCurrentBrightness, out uint pdwMaximumBrightness);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwNewBrightness);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyPhysicalMonitors(uint dwPhysicalMonitorArraySize, [In] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
@@ -685,11 +737,23 @@ namespace TwitchDropsSentinel
                 else if (type == "DIMMER_COMMAND")
                 {
                     string action = root.TryGetProperty("action", out var actProp) ? actProp.GetString() ?? "" : "";
-                    if (action == "SET_BLACKOUT")
+                    if (action == "GET_STATE")
+                    {
+                        NotifyWebviewDimmerState();
+                    }
+                    else if (action == "SET_BRIGHTNESS")
+                    {
+                        string monId = root.TryGetProperty("monitorId", out var mProp) ? mProp.GetString() ?? "master" : "master";
+                        int level = root.TryGetProperty("level", out var lProp) ? lProp.GetInt32() : 75;
+                        SetHardwareBrightness(monId, level);
+                        NotifyWebviewDimmerState();
+                    }
+                    else if (action == "SET_BLACKOUT")
                     {
                         bool enabled = root.TryGetProperty("enabled", out var enProp) && enProp.GetBoolean();
                         int? solo = root.TryGetProperty("soloIndex", out var sProp) && sProp.ValueKind == JsonValueKind.Number ? sProp.GetInt32() : (int?)null;
                         SetBlackout(enabled, solo);
+                        NotifyWebviewDimmerState();
                     }
                 }
             }
@@ -982,8 +1046,308 @@ namespace TwitchDropsSentinel
             }
         }
 
+        private int _masterBrightness = 75;
+        private bool _isBlackout = false;
+        private int? _soloBlackoutIndex = null;
+        private readonly Dictionary<string, int> _monitorBrightnessMap = new();
+
+        public class NativeMonitorInfo
+        {
+            public string Id { get; set; } = string.Empty;
+            public string Name { get; set; } = string.Empty;
+            public string DeviceName { get; set; } = string.Empty;
+            public bool IsPrimary { get; set; }
+            public bool IsLaptopInternal { get; set; }
+            public int CurrentBrightness { get; set; } = 75;
+            public uint MinBrightness { get; set; } = 0;
+            public uint MaxBrightness { get; set; } = 100;
+            public bool SupportsControl { get; set; } = true;
+        }
+
+        private List<NativeMonitorInfo> GetHardwareMonitors()
+        {
+            var list = new List<NativeMonitorInfo>();
+            var screens = Screen.AllScreens;
+
+            // 1. DDC/CI Monitors (External)
+            var ddcList = new List<PHYSICAL_MONITOR>();
+            try
+            {
+                EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref RECT rc, IntPtr data) =>
+                {
+                    if (GetNumberOfPhysicalMonitorsFromHMONITOR(hMon, out uint count) && count > 0)
+                    {
+                        var phys = new PHYSICAL_MONITOR[count];
+                        if (GetPhysicalMonitorsFromHMONITOR(hMon, count, phys))
+                        {
+                            ddcList.AddRange(phys);
+                        }
+                    }
+                    return true;
+                }, IntPtr.Zero);
+
+                for (int i = 0; i < ddcList.Count; i++)
+                {
+                    var mon = ddcList[i];
+                    string desc = (mon.szPhysicalMonitorDescription ?? "").Trim();
+                    if (string.IsNullOrEmpty(desc)) desc = $"Display {i + 1}";
+                    string id = $"DDC_{i}_{desc}";
+                    int currentBri = _masterBrightness;
+                    uint min = 0, max = 100;
+                    if (GetMonitorBrightness(mon.hPhysicalMonitor, out min, out uint cur, out max))
+                    {
+                        currentBri = (int)cur;
+                    }
+
+                    if (!_monitorBrightnessMap.ContainsKey(id))
+                        _monitorBrightnessMap[id] = currentBri;
+                    else
+                        currentBri = _monitorBrightnessMap[id];
+
+                    list.Add(new NativeMonitorInfo
+                    {
+                        Id = id,
+                        Name = $"Внешний монитор ({desc})",
+                        DeviceName = (i < screens.Length) ? screens[i].DeviceName : $@"\\.\DISPLAY{i + 1}",
+                        IsPrimary = (i < screens.Length) && screens[i].Primary,
+                        IsLaptopInternal = false,
+                        CurrentBrightness = currentBri,
+                        MinBrightness = min,
+                        MaxBrightness = max,
+                        SupportsControl = true
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DDC/CI] Enumeration error: {ex.Message}");
+            }
+            finally
+            {
+                if (ddcList.Count > 0)
+                {
+                    try { DestroyPhysicalMonitors((uint)ddcList.Count, ddcList.ToArray()); } catch { }
+                }
+            }
+
+            // 2. WMI Monitors (Internal Laptop Panel)
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(@"root\WMI", "SELECT InstanceName, CurrentBrightness FROM WmiMonitorBrightness WHERE Active = True");
+                using var coll = searcher.Get();
+                int idx = 0;
+                foreach (ManagementObject obj in coll)
+                {
+                    try
+                    {
+                        string name = obj["InstanceName"]?.ToString() ?? $"InternalPanel_{idx}";
+                        int bri = _masterBrightness;
+                        if (obj["CurrentBrightness"] != null)
+                        {
+                            bri = Convert.ToInt32(obj["CurrentBrightness"]);
+                        }
+                        string id = $"WMI_{name}";
+                        if (!_monitorBrightnessMap.ContainsKey(id))
+                            _monitorBrightnessMap[id] = bri;
+                        else
+                            bri = _monitorBrightnessMap[id];
+
+                        list.Add(new NativeMonitorInfo
+                        {
+                            Id = id,
+                            Name = "Встроенный дисплей ноутбука",
+                            DeviceName = "Laptop_Internal",
+                            IsPrimary = false,
+                            IsLaptopInternal = true,
+                            CurrentBrightness = bri,
+                            MinBrightness = 0,
+                            MaxBrightness = 100,
+                            SupportsControl = true
+                        });
+                        idx++;
+                    }
+                    catch { }
+                    finally { obj.Dispose(); }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WMI] Brightness enumeration error: {ex.Message}");
+            }
+
+            // 3. Fallback if no DDC/CI or WMI found
+            if (list.Count == 0)
+            {
+                for (int i = 0; i < screens.Length; i++)
+                {
+                    var s = screens[i];
+                    string id = $"DISP_{i}_{s.DeviceName}";
+                    int bri = _masterBrightness;
+                    if (!_monitorBrightnessMap.ContainsKey(id))
+                        _monitorBrightnessMap[id] = bri;
+                    else
+                        bri = _monitorBrightnessMap[id];
+
+                    list.Add(new NativeMonitorInfo
+                    {
+                        Id = id,
+                        Name = s.Primary ? "Основной дисплей" : $"Дисплей {i + 1}",
+                        DeviceName = s.DeviceName,
+                        IsPrimary = s.Primary,
+                        IsLaptopInternal = false,
+                        CurrentBrightness = bri,
+                        MinBrightness = 0,
+                        MaxBrightness = 100,
+                        SupportsControl = true
+                    });
+                }
+            }
+
+            return list;
+        }
+
+        private void SetHardwareBrightness(string monitorId, int level)
+        {
+            int clamped = Math.Clamp(level, 0, 100);
+            if (monitorId == "master")
+            {
+                _masterBrightness = clamped;
+                var mons = GetHardwareMonitors();
+                foreach (var m in mons)
+                {
+                    SetHardwareBrightness(m.Id, clamped);
+                }
+                return;
+            }
+
+            _monitorBrightnessMap[monitorId] = clamped;
+
+            // Run in background task to avoid blocking WebView2 UI thread
+            Task.Run(() =>
+            {
+                try
+                {
+                    if (monitorId.StartsWith("DDC_"))
+                    {
+                        var ddcList = new List<PHYSICAL_MONITOR>();
+                        try
+                        {
+                            EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref RECT rc, IntPtr data) =>
+                            {
+                                if (GetNumberOfPhysicalMonitorsFromHMONITOR(hMon, out uint count) && count > 0)
+                                {
+                                    var phys = new PHYSICAL_MONITOR[count];
+                                    if (GetPhysicalMonitorsFromHMONITOR(hMon, count, phys))
+                                    {
+                                        ddcList.AddRange(phys);
+                                    }
+                                }
+                                return true;
+                            }, IntPtr.Zero);
+
+                            for (int i = 0; i < ddcList.Count; i++)
+                            {
+                                var mon = ddcList[i];
+                                string desc = (mon.szPhysicalMonitorDescription ?? "").Trim();
+                                if (string.IsNullOrEmpty(desc)) desc = $"Display {i + 1}";
+                                string checkId = $"DDC_{i}_{desc}";
+                                if (checkId == monitorId)
+                                {
+                                    SetMonitorBrightness(mon.hPhysicalMonitor, (uint)clamped);
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            if (ddcList.Count > 0)
+                            {
+                                try { DestroyPhysicalMonitors((uint)ddcList.Count, ddcList.ToArray()); } catch { }
+                            }
+                        }
+                    }
+                    else if (monitorId.StartsWith("WMI_"))
+                    {
+                        string targetInstance = monitorId.Substring(4);
+                        using var searcher = new ManagementObjectSearcher(@"root\WMI", "SELECT * FROM WmiMonitorBrightnessMethods WHERE Active = True");
+                        using var coll = searcher.Get();
+                        foreach (ManagementObject obj in coll)
+                        {
+                            try
+                            {
+                                string inst = obj["InstanceName"]?.ToString() ?? "";
+                                if (string.IsNullOrEmpty(targetInstance) || inst == targetInstance)
+                                {
+                                    using var inParams = obj.GetMethodParameters("WmiSetBrightness");
+                                    inParams["Timeout"] = (uint)1;
+                                    inParams["Brightness"] = (byte)clamped;
+                                    obj.InvokeMethod("WmiSetBrightness", inParams, null);
+                                }
+                            }
+                            catch { }
+                            finally { obj.Dispose(); }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[HardwareBrightness] Error: {ex.Message}");
+                }
+            });
+        }
+
+        private void NotifyWebviewDimmerState()
+        {
+            try
+            {
+                var monitors = GetHardwareMonitors();
+                var stateObj = new
+                {
+                    type = "DIMMER_STATE_CHANGED",
+                    state = new
+                    {
+                        monitors = monitors.Select(m => new
+                        {
+                            id = m.Id,
+                            name = m.Name,
+                            device_name = m.DeviceName,
+                            is_primary = m.IsPrimary,
+                            is_laptop_internal = m.IsLaptopInternal,
+                            current_brightness = m.CurrentBrightness,
+                            min_brightness = m.MinBrightness,
+                            max_brightness = m.MaxBrightness,
+                            supports_control = m.SupportsControl
+                        }).ToList(),
+                        master_brightness = _masterBrightness,
+                        is_dimmed = _masterBrightness < 50,
+                        is_blackout = _isBlackout,
+                        solo_screen_index = _soloBlackoutIndex,
+                        sleep_timer_minutes = 0,
+                        away_mode_active = _isBlackout,
+                        mute_audio_on_blackout = false
+                    }
+                };
+
+                string json = JsonSerializer.Serialize(stateObj);
+                this.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        _webView?.CoreWebView2?.PostWebMessageAsJson(json);
+                    }
+                    catch { }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"NotifyWebviewDimmerState error: {ex.Message}");
+            }
+        }
+
         private void SetBlackout(bool enabled, int? soloIndex = null)
         {
+            _isBlackout = enabled;
+            _soloBlackoutIndex = soloIndex;
+
             this.BeginInvoke(new Action(() =>
             {
                 try
@@ -996,14 +1360,23 @@ namespace TwitchDropsSentinel
 
                     if (enabled)
                     {
+                        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED);
                         var screens = Screen.AllScreens;
                         for (int i = 0; i < screens.Length; i++)
                         {
                             if (soloIndex.HasValue && soloIndex.Value != i) continue;
-                            var bf = new BlackoutOverlayForm(screens[i].Bounds);
+                            var bf = new BlackoutOverlayForm(screens[i].Bounds, () =>
+                            {
+                                SetBlackout(false);
+                                NotifyWebviewDimmerState();
+                            });
                             bf.Show();
                             _activeBlackoutForms.Add(bf);
                         }
+                    }
+                    else
+                    {
+                        SetThreadExecutionState(ES_CONTINUOUS);
                     }
                 }
                 catch (Exception ex)
@@ -1015,8 +1388,11 @@ namespace TwitchDropsSentinel
 
         internal class BlackoutOverlayForm : Form
         {
-            public BlackoutOverlayForm(Rectangle bounds)
+            private readonly Action _onDismiss;
+
+            public BlackoutOverlayForm(Rectangle bounds, Action onDismiss)
             {
+                _onDismiss = onDismiss;
                 AutoScaleMode = AutoScaleMode.None;
                 FormBorderStyle = FormBorderStyle.None;
                 StartPosition = FormStartPosition.Manual;
@@ -1024,6 +1400,10 @@ namespace TwitchDropsSentinel
                 BackColor = Color.Black;
                 TopMost = true;
                 DoubleBuffered = true;
+                Cursor = Cursors.Default;
+
+                MouseDown += (s, e) => _onDismiss?.Invoke();
+                KeyDown += (s, e) => _onDismiss?.Invoke();
             }
 
             protected override CreateParams CreateParams
@@ -1031,12 +1411,10 @@ namespace TwitchDropsSentinel
                 get
                 {
                     CreateParams cp = base.CreateParams;
-                    cp.ExStyle |= 0x80 | 0x08 | 0x08000000; // WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE
+                    cp.ExStyle |= 0x80 | 0x08; // WS_EX_TOOLWINDOW | WS_EX_TOPMOST
                     return cp;
                 }
             }
-
-            protected override bool ShowWithoutActivation => true;
         }
     }
 

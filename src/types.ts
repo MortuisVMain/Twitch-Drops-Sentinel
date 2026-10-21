@@ -104,6 +104,7 @@ export interface FullSentinelState {
   watchdog_status?: string | null;
   oauth_code?: string | null;
   oauth_uri?: string | null;
+  forced_game?: string | null;
 }
 
 export type StoreId = 'epic' | 'gog' | 'steam' | 'fab' | 'unity' | 'itch' | 'prime';

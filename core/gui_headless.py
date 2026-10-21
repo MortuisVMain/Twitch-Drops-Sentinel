@@ -31,6 +31,7 @@ class SentinelStateBridge:
         self.is_paused: bool = False
         self.paused_reason: Optional[str] = None
         self.watchdog_status: Optional[str] = None
+        self.forced_game: Optional[str] = None
         self.oauth_code: Optional[str] = None
         self.oauth_uri: Optional[str] = None
         self.recent_logs: list[dict] = []

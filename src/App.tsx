@@ -114,6 +114,8 @@ export const App: React.FC = () => {
     handleToggleDaemon,
     handleSwitchStreamer,
     handleReorderPriority,
+    handleForceFarm,
+    handleCancelForceFarm,
   } = useSentinelState(showToast, playRewardChime, playClick);
 
   // GitHub Auto-Updater State & Lifecycle
@@ -448,6 +450,9 @@ export const App: React.FC = () => {
                     })
                   }
                   allGames={sentinelState.all_catalog_games}
+                  forcedGame={sentinelState.forced_game}
+                  onForceFarm={handleForceFarm}
+                  onCancelForceFarm={handleCancelForceFarm}
                   onAddToPriority={handleTogglePriority}
                   onRemoveFromPriority={handleTogglePriority}
                   onManualRefresh={handleManualRefresh}

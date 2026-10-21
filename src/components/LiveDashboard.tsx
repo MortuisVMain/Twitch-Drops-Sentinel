@@ -255,6 +255,9 @@ interface LiveDashboardProps {
   onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
+  forcedGame?: string | null;
+  onForceFarm?: (gameName: string) => void;
+  onCancelForceFarm?: () => void;
 }
 
 export const LiveDashboard: React.FC<LiveDashboardProps> = ({
@@ -282,7 +285,10 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   onReorderPriority,
   onUpdateSettings,
   isZenMode,
-  onToggleZenMode
+  onToggleZenMode,
+  forcedGame,
+  onForceFarm,
+  onCancelForceFarm
 }) => {
   const { playClick, playRewardChime } = useTactileAudio();
   const [userSelectedIndex, setUserSelectedIndex] = useState<number | null>(null);
@@ -305,6 +311,39 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const [isRotatingStreamer, setIsRotatingStreamer] = useState(false);
   const [isIgnoringProcess, setIsIgnoringProcess] = useState(false);
   const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  // Manual Farm Override States
+  const [showGamePickerDropdown, setShowGamePickerDropdown] = useState(false);
+  const [showFullCatalogModal, setShowFullCatalogModal] = useState(false);
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+  const [pickerSearchQuery, setPickerSearchQuery] = useState('');
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowGamePickerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleForceFarmGame = (gameName: string) => {
+    playClick();
+    setShowGamePickerDropdown(false);
+    setShowFullCatalogModal(false);
+    if (onForceFarm) {
+      onForceFarm(gameName);
+    }
+  };
+
+  const handleResetManualFocus = () => {
+    playClick();
+    if (onCancelForceFarm) {
+      onCancelForceFarm();
+    }
+  };
 
   const handleIgnoreDetectedProcess = async () => {
     const proc = hardware?.detected_game;
@@ -836,6 +875,92 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               <span>Смотреть на Twitch ↗</span>
             </a>
           )}
+
+          {/* Manual Game Farm Override Picker Dropdown */}
+          <div className="relative" ref={pickerRef}>
+            <button
+              onClick={() => {
+                playClick();
+                setShowGamePickerDropdown(prev => !prev);
+              }}
+              className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border transition-all cursor-pointer active:scale-95 ${
+                forcedGame
+                  ? 'bg-[#368873]/25 text-[#73bba5] border-[#73bba5]/50 shadow-sm'
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] border-[var(--line)]'
+              }`}
+              title="Принудительно запустить фарм выбранной игры"
+            >
+              <Zap className={`w-3.5 h-3.5 ${forcedGame ? 'text-[#73bba5] animate-pulse' : 'text-amber-400'}`} />
+              <span>{forcedGame ? `Фокус: ${forcedGame}` : 'Выбрать игру для фарма ▾'}</span>
+              <ChevronDown className={`w-3 h-3 text-[#8b9a94] transition-transform ${showGamePickerDropdown ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Luna Glass Popover */}
+            {showGamePickerDropdown && (
+              <div className="absolute top-full left-0 mt-2 w-80 bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-[0_16px_40px_rgba(0,0,0,0.85)] z-50 overflow-hidden divide-y divide-white/5 animate-in fade-in zoom-in-95 duration-150">
+                <div className="p-3 bg-[#202725]/80">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-[#303a35]">
+                    <Search className="w-3.5 h-3.5 text-[#8b9a94]" />
+                    <input
+                      type="text"
+                      value={pickerSearchQuery}
+                      onChange={(e) => setPickerSearchQuery(e.target.value)}
+                      placeholder="Быстрый фильтр..."
+                      className="w-full bg-transparent text-xs text-white placeholder-[#8b9a94] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto p-1.5 space-y-1 scrollbar-thin">
+                  {campaigns
+                    .filter(c => !pickerSearchQuery || c.name.toLowerCase().includes(pickerSearchQuery.toLowerCase()))
+                    .slice(0, 8)
+                    .map((camp) => (
+                      <div
+                        key={camp.name}
+                        onClick={() => handleForceFarmGame(camp.name)}
+                        className="p-2 rounded-xl hover:bg-white/[0.06] cursor-pointer flex items-center justify-between gap-3 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-10 rounded overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                            <GameBoxArt 
+                              boxArt={camp.box_art} 
+                              boxArtSources={camp.box_art_sources}
+                              name={camp.name} 
+                              fallbackEmoji={camp.icon} 
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-white truncate">{camp.name}</div>
+                            <div className="text-[10px] text-[#73bba5] flex items-center gap-1">
+                              <Gift className="w-2.5 h-2.5" />
+                              <span>{camp.progress_percent}% готово</span>
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-[#73bba5] px-2 py-1 rounded-lg bg-[#368873]/20 border border-[#73bba5]/30 shrink-0">
+                          Фарм ⚡
+                        </span>
+                      </div>
+                    ))}
+                </div>
+
+                <div className="p-2.5 bg-[#202725] text-center">
+                  <button
+                    onClick={() => {
+                      playClick();
+                      setShowGamePickerDropdown(false);
+                      setShowFullCatalogModal(true);
+                    }}
+                    className="w-full py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-bold text-[#73bba5] border border-[#303a35] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Развернуть полный каталог игр ({allGames?.length || 138})</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right: Golden Claim Ready Drop or Stealth Telemetry Badge */}
@@ -856,6 +981,36 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           )}
         </div>
       </section>
+
+      {/* ==================== ACTIVE MANUAL OVERRIDE BANNER ==================== */}
+      {forcedGame && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-[#202725] via-[#1a2420] to-[#171d1c] border-2 border-[#73bba5]/60 shadow-[0_4px_24px_rgba(58,210,159,0.2)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-300">
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 rounded-xl bg-[#368873]/25 border border-[#73bba5]/40 text-[#73bba5] shrink-0">
+              <Zap className="w-5 h-5 animate-pulse text-[#73bba5]" />
+            </div>
+            <div>
+              <div className="text-xs font-black text-white flex items-center gap-2">
+                <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame.toUpperCase()}</span>
+                <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#368873] text-white font-bold">
+                  MANUAL OVERRIDE
+                </span>
+              </div>
+              <p className="text-[11px] text-[#8b9a94] mt-0.5">
+                Автоматическая ротация очереди приостановлена. Демон фармит только эту игру до полного сбора всех доступных наград.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleResetManualFocus}
+            className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold border border-white/20 transition-all cursor-pointer active:scale-95 flex items-center gap-2 shrink-0 self-end sm:self-auto"
+          >
+            <X className="w-3.5 h-3.5 text-rose-400" />
+            <span>Сбросить фокус / В авто</span>
+          </button>
+        </div>
+      )}
 
       {/* Main 3-Column Bento Grid Layout */}
       <div className="bento-grid">
@@ -1708,6 +1863,100 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           </section>
         )}
       </div>
+
+      {/* ==================== FULL CATALOG MODAL ==================== */}
+      {showFullCatalogModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 md:p-6 animate-fadeIn">
+          <div className="w-full max-w-4xl max-h-[85vh] bg-[#171d1c] border border-[#303a35] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-[#303a35] flex items-center justify-between bg-[#202725]">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>Каталог игр Twitch & Steam</span>
+                  <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30">
+                    {allGames?.length || 0} игр
+                  </span>
+                </h2>
+                <p className="text-xs text-[#8b9a94] mt-1">
+                  Выберите любую игру для мгновенного ручного переключения фарма
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  playClick();
+                  setShowFullCatalogModal(false);
+                }}
+                className="p-2 rounded-xl bg-[#28322e] text-[#8b9a94] hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="p-4 bg-[#171d1c] border-b border-[#303a35]">
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-[#202725] border border-[#303a35]">
+                <Search className="w-4 h-4 text-[#8b9a94]" />
+                <input
+                  type="text"
+                  value={catalogSearchQuery}
+                  onChange={(e) => setCatalogSearchQuery(e.target.value)}
+                  placeholder="Поиск по названию игры (например, Rust, Hitman, Witcher)..."
+                  className="w-full bg-transparent text-sm text-white placeholder-[#8b9a94] outline-none font-medium"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Games Grid */}
+            <div className="p-6 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 scrollbar-thin">
+              {(allGames || [])
+                .filter(g => !catalogSearchQuery || g.name.toLowerCase().includes(catalogSearchQuery.toLowerCase()))
+                .map((game) => (
+                  <div
+                    key={game.id || game.name}
+                    className="p-4 rounded-2xl bg-[#202725] border border-[#303a35] hover:border-[#73bba5]/40 transition-all flex flex-col justify-between space-y-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-16 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                        <GameBoxArt
+                          boxArt={game.box_art}
+                          boxArtSources={game.box_art_sources}
+                          name={game.name}
+                          fallbackEmoji="🎮"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-white truncate" title={game.name}>
+                          {game.name}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          {game.has_drops ? (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">
+                              РАЗДАЧА
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/5 text-[#8b9a94]">
+                              В БИБЛИОТЕКЕ
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleForceFarmGame(game.name)}
+                      className="w-full py-2.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold shadow transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Фармить сейчас</span>
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

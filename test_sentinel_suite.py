@@ -649,10 +649,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.3.0", f"Version mismatch: {__version__}"
-    assert parse_version("3.3.0") == (3, 3, 0)
-    assert parse_version("v3.3.1-beta") == (3, 3, 1)
-    assert parse_version("v3.3.0") > parse_version("3.2.2")
+    assert __version__ == "3.3.1", f"Version mismatch: {__version__}"
+    assert parse_version("3.3.1") == (3, 3, 1)
+    assert parse_version("v3.3.2-beta") == (3, 3, 2)
+    assert parse_version("v3.3.1") > parse_version("3.3.0")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -1367,6 +1367,96 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
 
     print("      Telemetry Cleanliness, Giveaways Engine & ScreenDimmer Suite: ALL PASS [OK]")
 
+def test_manual_farm_override_and_native_screendimmer_suite():
+    print("[36/36] Verifying Manual Game Farm Override & Native Hardware ScreenDimmer Pro...")
+
+    # 1. Backend Core Twitch & SentinelService verification
+    twitch_py = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert "self.forced_game" in twitch_py, "Twitch client must have self.forced_game"
+    assert "set_forced_game" in twitch_py, "Twitch client must implement set_forced_game"
+    assert "clear_forced_game" in twitch_py, "Twitch client must implement clear_forced_game"
+    assert "FORCED FARM" in twitch_py, "Twitch client must log [FORCED FARM] transitions"
+    assert "smart_game_match" in twitch_py, "Twitch client must use safe smart_game_match"
+
+    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "/api/farm/force" in service_py, "SentinelService must expose /api/farm/force"
+    assert "/api/farm/cancel-force" in service_py, "SentinelService must expose /api/farm/cancel-force"
+    assert "handle_force_farm" in service_py, "SentinelService must implement handle_force_farm"
+    assert "handle_cancel_force_farm" in service_py, "SentinelService must implement handle_cancel_force_farm"
+    assert '"forced_game":' in service_py, "SentinelService state must include forced_game"
+
+    # 2. Live REST API verification for Force Farm
+    ensure_test_service()
+    req_force = urllib.request.Request(
+        "http://127.0.0.1:28492/api/farm/force",
+        data=json.dumps({"game": "Rust"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req_force, timeout=5.0) as res:
+        assert res.status == 200
+        force_data = json.loads(res.read().decode("utf-8"))
+        assert force_data.get("status") == "ok"
+        assert force_data.get("forced_game") == "Rust"
+
+    # Verify state reflects forced game
+    req_state = urllib.request.Request(
+        "http://127.0.0.1:28492/api/state",
+        headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
+    )
+    with urllib.request.urlopen(req_state, timeout=5.0) as res:
+        assert res.status == 200
+        state_data = json.loads(res.read().decode("utf-8"))
+        assert state_data.get("forced_game") == "Rust", f"State forced_game must be Rust, got {state_data.get('forced_game')}"
+
+    # Cancel force farm
+    req_cancel = urllib.request.Request(
+        "http://127.0.0.1:28492/api/farm/cancel-force",
+        data=json.dumps({}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req_cancel, timeout=5.0) as res:
+        assert res.status == 200
+        cancel_data = json.loads(res.read().decode("utf-8"))
+        assert cancel_data.get("status") == "ok"
+        assert cancel_data.get("forced_game") is None
+
+    # 3. Native C# MainForm & Hardware ScreenDimmer verification
+    main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "dxva2.dll" in main_cs, "desktop/MainForm.cs must import dxva2.dll"
+    assert "GetPhysicalMonitorsFromHMONITOR" in main_cs, "MainForm.cs must import GetPhysicalMonitorsFromHMONITOR"
+    assert "SetMonitorBrightness" in main_cs, "MainForm.cs must import SetMonitorBrightness"
+    assert "DestroyPhysicalMonitors" in main_cs, "MainForm.cs must import DestroyPhysicalMonitors"
+    assert "WmiMonitorBrightnessMethods" in main_cs, "MainForm.cs must support WMI laptop brightness"
+    assert "SetHardwareBrightness" in main_cs, "MainForm.cs must implement SetHardwareBrightness"
+    assert "NotifyWebviewDimmerState" in main_cs, "MainForm.cs must implement NotifyWebviewDimmerState"
+    assert "DIMMER_STATE_CHANGED" in main_cs, "MainForm.cs must emit DIMMER_STATE_CHANGED"
+    assert "SetThreadExecutionState" in main_cs, "MainForm.cs must configure AwayMode during blackout"
+    assert "MouseDown" in main_cs and "KeyDown" in main_cs, "BlackoutOverlayForm must dismiss on mouse click or key press"
+
+    # 4. Frontend ScreenDimmerView.tsx & LiveDashboard.tsx verification
+    dimmer_tsx = (WORKSPACE / "src" / "components" / "ScreenDimmerView.tsx").read_text(encoding="utf-8")
+    assert "Физическое расположение дисплеев" in dimmer_tsx, "ScreenDimmerView must contain Display Stage"
+    assert "Общая яркость всех дисплеев" in dimmer_tsx, "ScreenDimmerView must contain Master brightness hero"
+    assert "Блэкаут 0%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Блэкаут 0%'"
+    assert "Ночь 15%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Ночь 15%'"
+    assert "Комфорт 40%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Комфорт 40%'"
+    assert "Работа 75%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Работа 75%'"
+    assert "Максимум 100%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Максимум 100%'"
+    assert "Solo Blackout" in dimmer_tsx, "ScreenDimmerView must contain Solo Blackout buttons"
+    assert "Alt + Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt + Backspace shortcut"
+
+    dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "Выбрать игру для фарма ▾" in dash_tsx, "LiveDashboard must contain 'Выбрать игру для фарма ▾' button"
+    assert "⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС:" in dash_tsx, "LiveDashboard must contain Active Forced Focus banner"
+    assert "Сбросить фокус / В авто" in dash_tsx, "LiveDashboard must contain cancel button 'Сбросить фокус / В авто'"
+    assert "showFullCatalogModal" in dash_tsx, "LiveDashboard must contain showFullCatalogModal state"
+    assert "Каталог игр Twitch & Steam" in dash_tsx, "LiveDashboard must contain Full Catalog Modal title"
+    assert "Фармить сейчас" in dash_tsx, "LiveDashboard Full Catalog Modal must have 'Фармить сейчас' action buttons"
+
+    print("      Manual Game Farm Override & Native ScreenDimmer Pro: ALL PASS [OK]")
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1407,8 +1497,9 @@ if __name__ == "__main__":
     test_twitch_drops_sync_and_active_filter()
     test_shelf_removed_tab_and_startup_sync()
     test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite()
+    test_manual_farm_override_and_native_screendimmer_suite()
     print("=" * 65)
-    print("  ALL 35 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 36 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

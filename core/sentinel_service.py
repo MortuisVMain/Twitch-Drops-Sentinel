@@ -474,6 +474,10 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/settings", self.handle_post_settings)
         self.app.router.add_post("/api/claim", self.handle_claim)
         self.app.router.add_post("/api/switch-streamer", self.handle_switch_streamer)
+        self.app.router.add_post("/api/farm/force", self.handle_force_farm)
+        self.app.router.add_post("/api/farm/cancel-force", self.handle_cancel_force_farm)
+        self.app.router.add_post("/api/farm/clear-force", self.handle_cancel_force_farm)
+
         self.app.router.add_post("/api/rescan", self.handle_rescan)
         self.app.router.add_post("/api/scan-games", self.handle_scan_games)
         self.app.router.add_post("/api/hardware/ignore-process", self.handle_ignore_process)
@@ -601,6 +605,7 @@ class SentinelSupervisor:
             "watching_channel": STATE_BRIDGE.watching_channel,
             "available_channels": STATE_BRIDGE.available_channels,
             "active_drop": active_drop,
+            "forced_game": getattr(self.twitch_client, "forced_game", None) or getattr(STATE_BRIDGE, "forced_game", None),
             "watchdog_status": getattr(STATE_BRIDGE, "watchdog_status", None),
             "oauth_code": getattr(STATE_BRIDGE, "oauth_code", None),
             "oauth_uri": getattr(STATE_BRIDGE, "oauth_uri", None),
@@ -787,6 +792,46 @@ class SentinelSupervisor:
             return web.json_response({"status": "ok" if success else "error", "message": message})
         except Exception as e:
             logger.error(f"Error applying update: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_force_farm(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            game = (data.get("game") or "").strip()
+            if not game:
+                return web.json_response({"status": "error", "message": "Game name is required"}, status=400)
+            logger.info(f"API Force Farm: Requesting manual farm override for '{game}'")
+            STATE_BRIDGE.forced_game = game
+            if self.twitch_client:
+                if hasattr(self.twitch_client, "set_forced_game"):
+                    self.twitch_client.set_forced_game(game)
+                else:
+                    self.twitch_client.forced_game = game
+                    if hasattr(self.twitch_client, "stop_watching"):
+                        self.twitch_client.stop_watching()
+                    self.twitch_client.change_state(State.GAMES_UPDATE)
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "forced_game": game})
+        except Exception as e:
+            logger.error(f"Error forcing farm for game: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_cancel_force_farm(self, request: web.Request) -> web.Response:
+        try:
+            logger.info("API Cancel Force Farm: Reverting manual farm override back to auto priority queue")
+            STATE_BRIDGE.forced_game = None
+            if self.twitch_client:
+                if hasattr(self.twitch_client, "clear_forced_game"):
+                    self.twitch_client.clear_forced_game()
+                else:
+                    self.twitch_client.forced_game = None
+                    if hasattr(self.twitch_client, "stop_watching"):
+                        self.twitch_client.stop_watching()
+                    self.twitch_client.change_state(State.GAMES_UPDATE)
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "forced_game": None})
+        except Exception as e:
+            logger.error(f"Error cancelling force farm: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_switch_streamer(self, request: web.Request) -> web.Response:

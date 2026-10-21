@@ -481,6 +481,7 @@ class Twitch:
         self._state: State = State.IDLE
         self._state_change = asyncio.Event()
         self.wanted_games: list[Game] = []
+        self.forced_game: Optional[str] = None
         self.inventory: list[DropsCampaign] = []
         self._drops: dict[str, TimedDrop] = {}
         self._campaigns: dict[str, DropsCampaign] = {}
@@ -751,32 +752,70 @@ class Twitch:
                                     if not ok:
                                         self._failed_claims[drop.id] = self._failed_claims.get(drop.id, 0) + 1
 
+                # Check forced_game override
+                forced_game_target = getattr(self, "forced_game", None)
+                if not forced_game_target:
+                    try:
+                        from gui_headless import STATE_BRIDGE
+                        forced_game_target = STATE_BRIDGE.forced_game
+                        self.forced_game = forced_game_target
+                    except Exception:
+                        pass
+
+                def _is_forced(name: str) -> bool:
+                    return bool(forced_game_target and smart_game_match(name, forced_game_target))
+
+                # If forced game is set, clear cooldowns for it
+                if forced_game_target:
+                    for k in list(self.game_cooldowns.keys()):
+                        if smart_game_match(k, forced_game_target):
+                            self.game_cooldowns.pop(k, None)
+
+                    # Check if forced game still has earnable drops
+                    forced_campaigns = [c for c in self.inventory if _is_forced(c.game.name)]
+                    has_earnable_drops = any(c.can_earn for c in forced_campaigns) if forced_campaigns else False
+                    all_claimed = all(all(d.is_claimed for d in c.drops) for c in forced_campaigns) if forced_campaigns else False
+
+                    if forced_campaigns and (all_claimed or not has_earnable_drops):
+                        logger.info(f"[FORCED FARM] Все доступные Drops для игры '{forced_game_target}' получены! Автоматический возврат в авто-режим.")
+                        try:
+                            from gui_headless import STATE_BRIDGE
+                            STATE_BRIDGE.add_log("INFO", f"Все награды для '{forced_game_target}' получены. Возврат в авто-режим.")
+                            STATE_BRIDGE.forced_game = None
+                        except Exception:
+                            pass
+                        self.forced_game = None
+                        forced_game_target = None
+
                 # figure out which games we want
                 self.wanted_games.clear()
                 next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
-                # sorted_campaigns: list[DropsCampaign] = list(self.inventory)
-                sorted_campaigns: list[DropsCampaign] = self.inventory
+                sorted_campaigns: list[DropsCampaign] = list(self.inventory)
 
                 if priority_mode is PriorityMode.LOW_AVBL_FIRST:
-                    sorted_campaigns.sort(key=lambda c: (_fuzzy_priority(c.game.name), c.availability))
+                    sorted_campaigns.sort(key=lambda c: (0 if _is_forced(c.game.name) else 1, _fuzzy_priority(c.game.name), c.availability))
                 else:
-                    sorted_campaigns.sort(key=lambda c: (_fuzzy_priority(c.game.name), c.ends_at))
+                    sorted_campaigns.sort(key=lambda c: (0 if _is_forced(c.game.name) else 1, _fuzzy_priority(c.game.name), c.ends_at))
 
                 now_ts = time()
                 for campaign in sorted_campaigns:
                     game: Game = campaign.game
+                    is_this_forced = _is_forced(game.name)
                     if (
                         game not in self.wanted_games  # isn't already there
-                        # and isn't on active stall cooldown
-                        and self.game_cooldowns.get(game.name, 0.0) <= now_ts
-                        # and isn't excluded by list or priority mode
-                        and not any(smart_game_match(game.name, ex) for ex in exclude)
-                        and (not priority_only or _fuzzy_priority(game.name) != MAX_INT)
+                        # and isn't on active stall cooldown (bypass for forced game)
+                        and (is_this_forced or self.game_cooldowns.get(game.name, 0.0) <= now_ts)
+                        # and isn't excluded by list (bypass for forced game if user specifically requested it)
+                        and (is_this_forced or not any(smart_game_match(game.name, ex) for ex in exclude))
+                        # and not priority_only, or priority matched, or forced
+                        and (not priority_only or is_this_forced or _fuzzy_priority(game.name) != MAX_INT)
                         # and can be progressed within the next hour
                         and campaign.can_earn_within(next_hour)
                     ):
-                        # non-excluded games with no priority are placed last, below priority ones
                         self.wanted_games.append(game)
+
+                if forced_game_target:
+                    self.wanted_games.sort(key=lambda g: 0 if _is_forced(g.name) else 1)
                 if priority:
                     has_priority_in_wanted = any(_fuzzy_priority(g.name) != MAX_INT for g in self.wanted_games)
                     if not has_priority_in_wanted:
@@ -1336,6 +1375,27 @@ class Twitch:
         active_campaign = self.get_active_campaign(channel)
         if active_campaign and (active_drop := active_campaign.first_drop) is not None:
             active_drop.display()
+
+    def set_forced_game(self, game_name: str) -> None:
+        clean_name = game_name.strip()
+        self.forced_game = clean_name if clean_name else None
+        try:
+            from gui_headless import STATE_BRIDGE
+            STATE_BRIDGE.forced_game = self.forced_game
+            if self.forced_game:
+                STATE_BRIDGE.add_log("INFO", f"⚡ Принудительный фокус на игре: {self.forced_game}")
+                logger.info(f"[FORCED FARM] Установлен принудительный фокус на игре: '{self.forced_game}'")
+            else:
+                STATE_BRIDGE.add_log("INFO", "✕ Принудительный фокус сброшен. Возврат в авто-режим.")
+                logger.info("[FORCED FARM] Принудительный фокус сброшен.")
+        except Exception:
+            pass
+        if hasattr(self, "stop_watching"):
+            self.stop_watching()
+        self.change_state(State.GAMES_UPDATE)
+
+    def clear_forced_game(self) -> None:
+        self.set_forced_game("")
 
     def stop_watching(self):
         self._active_mining_drop = None
