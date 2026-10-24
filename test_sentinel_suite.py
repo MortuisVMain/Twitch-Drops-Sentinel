@@ -191,6 +191,14 @@ def test_core_service_api():
         assert ver_key in u_res
         print(f"      GET /api/updates/check (Local: {u_res[ver_key]}, Available: {u_res['update_available']}): PASS [OK]")
 
+        # Verify /api/updates/status
+        status_req = urllib.request.Request("http://127.0.0.1:28492/api/updates/status")
+        with urllib.request.urlopen(status_req, timeout=5) as resp:
+            s_res = json.loads(resp.read().decode("utf-8"))
+            assert "stage" in s_res
+            assert "percent" in s_res
+            print(f"      GET /api/updates/status (Stage: {s_res['stage']}, Percent: {s_res['percent']}%): PASS [OK]")
+
     print("      Core Service API: PASS [OK]")
 
 def test_prd_compliance():

@@ -205,3 +205,15 @@ export interface UpdateCheckResult {
   error?: string;
 }
 
+export interface UpdateProgressStatus {
+  is_updating: boolean;
+  stage: 'idle' | 'downloading' | 'extracting' | 'done' | 'error';
+  percent: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  downloaded_mb: number;
+  total_mb: number;
+  speed_mbps: number;
+  error_message?: string;
+}
+

@@ -29,7 +29,7 @@ import {
   ToggleRight,
   LogOut,
 } from 'lucide-react';
-import { SentinelSettings, SentinelStats, UpdateCheckResult } from '../types';
+import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface SettingsStudioProps {
@@ -74,6 +74,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState<boolean>(false);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgressStatus | null>(null);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   const { isMuted, toggleMute, playClick, playRewardChime } = useTactileAudio();
@@ -121,6 +122,17 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     if (!updateInfo?.download_url) return;
     playClick();
     setIsApplyingUpdate(true);
+    setUpdateProgress(null);
+
+    const progressPoll = setInterval(async () => {
+      try {
+        const pRes = await fetch('http://127.0.0.1:28492/api/updates/status');
+        if (pRes.ok) {
+          const pData: UpdateProgressStatus = await pRes.json();
+          setUpdateProgress(pData);
+        }
+      } catch {}
+    }, 400);
     try {
       const res = await fetch('http://127.0.0.1:28492/api/updates/apply', {
         method: 'POST',
@@ -142,6 +154,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     } catch (err: any) {
       setUpdateMessage(`Сбой при установке: ${err.message || err}`);
     } finally {
+      clearInterval(progressPoll);
       setIsApplyingUpdate(false);
     }
   };
@@ -1101,6 +1114,56 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 )}
               </div>
             </div>
+
+            {isApplyingUpdate && (
+              <div className="p-3 rounded-xl bg-black/40 border border-[#73bba5]/30 space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#73bba5] animate-ping" />
+                    <span>
+                      {updateProgress?.stage === 'extracting'
+                        ? 'Распаковка файлов и хот-патча...'
+                        : 'Загрузка с серверов GitHub CDN...'}
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs font-bold text-[#73bba5]">
+                    {updateProgress?.percent || 0}%
+                  </span>
+                </div>
+                <div className="w-full bg-[#171d1c] h-1.5 rounded-full overflow-hidden border border-white/5">
+                  <div
+                    className="bg-gradient-to-r from-[#368873] to-[#73bba5] h-full rounded-full transition-all duration-300"
+                    style={{ width: `${Math.max(updateProgress?.percent || 0, 4)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-[#8b9a94]">
+                  <span>
+                    {updateProgress?.downloaded_mb && updateProgress.downloaded_mb > 0
+                      ? `${updateProgress.downloaded_mb} / ${updateProgress.total_mb} МБ`
+                      : 'Соединение с репозиторием...'}
+                  </span>
+                  <span className="font-mono">
+                    {updateProgress?.speed_mbps && updateProgress.speed_mbps > 0
+                      ? `${updateProgress.speed_mbps} МБ/с`
+                      : ''}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Direct manual download link */}
+            {updateInfo?.update_available && (
+              <div className="text-right">
+                <a
+                  href={updateInfo.html_url || "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-[#8b9a94] hover:text-[#73bba5] underline transition-colors cursor-pointer inline-flex items-center gap-1"
+                >
+                  <span>Скачать вручную с GitHub (.zip) ↗</span>
+                </a>
+              </div>
+            )}
 
             {updateInfo?.update_available && updateInfo.release_notes && (
               <div className="pt-2 border-t border-[var(--line)]/50">

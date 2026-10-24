@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavTab, UpdateCheckResult } from './types';
+import { NavTab, UpdateCheckResult, UpdateProgressStatus } from './types';
 import { LiveDashboard } from './components/LiveDashboard';
 import { GameShelf } from './components/GameShelf';
 import { GiveawaysView } from './components/GiveawaysView';
@@ -119,6 +119,7 @@ export const App: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgressStatus | null>(null);
   const [updateInstalled, setUpdateInstalled] = useState<boolean>(false);
 
   const checkUpdates = async (force: boolean = false) => {
@@ -157,7 +158,18 @@ export const App: React.FC = () => {
   const handleApplyUpdate = async () => {
     if (!updateInfo?.download_url) return;
     setIsApplyingUpdate(true);
+    setUpdateProgress(null);
     playClick();
+
+    const progressPoll = setInterval(async () => {
+      try {
+        const pRes = await fetch('http://127.0.0.1:28492/api/updates/status');
+        if (pRes.ok) {
+          const pData: UpdateProgressStatus = await pRes.json();
+          setUpdateProgress(pData);
+        }
+      } catch {}
+    }, 400);
     try {
       const res = await fetch('http://127.0.0.1:28492/api/updates/apply', {
         method: 'POST',
@@ -179,6 +191,7 @@ export const App: React.FC = () => {
     } catch (err: any) {
       showToast(`Сбой при обновлении: ${err.message || err}`);
     } finally {
+      clearInterval(progressPoll);
       setIsApplyingUpdate(false);
     }
   };
@@ -581,6 +594,42 @@ export const App: React.FC = () => {
               </div>
             </div>
 
+            {isApplyingUpdate && (
+              <div className="p-3.5 rounded-2xl bg-black/40 border border-[#73bba5]/30 space-y-2 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#73bba5] animate-ping" />
+                    <span>
+                      {updateProgress?.stage === 'extracting'
+                        ? 'Распаковка файлов и хот-патча...'
+                        : 'Загрузка с серверов GitHub CDN...'}
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs font-bold text-[#73bba5]">
+                    {updateProgress?.percent || 0}%
+                  </span>
+                </div>
+                <div className="w-full bg-[#171d1c] h-2 rounded-full overflow-hidden border border-white/5">
+                  <div
+                    className="bg-gradient-to-r from-[#368873] to-[#73bba5] h-full rounded-full transition-all duration-300"
+                    style={{ width: `${Math.max(updateProgress?.percent || 0, 4)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-[#8b9a94]">
+                  <span>
+                    {updateProgress?.downloaded_mb && updateProgress.downloaded_mb > 0
+                      ? `${updateProgress.downloaded_mb} / ${updateProgress.total_mb} МБ`
+                      : 'Соединение с репозиторием...'}
+                  </span>
+                  <span className="font-mono">
+                    {updateProgress?.speed_mbps && updateProgress.speed_mbps > 0
+                      ? `${updateProgress.speed_mbps} МБ/с`
+                      : ''}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div className="p-3 rounded-xl bg-[#368873]/10 border border-[#73bba5]/20 text-[11px] text-[var(--accent)] flex items-center gap-2">
               <ShieldCheck size={16} className="shrink-0 text-[#73bba5]" />
               <span>Ваши сессии, токены, настройки и журнал наград 100% защищены и сохраняются.</span>
@@ -621,6 +670,18 @@ export const App: React.FC = () => {
                   )}
                 </button>
               )}
+            </div>
+
+            {/* Direct manual download link fallback */}
+            <div className="text-center pt-1 border-t border-[var(--line)]/40">
+              <a
+                href={updateInfo.html_url || "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases"}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-[#8b9a94] hover:text-[#73bba5] underline transition-colors cursor-pointer inline-flex items-center gap-1"
+              >
+                <span>Медленный интернет? Скачать архив вручную с GitHub (.zip) ↗</span>
+              </a>
             </div>
           </div>
         </div>

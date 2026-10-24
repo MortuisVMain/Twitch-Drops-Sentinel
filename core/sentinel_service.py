@@ -507,6 +507,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/clipboard/copy", self.handle_clipboard_copy)
         self.app.router.add_get("/api/updates/check", self.handle_check_updates)
         self.app.router.add_post("/api/updates/apply", self.handle_apply_update)
+        self.app.router.add_get("/api/updates/status", self.handle_get_update_status)
         self.app.router.add_get("/ws", self.handle_ws)
         self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
@@ -794,6 +795,9 @@ class SentinelSupervisor:
         except Exception as e:
             logger.error(f"Error applying update: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_get_update_status(self, request: web.Request) -> web.Response:
+        return web.json_response(UPDATER.get_status())
 
     async def handle_force_farm(self, request: web.Request) -> web.Response:
         try:
