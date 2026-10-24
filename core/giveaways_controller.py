@@ -209,7 +209,7 @@ class GiveawaysOrchestrator:
 
                                 ts_ms = int(dt.timestamp() * 1000)
                                 iso_str = dt.isoformat()
-                                if status == "claimed" and ts_ms > latest_ts:
+                                if ts_ms > latest_ts:
                                     latest_ts = ts_ms
                                     latest_iso = iso_str
 
@@ -229,14 +229,16 @@ class GiveawaysOrchestrator:
                     if store in self._cached_stores:
                         return self._cached_stores, self._cached_inventory
 
+            total_items = claimed_cnt + existed_cnt
             stores_meta[store] = {
                 "store": store,
                 "displayName": STORE_DISPLAY_NAMES.get(store, store.upper()),
-                "claimedCount": claimed_cnt,
+                "claimedCount": total_items,
+                "newlyClaimedCount": claimed_cnt,
                 "existedCount": existed_cnt,
                 "lastClaimedAt": latest_iso,
                 "dbFileExists": exists,
-                "account": accounts[0] if accounts else None,
+                "account": accounts[0] if (accounts and total_items > 0) else None,
             }
 
         inventory.sort(key=lambda x: x["timestampMs"], reverse=True)

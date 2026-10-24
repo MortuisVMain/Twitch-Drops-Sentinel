@@ -474,18 +474,25 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                       </span>
                     </div>
 
-                    {/* Account badge */}
-                    <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+                    {/* Account Login Status Badge */}
+                    <div className="mt-2">
                       {accountName ? (
-                        <span className="flex items-center gap-1 text-[#73bba5] font-medium truncate" title={`Подключённый аккаунт: ${accountName}`}>
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#73bba5]" />
-                          <span className="truncate">{accountName}</span>
-                        </span>
+                        <div
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#368873]/20 border border-[#73bba5]/40 text-[#73bba5] text-[10px] font-bold shadow-sm"
+                          title={`Вход в аккаунт успешно совершен: ${accountName}`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#73bba5] shrink-0" />
+                          <span className="truncate max-w-[100px]">{accountName}</span>
+                          <span className="text-[9px] text-[#73bba5]/80 font-normal">● Онлайн</span>
+                        </div>
                       ) : (
-                        <span className="flex items-center gap-1 text-[var(--muted)]" title="Аккаунт ещё не сохранён в профиле">
-                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                          <span>Не подключён</span>
-                        </span>
+                        <div
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold"
+                          title="Вход не выполнен. Нажмите кнопку ниже для авторизации."
+                        >
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Требуется вход</span>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -519,11 +526,15 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                         type="button"
                         onClick={(e) => handleLoginStore(e, storeId)}
                         disabled={isClaiming}
-                        title={`Открыть окно браузера для входа в ${cfg.name}`}
-                        className="w-full py-1.5 px-2 rounded-xl bg-white/[0.04] hover:bg-[#368873]/25 hover:text-[#73bba5] hover:border-[#73bba5]/50 border border-[var(--line)] text-[10px] font-semibold text-[var(--muted)] flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group/btn cursor-pointer"
+                        title={accountName ? `Открыть окно для смены аккаунта ${cfg.name}` : `Открыть окно браузера для входа в ${cfg.name}`}
+                        className={`w-full py-1.5 px-2 rounded-xl text-[10px] font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group/btn cursor-pointer border ${
+                          accountName
+                            ? 'bg-white/[0.04] hover:bg-white/[0.08] border-[var(--line)] text-[var(--muted)] hover:text-white'
+                            : 'bg-[#368873]/20 hover:bg-[#368873]/30 border-[#73bba5]/50 text-[#73bba5] shadow-sm'
+                        }`}
                       >
-                        <LogIn className="w-3 h-3 text-[var(--muted)] group-hover/btn:text-[#73bba5] transition-colors" />
-                        <span>{accountName ? 'Сменить аккаунт' : 'Войти в аккаунт'}</span>
+                        <LogIn className={`w-3 h-3 transition-colors ${accountName ? 'text-[var(--muted)] group-hover/btn:text-white' : 'text-[#73bba5]'}`} />
+                        <span>{accountName ? 'Сменить аккаунт' : '🔑 Войти в аккаунт'}</span>
                       </button>
                     )}
                   </div>
@@ -783,10 +794,15 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                       >
                         {cfg.name}
                       </span>
-                      <span className="text-[10px] text-[var(--muted)] flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-[var(--muted)]" />
-                        <span>{formattedDate}</span>
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                          ✓ В библиотеке
+                        </span>
+                        <span className="text-[10px] text-[var(--muted)] flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-[var(--muted)]" />
+                          <span>{formattedDate}</span>
+                        </span>
+                      </div>
                     </div>
 
                     <h4 className="text-xs md:text-sm font-bold text-[var(--foreground)] line-clamp-2 leading-snug group-hover:text-[#73bba5] transition-colors">
