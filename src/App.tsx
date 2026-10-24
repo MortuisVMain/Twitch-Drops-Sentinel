@@ -542,7 +542,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Help Modal */}
-      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} />
 
       {/* GitHub Auto-Updater Modal (Apple Luna 2.0) */}
       {showUpdateModal && updateInfo && (
