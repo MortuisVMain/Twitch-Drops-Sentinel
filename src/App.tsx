@@ -17,9 +17,6 @@ import {
   ChevronRight, 
   Maximize2, 
   AlertTriangle, 
-  Zap, 
-  Lock, 
-  ArrowRight, 
   Check, 
   LayoutDashboard, 
   Gamepad2, 
@@ -515,59 +512,6 @@ export const App: React.FC = () => {
               )}
             </TabErrorBoundary>
           </div>
-
-          {/* Apple Luna 2.0 Lower Strips (on Dashboard) */}
-          {activeTab === 'dashboard' && (
-            <>
-              <section className="features-strip my-6">
-                <div>
-                  <span className="feature-icon">
-                    <Zap size={18} />
-                  </span>
-                  <div>
-                    <h3>Streamless-протокол</h3>
-                    <p>Фарм на уровне WebSocket без тяжелого видеопотока</p>
-                  </div>
-                  <Check size={14} className="feature-check" />
-                </div>
-
-                <div>
-                  <span className="feature-icon">
-                    <ShieldCheck size={18} />
-                  </span>
-                  <div>
-                    <h3>Hardware Guard</h3>
-                    <p>Мгновенная пауза при запуске тяжелых игр</p>
-                  </div>
-                  <Check size={14} className="feature-check" />
-                </div>
-
-                <div>
-                  <span className="feature-icon">
-                    <Lock size={18} />
-                  </span>
-                  <div>
-                    <h3>Только на вашем ПК</h3>
-                    <p>Никаких серверов, токены хранятся строго локально</p>
-                  </div>
-                  <Check size={14} className="feature-check" />
-                </div>
-              </section>
-
-              <div className="tip-strip mb-6">
-                <div className="tip-icon">
-                  <Sparkles size={18} />
-                </div>
-                <p>
-                  <strong>Небольшой совет от Sentinel</strong>
-                  <span>Включите автовыключение ПК в настройках: Sentinel завершит текущие дропы и бережно выключит компьютер.</span>
-                </p>
-                <button onClick={() => handleTabChange('settings')}>
-                  Настроить <ArrowRight size={14} />
-                </button>
-              </div>
-            </>
-          )}
 
           {/* Apple Luna 2.0 Footer */}
           <footer>

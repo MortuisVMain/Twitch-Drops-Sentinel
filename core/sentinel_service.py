@@ -31,6 +31,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from types import SimpleNamespace
 
 import aiohttp
 from aiohttp import web
@@ -1235,26 +1236,28 @@ class SentinelSupervisor:
                 self.ws_clients.discard(ws)
 
     # Background Hardware Guard loop
+    @staticmethod
+    def _inspect_hardware_sync():
+        procs = set()
+        for p in psutil.process_iter(['name']):
+            try:
+                name = p.name()
+                if name:
+                    procs.add(name.lower())
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        bat = psutil.sensors_battery()
+        bat_on = bat is not None and not bat.power_plugged
+        cpu = psutil.cpu_percent()
+        return procs, bat_on, cpu
+
+    # Background Hardware Guard loop
     async def hardware_guard_loop(self):
         logger.info("Hardware Guard loop activated (138 games detection & Battery Eco).")
         while self.is_running:
             try:
                 # 1. Non-blocking hardware and gaming process inspection
-                def check_hardware_sync():
-                    procs = set()
-                    for p in psutil.process_iter(['name']):
-                        try:
-                            name = p.name()
-                            if name:
-                                procs.add(name.lower())
-                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                            pass
-                    bat = psutil.sensors_battery()
-                    bat_on = bat is not None and not bat.power_plugged
-                    cpu = psutil.cpu_percent()
-                    return procs, bat_on, cpu
-
-                running_procs, on_battery, cpu_pct = await asyncio.to_thread(check_hardware_sync)
+                running_procs, on_battery, cpu_pct = await asyncio.to_thread(self._inspect_hardware_sync)
                 detected_game = None
                 ignored = set(p.lower() for p in self.settings.get("ignored_processes", []))
                 for game_exe in self.settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES):
@@ -1361,16 +1364,8 @@ class SentinelSupervisor:
         while self.is_running:
             try:
                 # Create minimal settings namespace
-                class Args:
-                    def __init__(self):
-                        self.tray = False
-                        self.log = True
-                        self.dump = False
-                        self.logging_level = logging.INFO
-                        self.debug_ws = 0
-                        self.debug_gql = 0
-
-                settings = Settings(Args())
+                args = SimpleNamespace(tray=False, log=True, dump=False, logging_level=logging.INFO, debug_ws=0, debug_gql=0)
+                settings = Settings(args)
                 settings.priority = list(self.settings.get("priority_games", []))
                 settings.exclude = set(self.settings.get("excluded_games", []))
                 settings.available_drops_check = True

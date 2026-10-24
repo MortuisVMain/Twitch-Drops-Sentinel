@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ShieldAlert, RefreshCw, Sparkles, Gift, Settings, 
   Gamepad2, Zap, Clock, Tv, CheckCircle2, ChevronRight, Moon, Power,
-  Terminal, Copy, Check, ExternalLink, KeyRound, Activity, ScrollText, Filter,
+  Terminal, Copy, Check, ExternalLink, KeyRound, Filter,
   Play, Pause, RotateCcw, ChevronUp, ChevronDown, Radio, Layers, Monitor,
   Search, ArrowUpDown, ArrowDownAZ, X, Flame, Plus
 } from 'lucide-react';

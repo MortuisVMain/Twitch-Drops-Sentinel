@@ -21,7 +21,6 @@ logger = logging.getLogger("sentinel.giveaways")
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 LOCAL_FGC = PROJECT_DIR / "giveaways_engine"
-DEV_FGC = Path(r"C:\AI Local Projects\Scripts\Free Games Claimer")
 
 def resolve_fgc_root() -> Path:
     env_path = os.environ.get("FGC_PATH")
@@ -29,6 +28,7 @@ def resolve_fgc_root() -> Path:
         return Path(env_path)
     if LOCAL_FGC.is_dir() and (LOCAL_FGC / "ClaimGames.cmd").is_file():
         return LOCAL_FGC
+    return LOCAL_FGC
     if DEV_FGC.is_dir() and (DEV_FGC / "ClaimGames.cmd").is_file():
         return DEV_FGC
     return LOCAL_FGC
@@ -88,7 +88,7 @@ class GiveawaysOrchestrator:
 
     async def _query_scheduler(self, force: bool = False) -> dict:
         now = asyncio.get_event_loop().time()
-        if not force and (now - self._scheduler_cache[0] < 15.0):
+        if not force and (now - self._scheduler_cache[0] < 120.0):
             return self._scheduler_cache[1]
 
         ps_script = (

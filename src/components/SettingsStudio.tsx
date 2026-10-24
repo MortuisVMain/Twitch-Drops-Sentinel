@@ -539,7 +539,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                     <span>Автосбор баллов канала</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">+50</span>
                   </div>
-                  <div className="text-[11px] text-[var(--muted)]">Авто-забор сундуков с бонусными очками на стриме</div>
+                  <div className="text-[11px] text-[var(--muted)]">
+                    Авто-забор сундуков с бонусными очками на стриме
+                    {stats.channel_points_earned > 0 && ` · Собрано: +${stats.channel_points_earned.toLocaleString()}`}
+                  </div>
                 </div>
               </div>
               <button
@@ -685,16 +688,17 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   {isMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4 text-[#73bba5]" />}
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Тактильные звуки интерфейса</div>
-                  <div className="text-[11px] text-[var(--muted)]">{isMuted ? 'Звуковые эффекты заглушены' : 'Звук кликов и переключателей включен'}</div>
+                  <div className="text-xs font-semibold text-[var(--foreground)]">Звуки интерфейса (Mute)</div>
+                  <div className="text-[11px] text-[var(--muted)]">{isMuted ? 'Звук отключен' : 'Клики и переключатели активны'}</div>
                 </div>
               </div>
               <button
                 type="button"
                 aria-label="Переключить звуки интерфейса"
                 onClick={() => {
+                  const nextMuted = !isMuted;
                   toggleMute();
-                  onUpdateSettings({ ui_sound_enabled: isMuted });
+                  onUpdateSettings({ ui_sound_enabled: !nextMuted });
                 }}
                 className={`studio-switch ${!isMuted ? 'checked' : ''}`}
               >
@@ -942,89 +946,6 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </div>
         </div>
 
-        {/* Notifications & Audio Control */}
-        <div className="card p-6 space-y-4 md:col-span-2">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-              <Coins className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Звуки интерфейса & Баллы канала</h3>
-              <p className="text-xs text-[var(--muted)]">Управление тактильным звуком Web Audio и автоматический сбор бонусов</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Channel Points Stats */}
-            <div className="p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Coins className="w-5 h-5 text-amber-400" />
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Всего баллов собрано</div>
-                  <div className="text-base md:text-lg font-bold text-amber-300 tabular-nums">+{stats.channel_points_earned.toLocaleString()}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${
-                  (settings.claim_channel_points ?? true)
-                    ? 'bg-[#368873]/20 text-[var(--accent)] border-[#73bba5]/30'
-                    : 'bg-white/[0.04] text-[var(--muted)] border-[var(--line)]'
-                }`}>
-                  {(settings.claim_channel_points ?? true) ? 'Auto-Claimer ON' : 'Auto-Claimer OFF'}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Переключить сбор баллов"
-                  onClick={() => onUpdateSettings({ claim_channel_points: !(settings.claim_channel_points ?? true) })}
-                  className={`studio-switch ${(settings.claim_channel_points ?? true) ? 'checked' : ''}`}
-                >
-                  <span />
-                </button>
-              </div>
-            </div>
-
-            {/* Apple Chime on Trophy */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-              <div className="flex items-center gap-2.5">
-                <Volume2 className="w-4 h-4 text-[var(--accent)]" />
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Сигнал Apple Chime</div>
-                  <div className="text-[11px] text-[var(--muted)]">При получении трофея</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить звуковой сигнал получения трофея"
-                onClick={() => onUpdateSettings({ native_toasts: !settings.native_toasts })}
-                className={`studio-switch ${settings.native_toasts ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* UI Click Sound Mute Switch */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-              <div className="flex items-center gap-2.5">
-                {isMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4 text-[var(--accent)]" />}
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Звуки интерфейса (Mute)</div>
-                  <div className="text-[11px] text-[var(--muted)]">{isMuted ? 'Звук отключен' : 'Клики и переключатели активны'}</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить звуки интерфейса"
-                onClick={() => {
-                  toggleMute();
-                  onUpdateSettings({ ui_sound_enabled: isMuted });
-                }}
-                className={`studio-switch ${!isMuted ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-          </div>
-        </div>
 
         {/* Windows System & Diagnostics */}
         <div className="card p-6 space-y-4 md:col-span-2">

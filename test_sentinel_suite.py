@@ -84,20 +84,23 @@ SUITE_PROC = None
 
 def ensure_test_service():
     global SUITE_PROC
-    try:
-        req = urllib.request.Request("http://127.0.0.1:28492/api/state", headers={"Connection": "close", "User-Agent": "Sentinel-Test"})
-        urllib.request.urlopen(req, timeout=0.8)
-    except Exception:
-        if SUITE_PROC is None or SUITE_PROC.poll() is not None:
-            print("      Spawning test Sentinel Service daemon...")
-            service_script = WORKSPACE / "core" / "sentinel_service.py"
-            SUITE_PROC = subprocess.Popen(
-                [sys.executable, str(service_script)],
-                cwd=str(WORKSPACE / "core"),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            time.sleep(2.0)
+    for attempt in range(15):
+        try:
+            req = urllib.request.Request("http://127.0.0.1:28492/api/state", headers={"Connection": "close", "User-Agent": "Sentinel-Test"})
+            with urllib.request.urlopen(req, timeout=1.0) as resp:
+                if resp.status == 200:
+                    return
+        except Exception:
+            if attempt == 0 and (SUITE_PROC is None or SUITE_PROC.poll() is not None):
+                print("      Spawning test Sentinel Service daemon...")
+                service_script = WORKSPACE / "core" / "sentinel_service.py"
+                SUITE_PROC = subprocess.Popen(
+                    [sys.executable, str(service_script)],
+                    cwd=str(WORKSPACE / "core"),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            time.sleep(0.5)
 
 def test_core_service_api():
     print("[5/10] Testing Core Microservice & REST API...")

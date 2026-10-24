@@ -71,40 +71,8 @@ if TYPE_CHECKING:
 
 import re
 
-_ROMAN_MAP = {"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7"}
-_SEQUEL_NUMS = {"2", "3", "4", "5", "6", "7"}
-
-def _clean_game_str(text: str) -> str:
-    return " ".join(re.sub(r"[\':;!?,.\-_/\\()\[\]]", " ", text.lower()).split())
-
-def smart_game_match(candidate: str, target: str) -> bool:
-    """
-    Intelligent fuzzy matcher for game names:
-    - Case-insensitive & punctuation agnostic
-    - Strict version guard: 'Path of Exile' NEVER matches 'Path of Exile 2'
-    - Subtitle friendly: 'Hunt: Showdown' matches 'Hunt: Showdown 1896'
-    - Roman numeral normalization: 'Space Marine II' matches 'Space Marine 2'
-    """
-    if not candidate or not target:
-        return False
-    c_clean = _clean_game_str(candidate)
-    t_clean = _clean_game_str(target)
-    if c_clean == t_clean:
-        return True
-    c_tokens = [_ROMAN_MAP.get(tok, tok) for tok in c_clean.split()]
-    t_tokens = [_ROMAN_MAP.get(tok, tok) for tok in t_clean.split()]
-    c_ver = next((tok for tok in c_tokens if tok in _SEQUEL_NUMS), None)
-    t_ver = next((tok for tok in t_tokens if tok in _SEQUEL_NUMS), None)
-    if c_ver != t_ver:
-        return False
-    c_norm = " ".join(c_tokens)
-    t_norm = " ".join(t_tokens)
-    if c_norm.startswith(t_norm) or t_norm.startswith(c_norm):
-        return True
-    if re.search(r"\b" + re.escape(t_norm) + r"\b", c_norm) or re.search(r"\b" + re.escape(c_norm) + r"\b", t_norm):
-        return True
-    return False
-
+from utils import smart_game_match, clean_title
+_clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
 gql_logger = logging.getLogger("TwitchDrops.gql")

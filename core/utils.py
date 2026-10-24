@@ -452,3 +452,42 @@ class Game:
 
     def is_special(self) -> bool:
         return self.id in self.SPECIAL_GAME_IDS
+
+# Canonical Game Title Normalization & Fuzzy Matcher
+_ROMAN_MAP = {"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10"}
+_SEQUEL_NUMS = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "zero"}
+
+def clean_title(title: str) -> str:
+    """Normalize title for safe matching: lowercase, strip punctuation and extra spaces."""
+    if not title:
+        return ""
+    t = re.sub(r"[\':;!?,.\-_/\\()[\]]", ' ', title.lower())
+    return ' '.join(t.split())
+
+def smart_game_match(candidate: str, target: str) -> bool:
+    """
+    Intelligent fuzzy matcher for game names:
+    - Case-insensitive & punctuation agnostic
+    - Strict version guard: 'Path of Exile' NEVER matches 'Path of Exile 2'
+    - Subtitle friendly: 'Hunt: Showdown' matches 'Hunt: Showdown 1896'
+    - Roman numeral normalization: 'Space Marine II' matches 'Space Marine 2'
+    """
+    if not candidate or not target:
+        return False
+    c_clean = clean_title(candidate)
+    t_clean = clean_title(target)
+    if c_clean == t_clean:
+        return True
+    c_tokens = [_ROMAN_MAP.get(tok, tok) for tok in c_clean.split()]
+    t_tokens = [_ROMAN_MAP.get(tok, tok) for tok in t_clean.split()]
+    c_ver = next((tok for tok in c_tokens if tok in _SEQUEL_NUMS), None)
+    t_ver = next((tok for tok in t_tokens if tok in _SEQUEL_NUMS), None)
+    if c_ver != t_ver:
+        return False
+    c_norm = " ".join(c_tokens)
+    t_norm = " ".join(t_tokens)
+    if c_norm.startswith(t_norm) or t_norm.startswith(c_norm):
+        return True
+    if re.search(r"\b" + re.escape(t_norm) + r"\b", c_norm) or re.search(r"\b" + re.escape(c_norm) + r"\b", t_norm):
+        return True
+    return False
