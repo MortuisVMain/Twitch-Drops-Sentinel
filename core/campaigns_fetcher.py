@@ -80,8 +80,8 @@ def is_campaign_active_now(c: dict[str, Any], now_dt: datetime | None = None) ->
             end_dt = datetime.fromisoformat(str(end_at_str).replace("Z", "+00:00"))
             if end_dt <= now_dt:
                 return False
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.debug("Failed to parse campaign endAt '%s': %s", end_at_str, exc)
 
     # Check startAt
     start_at_str = c.get("startAt")
@@ -90,8 +90,8 @@ def is_campaign_active_now(c: dict[str, Any], now_dt: datetime | None = None) ->
             start_dt = datetime.fromisoformat(str(start_at_str).replace("Z", "+00:00"))
             if start_dt > now_dt:
                 return False
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.debug("Failed to parse campaign startAt '%s': %s", start_at_str, exc)
 
     # Check rewards if present
     rewards = c.get("rewards")
@@ -109,8 +109,8 @@ def is_campaign_active_now(c: dict[str, Any], now_dt: datetime | None = None) ->
                     r_end_dt = datetime.fromisoformat(str(r_end).replace("Z", "+00:00"))
                     if r_end_dt <= now_dt:
                         continue
-                except Exception:
-                    pass
+                except (ValueError, TypeError) as exc:
+                    logger.debug("Failed to parse reward endAt '%s': %s", r_end, exc)
             has_valid_reward = True
             break
         if not has_valid_reward:

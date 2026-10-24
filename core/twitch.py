@@ -759,8 +759,8 @@ class Twitch:
                         from gui_headless import STATE_BRIDGE
                         forced_game_target = STATE_BRIDGE.forced_game
                         self.forced_game = forced_game_target
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Could not read forced_game from STATE_BRIDGE: %s", exc)
 
                 def _is_forced(name: str) -> bool:
                     return bool(forced_game_target and smart_game_match(name, forced_game_target))
@@ -782,8 +782,8 @@ class Twitch:
                             from gui_headless import STATE_BRIDGE
                             STATE_BRIDGE.add_log("INFO", f"Все награды для '{forced_game_target}' получены. Возврат в авто-режим.")
                             STATE_BRIDGE.forced_game = None
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Could not notify STATE_BRIDGE of forced_game clear: %s", exc)
                         self.forced_game = None
                         forced_game_target = None
 
@@ -1388,8 +1388,8 @@ class Twitch:
             else:
                 STATE_BRIDGE.add_log("INFO", "✕ Принудительный фокус сброшен. Возврат в авто-режим.")
                 logger.info("[FORCED FARM] Принудительный фокус сброшен.")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Could not set forced_game in STATE_BRIDGE: %s", exc)
         if hasattr(self, "stop_watching"):
             self.stop_watching()
         self.change_state(State.GAMES_UPDATE)
@@ -1882,7 +1882,8 @@ class Twitch:
                     drops_resp = await self.gql_request(
                         GQL_QUERIES["AvailableDrops"].with_variables({"channelID": channel_id})
                     )
-                except Exception:
+                except Exception as exc:
+                    logger.debug("AvailableDrops GQL query failed for channel %s: %s", channel_id, exc)
                     continue
                 campaigns = drops_resp.get("data", {}).get("channel", {}).get("viewerDropCampaigns") or []
                 for c in campaigns:
@@ -1905,8 +1906,8 @@ class Twitch:
                                 if drops_claimed >= len(time_drops):
                                     logger.info(f"Campaign '{c['name']}' for '{game_name}' is already completed in Trophies.md. Skipping.")
                                     continue
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Error checking campaign completion in Trophies.md: %s", exc)
                         logger.info(
                             f"Discovered active drop campaign '{c['name']}' for '{game_name}' via {broadcaster.get('displayName')}"
                         )

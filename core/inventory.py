@@ -236,8 +236,8 @@ class BaseDrop:
             try:
                 from gui import send_toast_msg
                 send_toast_msg("Twitch Drops Sentinel 🏆", f"Забран трофей: {self.rewards_text()} ({self.campaign.game.name})")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Toast notification failed: %s", exc)
             try:
                 from pathlib import Path
                 trophies_path = Path(__file__).resolve().parent.parent / "Trophies.md"
@@ -257,8 +257,8 @@ class BaseDrop:
                             if g_low in line and r_low in line and ("забран" in line or "✅" in line):
                                 is_duplicate = True
                                 break
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Trophy duplication check failed: %s", exc)
 
                 if not is_duplicate:
                     row = f"| {now_str} | **{game}** | {reward} | {camp} | ✅ Забран |\n"

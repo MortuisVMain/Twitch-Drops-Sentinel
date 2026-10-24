@@ -511,8 +511,8 @@ class Channel:
                 async with self._twitch.request("HEAD", stream_chunk_url) as head_response:
                     if head_response.status == 200:
                         success = True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Chunk HEAD request failed for %s: %s", stream_chunk_url, exc)
         return success
 
     async def _send_watch_playlist(self) -> bool:
