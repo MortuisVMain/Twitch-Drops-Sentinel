@@ -96,18 +96,16 @@ if not "%SHOW%"=="1" set "FGC_MINIMIZE=1"
 
 rem ---- summary ----
 echo.
-echo === Free Games Claimer ===
-if "%SHOW%"=="1" (echo   Browser : shown) else (echo   Browser : headless - forced stores open minimized)
-if "%LOG%"=="1" (echo   Log file: %LOGFILE%) else (echo   Log file: disabled - use --l/--log to save output)
-if "%UPDATE%"=="1" (echo   Update  : yes) else (echo   Update  : no)
-echo   Claiming:%PLATFORMS%
+echo === Sentinel Giveaways Engine (Автоматический сбор раздач) ===
+if "%SHOW%"=="1" (echo   Режим браузера : Активный экран) else (echo   Режим браузера : Фоновый стелс)
+echo   Магазины:%PLATFORMS%
 echo.
 
 rem ---- claim ----
 for %%P in (%PLATFORMS%) do call :claim "%%P"
 
 echo.
-echo Complete
+echo Завершено: сбор раздач успешно выполнен.
 if not "%NOPAUSE%"=="1" if not defined FGC_NOPAUSE pause
 exit /b 0
 
