@@ -86,11 +86,12 @@ def create_release():
         for item in fgc_src.rglob("*"):
             if item.is_file():
                 rel = item.relative_to(fgc_src)
-                if any(part in rel.parts for part in ("node_modules", ".git", ".vscode", ".github", "scratch", "docs")) or rel.name.endswith(".log") or rel.name == "settings.json":
+                if any(part in rel.parts for part in ("node_modules", ".git", ".vscode", ".github", "scratch", "docs", "data")) or rel.name.endswith(".log") or rel.name == "settings.json":
                     continue
                 target = fgc_dest / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, target)
+        (fgc_dest / "data").mkdir(parents=True, exist_ok=True)
 
     # 6. Clean Default Trophies.md
     print("[*] Generating clean Trophies.md template...")
@@ -195,9 +196,13 @@ def create_release():
         with zipfile.ZipFile(target_zip, "r") as zf:
             namelist = zf.namelist()
             for name in namelist:
-                assert "cookies.jar" not in name.lower(), f"CRITICAL: Found cookies.jar in {target_zip.name}! {name}"
-                assert not name.lower().endswith(".log"), f"CRITICAL: Found log file in {target_zip.name}! {name}"
-                assert "settings.json" not in name.lower() or "lang" in name.lower(), f"CRITICAL: Found settings.json in {target_zip.name}! {name}"
+                nl = name.lower()
+                assert "cookies.jar" not in nl, f"CRITICAL: Found cookies.jar in {target_zip.name}! {name}"
+                assert not nl.endswith(".log"), f"CRITICAL: Found log file in {target_zip.name}! {name}"
+                assert "settings.json" not in nl or "lang" in nl, f"CRITICAL: Found settings.json in {target_zip.name}! {name}"
+                assert "data/browser" not in nl, f"CRITICAL: Found Chromium profile data in {target_zip.name}! {name}"
+                assert not nl.endswith(".pma"), f"CRITICAL: Found browser metrics in {target_zip.name}! {name}"
+                assert "login data" not in nl, f"CRITICAL: Found login data in {target_zip.name}! {name}"
 
     print(f"      [PASS] Security Audit Passed: ZERO private tokens, 0 cookies, 0 personal logs.")
     print("=" * 65)

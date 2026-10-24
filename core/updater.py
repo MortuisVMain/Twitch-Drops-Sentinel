@@ -341,7 +341,7 @@ class GitHubUpdater:
                         continue
 
                     # Check blacklist
-                    if rel_path.lower() in PROTECTED_PATHS or rel_path.endswith(".jar"):
+                    if (rel_path.lower() in PROTECTED_PATHS or rel_path.endswith(".jar") or rel_path.lower().startswith("giveaways_engine/data/")):
                         logger.info(f"Preserving protected user file: {rel_path}")
                         continue
 
