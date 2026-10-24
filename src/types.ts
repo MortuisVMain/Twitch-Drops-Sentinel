@@ -94,6 +94,7 @@ export interface FullSentinelState {
   username: string;
   status_text?: string;
   watching_channel?: string | null;
+  available_channels?: string[];
   active_drop: ActiveDrop | null;
   hardware: HardwareGuard;
   stats: SentinelStats;

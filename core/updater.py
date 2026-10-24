@@ -345,7 +345,10 @@ class GitHubUpdater:
                         logger.info(f"Preserving protected user file: {rel_path}")
                         continue
 
-                    target_file = PROJECT_DIR / rel_path
+                    target_file = (PROJECT_DIR / rel_path).resolve()
+                    if not target_file.is_relative_to(PROJECT_DIR.resolve()):
+                        logger.warning(f"ZipSlip path traversal attempt detected and blocked: {rel_path}")
+                        continue
                     target_file.parent.mkdir(parents=True, exist_ok=True)
 
                     # If target file is an existing .exe, rotate it first to avoid PermissionError on Windows!

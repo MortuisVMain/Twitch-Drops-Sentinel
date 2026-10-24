@@ -39,12 +39,14 @@ class SentinelStateBridge:
 
     def add_log(self, level: str, msg: str):
         now_str = datetime.now().strftime("%H:%M:%S")
-        if self.recent_logs and self.recent_logs[-1]["message"] == msg:
+        clean_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
+        clean_msg = re.sub(r"""(auth_token|client_secret|token|password)=['"]?[a-zA-Z0-9_\-]+['"]?""", r"\1=[REDACTED]", clean_msg, flags=re.IGNORECASE)
+        if self.recent_logs and self.recent_logs[-1]["message"] == clean_msg:
             return
         self.recent_logs.append({
             "time": now_str,
             "level": level.upper(),
-            "message": msg,
+            "message": clean_msg,
         })
         if len(self.recent_logs) > 60:
             self.recent_logs.pop(0)
