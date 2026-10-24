@@ -34,4 +34,4 @@
 | **030** | [GameShelf Claimed Tab, Giveaways Store Persistence & Updater Hardening](./030-gameshelf-claimed-tab-giveaways-persistence-and-updater-hardening.md) | Feature / GameShelf Claimed Tab / Trophies Synthesis / Giveaways Persistence / Single Version Standard / Updater Hardening |
 | **031** | [Windows NTFS Executable Lock Bypass & Staged Executable Swap](./031-windows-ntfs-exe-lock-staged-executable-swap.md) | Bugfix / Auto-Updater / Errno 13 Permission Denied / NTFS Atomic Rename / Staged Executable Swap |
 | **032** | [Giveaways Self-Containment, ScreenDimmer & Telemetry Purge](./032-giveaways-self-containment-screendimmer-and-telemetry-purge.md) | Feature / Giveaways Self-Containment / ScreenDimmer Luna / Telemetry Purge / Settings Unification |
-
+| **033** | [FGC Node.js Dependencies Resolution & Runtime Self-Healing](./033-fgc-node-modules-resolution-and-runtime-auto-heal.md) | Bugfix / Free Games Claimer / ERR_MODULE_NOT_FOUND / npm install / Runtime Self-Healing / Patchright Chromium |
