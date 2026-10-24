@@ -220,8 +220,8 @@ class GameScanner:
                 data = json.loads(IGNORED_GAMES_FILE.read_text(encoding="utf-8"))
                 if isinstance(data, list):
                     return {str(item).lower().strip() for item in data}
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed loading ignored games from %s: %s", IGNORED_GAMES_FILE, exc)
         return set()
 
     def is_ignored(self, name: str, key: str = "") -> bool:
@@ -298,8 +298,8 @@ class GameScanner:
                     n = normalize_game_name(g.get("name", ""))
                     if n:
                         catalog_names.add(n)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed loading catalog names from %s: %s", cat_file, exc)
         camp_file = DATA_DIR / "campaigns_cache.json"
         if camp_file.exists():
             try:
@@ -308,8 +308,8 @@ class GameScanner:
                     n = normalize_game_name(c.get("gameDisplayName", ""))
                     if n:
                         catalog_names.add(n)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed loading campaigns cache from %s: %s", camp_file, exc)
         return catalog_names
 
     @staticmethod
@@ -322,8 +322,8 @@ class GameScanner:
                 val, reg_type = winreg.QueryValueEx(key, value_name)
                 if reg_type in (winreg.REG_SZ, winreg.REG_EXPAND_SZ) and isinstance(val, str):
                     return val.strip()
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Registry read string failed for %s\\%s: %s", subkey, value_name, exc)
         return None
 
     @staticmethod
@@ -336,8 +336,8 @@ class GameScanner:
                 val, reg_type = winreg.QueryValueEx(key, value_name)
                 if reg_type == winreg.REG_DWORD and isinstance(val, int):
                     return val
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Registry read dword failed for %s\\%s: %s", subkey, value_name, exc)
         return None
 
     @staticmethod
@@ -628,9 +628,11 @@ class GameScanner:
                                             executable=exe_name,
                                             box_art=None,
                                         ))
-                                except OSError:
+                                except OSError as exc:
+                                    logger.debug("Registry error reading GOG game subkey %s: %s", sub_name, exc)
                                     continue
-                    except OSError:
+                    except OSError as exc:
+                        logger.debug("Registry error accessing GOG registry subkey: %s", exc)
                         continue
 
         return games
@@ -784,9 +786,11 @@ class GameScanner:
                                     executable=exe_name,
                                     box_art=None,
                                 ))
-                            except OSError:
+                            except OSError as exc:
+                                logger.debug("Registry error reading uninstall subkey %s: %s", sub_name, exc)
                                 continue
-                except OSError:
+                except OSError as exc:
+                    logger.debug("Registry error accessing uninstall subkey: %s", exc)
                     continue
 
         return games
@@ -831,8 +835,8 @@ class GameScanner:
                         )
                         if not has_root_exe:
                             is_container = True
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("Failed inspecting container folder %s: %s", folder_path, exc)
 
             # Case A: Directly selected game directory
             # NEVER treat parent library container (e.g. D:\Game) as a single game!
@@ -920,8 +924,8 @@ class GameScanner:
             )
             if has_engine_marker:
                 return self._find_game_executable(folder, max_depth=3)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("Failed checking engine markers in %s: %s", folder, exc)
         return None
 
     @classmethod
@@ -953,7 +957,8 @@ class GameScanner:
                 subdirs.sort(key=lambda p: 0 if p.name.lower() in BINARY_SUBDIRS else 1)
                 for sd in subdirs:
                     queue.append((sd, depth + 1))
-            except OSError:
+            except OSError as exc:
+                logger.debug("Directory scandir failed for %s: %s", current_dir, exc)
                 continue
 
         if not candidates:

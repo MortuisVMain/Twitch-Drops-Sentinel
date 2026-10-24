@@ -56,7 +56,7 @@ def set_sleep_guard(enable: bool):
             flags = (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) if enable else ES_CONTINUOUS
             ctypes.windll.kernel32.SetThreadExecutionState(flags)
         except Exception as e:
-            pass
+            logger.debug("SetThreadExecutionState failed: %s", e)
 
 def get_autostart_status() -> tuple[bool, str]:
     if sys.platform != "win32":
@@ -88,8 +88,8 @@ def set_autostart_status(enabled: bool) -> bool:
             else:
                 try:
                     winreg.DeleteValue(key, "TwitchDropsSentinel")
-                except FileNotFoundError:
-                    pass
+                except FileNotFoundError as e:
+                    logger.debug("Autostart registry key not present on delete: %s", e)
         return True
     except Exception:
         return False
@@ -334,8 +334,8 @@ class SentinelSupervisor:
             if default_template.exists():
                 try:
                     shutil.copy2(default_template, CONFIG_FILE)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed copying default config template: %s", exc)
 
         if CONFIG_FILE.exists():
             try:
@@ -432,8 +432,8 @@ class SentinelSupervisor:
                 self.twitch_client.settings.exclude = set(exclude_list)
                 try:
                     self.twitch_client.settings.priority_mode = PriorityMode(priority_mode_val)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed setting PriorityMode(%s): %s", priority_mode_val, exc)
                 self.twitch_client.claim_channel_points_enabled = bool(self.settings.get("claim_channel_points", True))
                 self.twitch_client.auto_claim_drops_enabled = bool(self.settings.get("auto_claim_drops", True))
                 self.twitch_client.streamer_watchdog_enabled = bool(self.settings.get("streamer_watchdog_enabled", True))
@@ -559,8 +559,8 @@ class SentinelSupervisor:
                 match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
                 if match:
                     return match.group(1)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed reading version.py: %s", exc)
         from version import __version__
         return __version__
 
@@ -754,8 +754,8 @@ class SentinelSupervisor:
                     p.communicate(input=text.encode("utf-16le"), timeout=3)
                     if p.returncode == 0:
                         return True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("clip.exe copy attempt failed: %s", exc)
                 # 2. Try PowerShell Set-Clipboard
                 try:
                     res = subprocess.run(
@@ -766,8 +766,8 @@ class SentinelSupervisor:
                     )
                     if res.returncode == 0:
                         return True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("PowerShell Set-Clipboard copy attempt failed: %s", exc)
                 return False
 
             success = await asyncio.to_thread(copy_to_windows_clipboard)
@@ -881,8 +881,8 @@ class SentinelSupervisor:
                 try:
                     if c_path.exists():
                         c_path.unlink()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed unlinking cookies.jar at %s: %s", c_path, exc)
 
             # 3. Reset STATE_BRIDGE
             STATE_BRIDGE.user_id = ""

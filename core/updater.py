@@ -69,8 +69,8 @@ def get_optional_github_token() -> str:
             tok = str(cfg.get("github_token", "")).strip()
             if tok:
                 return tok
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed reading github_token from config: %s", exc)
 
     # Check Git Credential Manager
     try:
@@ -88,8 +88,8 @@ def get_optional_github_token() -> str:
                     val = line.split("=", 1)[1].strip()
                     if val:
                         return val
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Git credential manager check failed: %s", exc)
 
     return ""
 
@@ -107,8 +107,8 @@ def check_and_apply_pending_exe_update() -> bool:
         if old_exe.exists():
             try:
                 old_exe.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed unlinking old_exe: %s", exc)
         if target_exe.exists():
             try:
                 target_exe.rename(old_exe)
@@ -144,8 +144,8 @@ def get_live_local_version() -> str:
             match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
             if match:
                 return match.group(1)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed reading version.py: %s", exc)
     return CURRENT_VERSION
 
 class GitHubUpdater:
@@ -161,8 +161,8 @@ class GitHubUpdater:
                 data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
                 self.last_check_time = float(data.get("time", 0))
                 self._cached_result = data.get("result")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed loading update cache: %s", exc)
 
     def _save_cache(self, result: dict[str, Any]):
         try:
@@ -374,8 +374,8 @@ class GitHubUpdater:
             if CACHE_FILE.exists():
                 try:
                     CACHE_FILE.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed unlinking CACHE_FILE: %s", exc)
             logger.info(f"Update successfully applied! Extracted {extracted_count} files.")
             return True, f"Успешно обновлено ({extracted_count} файлов заменено). Перезапустите Sentinel."
 
