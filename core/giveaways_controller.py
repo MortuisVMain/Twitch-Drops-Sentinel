@@ -176,12 +176,14 @@ class GiveawaysOrchestrator:
             latest_ts = 0.0
             latest_iso: Optional[str] = None
             exists = fpath.is_file()
+            accounts: List[str] = []
 
             if exists:
                 try:
                     raw_text = fpath.read_text(encoding="utf-8")
                     data = json.loads(raw_text)
                     if isinstance(data, dict):
+                        accounts = [acc for acc, g in data.items() if isinstance(g, dict)]
                         for account, games in data.items():
                             if not isinstance(games, dict):
                                 continue
@@ -234,6 +236,7 @@ class GiveawaysOrchestrator:
                 "existedCount": existed_cnt,
                 "lastClaimedAt": latest_iso,
                 "dbFileExists": exists,
+                "account": accounts[0] if accounts else None,
             }
 
         inventory.sort(key=lambda x: x["timestampMs"], reverse=True)

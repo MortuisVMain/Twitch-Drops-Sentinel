@@ -133,6 +133,7 @@ export interface StoreTelemetry {
   existedCount: number;
   lastClaimedAt: string | null;
   dbFileExists: boolean;
+  account?: string | null;
 }
 
 export interface SchedulerTelemetry {

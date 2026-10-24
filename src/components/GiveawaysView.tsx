@@ -19,7 +19,8 @@ import {
   Layers,
   ArrowUpRight,
   ShieldCheck,
-  Store
+  Store,
+  LogIn
 } from 'lucide-react';
 import {
   StoreId,
@@ -306,6 +307,30 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     }
   };
 
+  const handleLoginStore = async (e: React.MouseEvent, storeId: StoreId) => {
+    e.stopPropagation();
+    if (isClaiming) return;
+    playClick();
+    setActionError(null);
+    setIsConsoleExpanded(true);
+    setIsClaiming(true);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stores: [storeId], headless: false }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setActionError(err.reason || err.message || `Ошибка запуска входа в ${STORE_CONFIG[storeId].name}`);
+        setIsClaiming(false);
+      }
+    } catch (e: any) {
+      setActionError(e.message || 'Сбой подключения к сервису');
+      setIsClaiming(false);
+    }
+  };
+
   const filteredInventory = useMemo(() => {
     if (!data?.inventory) return [];
     return data.inventory.filter((item) => {
@@ -422,44 +447,84 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               const isSelected = selectedStores.includes(storeId);
               const storeMeta = data?.stores[storeId];
               const claimedCount = storeMeta?.claimedCount ?? 0;
+              const isThisStoreRunning = isClaiming && data?.runner?.activeStores?.includes(storeId);
+              const accountName = storeMeta?.account;
 
               return (
                 <div
                   key={storeId}
                   onClick={() => handleToggleStore(storeId)}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between min-h-[95px] ${
+                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between min-h-[140px] ${
                     isSelected
                       ? 'bg-[#368873]/10 border-[#73bba5] shadow-[0_2px_12px_rgba(115,187,165,0.15)]'
-                      : 'bg-[var(--surface-elevated)] border-[var(--line)] opacity-60 hover:opacity-100'
+                      : 'bg-[var(--surface-elevated)] border-[var(--line)] opacity-75 hover:opacity-100'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold ${cfg.text}`}>{cfg.name}</span>
-                    <span
-                      className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
-                        isSelected
-                          ? 'bg-[#368873] border-[#73bba5] text-white'
-                          : 'border-[var(--line)] bg-transparent'
-                      }`}
-                    >
-                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
-                    </span>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${cfg.text}`}>{cfg.name}</span>
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                          isSelected
+                            ? 'bg-[#368873] border-[#73bba5] text-white'
+                            : 'border-[var(--line)] bg-transparent'
+                        }`}
+                      >
+                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
+                      </span>
+                    </div>
+
+                    {/* Account badge */}
+                    <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+                      {accountName ? (
+                        <span className="flex items-center gap-1 text-[#73bba5] font-medium truncate" title={`Подключённый аккаунт: ${accountName}`}>
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#73bba5]" />
+                          <span className="truncate">{accountName}</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[var(--muted)]" title="Аккаунт ещё не сохранён в профиле">
+                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                          <span>Не подключён</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="pt-2 flex items-baseline justify-between">
-                    <div>
-                      <div className="text-lg font-bold text-[var(--foreground)] tabular-nums">
-                        {claimedCount}
+                  <div className="pt-2">
+                    <div className="flex items-baseline justify-between mb-2.5">
+                      <div>
+                        <div className="text-base font-bold text-[var(--foreground)] tabular-nums">
+                          {claimedCount}
+                        </div>
+                        <div className="text-[10px] text-[var(--muted)]">в коллекции</div>
                       </div>
-                      <div className="text-[10px] text-[var(--muted)]">в коллекции</div>
+                      {storeMeta?.lastClaimedAt && (
+                        <span className="text-[9px] text-[var(--muted)] tabular-nums">
+                          {new Date(storeMeta.lastClaimedAt).toLocaleDateString('ru-RU', {
+                            day: 'numeric',
+                            month: 'short',
+                          })}
+                        </span>
+                      )}
                     </div>
-                    {storeMeta?.lastClaimedAt && (
-                      <span className="text-[9px] text-[var(--muted)] tabular-nums">
-                        {new Date(storeMeta.lastClaimedAt).toLocaleDateString('ru-RU', {
-                          day: 'numeric',
-                          month: 'short',
-                        })}
-                      </span>
+
+                    {/* 1-Click Login Button */}
+                    {isThisStoreRunning ? (
+                      <div className="w-full py-1.5 px-2 rounded-xl bg-[#368873]/20 border border-[#73bba5]/40 text-[10px] font-semibold text-[#73bba5] flex items-center justify-center gap-1.5 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#73bba5] animate-ping" />
+                        <span>Окно открыто...</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => handleLoginStore(e, storeId)}
+                        disabled={isClaiming}
+                        title={`Открыть окно браузера для входа в ${cfg.name}`}
+                        className="w-full py-1.5 px-2 rounded-xl bg-white/[0.04] hover:bg-[#368873]/25 hover:text-[#73bba5] hover:border-[#73bba5]/50 border border-[var(--line)] text-[10px] font-semibold text-[var(--muted)] flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group/btn cursor-pointer"
+                      >
+                        <LogIn className="w-3 h-3 text-[var(--muted)] group-hover/btn:text-[#73bba5] transition-colors" />
+                        <span>{accountName ? 'Сменить аккаунт' : 'Войти в аккаунт'}</span>
+                      </button>
                     )}
                   </div>
                 </div>
