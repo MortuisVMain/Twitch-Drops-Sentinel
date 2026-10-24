@@ -276,7 +276,7 @@ class GiveawaysOrchestrator:
             "inventory": inventory,
             "recentLogs": list(self._log_buffer),
             "lastLogFile": latest_log.name if latest_log else None,
-            "fgcInstalled": cmd_file.is_file(),
+            "fgcInstalled": cmd_file.is_file() or (fgc_dir / "runner.js").is_file(),
             "totalClaimed": sum(s.get("claimedCount", 0) for s in stores.values()),
         }
 
@@ -289,14 +289,18 @@ class GiveawaysOrchestrator:
             sched = await self._query_scheduler(force=True)
             if sched.get("state") == "Running":
                 raise web.HTTPConflict(reason="Системное задание 'FreeGamesClaimerStudio' сейчас активно в фоне.")
-            if not cmd_file.is_file():
-                raise web.HTTPNotFound(reason=f"ClaimGames.cmd не найден по пути {cmd_file}")
+            runner_file = fgc_dir / "runner.js"
+            if not runner_file.is_file() and not cmd_file.is_file():
+                raise web.HTTPNotFound(reason=f"Модуль раздач не найден по пути {fgc_dir}")
 
             valid_stores = [s for s in stores if s in STORE_FILE_MAP]
             if not valid_stores:
                 valid_stores = ["epic", "gog", "steam", "fab", "unity"]
 
-            args = ["cmd.exe", "/c", str(cmd_file)]
+            if runner_file.is_file():
+                args = ["node", str(runner_file)]
+            else:
+                args = ["cmd.exe", "/c", str(cmd_file)]
             if headless:
                 args.append("--headless")
             else:
@@ -310,12 +314,12 @@ class GiveawaysOrchestrator:
             self._aborting = False
             self._started_at = datetime.now(timezone.utc).isoformat()
 
-            # Auto-install dependencies if node_modules is missing
-            otplib_dir = fgc_dir / "node_modules" / "otplib"
-            if not otplib_dir.is_dir():
-                logger.warning("FGC dependencies missing. Executing automatic 'npm install'...")
+            # Auto-install browser dependencies if patchright is missing
+            patchright_dir = fgc_dir / "node_modules" / "patchright"
+            if not patchright_dir.is_dir():
+                logger.warning("Giveaways browser engine missing. Executing automatic 'npm install'...")
                 self._broadcast("log", {
-                    "line": "[SENTINEL] Установка зависимостей Free Games Claimer (npm install)... Пожалуйста, подождите...",
+                    "line": "[SENTINEL] Установка браузерного движка раздач (npm install)... Пожалуйста, подождите...",
                     "ts": datetime.now(timezone.utc).isoformat()
                 })
                 npm_proc = await asyncio.create_subprocess_exec(

@@ -44,6 +44,7 @@ config.json
 core/settings.json
 Trophies.md
 data/*.json
+data/browser/
 !data/.gitkeep
 
 # 🐍 PYTHON ARTIFACTS
