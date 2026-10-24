@@ -18,6 +18,7 @@ import re
 import shutil
 import sys
 import time
+import threading
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -153,6 +154,7 @@ class GitHubUpdater:
         self.last_check_time: float = 0.0
         self._cached_result: Optional[dict[str, Any]] = None
         self._is_updating: bool = False
+        self._lock = threading.Lock()
         self._status: dict[str, Any] = {
             "is_updating": False,
             "stage": "idle",
@@ -167,7 +169,8 @@ class GitHubUpdater:
         self._load_cache()
 
     def get_status(self) -> dict[str, Any]:
-        return dict(self._status)
+        with self._lock:
+            return dict(self._status)
 
     def _load_cache(self):
         if CACHE_FILE.exists():
@@ -284,7 +287,8 @@ class GitHubUpdater:
         if self._is_updating:
             return False, "Обновление уже загружается и устанавливается."
         self._is_updating = True
-        self._status.update({
+        with self._lock:
+            self._status.update({
             "is_updating": True,
             "stage": "downloading",
             "percent": 0,
@@ -328,8 +332,10 @@ class GitHubUpdater:
                     req = urllib.request.Request(try_url, headers=req_headers)
                     with opener.open(req, timeout=30) as resp, open(zip_path, "wb") as f:
                         total_bytes = int(resp.headers.get("Content-Length") or 0)
-                        self._status["total_bytes"] = total_bytes
-                        self._status["total_mb"] = round(total_bytes / (1024 * 1024), 2)
+                        total_mb = round(total_bytes / (1024 * 1024), 2) if total_bytes > 0 else 0.0
+                        with self._lock:
+                            self._status["total_bytes"] = total_bytes
+                            self._status["total_mb"] = total_mb
                         downloaded = 0
                         start_time = time.time()
                         last_time = start_time
@@ -345,15 +351,26 @@ class GitHubUpdater:
                             if dt >= 0.35:
                                 speed = (downloaded - last_bytes) / dt / (1024 * 1024)
                                 pct = int((downloaded / total_bytes) * 100) if total_bytes > 0 else 0
-                                self._status.update({
-                                    "stage": "downloading",
-                                    "percent": min(pct, 95),
-                                    "downloaded_bytes": downloaded,
-                                    "downloaded_mb": round(downloaded / (1024 * 1024), 2),
-                                    "speed_mbps": round(speed, 2),
-                                })
+                                dl_mb = round(downloaded / (1024 * 1024), 2)
+                                with self._lock:
+                                    self._status.update({
+                                        "stage": "downloading",
+                                        "percent": min(pct, 95) if total_bytes > 0 else 50,
+                                        "downloaded_bytes": downloaded,
+                                        "downloaded_mb": dl_mb,
+                                        "total_mb": total_mb if total_mb > 0 else dl_mb,
+                                        "speed_mbps": round(speed, 2),
+                                    })
                                 last_time = now
                                 last_bytes = downloaded
+
+                        with self._lock:
+                            dl_mb = round(downloaded / (1024 * 1024), 2)
+                            self._status.update({
+                                "downloaded_bytes": downloaded,
+                                "downloaded_mb": dl_mb,
+                                "total_mb": self._status["total_mb"] if self._status["total_mb"] > 0 else dl_mb,
+                            })
 
                     download_success = True
                     break
@@ -362,13 +379,15 @@ class GitHubUpdater:
                     logger.warning(f"Download attempt failed for {try_url}: {e}")
 
             if not download_success:
+                shutil.rmtree(staging_dir, ignore_errors=True)
                 return False, f"Не удалось загрузить архив обновления: {last_err}"
 
-            self._status.update({
-                "stage": "extracting",
-                "percent": 96,
-                "speed_mbps": 0.0,
-            })
+            with self._lock:
+                self._status.update({
+                    "stage": "extracting",
+                    "percent": 96,
+                    "speed_mbps": 0.0,
+                })
             # Test ZIP integrity
             with zipfile.ZipFile(zip_path, "r") as zf:
                 bad_file = zf.testzip()
@@ -436,24 +455,27 @@ class GitHubUpdater:
                 except Exception as exc:
                     logger.debug("Failed unlinking CACHE_FILE: %s", exc)
             logger.info(f"Update successfully applied! Extracted {extracted_count} files.")
-            self._status.update({
-                "stage": "done",
-                "percent": 100,
-                "is_updating": False,
-                "error_message": "",
-            })
+            with self._lock:
+                self._status.update({
+                    "stage": "done",
+                    "percent": 100,
+                    "is_updating": False,
+                    "error_message": "",
+                })
             return True, f"Успешно обновлено ({extracted_count} файлов заменено). Перезапустите Sentinel."
 
         except Exception as e:
             logger.error(f"Error applying update: {e}", exc_info=True)
-            self._status.update({
-                "stage": "error",
-                "is_updating": False,
-                "error_message": str(e),
-            })
+            with self._lock:
+                self._status.update({
+                    "stage": "error",
+                    "is_updating": False,
+                    "error_message": str(e),
+                })
             return False, f"Ошибка установки обновления: {e}"
         finally:
             self._is_updating = False
-            self._status["is_updating"] = False
+            with self._lock:
+                self._status["is_updating"] = False
 
 UPDATER = GitHubUpdater()
