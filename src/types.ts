@@ -38,6 +38,8 @@ export interface GameItem {
   install_path?: string;
   has_drops: boolean;
   box_art?: string;
+  box_art_sources?: string[];
+  category?: string;
   drops_start_at?: string;
   drops_end_at?: string;
   is_active_now?: boolean;
