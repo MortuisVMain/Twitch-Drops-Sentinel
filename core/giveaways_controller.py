@@ -310,6 +310,36 @@ class GiveawaysOrchestrator:
             self._aborting = False
             self._started_at = datetime.now(timezone.utc).isoformat()
 
+            # Auto-install dependencies if node_modules is missing
+            otplib_dir = fgc_dir / "node_modules" / "otplib"
+            if not otplib_dir.is_dir():
+                logger.warning("FGC dependencies missing. Executing automatic 'npm install'...")
+                self._broadcast("log", {
+                    "line": "[SENTINEL] Установка зависимостей Free Games Claimer (npm install)... Пожалуйста, подождите...",
+                    "ts": datetime.now(timezone.utc).isoformat()
+                })
+                npm_proc = await asyncio.create_subprocess_exec(
+                    "cmd.exe", "/c", "npm", "install",
+                    cwd=str(fgc_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    creationflags=0x08000000
+                )
+                if npm_proc.stdout:
+                    async for raw_l in npm_proc.stdout:
+                        l = raw_l.decode("utf-8", errors="replace").strip()
+                        if l:
+                            self._broadcast("log", {"line": f"[npm] {l}", "ts": datetime.now(timezone.utc).isoformat()})
+                await npm_proc.wait()
+                br_proc = await asyncio.create_subprocess_exec(
+                    "cmd.exe", "/c", "npx", "patchright", "install", "chromium",
+                    cwd=str(fgc_dir),
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    creationflags=0x08000000
+                )
+                await br_proc.wait()
+
             logger.info(f"Starting FGC claim run: stores={valid_stores}, headless={headless}")
             self._proc = await asyncio.create_subprocess_exec(
                 *args,
