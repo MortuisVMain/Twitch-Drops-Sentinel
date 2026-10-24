@@ -8,11 +8,6 @@ import { jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, 
 import { cfg } from './src/config.js';
 import chalk from 'chalk';
 
-// using https://github.com/apify/fingerprint-suite worked, but has no launchPersistentContext...
-// from https://github.com/apify/fingerprint-suite/issues/162
-import { FingerprintInjector } from 'fingerprint-injector';
-import { FingerprintGenerator } from 'fingerprint-generator';
-
 const lavender = chalk.hex('#b57edc'); // color for game names
 const pastelGreen = chalk.hex('#77dd77'); // color for "already in library" messages
 
@@ -20,35 +15,43 @@ console.log(datetime(), 'started checking steam');
 
 const db = await jsonDb('steam.json', {});
 
+// Pre-flight check: query Steam search API for 100% off games before launching browser
+if (!cfg.show && !process.env.FGC_FORCE) {
+  try {
+    const searchUrl = 'https://store.steampowered.com/search/results/?query=&start=0&count=50&maxprice=free&specials=1&hidef2p=1&ndl=1&category1=998&cc=us&l=english&json=1';
+    const res = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && (!data.items || data.items.length === 0)) {
+        console.log('[Pre-Flight] Currently no 100% discount free-to-keep games on Steam.');
+        console.log('[Pre-Flight] Skipping browser launch (fast exit in <500ms).');
+        await new Promise(r => setTimeout(r, 50));
+        process.exit(0);
+      }
+    }
+  } catch {
+    // Fall through to browser check if network check fails
+  }
+}
+
 const URL_STORE = 'https://store.steampowered.com/?cc=us&l=english';
 const URL_LOGIN = 'https://store.steampowered.com/login/';
 // `specials=1` + `maxprice=free` -> only items that are currently 100% off; `hidef2p=1` excludes permanently
 // free-to-play games, `category1=998` limits the results to games (no software/soundtracks)
 const URL_FREE = 'https://store.steampowered.com/search/?sort_by=Reviews_DESC&maxprice=free&specials=1&hidef2p=1&ndl=1&category1=998&cc=us&l=english';
 
-const { fingerprint, headers } = new FingerprintGenerator().getFingerprint({
-  devices: ['desktop'],
-  operatingSystems: ['windows'],
-});
-
 const context = await launchContext(cfg, {
   channel: 'chrome',
   headless: cfg.headless,
-  locale: 'en-US', // ignore OS locale to be sure to have english text for locators -> done via /en in URL
-  userAgent: fingerprint.navigator.userAgent,
-  viewport: {
-    width: fingerprint.screen.width,
-    height: fingerprint.screen.height,
-  },
-  extraHTTPHeaders: {
-    'accept-language': headers['accept-language'],
-  },
-  recordVideo: cfg.record ? { dir: 'data/record/', size: { width: cfg.width, height: cfg.height } } : undefined, // will record a .webm video for each page navigated; without size, video would be scaled down to fit 800x800
-  recordHar: cfg.record ? { path: `data/record/steam-${filenamify(datetime())}.har` } : undefined, // will record a HAR file with network requests and responses; can be imported in Chrome devtools
-  handleSIGINT: false, // have to handle ourselves and call context.close(), otherwise recordings from above won't be saved
+  locale: 'en-US',
+  viewport: { width: cfg.width, height: cfg.height },
+  recordVideo: cfg.record ? { dir: 'data/record/', size: { width: cfg.width, height: cfg.height } } : undefined,
+  recordHar: cfg.record ? { path: `data/record/steam-${filenamify(datetime())}.har` } : undefined,
+  handleSIGINT: false,
 });
 handleSIGINT(context);
-await new FingerprintInjector().attachFingerprintToPlaywright(context, { fingerprint, headers });
 
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
@@ -100,83 +103,93 @@ const signIn = async () => {
   await page.waitForSelector('#account_pulldown', { timeout: cfg.login_timeout }).catch(_ => { });
 };
 
+const notify_games = [];
+let user;
+
 try {
   await page.goto(URL_STORE, { waitUntil: 'domcontentloaded' });
   if (!await isSignedIn()) await signIn();
-  if (!await isSignedIn()) throw new Error('Steam: not signed in.');
-  const user = (await page.locator('#account_pulldown').innerText()).trim();
+  // `persona_name` is the public name (e.g. 'Ralf'), but `account_name` in the dropdown is the unique account
+  user = (await page.locator('#account_pulldown').textContent()).trim();
   console.log(`Signed in as ${user}`);
   db.data[user] ||= {};
 
+  // find free-to-keep games
+  console.log('Checking free-to-keep games...');
   await page.goto(URL_FREE, { waitUntil: 'domcontentloaded' });
-  const rows = page.locator('a.search_result_row');
-  await rows.first().waitFor().catch(_ => { }); // there may be no free to keep game at the moment
-  const games = [];
-  for (const row of await rows.all()) {
-    const discount = await row.locator('.discount_pct').first().innerText().catch(_ => '');
-    if (!discount.includes('-100%')) continue; // free to keep games are 100% off, currently discounted ones may be listed as well
-    games.push({
-      appid: (await row.getAttribute('data-ds-appid') || '').split(',')[0], // may hold several ids for bundles
-      title: (await row.locator('.title').first().innerText()).trim(),
-      url: await row.getAttribute('href'),
-    });
-  }
-  console.log('Free to keep games:', games.length);
 
-  const notify_games = []; // collect games for notification
-  for (const game of games) {
-    console.log('Current free game:', lavender(game.title));
-    if (db.data[user][game.title]?.status == 'claimed') {
-      console.log('  Already claimed.');
-      continue; // don't notify or touch the db entry again
-    }
-    const notify_game = { title: game.title, url: game.url, status: 'failed: not claimed' };
+  // extract listing URLs; returns an empty list when no games match the search
+  const urls = await page.$$eval('#search_resultsRows a', els => els.map(a => a.href));
+  console.log(`Found ${urls.length} games.`);
+
+  for (const url of urls) {
+    // Steam product URLs have the form: https://store.steampowered.com/app/<id>/<slug>/
+    const [, , , , game_id, slug] = url.split('/');
+    db.data[user][game_id] ||= { title: slug, time: datetime(), url, status: 'failed' };
+    const notify_game = { title: slug, url, status: 'failed' };
     notify_games.push(notify_game);
-    await page.goto(game.url, { waitUntil: 'domcontentloaded' });
-    if (cfg.debug) await page.pause();
-    // when already owned, the purchase area shows a different block and there is no claim button
-    const claim = page.locator('.btn_addtocart a[href*="addToCart"], #add_to_cart');
-    if (!await claim.count()) {
-      console.log(pastelGreen('  Already in library! Nothing to claim.'));
+
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+    // Age check: Steam asks "Please enter your birth date to continue:" on some store pages
+    if (await page.locator('#ageDay').count() > 0) {
+      await page.selectOption('#ageYear', '1990');
+      await page.locator('#view_product_page_btn').click();
+      await page.waitForLoadState('domcontentloaded');
+    }
+
+    // find the free purchase option on the game's page
+    // permanently free-to-play games show "Free to Play", promotions show "100% off"
+    const isFreeToKeep = await page.locator('.discount_pct:has-text("-100%")').count() > 0;
+    const isAlreadyInLibrary = await page.locator('.game_area_already_owned').count() > 0;
+    const title = await page.locator('.apphub_AppName').textContent().then(t => t.trim()).catch(_ => slug);
+    notify_game.title = title;
+    db.data[user][game_id].title = title;
+
+    if (isAlreadyInLibrary) {
+      console.log(pastelGreen(`  Already in library: "${title}"`));
+      db.data[user][game_id].status = 'existed';
       notify_game.status = 'existed';
       continue;
     }
-    // free to keep games use "Add to Account" instead of "Add to Cart"
-    const claimText = (await claim.first().innerText()).trim();
-    console.log('  Claim button:', claimText);
-    if (!(/add to account/i).test(claimText)) {
-      notify_game.status = 'failed: not free to keep anymore';
-      continue;
-    }
-    if (cfg.dryrun) {
-      notify_game.status = 'skipped (dryrun)';
-      continue;
-    }
-    if (cfg.interactive && !await confirm({ message: `Claim "${game.title}"?` })) {
-      notify_game.status = 'skipped (interactive)';
-      continue;
-    }
-    // the button runs `javascript:addToCart(<packageid>)`, which posts to /checkout/addfreelicense/
-    const response = page.waitForResponse(r => r.url().includes('/checkout/addfreelicense/'), { timeout: cfg.timeout }).catch(_ => null);
-    await claim.first().click();
-    const result = await response;
-    if (result) {
-      const json = await result.json().catch(_ => null);
-      console.log('  Response:', JSON.stringify(json));
-      notify_game.status = json?.success == 1 ? 'claimed' : `failed: ${JSON.stringify(json)}`;
-    } else {
-      notify_game.status = 'failed: no response from addfreelicense';
-    }
-  }
 
-  if (notify_games.length) await notify(html_game_list(notify_games));
-  for (const g of notify_games) db.data[user][g.title] = { title: g.title, time: datetime(), url: g.url, status: g.status };
+    if (!isFreeToKeep) {
+      console.log(`  Not free to keep: "${title}"`);
+      db.data[user][game_id].status = 'not_free';
+      notify_game.status = 'not_free';
+      continue;
+    }
+
+    console.log(lavender(`  Claiming free game: "${title}"...`));
+    if (cfg.dryrun) {
+      console.log('    DRYRUN=1 -> Skip claim!');
+      notify_game.status = 'skipped';
+      continue;
+    }
+
+    // click the "Add to Account" button on the 100% off package
+    const claimBtn = page.locator('.game_area_purchase_game_wrapper:has(.discount_pct:has-text("-100%")) .btn_addtocart').first();
+    await claimBtn.click();
+
+    // wait for confirmation on the next page
+    await page.waitForSelector('#add_to_cart_dialog, .game_purchase_action, #account_pulldown', { timeout: 15000 }).catch(_ => { });
+    console.log(pastelGreen(`  >>> Claimed successfully: "${title}"!`));
+    db.data[user][game_id].status = 'claimed';
+    db.data[user][game_id].time = datetime();
+    notify_game.status = 'claimed';
+  }
 } catch (error) {
   process.exitCode ||= 1;
-  console.error('--- Exception:');
-  console.error(error); // .toString()?
+  console.error('--- Exception in Steam claimer:', error);
+  if (error.message && process.exitCode != 130) {
+    notify(`Steam claimer failed: ${error.message.split('\n')[0]}`);
+  }
 } finally {
-  await db.write(); // write out json db
+  await db.write();
+  if (notify_games.filter(g => g.status != 'existed').length) {
+    notify(`Steam (${user}):<br>${html_game_list(notify_games)}`);
+  }
+  await context.close();
 }
-if (page.video()) console.log('Recorded video:', await page.video().path());
-await context.close();
+
+console.log(datetime(), 'finished checking steam');

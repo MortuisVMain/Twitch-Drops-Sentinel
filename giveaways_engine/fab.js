@@ -165,8 +165,11 @@ try {
         await buyBtn.click();
         await page.waitForTimeout(2000);
 
-        // Frame checkout modal
-        const addBtn = page.frameLocator('iframe').locator('button:has-text("Add to library")').first();
+        // Specific checkout/purchase iframe selector (avoids strict mode violation with hCaptcha iframes)
+        const frameSelector = '#webPurchaseContainer iframe, iframe[src*="purchase"], iframe[allow*="payment"], iframe[src*="checkout"]';
+        await page.waitForSelector(frameSelector, { timeout: 20000 }).catch(() => {});
+        const checkoutFrame = page.frameLocator(frameSelector).first();
+        const addBtn = checkoutFrame.locator('button:has-text("Add to library"), button:has-text("Add to Library"), button:has-text("Place Order")').first();
         await addBtn.waitFor({ timeout: 15000 });
         await addBtn.click();
 

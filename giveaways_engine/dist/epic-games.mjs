@@ -6851,20 +6851,27 @@ try {
     } else {
       console.log("  Not in library yet! Click", btnText);
       await purchaseBtn.click({ delay: 11 });
-      page.click('button:has-text("Continue")').catch((_) => {
-      });
-      page.click('button:has-text("Yes, buy now")').catch((_) => {
-      });
-      page.locator(':has-text("end user license agreement")').waitFor().then(async () => {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await page.waitForTimeout(500);
+        const warningBtn = page.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"), button:has-text("View Product"), button:has-text("Yes, buy now"), button:has-text("Agree"), button:has-text("Accept"), button:has-text("I understand")').first();
+        if (await warningBtn.isVisible().catch(() => false)) {
+          console.log("  Dismissing confirmation/age-gate modal...");
+          await warningBtn.click().catch(() => {
+          });
+          await page.waitForTimeout(1e3);
+        }
+      }
+      page.locator(':has-text("end user license agreement")').waitFor({ timeout: 5e3 }).then(async () => {
         console.log("  Accept End User License Agreement (only needed once)");
-        console.log(page.innerHTML);
-        console.log("Please report the HTML above here: https://github.com/vogler/free-games-claimer/issues/371");
-        await page.locator("input#agree").check();
-        await page.locator('button:has-text("Accept")').click();
+        await page.locator("input#agree").check().catch(() => {
+        });
+        await page.locator('button:has-text("Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")').click().catch(() => {
+        });
       }).catch((_) => {
       });
-      await page.waitForSelector('iframe[src*="checkout"], #webPurchaseContainer iframe');
-      const iframe = page.frameLocator('iframe[src*="checkout"], #webPurchaseContainer iframe');
+      const checkoutIframeSelector = 'iframe[src*="checkout"], iframe[src*="purchase"], iframe[src*="payment"], #webPurchaseContainer iframe, iframe[id^="easyXDM_"], iframe[title*="Checkout"], iframe[title*="Purchase"], iframe[allow*="payment"]';
+      await page.waitForSelector(checkoutIframeSelector, { timeout: 35e3 });
+      const iframe = page.frameLocator(checkoutIframeSelector).first();
       if (await iframe.locator(':has-text("unavailable in your region"), :has-text("\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0432\u0430\u0448\u0435\u043C \u0440\u0435\u0433\u0438\u043E\u043D\u0435")').count() > 0) {
         console.error("  This product is unavailable in your region!");
         db.data[user][game_id].status = notify_game.status = "unavailable-in-region";

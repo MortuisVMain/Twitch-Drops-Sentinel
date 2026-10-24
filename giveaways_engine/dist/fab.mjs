@@ -5519,7 +5519,11 @@ try {
         }
         await buyBtn.click();
         await page.waitForTimeout(2e3);
-        const addBtn = page.frameLocator("iframe").locator('button:has-text("Add to library")').first();
+        const frameSelector = '#webPurchaseContainer iframe, iframe[src*="purchase"], iframe[allow*="payment"], iframe[src*="checkout"]';
+        await page.waitForSelector(frameSelector, { timeout: 2e4 }).catch(() => {
+        });
+        const checkoutFrame = page.frameLocator(frameSelector).first();
+        const addBtn = checkoutFrame.locator('button:has-text("Add to library"), button:has-text("Add to Library"), button:has-text("Place Order")').first();
         await addBtn.waitFor({ timeout: 15e3 });
         await addBtn.click();
         let confirmed = false;

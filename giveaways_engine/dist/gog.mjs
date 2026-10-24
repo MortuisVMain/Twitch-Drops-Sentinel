@@ -5885,6 +5885,7 @@ if (!cfg.show && !process.env.FGC_FORCE) {
       if (!hasGiveaway) {
         console.log("[Pre-Flight] Currently no free giveaway on GOG frontpage.");
         console.log("[Pre-Flight] Skipping browser launch (fast exit in <500ms).");
+        await new Promise((r) => setTimeout(r, 50));
         process.exit(0);
       }
     }

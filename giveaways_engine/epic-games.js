@@ -258,26 +258,30 @@ try {
       urls.push(url); // add add-on itself again
     } else { // GET
       console.log('  Not in library yet! Click', btnText);
-      await purchaseBtn.click({ delay: 11 }); // got stuck here without delay (or mouse move), see #75, 1ms was also enough
+      await purchaseBtn.click({ delay: 11 });
 
-      // click Continue if 'Device not supported. This product is not compatible with your current device.' - avoided by Windows userAgent?
-      page.click('button:has-text("Continue")').catch(_ => { }); // needed since change from Chromium to Firefox?
-
-      // click 'Yes, buy now' if 'This edition contains something you already have. Still interested?'
-      page.click('button:has-text("Yes, buy now")').catch(_ => { });
+      // Handle potential age-gate, content warning, device unsupported, or edition confirmation modals
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await page.waitForTimeout(500);
+        const warningBtn = page.locator('button:has-text("Continue"), button:has-text("Продолжить"), button:has-text("View Product"), button:has-text("Yes, buy now"), button:has-text("Agree"), button:has-text("Accept"), button:has-text("I understand")').first();
+        if (await warningBtn.isVisible().catch(() => false)) {
+          console.log('  Dismissing confirmation/age-gate modal...');
+          await warningBtn.click().catch(() => {});
+          await page.waitForTimeout(1000);
+        }
+      }
 
       // Accept End User License Agreement (only needed once)
-      page.locator(':has-text("end user license agreement")').waitFor().then(async () => {
+      page.locator(':has-text("end user license agreement")').waitFor({ timeout: 5000 }).then(async () => {
         console.log('  Accept End User License Agreement (only needed once)');
-        console.log(page.innerHTML);
-        console.log('Please report the HTML above here: https://github.com/vogler/free-games-claimer/issues/371');
-        await page.locator('input#agree').check(); // TODO Bundle: got stuck here; likely unrelated to bundle and locator just changed: https://github.com/vogler/free-games-claimer/issues/371
-        await page.locator('button:has-text("Accept")').click();
+        await page.locator('input#agree').check().catch(() => {});
+        await page.locator('button:has-text("Accept"), button:has-text("Принять")').click().catch(() => {});
       }).catch(_ => { });
 
-      // it then creates an iframe for the purchase
-      await page.waitForSelector('iframe[src*="checkout"], #webPurchaseContainer iframe'); // support both old and new checkout iframe
-      const iframe = page.frameLocator('iframe[src*="checkout"], #webPurchaseContainer iframe');
+      // Support all legacy and modern Epic checkout iframe containers
+      const checkoutIframeSelector = 'iframe[src*="checkout"], iframe[src*="purchase"], iframe[src*="payment"], #webPurchaseContainer iframe, iframe[id^="easyXDM_"], iframe[title*="Checkout"], iframe[title*="Purchase"], iframe[allow*="payment"]';
+      await page.waitForSelector(checkoutIframeSelector, { timeout: 35000 });
+      const iframe = page.frameLocator(checkoutIframeSelector).first();
       // skip game if unavailable in region, https://github.com/vogler/free-games-claimer/issues/46 TODO check games for account's region
       if (await iframe.locator(':has-text("unavailable in your region"), :has-text("недоступно в вашем регионе")').count() > 0) {
         console.error('  This product is unavailable in your region!');
