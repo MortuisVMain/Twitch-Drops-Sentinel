@@ -227,25 +227,24 @@ namespace TwitchDropsSentinel
             // Start continuous background watchdog to resurrect backend if it ever crashes/stops
             StartBackendWatchdog();
 
-            KeyPreview = true;
-            KeyDown += (s, e) =>
-            {
-                if (e.KeyCode == Keys.F5)
-                {
-                    _webView.CoreWebView2?.Reload();
-                }
-            };
-
-            ResizeEnd += (s, e) => SaveWindowState();
-            Move += (s, e) => { if (WindowState == FormWindowState.Normal) SaveWindowState(); };
-
             _webView = new WebView2
             {
                 Dock = DockStyle.Fill,
                 DefaultBackgroundColor = Color.FromArgb(23, 29, 28)
             };
-
             Controls.Add(_webView);
+
+            KeyPreview = true;
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.F5)
+                {
+                    _webView?.CoreWebView2?.Reload();
+                }
+            };
+
+            ResizeEnd += (s, e) => SaveWindowState();
+            Move += (s, e) => { if (WindowState == FormWindowState.Normal) SaveWindowState(); };
 
             Shown += async (s, e) =>
             {
