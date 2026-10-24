@@ -242,7 +242,6 @@ export const App: React.FC = () => {
     { id: 'dashboard' as NavTab, label: 'Дашборд', icon: LayoutDashboard, badge: 'PRO' },
     { id: 'shelf' as NavTab, label: 'Полка Игр', icon: Gamepad2, badge: `${sentinelState.installed_games.length}` },
     { id: 'giveaways' as NavTab, label: 'Раздачи', icon: Gift, badge: 'FREE' },
-    { id: 'dimmer' as NavTab, label: 'Затемнение', icon: Moon, badge: 'OLED' },
     { id: 'settings' as NavTab, label: 'Настройки', icon: SlidersHorizontal },
   ];
 
