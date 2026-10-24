@@ -278,9 +278,9 @@ try {
         await page.locator('button:has-text("Accept"), button:has-text("Принять")').click().catch(() => {});
       }).catch(_ => { });
 
-      // Support all legacy and modern Epic checkout iframe containers
-      const checkoutIframeSelector = 'iframe[src*="checkout"], iframe[src*="purchase"], iframe[src*="payment"], #webPurchaseContainer iframe, iframe[id^="easyXDM_"], iframe[title*="Checkout"], iframe[title*="Purchase"], iframe[allow*="payment"]';
-      await page.waitForSelector(checkoutIframeSelector, { timeout: 35000 });
+      // Specific checkout iframe selector (strictly excludes hCaptcha frames, waits for attached state)
+      const checkoutIframeSelector = '#webPurchaseContainer iframe:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="/purchase"]:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="checkout"]:not([src*="hcaptcha"]):not([title*="hCaptcha"])';
+      await page.waitForSelector(checkoutIframeSelector, { state: 'attached', timeout: 35000 });
       const iframe = page.frameLocator(checkoutIframeSelector).first();
       // skip game if unavailable in region, https://github.com/vogler/free-games-claimer/issues/46 TODO check games for account's region
       if (await iframe.locator(':has-text("unavailable in your region"), :has-text("недоступно в вашем регионе")').count() > 0) {
@@ -310,8 +310,8 @@ try {
       // Playwright clicked before button was ready to handle event, https://github.com/vogler/free-games-claimer/issues/84#issuecomment-1474346591
       // Epic renamed the checkout button from "Place Order" to "Add to library" (new "this game is free" layout) - support both languages
       const checkoutBtn = iframe.locator('button:not(:has(.payment-loading--loading))').filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
-      await checkoutBtn.waitFor({ timeout: 25000 });
-      await checkoutBtn.click({ delay: 11 });
+      await checkoutBtn.waitFor({ state: 'visible', timeout: 25000 });
+      await checkoutBtn.click({ delay: 50 });
 
       // I Agree button is only shown for EU accounts! https://github.com/vogler/free-games-claimer/pull/7#issuecomment-1038964872
       const btnAgree = iframe.locator('button:has-text("I Accept"), button:has-text("Принять")');

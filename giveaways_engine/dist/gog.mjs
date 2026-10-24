@@ -5920,9 +5920,26 @@ var page = context.pages().length ? context.pages()[0] : await context.newPage()
 await page.setViewportSize({ width: cfg.width, height: cfg.height });
 var notify_games = [];
 var user;
+await context.route(/(cookiebot|googletagmanager|google-analytics|newrelic|nr-data)/, (route) => route.abort());
 try {
-  await context.addCookies([{ name: "CookieConsent", value: "{stamp:%274oR8MJL+bxVlG6g+kl2we5+suMJ+Tv7I4C5d4k+YY4vrnhCD+P23RQ==%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:true%2Cmethod:%27explicit%27%2Cver:1%2Cutc:1672331618201%2Cregion:%27de%27}", domain: "www.gog.com", path: "/" }]);
-  await page.goto(URL_CLAIM, { waitUntil: "domcontentloaded" });
+  await context.addCookies([
+    {
+      name: "CookieConsent",
+      value: "{stamp:%274oR8MJL+bxVlG6g+kl2we5+suMJ+Tv7I4C5d4k+YY4vrnhCD+P23RQ==%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:true%2Cmethod:%27explicit%27%2Cver:1%2Cutc:1672331618201%2Cregion:%27de%27}",
+      domain: ".gog.com",
+      path: "/"
+    },
+    {
+      name: "gog_lc",
+      value: "US_USD_en-US",
+      domain: ".gog.com",
+      path: "/"
+    }
+  ]);
+  await page.goto(URL_CLAIM, { waitUntil: "commit", timeout: 3e4 });
+  const navBarrier = page.locator('header, .menu-v3, #menuUsername, button[gog-menu-v3-auth-action="login"], a:has-text("Sign in")').first();
+  await navBarrier.waitFor({ state: "attached", timeout: 25e3 }).catch(() => {
+  });
   const signIn = page.locator('button[gog-menu-v3-auth-action="login"], a:has-text("Sign in")').first();
   const usernameLabel = page.locator(".menu-v3__user-header-title, #menuUsername").first();
   const getLoginState = async () => {

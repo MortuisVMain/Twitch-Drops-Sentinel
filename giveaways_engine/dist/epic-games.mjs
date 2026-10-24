@@ -6869,8 +6869,8 @@ try {
         });
       }).catch((_) => {
       });
-      const checkoutIframeSelector = 'iframe[src*="checkout"], iframe[src*="purchase"], iframe[src*="payment"], #webPurchaseContainer iframe, iframe[id^="easyXDM_"], iframe[title*="Checkout"], iframe[title*="Purchase"], iframe[allow*="payment"]';
-      await page.waitForSelector(checkoutIframeSelector, { timeout: 35e3 });
+      const checkoutIframeSelector = '#webPurchaseContainer iframe:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="/purchase"]:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="checkout"]:not([src*="hcaptcha"]):not([title*="hCaptcha"])';
+      await page.waitForSelector(checkoutIframeSelector, { state: "attached", timeout: 35e3 });
       const iframe = page.frameLocator(checkoutIframeSelector).first();
       if (await iframe.locator(':has-text("unavailable in your region"), :has-text("\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0432\u0430\u0448\u0435\u043C \u0440\u0435\u0433\u0438\u043E\u043D\u0435")').count() > 0) {
         console.error("  This product is unavailable in your region!");
@@ -6895,8 +6895,8 @@ try {
         continue;
       }
       const checkoutBtn = iframe.locator("button:not(:has(.payment-loading--loading))").filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
-      await checkoutBtn.waitFor({ timeout: 25e3 });
-      await checkoutBtn.click({ delay: 11 });
+      await checkoutBtn.waitFor({ state: "visible", timeout: 25e3 });
+      await checkoutBtn.click({ delay: 50 });
       const btnAgree = iframe.locator('button:has-text("I Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")');
       btnAgree.waitFor().then(() => btnAgree.click()).catch((_) => {
       });

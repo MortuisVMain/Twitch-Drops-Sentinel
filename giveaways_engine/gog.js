@@ -67,10 +67,28 @@ await page.setViewportSize({ width: cfg.width, height: cfg.height }); // TODO wo
 const notify_games = [];
 let user;
 
-try {
-  await context.addCookies([{ name: 'CookieConsent', value: '{stamp:%274oR8MJL+bxVlG6g+kl2we5+suMJ+Tv7I4C5d4k+YY4vrnhCD+P23RQ==%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:true%2Cmethod:%27explicit%27%2Cver:1%2Cutc:1672331618201%2Cregion:%27de%27}', domain: 'www.gog.com', path: '/' }]); // to not waste screen space when non-headless
+// Block slow external analytics/consent trackers that stall DOMContentLoaded on GOG
+await context.route(/(cookiebot|googletagmanager|google-analytics|newrelic|nr-data)/, route => route.abort());
 
-  await page.goto(URL_CLAIM, { waitUntil: 'domcontentloaded' }); // default 'load' takes forever
+try {
+  await context.addCookies([
+    {
+      name: 'CookieConsent',
+      value: '{stamp:%274oR8MJL+bxVlG6g+kl2we5+suMJ+Tv7I4C5d4k+YY4vrnhCD+P23RQ==%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:true%2Cmethod:%27explicit%27%2Cver:1%2Cutc:1672331618201%2Cregion:%27de%27}',
+      domain: '.gog.com',
+      path: '/'
+    },
+    {
+      name: 'gog_lc',
+      value: 'US_USD_en-US',
+      domain: '.gog.com',
+      path: '/'
+    }
+  ]);
+
+  await page.goto(URL_CLAIM, { waitUntil: 'commit', timeout: 30000 });
+  const navBarrier = page.locator('header, .menu-v3, #menuUsername, button[gog-menu-v3-auth-action="login"], a:has-text("Sign in")').first();
+  await navBarrier.waitFor({ state: 'attached', timeout: 25000 }).catch(() => {});
 
   // page.click('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll').catch(_ => { }); // does not work reliably, solved by setting CookieConsent above
   // GOG's new `menu-v3` header no longer has `a:has-text("Sign in")` or `#menuUsername`:
