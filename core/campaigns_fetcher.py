@@ -2,10 +2,14 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +22,27 @@ INSTALLED_GAMES_FILE = DATA_DIR / "installed_games.json"
 BOX_ART_CACHE_FILE = DATA_DIR / "box_art_cache.json"
 
 API_URL = "https://twitch-drops-api.sunkwi.com/v2/drops"
+
+CACHE_MAX_AGE = 300          # seconds a cached response is reused by regular calls
+STARTUP_CACHE_MAX_AGE = 900  # a cache this young is enough at startup: no API call
+BACKOFF_BASE = 60            # seconds after the first failure, doubled on each next one
+BACKOFF_MAX = 1800
+RETRY_AFTER_MAX = 3600
+
+
+def parse_retry_after(value: str | None) -> float | None:
+    """Retry-After is either delta-seconds or an HTTP date."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        return max(0.0, parsedate_to_datetime(value).timestamp() - time.time())
+    except (TypeError, ValueError):
+        return None
 
 from utils import smart_game_match, clean_title
 
@@ -90,6 +115,8 @@ class CampaignsFetcher:
         self._cached_campaigns: list[dict[str, Any]] = []
         self._cached_catalog: list[dict[str, Any]] = []
         self._last_fetch_time: float = 0
+        self._blocked_until: float = 0.0
+        self._fail_count: int = 0
         self._installed_games: list[dict[str, Any]] = self._load_installed_games()
         self._box_art_cache: dict[str, str] = self._load_box_art_cache()
         self._load_cache()
@@ -128,6 +155,7 @@ class CampaignsFetcher:
                     data = json.load(f)
                     if isinstance(data, list):
                         self._cached_campaigns = data
+                        self._last_fetch_time = CACHE_FILE.stat().st_mtime
                         self._build_catalog()
                         logger.info(f"Loaded {len(self._cached_campaigns)} campaigns from local cache.")
             except Exception as e:
@@ -140,10 +168,21 @@ class CampaignsFetcher:
         except Exception as e:
             logger.error(f"Failed to save campaigns cache: {e}")
 
-    def fetch_sync(self, force: bool = False) -> list[dict[str, Any]]:
+    def _register_failure(self, retry_after: float | None) -> None:
+        """Block further requests: Retry-After if the server sent one, else exponential backoff with jitter."""
+        self._fail_count += 1
+        backoff = min(BACKOFF_MAX, BACKOFF_BASE * 2 ** (self._fail_count - 1)) * random.uniform(0.8, 1.2)
+        delay = min(max(retry_after, backoff), RETRY_AFTER_MAX) if retry_after is not None else backoff
+        self._blocked_until = time.time() + delay
+        logger.warning(f"Campaigns API unavailable; next request in {delay:.0f}s (failure #{self._fail_count}).")
+
+    def fetch_sync(self, force: bool = False, max_age: float = CACHE_MAX_AGE) -> list[dict[str, Any]]:
         """Synchronously fetch active campaigns from the public Twitch drops API."""
         now = datetime.now(timezone.utc).timestamp()
-        if not force and self._cached_campaigns and (now - self._last_fetch_time < 300):
+        if not force and self._cached_campaigns and (now - self._last_fetch_time < max_age):
+            return self._cached_campaigns
+        if now < self._blocked_until:
+            logger.debug(f"Campaigns API blocked for another {self._blocked_until - now:.0f}s; using cache.")
             return self._cached_campaigns
 
         req = urllib.request.Request(
@@ -162,19 +201,24 @@ class CampaignsFetcher:
                     self._last_fetch_time = datetime.now(timezone.utc).timestamp()
                     self._save_cache(campaigns)
                     self._build_catalog()
+                    self._fail_count = 0
                     logger.info(f"Successfully fetched {len(campaigns)} live campaigns from Twitch.")
                     return campaigns
+        except urllib.error.HTTPError as e:
+            logger.warning(f"Failed to fetch live campaigns from {API_URL}: HTTP {e.code}")
+            self._register_failure(parse_retry_after(e.headers.get("Retry-After")) if e.headers else None)
         except Exception as e:
             logger.warning(f"Failed to fetch live campaigns from {API_URL}: {e}")
+            self._register_failure(None)
         return self._cached_campaigns
 
     async def fetch_async(self, force: bool = False) -> list[dict[str, Any]]:
         """Fetch active campaigns without blocking the async event loop."""
         return await asyncio.to_thread(self.fetch_sync, force)
 
-    def sync_active_drops(self, force: bool = True) -> dict[str, Any]:
+    def sync_active_drops(self, force: bool = True, max_age: float = CACHE_MAX_AGE) -> dict[str, Any]:
         """Forces a fresh sync from Twitch API and returns metrics on active drops."""
-        campaigns = self.fetch_sync(force=force)
+        campaigns = self.fetch_sync(force=force, max_age=max_age)
         self._build_catalog()
         active_count = len([g for g in self._cached_catalog if g.get("has_drops")])
         logger.info(f"Sync complete: {active_count} active drops found across {len(self._cached_catalog)} total games.")
@@ -529,7 +573,7 @@ class CampaignsFetcher:
         """Periodic background refresh (default every 15 minutes) with immediate startup sync."""
         try:
             logger.info("Executing initial startup sync for live Twitch Drops campaigns...")
-            await asyncio.to_thread(self.sync_active_drops, True)
+            await asyncio.to_thread(self.sync_active_drops, False, STARTUP_CACHE_MAX_AGE)
         except Exception as e:
             logger.warning(f"Initial startup drops sync encountered error: {e}")
 
