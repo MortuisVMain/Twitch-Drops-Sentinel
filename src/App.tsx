@@ -2512,7 +2512,7 @@ export const App: React.FC = () => {
 
                 <p className="text-xs text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '3.4.0'}
+                  Текущая версия: v{sentinelState.version || '3.4.1'}
 
                 </p>
 

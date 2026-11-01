@@ -22,7 +22,7 @@
     };
   });
   var state = {
-    version: '3.4.0', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.4.1', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
