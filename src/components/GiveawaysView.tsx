@@ -1,26 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Gift,
-  RefreshCw,
-  Play,
-  Square,
-  Search,
-  CheckCircle2,
-  Clock,
-  Calendar,
-  Terminal,
-  ChevronDown,
-  ChevronUp,
-  AlertCircle,
-  Eye,
-  EyeOff,
-  Layers,
-  ArrowUpRight,
-  ShieldCheck,
-  Store,
-  LogIn
-} from 'lucide-react';
-import {
   StoreId,
   GiveawaysStateResponse,
   ClaimedGameItem,
@@ -35,60 +14,69 @@ interface GiveawaysViewProps {
   onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
 }
 
-const STORE_CONFIG: Record<
-  StoreId,
-  { name: string; color: string; border: string; bg: string; text: string }
-> = {
-  epic: {
-    name: 'Epic Games',
-    color: '#ffffff',
-    border: 'border-zinc-500/40',
-    bg: 'bg-white/[0.06]',
-    text: 'text-zinc-200',
-  },
-  gog: {
-    name: 'GOG.com',
-    color: '#a78bfa',
-    border: 'border-purple-500/40',
-    bg: 'bg-purple-500/[0.08]',
-    text: 'text-purple-300',
-  },
-  steam: {
-    name: 'Steam',
-    color: '#60a5fa',
-    border: 'border-blue-500/40',
-    bg: 'bg-blue-500/[0.08]',
-    text: 'text-blue-300',
-  },
-  fab: {
-    name: 'Fab (Unreal Engine)',
-    color: '#22d3ee',
-    border: 'border-cyan-500/40',
-    bg: 'bg-cyan-500/[0.08]',
-    text: 'text-cyan-300',
-  },
-  unity: {
-    name: 'Unity Asset Store',
-    color: '#94a3b8',
-    border: 'border-slate-500/40',
-    bg: 'bg-slate-500/[0.08]',
-    text: 'text-slate-300',
-  },
-  itch: {
-    name: 'Itch.io',
-    color: '#fb7185',
-    border: 'border-rose-500/40',
-    bg: 'bg-rose-500/[0.08]',
-    text: 'text-rose-300',
-  },
-  prime: {
-    name: 'Prime Gaming',
-    color: '#facc15',
-    border: 'border-amber-500/40',
-    bg: 'bg-amber-500/[0.08]',
-    text: 'text-amber-300',
-  },
+interface StoreMeta {
+  id: StoreId;
+  name: string;
+  tag: string;
+  badge?: string;
+  icon: string;
+  color: string;
+  bg: string;
+}
+
+const STORES: StoreMeta[] = [
+  { id: 'epic', name: 'Epic Games', tag: 'EPIC GAMES', badge: 'забрано', icon: '⚡', color: '#3AD29F', bg: 'rgba(58, 210, 159, 0.1)' },
+  { id: 'gog', name: 'GOG.com', tag: 'GOG.COM', badge: 'забрано', icon: '🕹️', color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.1)' },
+  { id: 'steam', name: 'Steam', tag: 'STEAM', badge: 'забрано', icon: '🎮', color: '#60A5FA', bg: 'rgba(96, 165, 250, 0.1)' },
+  { id: 'fab', name: 'Fab (UE5)', tag: 'FAB (UNREAL ENGINE 5)', badge: 'забрано', icon: '🔷', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
+  { id: 'unity', name: 'Unity Store', tag: 'UNITY STORE', badge: 'забрано', icon: '📦', color: '#F472B6', bg: 'rgba(244, 114, 182, 0.1)' },
+  { id: 'prime', name: 'Prime Gaming', tag: 'PRIME GAMING', badge: 'забрано', icon: '👑', color: '#FBBF24', bg: 'rgba(251, 191, 36, 0.1)' },
+  { id: 'itch', name: 'Itch.io', tag: 'ITCH.IO', badge: 'забрано', icon: '👾', color: '#FB7185', bg: 'rgba(251, 113, 133, 0.1)' },
+];
+interface WeekDayDef {
+  key: string;
+  short: string;
+  bit: number;
+  hint: string;
+}
+
+const WEEK_DAYS: WeekDayDef[] = [
+  { key: 'Monday', short: 'Пн', bit: 2, hint: 'Понедельник — еженедельный старт' },
+  { key: 'Tuesday', short: 'Вт', bit: 4, hint: 'Вторник — раздачи GOG & Prime Gaming' },
+  { key: 'Wednesday', short: 'Ср', bit: 8, hint: 'Среда — мид-вик обновления' },
+  { key: 'Thursday', short: 'Чт', bit: 16, hint: 'Четверг — Epic Games Store (18:00 МСК)' },
+  { key: 'Friday', short: 'Пт', bit: 32, hint: 'Пятница — уикенд-раздачи Steam/GOG' },
+  { key: 'Saturday', short: 'Сб', bit: 64, hint: 'Суббота — акции выходного дня' },
+  { key: 'Sunday', short: 'Вс', bit: 1, hint: 'Воскресенье — еженедельный свип' },
+];
+
+const DAY_SHORT_MAP: Record<string, string> = {
+  Monday: 'Пн',
+  Tuesday: 'Вт',
+  Wednesday: 'Ср',
+  Thursday: 'Чт',
+  Friday: 'Пт',
+  Saturday: 'Сб',
+  Sunday: 'Вс',
 };
+
+
+function formatClaimDate(rawDate?: string, tsMs?: number): string {
+  if (tsMs && tsMs > 0) {
+    const d = new Date(tsMs);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    }
+  }
+  if (rawDate) {
+    if (!rawDate.includes('T') && !rawDate.includes('-')) return rawDate;
+    const d = new Date(rawDate);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    }
+  }
+  return 'Недавно';
+}
 
 export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   onBackToDashboard,
@@ -98,61 +86,33 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   const [data, setData] = useState<GiveawaysStateResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isClaiming, setIsClaiming] = useState(false);
-
   const [headless, setHeadless] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sentinel_giveaways_headless');
-      if (saved !== null) return saved === 'true';
-    }
-    return settings?.giveaways_headless !== undefined ? settings.giveaways_headless : true;
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('sentinel_giveaways_headless') : null;
+    return saved !== null ? saved === 'true' : true;
   });
-
   const [selectedStores, setSelectedStores] = useState<StoreId[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sentinel_giveaways_selected_stores');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed as StoreId[];
-        } catch {}
-      }
-    }
-    if (settings?.giveaways_selected_stores && settings.giveaways_selected_stores.length > 0) {
-      return settings.giveaways_selected_stores;
-    }
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('sentinel_giveaways_selected_stores') : null;
+      if (saved) return JSON.parse(saved);
+    } catch {}
     return ['epic', 'gog', 'steam', 'fab', 'unity'];
   });
-
-  const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sentinel_giveaways_store_filter');
-      if (saved) return saved;
-    }
-    return 'all';
-  });
-
-  useEffect(() => {
-    if (settings?.giveaways_selected_stores && settings.giveaways_selected_stores.length > 0) {
-      if (typeof window !== 'undefined' && !localStorage.getItem('sentinel_giveaways_selected_stores')) {
-        setSelectedStores(settings.giveaways_selected_stores);
-      }
-    }
-    if (settings?.giveaways_headless !== undefined) {
-      if (typeof window !== 'undefined' && localStorage.getItem('sentinel_giveaways_headless') === null) {
-        setHeadless(settings.giveaways_headless);
-      }
-    }
-  }, [settings?.giveaways_selected_stores, settings?.giveaways_headless]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
   const [logs, setLogs] = useState<GiveawaysLogEntry[]>([]);
-  const [autoScroll, setAutoScroll] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [isTogglingScheduler, setIsTogglingScheduler] = useState(false);
+  const [filterStore, setFilterStore] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
 
-  const consoleContainerRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef<boolean>(true);
   const eventSourceRef = useRef<EventSource | null>(null);
   const { playClick, playRewardChime } = useTactileAudio();
+
+  const handleTerminalScroll = () => {
+    if (!terminalRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = terminalRef.current;
+    isAtBottomRef.current = scrollHeight - scrollTop - clientHeight <= 50;
+  };
 
   const fetchState = async (force = false) => {
     try {
@@ -162,7 +122,6 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         setData(json);
         if (json.runner.state === 'running' || json.runner.state === 'aborting') {
           setIsClaiming(true);
-          setIsConsoleExpanded(true);
         } else {
           setIsClaiming(false);
         }
@@ -183,660 +142,491 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Connect SSE Stream
+  // Connect SSE Stream for real-time logs
   useEffect(() => {
-    const sse = new EventSource('http://127.0.0.1:28492/api/v1/giveaways/stream');
-    eventSourceRef.current = sse;
+    try {
+      const sse = new EventSource('http://127.0.0.1:28492/api/v1/giveaways/stream');
+      eventSourceRef.current = sse;
 
-    sse.addEventListener('log', (event: MessageEvent) => {
-      try {
-        const logItem: GiveawaysLogEntry = JSON.parse(event.data);
-        setLogs((prev) => [...prev.slice(-499), logItem]);
-      } catch (e) {
-        console.error('Error parsing SSE log:', e);
-      }
-    });
+      sse.addEventListener('log', (event: MessageEvent) => {
+        try {
+          const logItem: GiveawaysLogEntry = JSON.parse(event.data);
+          setLogs((prev) => [...prev.slice(-199), logItem]);
+        } catch {}
+      });
 
-    sse.addEventListener('state', (event: MessageEvent) => {
-      try {
-        const stateEvent = JSON.parse(event.data);
-        if (stateEvent.state === 'idle') {
-          setIsClaiming(false);
-          fetchState(true);
-          playRewardChime();
-        } else if (stateEvent.state === 'running') {
-          setIsClaiming(true);
-        }
-      } catch (e) {
-        console.error('Error parsing SSE state:', e);
-      }
-    });
+      sse.addEventListener('state', (event: MessageEvent) => {
+        try {
+          const stateData: GiveawaysStateResponse = JSON.parse(event.data);
+          setData(stateData);
+          setIsClaiming(stateData.runner.state === 'running');
+        } catch {}
+      });
 
-    return () => {
-      sse.close();
-      eventSourceRef.current = null;
-    };
+      return () => {
+        sse.close();
+      };
+    } catch (err) {
+      console.warn('SSE connection skipped:', err);
+    }
   }, []);
 
+  // Auto-scroll terminal to bottom ONLY if user is already near bottom (no hijack during reading)
   useEffect(() => {
-    if (autoScroll && isConsoleExpanded && consoleContainerRef.current) {
-      consoleContainerRef.current.scrollTop = consoleContainerRef.current.scrollHeight;
+    if (terminalRef.current && isAtBottomRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [logs, autoScroll, isConsoleExpanded]);
+  }, [logs]);
 
-  const handleToggleScheduler = async () => {
+  const handleToggleStore = (storeId: StoreId) => {
     playClick();
-    setIsTogglingScheduler(true);
-    try {
-      const isCurrentlyDisabled = (data?.scheduler.state === 'Disabled');
-      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/toggle-scheduler', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enable: isCurrentlyDisabled }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setData((prev) => prev ? { ...prev, scheduler: json.scheduler } : prev);
-      }
-    } catch (e) {
-      console.error('Failed to toggle scheduler:', e);
-    } finally {
-      setIsTogglingScheduler(false);
-      fetchState(true);
-    }
-  };
-
-  const handleToggleStore = (store: StoreId) => {
-    playClick();
-    setSelectedStores((prev) => {
-      const next = prev.includes(store) ? prev.filter((s) => s !== store) : [...prev, store];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sentinel_giveaways_selected_stores', JSON.stringify(next));
-      }
-      if (onUpdateSettings) {
-        onUpdateSettings({ giveaways_selected_stores: next });
-      }
-      return next;
+    setSelectedStores(prev => {
+      const updated = prev.includes(storeId) ? prev.filter(s => s !== storeId) : [...prev, storeId];
+      localStorage.setItem('sentinel_giveaways_selected_stores', JSON.stringify(updated));
+      return updated;
     });
   };
 
   const handleToggleHeadless = () => {
     playClick();
-    setHeadless((prev) => {
-      const next = !prev;
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sentinel_giveaways_headless', String(next));
-      }
-      if (onUpdateSettings) {
-        onUpdateSettings({ giveaways_headless: next });
-      }
-      return next;
-    });
+    const nextVal = !headless;
+    setHeadless(nextVal);
+    localStorage.setItem('sentinel_giveaways_headless', String(nextVal));
+    if (onUpdateSettings) {
+      onUpdateSettings({ giveaways_headless: nextVal });
+    }
   };
 
-  const handleStartClaim = async () => {
+  const handleClaimAll = async () => {
     playClick();
-    setActionError(null);
-    setIsConsoleExpanded(true);
+    isAtBottomRef.current = true;
+    if (isClaiming) {
+      // Abort
+      try {
+        await fetch('http://127.0.0.1:28492/api/v1/giveaways/abort', { method: 'POST' });
+        setIsClaiming(false);
+      } catch {}
+      return;
+    }
+
     setIsClaiming(true);
+    setActionError(null);
     try {
       const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stores: selectedStores, headless }),
+        body: JSON.stringify({
+          stores: selectedStores,
+          headless,
+        }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setActionError(err.reason || err.message || 'Ошибка запуска сбора раздач');
+        const errJson = await res.json().catch(() => ({}));
+        setActionError(errJson.detail || 'Не удалось запустить сборщик');
         setIsClaiming(false);
       }
     } catch (e: any) {
-      setActionError(e.message || 'Сбой подключения к сервису');
+      setActionError(e.message || 'Ошибка сети при запуске');
       setIsClaiming(false);
     }
   };
 
-  const handleAbort = async () => {
+  const handleStoreAuth = async (storeId: StoreId) => {
     playClick();
     try {
-      await fetch('http://127.0.0.1:28492/api/v1/giveaways/abort', { method: 'POST' });
-    } catch (e) {
-      console.error('Failed to abort claim:', e);
-    }
+      await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}`, { method: 'POST' });
+      fetchState(true);
+    } catch {}
   };
 
-  const handleLoginStore = async (e: React.MouseEvent, storeId: StoreId) => {
-    e.stopPropagation();
-    if (isClaiming) return;
+  const handleCopyLogs = () => {
     playClick();
-    setActionError(null);
-    setIsConsoleExpanded(true);
-    setIsClaiming(true);
+    const textToCopy = logs.length > 0 
+      ? logs.map(l => (l.ts ? `[${new Date(l.ts).toLocaleTimeString('ru-RU')}] ` : '') + (l.line || (l as any).message || '')).join('\n')
+      : logs.map((log) => log.line).join('\n');
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedLogs(true);
+    setTimeout(() => setCopiedLogs(false), 2000);
+  };
+
+  const isSchedulerActive = data?.scheduler?.state !== 'Disabled';
+  const activeDays: string[] = useMemo(() => {
+    if (data?.scheduler?.activeDays && data.scheduler.activeDays.length > 0) {
+      return data.scheduler.activeDays;
+    }
+    const mask = data?.scheduler?.daysOfWeek;
+    if (mask !== undefined && mask !== null) {
+      return WEEK_DAYS.filter(d => (mask & d.bit) !== 0).map(d => d.key);
+    }
+    return ['Tuesday', 'Friday', 'Sunday'];
+  }, [data?.scheduler?.activeDays, data?.scheduler?.daysOfWeek]);
+
+  const [selectedDays, setSelectedDays] = useState<string[]>(['Tuesday', 'Friday', 'Sunday']);
+
+  useEffect(() => {
+    if (activeDays.length > 0) {
+      setSelectedDays(activeDays);
+    }
+  }, [activeDays]);
+
+  const handleToggleScheduler = async () => {
+    playClick();
     try {
-      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/claim', {
+      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/toggle-scheduler', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stores: [storeId], headless: false }),
+        body: JSON.stringify({ enable: !isSchedulerActive }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setActionError(err.reason || err.message || `Ошибка запуска входа в ${STORE_CONFIG[storeId].name}`);
-        setIsClaiming(false);
+      if (res.ok) {
+        fetchState(true);
       }
-    } catch (e: any) {
-      setActionError(e.message || 'Сбой подключения к сервису');
-      setIsClaiming(false);
+    } catch {}
+  };
+
+  const handleToggleDay = async (dayKey: string) => {
+    playClick();
+    const isPresent = selectedDays.includes(dayKey);
+    const nextDays = isPresent
+      ? selectedDays.filter(d => d !== dayKey)
+      : [...selectedDays, dayKey];
+    const orderedDays = WEEK_DAYS.map(d => d.key).filter(k => nextDays.includes(k));
+    setSelectedDays(orderedDays);
+
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/scheduler-days', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: orderedDays }),
+      });
+      if (res.ok) {
+        fetchState(true);
+      }
+    } catch (err) {
+      console.error('Failed to update scheduler days', err);
     }
   };
 
-  const filteredInventory = useMemo(() => {
-    if (!data?.inventory) return [];
-    return data.inventory.filter((item) => {
-      const matchStore = selectedStoreFilter === 'all' || item.store === selectedStoreFilter;
-      const matchSearch =
-        searchQuery === '' ||
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.slug.toLowerCase().includes(searchQuery.toLowerCase());
+  const activeDayLabels = useMemo(() => {
+    if (selectedDays.length === 0) return 'Дни не выбраны';
+    if (selectedDays.length === 7) return 'Ежедневно';
+    return selectedDays.map(d => DAY_SHORT_MAP[d] || d).join(',');
+  }, [selectedDays]);
+
+  // Claimed items: Priority to real backend inventory (26+ items)
+  const claimedItems: ClaimedGameItem[] = useMemo(() => {
+    if (data?.inventory && data.inventory.length > 0) {
+      return data.inventory;
+    }
+    return [];
+  }, [data?.inventory]);
+
+  // Filtered claimed items based on active store filter and search box
+  const filteredClaimedItems = useMemo(() => {
+    return claimedItems.filter((item) => {
+      const matchStore = filterStore === 'all' || item.store === filterStore;
+      const matchSearch = !searchQuery || item.title.toLowerCase().includes(searchQuery.toLowerCase());
       return matchStore && matchSearch;
     });
-  }, [data?.inventory, selectedStoreFilter, searchQuery]);
+  }, [claimedItems, filterStore, searchQuery]);
+
+  // Counts by store
+  const storeCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: claimedItems.length };
+    claimedItems.forEach((it) => {
+      counts[it.store] = (counts[it.store] || 0) + 1;
+    });
+    return counts;
+  }, [claimedItems]);
+
+  // Helper to colorize log lines
+  const renderLogLine = (l: GiveawaysLogEntry, idx: number) => {
+    const lineText = l.line || (l as any).message || '';
+    if (!lineText) return null;
+
+    let timeStr = '';
+    if (l.ts) {
+      try {
+        const d = new Date(l.ts);
+        if (!isNaN(d.getTime())) {
+          timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+      } catch {}
+    }
+
+    let lineStyle: React.CSSProperties = { color: 'var(--text-secondary)' };
+    if (lineText.includes('====') || lineText.includes('----')) {
+      lineStyle = { color: 'var(--border-subtle)', opacity: 0.6 };
+    } else if (lineText.includes('▶') || lineText.includes('[SENTINEL]')) {
+      lineStyle = { color: 'var(--led-cyan)', fontWeight: 600 };
+    } else if (lineText.includes('успешно') || lineText.includes('claimed') || lineText.includes('SUCCESS') || lineText.includes('забрано') || lineText.includes('finished checking')) {
+      lineStyle = { color: 'var(--led-mint)', fontWeight: 600 };
+    } else if (lineText.includes('ОШИБКА') || lineText.includes('ERROR') || lineText.includes('failed') || lineText.includes('exception')) {
+      lineStyle = { color: 'var(--led-amber)', fontWeight: 600 };
+    } else if (lineText.includes('Mortuis_V_Studio') || lineText.includes('МОДУЛЬ РАЗДАЧ')) {
+      lineStyle = { color: 'var(--text-primary)', fontWeight: 700 };
+    }
+
+    return (
+      <div key={idx} style={{ marginBottom: '2.5px', wordBreak: 'break-word', ...lineStyle }}>
+        {timeStr && <span style={{ color: 'var(--text-muted)', marginRight: '6px' }}>[{timeStr}]</span>}
+        <span>{lineText}</span>
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-6 select-none max-w-7xl mx-auto pb-12 animate-in fade-in duration-300">
-      {/* Studio Hero Header Card (Apple Luna 2.0 Obsidian Glass) */}
-      <div className="card p-6 md:p-8 relative overflow-hidden">
-        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3.5 rounded-2xl bg-[var(--surface-elevated)] border border-[var(--line)] text-[#73bba5] shadow-sm">
-              <Gift className="w-8 h-8" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[var(--foreground)]">
-                  Синдикат Раздач & Халявы
-                </h2>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold uppercase">
-                  Free Games Claimer
-                </span>
-              </div>
-              <p className="text-xs text-[var(--muted)] mt-1">
-                Автономный забор бесплатных игр и ассетов в Epic Games, GOG, Steam, Fab и Unity без открытого браузера
-              </p>
-            </div>
+    <div id="view-giveaways" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      {/* Top Header Island 1-to-1 with SPEC */}
+      <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: '14.5px', fontWeight: 800 }}>
+            Синдикат Бесплатных Раздач & Ассетов (Patchright Engine)
           </div>
-
-          {/* Quick Actions & Runner Controls */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Headless Mode Switch */}
-            <button
-              onClick={handleToggleHeadless}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                headless
-                  ? 'bg-white/[0.04] border-[var(--line)] text-[var(--muted)] hover:text-white'
-                  : 'bg-amber-500/10 border-amber-500/30 text-amber-300 shadow-sm'
-              }`}
-              title={headless ? 'Тихий скрытый режим (фоновый сбор)' : 'Показывать окно браузера при сборе'}
-            >
-              {headless ? <EyeOff className="w-4 h-4 text-[#73bba5]" /> : <Eye className="w-4 h-4 text-amber-400" />}
-              <span>{headless ? 'Тихий Stealth-режим' : 'Показывать браузер'}</span>
-            </button>
-
-            {/* Manual Refresh */}
-            <button
-              onClick={() => {
-                playClick();
-                fetchState(true);
-              }}
-              className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-[var(--line)] text-[var(--foreground)] transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Обновить базу забранных игр"
-            >
-              <RefreshCw className="w-4 h-4 text-[var(--accent)]" />
-            </button>
-
-            {/* Run / Abort Button */}
-            {isClaiming ? (
-              <button
-                onClick={handleAbort}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-              >
-                <Square className="w-4 h-4 fill-current animate-pulse text-rose-400" />
-                <span>Остановить сбор</span>
-              </button>
-            ) : (
-              <button
-                onClick={handleStartClaim}
-                disabled={selectedStores.length === 0 || data?.scheduler.state === 'Running'}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#2a6d5c] to-[#368873] hover:from-[#327e6b] hover:to-[#419d85] text-white text-xs font-bold transition-all shadow-[0_4px_16px_rgba(54,136,115,0.35)] active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Play className="w-4 h-4 fill-current text-[#d6f2e5]" />
-                <span>Забрать всё ({selectedStores.length})</span>
-              </button>
-            )}
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+            Авто-клейм 100% бесплатных игр в 7 магазинах • Префлайт GOG/Steam &lt;450 мс
           </div>
         </div>
-
-        {/* Action Error Banner */}
-        {actionError && (
-          <div className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{actionError}</span>
-          </div>
-        )}
-      </div>
-
-      {/* 2-Column Top Bento: Store Matrix (Left) + Scheduler Telemetry (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Cell 1: Store Matrix & Selection (2 Cols) */}
-        <div className="card p-6 lg:col-span-2 flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <Store className="w-4 h-4 text-[var(--accent)]" />
-              <h3 className="text-sm font-bold text-[var(--foreground)]">Платформы & Магазины</h3>
-            </div>
-            <span className="text-[11px] text-[var(--muted)]">
-              Выбрано: {selectedStores.length} из {Object.keys(STORE_CONFIG).length - 1}
-            </span>
-          </div>
-
-          {/* Grid of Stores */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {(['epic', 'gog', 'steam', 'fab', 'unity'] as StoreId[]).map((storeId) => {
-              const cfg = STORE_CONFIG[storeId];
-              const isSelected = selectedStores.includes(storeId);
-              const storeMeta = data?.stores[storeId];
-              const claimedCount = storeMeta?.claimedCount ?? 0;
-              const isThisStoreRunning = isClaiming && data?.runner?.activeStores?.includes(storeId);
-              const accountName = storeMeta?.account;
-
-              return (
-                <div
-                  key={storeId}
-                  onClick={() => handleToggleStore(storeId)}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between min-h-[140px] ${
-                    isSelected
-                      ? 'bg-[#368873]/10 border-[#73bba5] shadow-[0_2px_12px_rgba(115,187,165,0.15)]'
-                      : 'bg-[var(--surface-elevated)] border-[var(--line)] opacity-75 hover:opacity-100'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs font-bold ${cfg.text}`}>{cfg.name}</span>
-                      <span
-                        className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
-                          isSelected
-                            ? 'bg-[#368873] border-[#73bba5] text-white'
-                            : 'border-[var(--line)] bg-transparent'
-                        }`}
-                      >
-                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
-                      </span>
-                    </div>
-
-                    {/* Account Login Status Badge */}
-                    <div className="mt-2">
-                      {accountName ? (
-                        <div
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#368873]/20 border border-[#73bba5]/40 text-[#73bba5] text-[10px] font-bold shadow-sm"
-                          title={`Вход в аккаунт успешно совершен: ${accountName}`}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#73bba5] shrink-0" />
-                          <span className="truncate max-w-[100px]">{accountName}</span>
-                          <span className="text-[9px] text-[#73bba5]/80 font-normal">● Онлайн</span>
-                        </div>
-                      ) : (
-                        <div
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-semibold"
-                          title="Вход не выполнен. Нажмите кнопку ниже для авторизации."
-                        >
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span>Требуется вход</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="pt-2">
-                    <div className="flex items-baseline justify-between mb-2.5">
-                      <div>
-                        <div className="text-base font-bold text-[var(--foreground)] tabular-nums">
-                          {claimedCount}
-                        </div>
-                        <div className="text-[10px] text-[var(--muted)]">в коллекции</div>
-                      </div>
-                      {storeMeta?.lastClaimedAt && (
-                        <span className="text-[9px] text-[var(--muted)] tabular-nums">
-                          {new Date(storeMeta.lastClaimedAt).toLocaleDateString('ru-RU', {
-                            day: 'numeric',
-                            month: 'short',
-                          })}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 1-Click Login Button */}
-                    {isThisStoreRunning ? (
-                      <div className="w-full py-1.5 px-2 rounded-xl bg-[#368873]/20 border border-[#73bba5]/40 text-[10px] font-semibold text-[#73bba5] flex items-center justify-center gap-1.5 animate-pulse">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#73bba5] animate-ping" />
-                        <span>Окно открыто...</span>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => handleLoginStore(e, storeId)}
-                        disabled={isClaiming}
-                        title={accountName ? `Открыть окно для смены аккаунта ${cfg.name}` : `Открыть окно браузера для входа в ${cfg.name}`}
-                        className={`w-full py-1.5 px-2 rounded-xl text-[10px] font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group/btn cursor-pointer border ${
-                          accountName
-                            ? 'bg-white/[0.04] hover:bg-white/[0.08] border-[var(--line)] text-[var(--muted)] hover:text-white'
-                            : 'bg-[#368873]/20 hover:bg-[#368873]/30 border-[#73bba5]/50 text-[#73bba5] shadow-sm'
-                        }`}
-                      >
-                        <LogIn className={`w-3 h-3 transition-colors ${accountName ? 'text-[var(--muted)] group-hover/btn:text-white' : 'text-[#73bba5]'}`} />
-                        <span>{accountName ? 'Сменить аккаунт' : '🔑 Войти в аккаунт'}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Cell 2: Task Scheduler Telemetry (1 Col) */}
-        <div className="card p-6 flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-[var(--accent)]" />
-              <h3 className="text-sm font-bold text-[var(--foreground)]">Планировщик Windows</h3>
-            </div>
-            <span
-              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                data?.scheduler.state === 'Ready'
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : data?.scheduler.state === 'Running'
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                  : data?.scheduler.state === 'Disabled'
-                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-                  : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30'
-              }`}
-            >
-              {data?.scheduler.state === 'Ready'
-                ? '● Активен'
-                : data?.scheduler.state === 'Running'
-                ? '● Работает'
-                : data?.scheduler.state === 'Disabled'
-                ? '● Отключен'
-                : '● Настроен'}
-            </span>
-          </div>
-
-          <div className="space-y-3 py-1">
-            <div className="p-3 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] space-y-1">
-              <div className="text-[11px] text-[var(--muted)] flex items-center justify-between">
-                <span>Задание:</span>
-                <span className="font-mono text-xs text-[var(--foreground)] font-semibold">
-                  FreeGamesClaimerStudio
-                </span>
-              </div>
-              <div className="text-[11px] text-[var(--muted)] flex items-center justify-between">
-                <span>График:</span>
-                <span className="text-xs text-[var(--accent)] font-semibold">
-                  Вт, Пт, Вс в 13:30
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-[var(--muted)] px-1">
-              <span>Всего забранных игр:</span>
-              <span className="text-sm font-bold text-[var(--foreground)] tabular-nums">
-                {data?.totalClaimed ?? 0}
-              </span>
-            </div>
-
-            {data?.scheduler.exists && (
-              <button
-                type="button"
-                onClick={handleToggleScheduler}
-                disabled={isTogglingScheduler || data?.scheduler.state === 'Running'}
-                className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50 ${
-                  data?.scheduler.state === 'Disabled'
-                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300'
-                    : 'bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300'
-                }`}
-                title={
-                  data?.scheduler.state === 'Disabled'
-                    ? 'Включить автоматический сбор по расписанию'
-                    : 'Отключить автоматический сбор по расписанию'
-                }
-              >
-                {data?.scheduler.state === 'Disabled' ? (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />
-                    <span>Включить Синдикат Раздач</span>
-                  </>
-                ) : (
-                  <>
-                    <Square className="w-3.5 h-3.5 fill-current text-rose-400" />
-                    <span>Отключить Синдикат Раздач</span>
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-
-          <div className="text-[11px] text-[var(--muted)] flex items-center gap-1.5 pt-1">
-            <ShieldCheck className="w-4 h-4 text-[#73bba5] shrink-0" />
-            <span>Сессии в полной безопасности (хранятся локально)</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Cell 3: Live Execution Console (Collapsible) */}
-      <div className="card overflow-hidden transition-all">
-        <button
-          onClick={() => {
-            playClick();
-            setIsConsoleExpanded(!isConsoleExpanded);
-          }}
-          className="w-full p-4.5 flex items-center justify-between bg-white/[0.02] hover:bg-white/[0.04] transition-all cursor-pointer text-left border-b border-[var(--line)]"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-              <Terminal className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[var(--foreground)]">
-                  Живая консоль Patchright & Сбора
-                </span>
-                {isClaiming && (
-                  <span className="px-2 py-0.2 rounded-full text-[9px] bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40 animate-pulse">
-                    RUNNING
-                  </span>
-                )}
-              </div>
-              <span className="text-[11px] text-[var(--muted)]">
-                {logs.length} строк вывода &bull; Лог-файл: {data?.lastLogFile || 'Ожидание запуска'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-            <span>{isConsoleExpanded ? 'Свернуть' : 'Развернуть'}</span>
-            {isConsoleExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </div>
-        </button>
-
-        {isConsoleExpanded && (
-          <div
-            ref={consoleContainerRef}
-            onScroll={(e) => {
-              const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-              const isAtBottom = scrollHeight - scrollTop - clientHeight < 40;
-              if (autoScroll !== isAtBottom) {
-                setAutoScroll(isAtBottom);
-              }
-            }}
-            className="p-4 bg-[#0d1211] font-mono text-xs text-zinc-300 space-y-1 max-h-80 overflow-y-auto select-text scrollbar-thin"
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            className={`tactile-btn ${headless ? 'active-mint' : ''}`}
+            onClick={handleToggleHeadless}
           >
-            {logs.length === 0 ? (
-              <div className="text-zinc-500 py-6 text-center italic">
-                Консоль чиста. Нажмите «Забрать всё», чтобы увидеть живой лог сбора в реальном времени.
-              </div>
-            ) : (
-              logs.map((entry, idx) => (
-                <div key={idx} className="leading-relaxed hover:bg-white/[0.03] px-1 rounded flex gap-2">
-                  <span className="text-zinc-600 select-none tabular-nums shrink-0">
-                    {new Date(entry.ts).toLocaleTimeString('ru-RU')}
-                  </span>
-                  <span
-                    className={
-                      entry.line.includes('[WARN]')
-                        ? 'text-amber-400'
-                        : entry.line.includes('[ERROR]')
-                        ? 'text-rose-400 font-bold'
-                        : entry.line.includes('Claiming')
-                        ? 'text-[#73bba5] font-semibold'
-                        : entry.line.includes('Complete')
-                        ? 'text-emerald-400 font-bold'
-                        : 'text-zinc-300'
-                    }
-                  >
-                    {entry.line}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+            👁 Stealth Headless: {headless ? 'ВКЛ' : 'ВЫКЛ'}
+          </button>
+          <button 
+            className={`chunky-cta ${isClaiming ? 'amber' : ''}`}
+            onClick={handleClaimAll}
+          >
+            {isClaiming ? '⏹ ОСТАНОВИТЬ КЛЕЙМ' : `▶ ЗАБРАТЬ ВСЁ (${selectedStores.length} МАГАЗИНОВ)`}
+          </button>
+        </div>
       </div>
 
-      {/* Cell 4: Claimed Inventory Gallery */}
-      <div className="card p-6 md:p-8 space-y-6">
-        {/* Controls: Search + Filter Pills */}
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-              <Layers className="w-5 h-5" />
+      {/* 7 Store Pods Grid (.stores-7-grid) 1-to-1 with SPEC */}
+      <div className="stores-7-grid" style={{ flexShrink: 0 }}>
+        {STORES.map((store) => {
+          const isSelected = selectedStores.includes(store.id);
+          const storeData = data?.stores ? (data.stores as any)[store.id] : null;
+          const count = storeData?.claimedCount ?? 0;
+          const isAuthed = Boolean(storeData?.account);
+          const accountName = storeData?.account || 'Нет данных аккаунта';
+
+          return (
+            <div 
+              key={store.id} 
+              className={`store-pod ${isSelected ? 'selected' : ''}`}
+              onClick={() => handleToggleStore(store.id)}
+            >
+              <div className="store-pod-header">
+                <div className="store-pod-title">
+                  <span style={{ fontSize: '13px' }}>{store.icon}</span>
+                  <strong>{store.name}</strong>
+                </div>
+                <span className={`store-select-badge ${isSelected ? 'active' : ''}`}>
+                  {isSelected ? '✓ ВКЛ' : 'ВЫКЛ'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                <span className="tabular" style={{ fontSize: '20px', fontWeight: 800, color: !isAuthed ? 'var(--text-muted)' : 'inherit' }}>
+                  {count}
+                </span>
+                <span className="tabular" style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                  {store.badge}
+                </span>
+              </div>
+
+              <div className="tabular" style={{ fontSize: '8.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span className={`led-dot ${!isAuthed ? 'off' : ''}`}></span>
+                <span style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)' }}>
+                  {isAuthed ? accountName : '⚠ Требуется вход'}
+                </span>
+              </div>
+
+              <button 
+                className={`tactile-btn ${!isAuthed ? 'active-mint' : ''}`} 
+                style={{ height: '24px', fontSize: '9px', width: '100%', justifyContent: 'center' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStoreAuth(store.id);
+                }}
+              >
+                {isAuthed ? 'Сменить аккаунт' : '🔑 Войти в аккаунт'}
+              </button>
             </div>
-            <div>
-              <h3 className="text-base font-bold text-[var(--foreground)]">Коллекция забранных игр</h3>
-              <p className="text-xs text-[var(--muted)]">
-                Всего найдено: {filteredInventory.length} тайтлов
-              </p>
-            </div>
+          );
+        })}
+      </div>
+
+      {/* 2-Column Bento: Left Collected Collection + Right Task Scheduler 1-to-1 with SPEC */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {/* Left Bento: Collection */}
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+          <div className="engraved-header" style={{ marginBottom: '8px', flexShrink: 0 }}>
+            <span className="tag">
+              <span className="led-dot"></span> КОЛЛЕКЦИЯ ЗАБРАННЫХ ИГР И UE5-АССЕТОВ ({claimedItems.length} ТАЙТЛОВ)
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Search Box */}
-            <div className="relative flex-1 md:w-64">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
-              <input
-                type="text"
-                placeholder="Поиск по названию..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-xs text-[var(--foreground)] placeholder-[var(--muted)] focus:outline-none focus:border-[#73bba5] transition-all"
-              />
-            </div>
-
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-              {(['all', 'epic', 'gog', 'steam', 'fab', 'unity'] as const).map((store) => (
+          {/* Quick Filter & Search Bar */}
+          <div className="claimed-filter-bar" style={{ flexShrink: 0 }}>
+            <div className="claimed-store-tabs">
+              <button 
+                className={`claimed-tab-pill ${filterStore === 'all' ? 'active' : ''}`}
+                onClick={() => setFilterStore('all')}
+              >
+                Все ({storeCounts['all'] || 0})
+              </button>
+              {STORES.filter(s => (storeCounts[s.id] || 0) > 0).map(s => (
                 <button
-                  key={store}
-                  onClick={() => {
-                    playClick();
-                    setSelectedStoreFilter(store);
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem('sentinel_giveaways_store_filter', store);
-                    }
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    selectedStoreFilter === store
-                      ? 'bg-[#368873] text-white shadow-sm'
-                      : 'text-[var(--muted)] hover:text-white'
-                  }`}
+                  key={s.id}
+                  className={`claimed-tab-pill ${filterStore === s.id ? 'active' : ''}`}
+                  onClick={() => setFilterStore(s.id)}
                 >
-                  {store === 'all' ? 'Все' : STORE_CONFIG[store]?.name.split(' ')[0]}
+                  <span>{s.icon}</span>
+                  <span>{s.name}</span>
+                  <span style={{ opacity: 0.7 }}>({storeCounts[s.id] || 0})</span>
                 </button>
               ))}
             </div>
-          </div>
-        </div>
 
-        {/* Grid of Claimed Games */}
-        {filteredInventory.length === 0 ? (
-          <div className="p-12 text-center text-xs text-[var(--muted)] border border-dashed border-[var(--line)] rounded-2xl">
-            По вашему запросу ничего не найдено
+            <input 
+              type="text" 
+              className="claimed-search-box" 
+              placeholder="🔍 Поиск тайтла..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredInventory.map((item) => {
-              const cfg = STORE_CONFIG[item.store] || STORE_CONFIG.epic;
-              const formattedDate = new Date(item.claimedAt).toLocaleDateString('ru-RU', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-              });
 
-              return (
-                <div
-                  key={item.id}
-                  className="p-4 rounded-2xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/50 transition-all flex flex-col justify-between group shadow-sm"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${cfg.bg} ${cfg.border} ${cfg.text}`}
-                      >
-                        {cfg.name}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                          ✓ В библиотеке
+          {/* Compact Tiles Grid */}
+          <div className="claimed-compact-grid">
+            {filteredClaimedItems.length > 0 ? (
+              filteredClaimedItems.map((item) => {
+                const storeMeta = STORES.find(s => s.id === item.store) || STORES[0];
+                const dateStr = formatClaimDate(item.claimedAt || (item as any).claimed_at, item.timestampMs);
+
+                return (
+                  <div key={item.id} className="claimed-compact-card">
+                    <div 
+                      className="claimed-store-badge-icon" 
+                      style={{ color: storeMeta.color, background: storeMeta.bg }}
+                      title={`Магазин: ${storeMeta.name}`}
+                    >
+                      {storeMeta.icon}
+                    </div>
+
+                    <div className="claimed-card-body">
+                      <div className="claimed-card-header-row">
+                        <span style={{ color: storeMeta.color, fontWeight: 700 }}>
+                          {storeMeta.tag}
                         </span>
-                        <span className="text-[10px] text-[var(--muted)] flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-[var(--muted)]" />
-                          <span>{formattedDate}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          ✓ {dateStr}
                         </span>
+                      </div>
+
+                      <div className="claimed-card-title" title={item.title}>
+                        {item.title}
                       </div>
                     </div>
 
-                    <h4 className="text-xs md:text-sm font-bold text-[var(--foreground)] line-clamp-2 leading-snug group-hover:text-[#73bba5] transition-colors">
-                      {item.title}
-                    </h4>
-                  </div>
-
-                  <div className="pt-3.5 mt-2 border-t border-[var(--line)] flex items-center justify-between text-[11px]">
-                    <span className="text-[var(--muted)] text-[10px]">
-                      Аккаунт: <span className="font-semibold text-zinc-300">{item.account}</span>
-                    </span>
-
                     {item.url && (
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-[var(--accent)] hover:underline font-semibold"
-                        title="Открыть страницу игры в магазине"
+                      <a 
+                        href={item.url} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="claimed-ext-link"
+                        title="Открыть страницу тайтла в магазине ↗"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <span>В магазин</span>
-                        <ArrowUpRight className="w-3.5 h-3.5" />
+                        ↗
                       </a>
                     )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '11px', gridColumn: '1 / -1' }}>
+                Тайтлы не найдены по заданным критериям
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Footer Branding */}
-      <div className="text-center pt-2 pb-2 text-[11px] text-[var(--muted)] space-y-1">
-        <div>Twitch Drops Sentinel &bull; Free Games Claimer Integration</div>
-        <div>Crafted with precision by Mortuis_V & Mortuis_V_Studio &bull; 2026</div>
+        {/* Right Bento: Task Scheduler & Log */}
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', gap: '8px' }}>
+          <div className="engraved-header" style={{ marginBottom: 0, flexShrink: 0 }}>
+            <span className="tag">
+              <span className="led-dot"></span> TASK SCHEDULER: FreeGamesClaimerStudio
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button 
+                className={`tactile-btn ${copiedLogs ? 'active-mint' : ''}`} 
+                style={{ height: '22px', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                onClick={handleCopyLogs}
+                title="Скопировать все логи терминала в буфер обмена"
+              >
+                <span>{copiedLogs ? '✓' : '📋'}</span>
+                <span>{copiedLogs ? 'Скопировано!' : 'Копировать логи'}</span>
+              </button>
+              <button 
+                className={`tactile-btn ${isSchedulerActive ? 'active-mint' : ''}`} 
+                style={{ height: '22px', fontSize: '9px' }}
+                onClick={handleToggleScheduler}
+                title={isSchedulerActive ? 'Нажмите для приостановки планировщика' : 'Нажмите для включения планировщика'}
+              >
+                {isSchedulerActive ? `● Активен (${activeDayLabels})` : '○ Приостановлен'}
+              </button>
+            </div>
+          </div>
+
+          {/* Day Selector Strip */}
+          <div className="scheduler-days-strip">
+            <span className="scheduler-days-label">
+              <span className="led-dot" style={{ width: '5px', height: '5px' }}></span>
+              Дни автосбора:
+            </span>
+            <div className="scheduler-days-chips">
+              {WEEK_DAYS.map(d => {
+                const isActive = selectedDays.includes(d.key);
+                return (
+                  <button
+                    key={d.key}
+                    className={`scheduler-day-chip ${isActive ? 'active' : ''}`}
+                    onClick={() => handleToggleDay(d.key)}
+                    title={`${d.hint} (${isActive ? 'Активен — нажмите для отключения' : 'Отключен — нажмите для включения'})`}
+                  >
+                    {d.short}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div 
+            ref={terminalRef}
+            onScroll={handleTerminalScroll}
+            className="obsidian-well" 
+            style={{ 
+              flex: 1, 
+              padding: '9px', 
+              fontFamily: "'JetBrains Mono', monospace", 
+              fontSize: '10px', 
+              color: 'var(--text-secondary)', 
+              lineHeight: 1.5, 
+              overflowY: 'auto' 
+            }}
+          >
+            {logs.length > 0 ? (
+              logs.map((l, i) => renderLogLine(l, i))
+            ) : (
+              <div style={{ marginBottom: '2.5px', color: 'var(--text-secondary)' }}>
+                Журнал событий пока пуст.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

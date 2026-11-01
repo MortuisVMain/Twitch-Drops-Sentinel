@@ -387,7 +387,7 @@ export function registerDynamicBoxArt(gameName: string, url: string): void {
  */
 export function resolveGameBoxArtSources(
   gameName: string,
-  candidateUrls: (string | undefined)[] = []
+  candidateUrls?: string | (string | undefined)[] | null
 ): string[] {
   const sources: string[] = [];
   const seen = new Set<string>();
@@ -400,7 +400,14 @@ export function resolveGameBoxArtSources(
   };
 
   // 1. Add valid explicit candidate URLs first (from activeDrop or catalog)
-  for (const url of candidateUrls) {
+  // Safely normalize null, undefined, single string, or array
+  const safeList: (string | undefined)[] = Array.isArray(candidateUrls)
+    ? candidateUrls
+    : typeof candidateUrls === 'string'
+      ? [candidateUrls]
+      : [];
+
+  for (const url of safeList) {
     add(url);
   }
 
@@ -468,7 +475,7 @@ export function resolveGameBoxArtSources(
  */
 export function resolveGameBoxArt(
   gameName: string,
-  candidateUrls: (string | undefined)[] = []
+  candidateUrls?: string | (string | undefined)[] | null
 ): string | undefined {
   const sources = resolveGameBoxArtSources(gameName, candidateUrls);
   return sources[0];

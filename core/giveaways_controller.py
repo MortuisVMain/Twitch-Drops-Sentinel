@@ -57,6 +57,22 @@ STORE_DISPLAY_NAMES: Dict[str, str] = {
     "itch": "Itch.io",
     "prime": "Prime Gaming",
 }
+DAY_BITS: Dict[str, int] = {
+    "Sunday": 1,
+    "Monday": 2,
+    "Tuesday": 4,
+    "Wednesday": 8,
+    "Thursday": 16,
+    "Friday": 32,
+    "Saturday": 64,
+}
+
+def bitmask_to_days(mask: Optional[int]) -> List[str]:
+    if mask is None:
+        return ["Tuesday", "Friday", "Sunday"]
+    ordered = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    return [d for d in ordered if (mask & DAY_BITS[d]) != 0]
+
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -94,11 +110,12 @@ class GiveawaysOrchestrator:
         ps_script = (
             f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; "
             f"if ($t) {{ $i = Get-ScheduledTaskInfo -TaskName '{TASK_NAME}'; "
+            f"$d = if ($t.Triggers[0].DaysOfWeek) {{ [int]$t.Triggers[0].DaysOfWeek }} else {{ 37 }}; "
             f"@{{ exists=$true; state=$t.State.ToString(); "
             f"lastRun=if($i.LastRunTime){{$i.LastRunTime.ToString('o')}}else{{$null}}; "
             f"nextRun=if($i.NextRunTime){{$i.NextRunTime.ToString('o')}}else{{$null}}; "
-            f"lastResult=$i.LastTaskResult }} | ConvertTo-Json -Compress }} "
-            f"else {{ @{{ exists=$false; state='Unknown'; lastRun=$null; nextRun=$null; lastResult=$null }} | ConvertTo-Json -Compress }}"
+            f"lastResult=$i.LastTaskResult; daysOfWeek=$d }} | ConvertTo-Json -Compress }} "
+            f"else {{ @{{ exists=$false; state='Unknown'; lastRun=$null; nextRun=$null; lastResult=$null; daysOfWeek=$null }} | ConvertTo-Json -Compress }}"
         )
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -108,6 +125,16 @@ class GiveawaysOrchestrator:
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             raw = json.loads(stdout.decode("utf-8", errors="replace").strip())
+            raw_mask = raw.get("daysOfWeek")
+            mask: Optional[int] = None
+            if raw_mask is not None:
+                try:
+                    mask = int(raw_mask)
+                except (ValueError, TypeError):
+                    mask = 37
+            elif bool(raw.get("exists")):
+                mask = 37
+
             result = {
                 "taskName": TASK_NAME,
                 "exists": bool(raw.get("exists")),
@@ -115,6 +142,8 @@ class GiveawaysOrchestrator:
                 "lastRunTime": raw.get("lastRun"),
                 "nextRunTime": raw.get("nextRun"),
                 "lastTaskResult": raw.get("lastResult"),
+                "daysOfWeek": mask,
+                "activeDays": bitmask_to_days(mask),
             }
         except Exception as e:
             logger.debug(f"Scheduler query fallback: {e}")
@@ -125,6 +154,8 @@ class GiveawaysOrchestrator:
                 "lastRunTime": None,
                 "nextRunTime": None,
                 "lastTaskResult": None,
+                "daysOfWeek": None,
+                "activeDays": [],
             }
 
         self._scheduler_cache = (now, result)
@@ -146,6 +177,42 @@ class GiveawaysOrchestrator:
             logger.info(f"Task scheduler {TASK_NAME} set to: {'Enabled' if target_enable else 'Disabled'}")
         except Exception as e:
             logger.error(f"Error toggling scheduler task: {e}")
+        return await self._query_scheduler(force=True)
+
+    async def update_scheduler_days(self, days: List[str]) -> dict:
+        """
+        Updates the weekly scheduled days for FreeGamesClaimerStudio in Windows Task Scheduler.
+        Preserves StartBoundary (execution time). If days is empty, disables the task.
+        """
+        valid_days = [d.capitalize() for d in days if d.capitalize() in DAY_BITS]
+        
+        if not valid_days:
+            logger.info("All scheduler days unselected; disabling scheduled task.")
+            return await self.toggle_scheduler(enable=False)
+
+        days_quoted = ",".join(f"'{d}'" for d in valid_days)
+        ps_script = (
+            f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; "
+            f"if ($t) {{ "
+            f"$sb = $t.Triggers[0].StartBoundary; "
+            f"$timeStr = if ($sb) {{ ([datetime]::Parse($sb)).ToString('HH:mm') }} else {{ '13:30' }}; "
+            f"$newTr = New-ScheduledTaskTrigger -Weekly -DaysOfWeek @({days_quoted}) -At $timeStr; "
+            f"Set-ScheduledTask -TaskName '{TASK_NAME}' -Trigger $newTr -ErrorAction Stop | Out-Null; "
+            f"if ($t.State -eq 'Disabled') {{ Enable-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue | Out-Null }} "
+            f"}}"
+        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                creationflags=0x08000000
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            logger.info(f"Updated scheduler {TASK_NAME} days to: {valid_days}")
+        except Exception as e:
+            logger.error(f"Error updating scheduler days: {e}")
+
+        self._scheduler_cache = (0.0, {})
         return await self._query_scheduler(force=True)
 
     def _read_inventory_sync(self, force: bool = False) -> Tuple[Dict[str, dict], List[dict]]:
@@ -360,6 +427,9 @@ class GiveawaysOrchestrator:
             self._broadcast("state", {"state": "running", "pid": self._proc.pid, "stores": valid_stores})
             asyncio.create_task(self._monitor_process(self._proc))
             return {"status": "started", "pid": self._proc.pid, "stores": valid_stores}
+
+    async def start_auth(self, store: str) -> dict:
+        return await self.start_claim(stores=[store], headless=False)
 
     async def _monitor_process(self, proc: asyncio.subprocess.Process) -> None:
         try:

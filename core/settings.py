@@ -23,6 +23,7 @@ class SettingsFile(TypedDict):
     enable_badges_emotes: bool
     available_drops_check: bool
     priority_mode: PriorityMode
+    ignored_channels: list[dict[str, Any]]
 
 
 default_settings: SettingsFile = {
@@ -37,6 +38,7 @@ default_settings: SettingsFile = {
     "enable_badges_emotes": False,
     "available_drops_check": False,
     "priority_mode": PriorityMode.PRIORITY_ONLY,
+    "ignored_channels": [],
 }
 
 
@@ -61,6 +63,7 @@ class Settings:
     enable_badges_emotes: bool
     available_drops_check: bool
     priority_mode: PriorityMode
+    ignored_channels: list[dict[str, Any]]
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
 
@@ -84,7 +87,7 @@ class Settings:
         if name in self.PASSTHROUGH:
             # passthrough
             return super().__setattr__(name, value)
-        elif name in self._settings:
+        elif name in self._settings or name == "ignored_channels":
             self._settings[name] = value  # type: ignore[literal-required]
             self._altered = True
             return

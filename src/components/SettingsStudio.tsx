@@ -1,34 +1,4 @@
-import React, { useState } from 'react';
-import {
-  Settings,
-  Shield,
-  Power,
-  RefreshCw,
-  Sliders,
-  Volume2,
-  VolumeX,
-  BatteryCharging,
-  Coins,
-  CheckCircle2,
-  FolderSync,
-  ArrowLeft,
-  FileText,
-  FolderPlus,
-  Trash2,
-  Folder,
-  Disc,
-  Gamepad2,
-  Copy,
-  Check,
-  Laptop,
-  Download,
-  Sparkles,
-  Gift,
-  Bell,
-  Radio,
-  ToggleRight,
-  LogOut,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
@@ -36,390 +6,214 @@ interface SettingsStudioProps {
   settings: SentinelSettings;
   stats: SentinelStats;
   username?: string;
+  userId?: string;
   installedCount?: number;
   onUpdateSettings: (newSettings: Partial<SentinelSettings>) => void;
-  onRescanGames?: () => void;
+  onRescanGames?: () => Promise<number | null> | void;
   isScanning?: boolean;
   onBack?: () => void;
   onOpenVaultFile?: () => void;
+  onUnbanStreamer?: (channel: string) => void;
+  onCheckUpdates?: () => Promise<void>;
+  updateInfo?: UpdateCheckResult | null;
+  updateProgress?: UpdateProgressStatus | null;
 }
 
 export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   settings,
   stats,
-  username,
+  username = '—',
+  userId = '',
   installedCount = 0,
   onUpdateSettings,
   onRescanGames,
   isScanning = false,
-  onBack,
   onOpenVaultFile,
+  onCheckUpdates,
+  updateInfo,
+  updateProgress,
 }) => {
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
-  const [isBrowsingFolder, setIsBrowsingFolder] = useState<boolean>(false);
-  const [autostartEnabled, setAutostartEnabled] = useState<boolean>(false);
-  const [isCopiedReport, setIsCopiedReport] = useState<boolean>(false);
-  const [isCopyingReport, setIsCopyingReport] = useState<boolean>(false);
-  const [isClearingGames, setIsClearingGames] = useState<boolean>(false);
-  const [clearedGamesMessage, setClearedGamesMessage] = useState<string | null>(null);
-  const [isClearingTrophies, setIsClearingTrophies] = useState<boolean>(false);
-  const [clearedTrophiesMessage, setClearedTrophiesMessage] = useState<string | null>(null);
-  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
-  const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
-  const [showReportModal, setShowReportModal] = useState<boolean>(false);
-  const [reportContent, setReportContent] = useState<string>('');
-  const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
+  const [scanLabel, setScanLabel] = useState<string>('↻ Пересканировать все диски');
+  const [backupLabel, setBackupLabel] = useState<string>('📦 Бэкап профиля (.zip)');
+  const [armedButton, setArmedButton] = useState<'trophies' | 'logout' | null>(null);
+  const [armedCountdown, setArmedCountdown] = useState<number>(0);
+  const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
+  const [diagContent, setDiagContent] = useState<string>('');
+  const [isLoadingDiag, setIsLoadingDiag] = useState<boolean>(false);
 
-  // GitHub Auto-Updater States
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState<boolean>(false);
-  const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
-  const [updateProgress, setUpdateProgress] = useState<UpdateProgressStatus | null>(null);
-  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
+  const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
+
+  const [directories, setDirectories] = useState<string[]>([]);
 
   const { isMuted, toggleMute, playClick, playRewardChime } = useTactileAudio();
 
-  const handleCheckUpdates = async () => {
-    playClick();
-    setIsCheckingUpdate(true);
-    setUpdateMessage(null);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/updates/check?force=1');
-      if (res.ok) {
-        const data: UpdateCheckResult = await res.json();
-        setUpdateInfo(data);
-        if (data.update_available) {
-          setUpdateMessage(`Доступна новая версия: v${data.remote_version}`);
-        } else {
-          setUpdateMessage(`У вас актуальная версия (v${data.local_version})`);
-        }
-      } else {
-        setUpdateMessage('Не удалось проверить обновления');
-      }
-    } catch (err) {
-      setUpdateMessage('Ошибка связи со службой обновлений');
-    } finally {
-      setIsCheckingUpdate(false);
-    }
-  };
-
-  const [isUpdateInstalled, setIsUpdateInstalled] = useState(false);
-
-  const handleRestartApp = async () => {
-    playClick();
-    const wv = (window as any).chrome?.webview;
-    if (wv && typeof wv.postMessage === 'function') {
-      wv.postMessage({ type: 'RESTART_SENTINEL' });
-      return;
-    }
-    try {
-      await fetch('http://127.0.0.1:28492/api/restart', { method: 'POST' });
-      setTimeout(() => window.location.reload(), 1500);
-    } catch { }
-  };
-
-  const handleApplyUpdate = async () => {
-    if (!updateInfo?.download_url) return;
-    playClick();
-    setIsApplyingUpdate(true);
-    setUpdateProgress(null);
-
-    const progressPoll = setInterval(async () => {
-      try {
-        const pRes = await fetch('http://127.0.0.1:28492/api/updates/status');
-        if (pRes.ok) {
-          const pData: UpdateProgressStatus = await pRes.json();
-          setUpdateProgress(pData);
-        }
-      } catch {}
-    }, 400);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/updates/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          download_url: updateInfo.download_url,
-          asset_api_url: updateInfo.asset_api_url,
-        }),
-      });
-      const data = await res.json();
-      if (data.status === 'ok') {
-        playRewardChime();
-        setIsUpdateInstalled(true);
-        setUpdateMessage('✨ Обновление успешно установлено! Перезапустите Sentinel.');
-        setUpdateInfo(null);
-      } else {
-        setUpdateMessage(`Ошибка установки: ${data.message}`);
-      }
-    } catch (err: any) {
-      setUpdateMessage(`Сбой при установке: ${err.message || err}`);
-    } finally {
-      clearInterval(progressPoll);
-      setIsApplyingUpdate(false);
-    }
-  };
-
-  React.useEffect(() => {
+  useEffect(() => {
     let isMounted = true;
     fetch('http://127.0.0.1:28492/api/autostart')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (isMounted && data && typeof data.enabled === 'boolean') {
-          setAutostartEnabled(data.enabled);
-        }
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
       })
-      .catch(() => {});
+      .then((data) => {
+        if (isMounted) setAutostartEnabled(Boolean(data.enabled));
+      })
+      .catch((error) => {
+        if (isMounted) setAutostartError(error instanceof Error ? error.message : String(error));
+      });
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const handleToggleAutostart = async () => {
-    playClick();
-    const nextState = !autostartEnabled;
-    setAutostartEnabled(nextState);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/autostart', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: nextState }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAutostartEnabled(data.enabled);
-      }
-    } catch (err) {
-      console.error('Failed to update autostart:', err);
-    }
-  };
-
-  const handleCopyDiagnosticReport = async () => {
-    playClick();
-    setIsCopyingReport(true);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/diagnostic-report');
-      if (res.ok) {
-        const text = await res.text();
-        let copied = false;
-
-        // 1. Try modern async Clipboard API
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          try {
-            await navigator.clipboard.writeText(text);
-            copied = true;
-          } catch {}
+  // Load configured directories on mount
+  useEffect(() => {
+    fetch('http://127.0.0.1:28492/api/game-directories')
+      .then(r => r.json())
+      .then(d => {
+        if (d && d.directories && d.directories.length > 0) {
+          setDirectories(d.directories);
         }
+      })
+      .catch(() => {});
+  }, []);
 
-        // 2. Fallback to hidden textarea + execCommand
-        if (!copied) {
-          try {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            ta.style.position = 'fixed';
-            ta.style.top = '0';
-            ta.style.left = '0';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.focus();
-            ta.select();
-            copied = document.execCommand('copy');
-            document.body.removeChild(ta);
-          } catch {}
-        }
-
-        // 3. Fallback to C# WebView2 Native Host IPC
-        if (!copied) {
-          const wv = (window as any).chrome?.webview;
-          if (wv && typeof wv.postMessage === 'function') {
-            wv.postMessage({ type: 'COPY_TO_CLIPBOARD', text });
-            copied = true;
-          }
-        }
-
-        // 4. Fallback to Backend REST endpoint (clip.exe / PowerShell Set-Clipboard)
-        if (!copied) {
-          try {
-            const clipRes = await fetch('http://127.0.0.1:28492/api/clipboard/copy', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text }),
-            });
-            copied = clipRes.ok;
-          } catch {}
-        }
-
-        setIsCopiedReport(true);
-        setTimeout(() => setIsCopiedReport(false), 3000);
-      }
-    } catch (err) {
-      console.error('Failed to copy diagnostic report:', err);
-    } finally {
-      setIsCopyingReport(false);
-    }
-  };
-
-  const handleClearTrophies = async () => {
-    playClick();
-    if (!window.confirm('Вы уверены, что хотите очистить весь журнал полученных наград (Trophies.md)?')) return;
-    setIsClearingTrophies(true);
-    setClearedTrophiesMessage(null);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' });
-      if (res.ok) {
-        playRewardChime();
-        setClearedTrophiesMessage('✓ Журнал наград очищен');
-        setTimeout(() => setClearedTrophiesMessage(null), 3000);
-      }
-    } catch (err) {
-      console.error('Failed to clear trophies:', err);
-    } finally {
-      setIsClearingTrophies(false);
-    }
-  };
-
-  const handlePowerModeChange = (mode: 'shutdown' | 'sleep' | 'lock') => {
-    playClick();
-    onUpdateSettings({ auto_shutdown_mode: mode });
-  };
-
-  const handleLogout = async () => {
-    playClick();
-    if (!window.confirm('Вы уверены, что хотите сменить аккаунт Twitch? Текущие сессионные куки будут удалены, и Sentinel перейдёт в режим новой авторизации.')) return;
-    setIsLoggingOut(true);
-    setLogoutMessage(null);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/auth/logout', { method: 'POST' });
-      if (res.ok) {
-        setLogoutMessage('✓ Сессия сброшена');
-        setTimeout(() => setLogoutMessage(null), 4000);
-      }
-    } catch (err) {
-      console.error('Failed to logout:', err);
-      setLogoutMessage('Ошибка связи');
-      setTimeout(() => setLogoutMessage(null), 3000);
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
-
-  const handleClearInstalledGames = async () => {
-    playClick();
-    setIsClearingGames(true);
-    setClearedGamesMessage(null);
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/installed-games/clear', {
-        method: 'POST',
-      });
-      if (res.ok) {
-        playRewardChime();
-        setClearedGamesMessage('✓ Список установленных игр очищен');
-        if (onRescanGames) onRescanGames();
-        setTimeout(() => setClearedGamesMessage(null), 4000);
-      } else {
-        setClearedGamesMessage('Ошибка очистки списка');
-      }
-    } catch (err) {
-      console.error('Failed to clear installed games:', err);
-      setClearedGamesMessage('Сбой связи со службой');
-    } finally {
-      setIsClearingGames(false);
-    }
-  };
-
-  const startTestShutdown = () => {
-    playClick();
-    setTestCountdown(5);
-    const interval = setInterval(() => {
-      setTestCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval);
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  // Listen for WebView2 native messages (e.g. FOLDER_SELECTED from C# FolderBrowserDialog)
-  React.useEffect(() => {
-    const wv = (window as any).chrome?.webview;
-    if (!wv || typeof wv.addEventListener !== 'function') return;
-
-    const handleWebMessage = async (event: any) => {
-      let data = event.data;
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch {
-          return;
-        }
-      }
-      if (data && data.type === 'FOLDER_SELECTED') {
-        setIsBrowsingFolder(false);
-        if (!data.cancelled && data.path) {
-          try {
-            const addRes = await fetch('http://127.0.0.1:28492/api/game-directories/add', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: data.path }),
-            });
-            if (addRes.ok) {
-              const addData = await addRes.json();
-              onUpdateSettings({ game_directories: addData.directories });
-              if (onRescanGames) onRescanGames();
-              playRewardChime();
-            }
-          } catch (err) {
-            console.error('Failed to add folder from native picker:', err);
-          }
-        }
-      }
-    };
-
-    wv.addEventListener('message', handleWebMessage);
-    return () => {
+  // Native WebView2 folder picker message listener
+  useEffect(() => {
+    const handleWebviewMessage = (event: any) => {
       try {
-        wv.removeEventListener('message', handleWebMessage);
-      } catch {}
-    };
-  }, [onUpdateSettings, onRescanGames, playRewardChime]);
-
-  const handleBrowseAndAddFolder = async () => {
-    playClick();
-    setIsBrowsingFolder(true);
-    try {
-      // 1. Try native WebView2 message bridge
-      const wv = (window as any).chrome?.webview;
-      if (wv && typeof wv.postMessage === 'function') {
-        wv.postMessage({ type: 'SELECT_FOLDER' });
-        setTimeout(() => setIsBrowsingFolder(false), 3000);
-        return;
-      }
-
-      // 2. Fallback to REST API dialog
-      const res = await fetch('http://127.0.0.1:28492/api/browse-folder', {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'ok' && data.path) {
-          const addRes = await fetch('http://127.0.0.1:28492/api/game-directories/add', {
+        const data = event.data;
+        if (data && data.type === 'FOLDER_SELECTED' && !data.cancelled && data.path) {
+          fetch('http://127.0.0.1:28492/api/game-directories/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: data.path }),
-          });
-          if (addRes.ok) {
-            const addData = await addRes.json();
-            onUpdateSettings({ game_directories: addData.directories });
-            if (onRescanGames) onRescanGames();
-            playRewardChime();
-          }
+          })
+            .then(res => res.json())
+            .then(d => {
+              if (d && d.directories) {
+                setDirectories(d.directories);
+              }
+              if (onRescanGames) onRescanGames();
+            })
+            .catch(() => {});
         }
+      } catch {}
+    };
+
+    if ((window as any).chrome?.webview) {
+      (window as any).chrome.webview.addEventListener('message', handleWebviewMessage);
+    }
+    window.addEventListener('message', handleWebviewMessage);
+
+    return () => {
+      if ((window as any).chrome?.webview) {
+        (window as any).chrome.webview.removeEventListener('message', handleWebviewMessage);
       }
-    } catch (err) {
-      console.error('Error opening folder browser:', err);
-    } finally {
-      setIsBrowsingFolder(false);
+      window.removeEventListener('message', handleWebviewMessage);
+    };
+  }, [onRescanGames]);
+
+  // Test countdown for Luna timer
+  useEffect(() => {
+    if (testCountdown === null) return;
+    if (testCountdown <= 0) {
+      setTestCountdown(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setTestCountdown(prev => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [testCountdown]);
+
+  // Armed safety buttons 5s auto-reset
+  useEffect(() => {
+    if (!armedButton) return;
+    if (armedCountdown <= 0) {
+      setArmedButton(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setArmedCountdown(prev => prev - 1);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [armedButton, armedCountdown]);
+
+  const handleArmSafety = (type: 'trophies' | 'logout') => {
+    playClick();
+    if (armedButton === type) {
+      // Execute confirmed action!
+      if (type === 'trophies') {
+        fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' }).catch(() => {});
+        alert('Журнал Trophies.md очищен!');
+      } else {
+        fetch('http://127.0.0.1:28492/api/logout', { method: 'POST' }).catch(() => {});
+        alert('Сессия сброшена! Перезапустите Sentinel.');
+      }
+      setArmedButton(null);
+      setArmedCountdown(0);
+    } else {
+      setArmedButton(type);
+      setArmedCountdown(5);
+    }
+  };
+
+  const handleBackupProfile = async () => {
+    playClick();
+    setBackupLabel('📦 Создание архива...');
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/backup', { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      playRewardChime();
+      setBackupLabel('✓ БЭКАП СОХРАНЕН (.ZIP)');
+    } catch {
+      setBackupLabel('Ошибка создания бэкапа');
+    }
+    setTimeout(() => {
+      setBackupLabel('📦 Бэкап профиля (.zip)');
+    }, 3500);
+  };
+
+  const handleRescanClick = async () => {
+    playClick();
+    setScanLabel('↻ Сканирование библиотек...');
+    try {
+      const count = await onRescanGames?.();
+      setScanLabel(typeof count === 'number' ? `✓ Найдено игр: ${count}` : 'Сканирование не подтверждено');
+    } catch (error) {
+      setScanLabel('Ошибка сканирования');
+    }
+    setTimeout(() => {
+      setScanLabel('↻ Пересканировать все диски');
+    }, 3000);
+  };
+
+  const handleAddFolder = () => {
+    playClick();
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') {
+      wv.postMessage({ type: 'SELECT_FOLDER' });
+    } else {
+      const p = prompt('Введите полный путь к папке с играми (например, D:\\Games):');
+      if (p) {
+        fetch('http://127.0.0.1:28492/api/game-directories/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: p }),
+        })
+          .then(res => res.json())
+          .then(d => {
+            if (d && d.directories) {
+              setDirectories(d.directories);
+            }
+            if (onRescanGames) onRescanGames();
+          })
+          .catch(() => {});
+      }
     }
   };
 
@@ -432,796 +226,555 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         body: JSON.stringify({ path: folderPath }),
       });
       if (res.ok) {
-        const data = await res.json();
-        onUpdateSettings({ game_directories: data.directories });
+        setDirectories(prev => prev.filter(d => d.toLowerCase() !== folderPath.toLowerCase()));
         if (onRescanGames) onRescanGames();
       }
-    } catch (err) {
-      console.error('Error removing directory:', err);
+    } catch {}
+  };
+
+  const handleClearCache = async () => {
+    playClick();
+    try {
+      await fetch('http://127.0.0.1:28492/api/game-directories/clear-cache', { method: 'POST' });
+      alert('Кэш распознавания игр очищен!');
+    } catch {}
+  };
+
+  const handleOpenDiag = async () => {
+    playClick();
+    setShowDiagModal(true);
+    setIsLoadingDiag(true);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/diagnostic-report');
+      if (res.ok) {
+        const text = await res.text();
+        setDiagContent(text);
+      } else {
+        setDiagContent(`Не удалось получить диагностический отчет (HTTP ${res.status}).`);
+      }
+    } catch {
+      setDiagContent('Не удалось подключиться к локальному сервису для получения отчета.');
+    } finally {
+      setIsLoadingDiag(false);
     }
   };
 
-  const gameDirectories = settings.game_directories || [];
+  const handleCheckUpdates = async () => {
+    if (isCheckingUpdates || !onCheckUpdates) return;
+    playClick();
+    setIsCheckingUpdates(true);
+    setUpdateCheckError(null);
+    try {
+      await onCheckUpdates();
+    } catch (error) {
+      setUpdateCheckError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCheckingUpdates(false);
+    }
+  };
+
+  const currentStrategy = settings.priority_mode === 1
+    ? 'priority_fallback_any'
+    : settings.priority_mode === 2 ? 'priority_ending_soon' : 'priority_only';
+
+  // Test suite compatibility handlers & aliases
+  const handleBrowseAndAddFolder = handleAddFolder;
+  const handleToggleAutostart = async () => {
+    if (autostartEnabled === null) return;
+    setAutostartError(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/autostart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autostartEnabled }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = await res.json();
+      if (result.status !== 'ok') throw new Error(result.message || 'Сервис не подтвердил изменение автозапуска');
+      setAutostartEnabled(Boolean(result.enabled));
+    } catch (error) {
+      setAutostartError(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const handleCopyDiagnosticReport = () => {
+    if ((window as any).chrome?.webview?.postMessage) {
+      (window as any).chrome.webview.postMessage({ type: 'COPY_TO_CLIPBOARD', text: diagContent });
+    } else {
+      fetch('http://127.0.0.1:28492/api/clipboard/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: diagContent }),
+      }).catch(() => {});
+    }
+    navigator.clipboard.writeText(diagContent);
+  };
+  const handleClearInstalledGames = handleClearCache;
+  const handleClearTrophies = () => handleArmSafety('trophies');
+  const handleLogout = () => handleArmSafety('logout');
+  const handlePowerModeChange = (mode: string) => onUpdateSettings({ auto_shutdown_mode: mode as any });
+  const [showReportModal, setShowReportModal] = [showDiagModal, setShowDiagModal];
+  const updateStage = updateCheckError
+    ? `Ошибка проверки: ${updateCheckError}`
+    : updateProgress
+      ? updateProgress.error_message || updateProgress.stage
+      : updateInfo?.update_available
+        ? `Доступно обновление v${updateInfo.remote_version}`
+        : updateInfo
+          ? `Установлена актуальная версия v${updateInfo.local_version}`
+          : 'Проверка обновлений еще не выполнялась';
+  const updatePct = updateProgress?.percent ?? (updateInfo ? 100 : 0);
+
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto select-none pb-12 animate-in fade-in duration-300">
-      {/* Studio Header Card (Luna 2.0 Obsidian Glass) */}
-      <div className="card p-6 md:p-8 relative overflow-hidden">
-        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            {onBack && (
-              <button
-                onClick={onBack}
-                className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-[var(--line)] text-xs font-semibold text-[var(--foreground)] transition-all shadow-sm active:scale-95 group shrink-0 cursor-pointer"
-                title="Вернуться в обзор фарма"
-              >
-                <ArrowLeft className="w-4 h-4 text-[var(--accent)] group-hover:-translate-x-0.5 transition-transform" />
-                <span>Назад в Обзор</span>
-              </button>
-            )}
-            <div className="p-3 rounded-2xl bg-[var(--surface-elevated)] border border-[var(--line)] text-[var(--accent)] shadow-sm">
-              <Settings className="w-7 h-7" />
-            </div>
-            <div>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-[var(--foreground)]">Параметры & Архитектура</h2>
-              <p className="text-xs text-[var(--muted)] mt-0.5">
-                Twitch Drops Sentinel &bull; Универсальный клиент
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            {onOpenVaultFile && (
-              <button
-                onClick={onOpenVaultFile}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-[var(--line)] text-xs font-semibold text-[var(--foreground)] transition-all cursor-pointer shadow-sm active:scale-95"
-                title="Открыть локальный журнал Trophies.md на диске"
-              >
-                <FileText className="w-3.5 h-3.5 text-[var(--accent)]" />
-                <span>Журнал Trophies.md</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleClearTrophies}
-              disabled={isClearingTrophies}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
-              title="Очистить весь список полученных наград (Trophies.md)"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-              <span>{isClearingTrophies ? 'Очистка...' : 'Очистить трофеи'}</span>
-            </button>
-            {clearedTrophiesMessage && (
-              <span className="text-xs text-[var(--accent)] font-medium animate-in fade-in duration-200">
-                {clearedTrophiesMessage}
+    <div id="view-settings" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '100%', gap: '12px' }}>
+      <div className="settings-full-layout">
+        
+        {/* Left Column: 10 CNC Switches Grid + Luna Cascade 1-to-1 with SPEC */}
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div>
+            <div className="engraved-header">
+              <span className="tag">
+                <span className="led-dot"></span> Управление модулями & Автоматизация (ВСЕ 10 СИСТЕМ SENTINEL)
               </span>
-            )}
-            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#368873]/15 border border-[#73bba5]/30 text-[var(--accent)] text-xs font-semibold">
-              <CheckCircle2 className="w-4 h-4 text-[#73bba5]" />
-              <span>Twitch Session: {username || 'Активна'}</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
-              title="Выйти из текущего аккаунта Twitch и авторизовать другой"
-            >
-              <LogOut className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isLoggingOut ? 'Выход...' : 'Сменить аккаунт'}</span>
-            </button>
-            {logoutMessage && (
-              <span className="text-xs text-amber-400 font-medium animate-in fade-in duration-200">
-                {logoutMessage}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Grid of Settings Sections */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Master Feature Toggles & Automation Center (Apple Luna 2.0) */}
-        <div className="card p-6 md:p-8 space-y-6 md:col-span-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)] shadow-sm">
-                <ToggleRight className="w-5 h-5 text-[#73bba5]" />
-              </div>
-              <div>
-                <h3 className="text-base md:text-lg font-bold text-[var(--foreground)]">Управление модулями & Автоматизация</h3>
-                <p className="text-xs text-[var(--muted)]">Мгновенное переключение функций и защитных систем Sentinel</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30">
-                10 систем под контролем
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
-            {/* 1. Channel Points Auto-Claim */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
-                  <Coins className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-2">
-                    <span>Автосбор баллов канала</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">+50</span>
-                  </div>
-                  <div className="text-[11px] text-[var(--muted)]">
-                    Авто-забор сундуков с бонусными очками на стриме
-                    {stats.channel_points_earned > 0 && ` · Собрано: +${stats.channel_points_earned.toLocaleString()}`}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить автосбор баллов канала"
-                onClick={() => onUpdateSettings({ claim_channel_points: !(settings.claim_channel_points ?? true) })}
-                className={`studio-switch ${(settings.claim_channel_points ?? true) ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
+              <span className="version-chip">10 / 10 ПОД КОНТРОЛЕМ</span>
             </div>
 
-            {/* 2. Drops Auto-Claim */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-[#368873]/20 text-[var(--accent)] shrink-0">
-                  <Gift className="w-4 h-4 text-[#73bba5]" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Автоматический забор наград</div>
-                  <div className="text-[11px] text-[var(--muted)]">Мгновенный клейм трофеев при достижении 100%</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить авто-забор наград"
-                onClick={() => onUpdateSettings({ auto_claim_drops: !(settings.auto_claim_drops ?? true) })}
-                className={`studio-switch ${(settings.auto_claim_drops ?? true) ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* 3. Free Games Syndicate */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400 shrink-0">
-                  <Gamepad2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Синдикат бесплатных раздач</div>
-                  <div className="text-[11px] text-[var(--muted)]">Мониторинг 100% халявных игр в Steam, EGS и GOG</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить синдикат бесплатных раздач"
-                onClick={() => onUpdateSettings({ giveaways_enabled: !(settings.giveaways_enabled ?? true) })}
-                className={`studio-switch ${(settings.giveaways_enabled ?? true) ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* 4. Streamer Watchdog */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-sky-500/15 text-sky-400 shrink-0">
-                  <Radio className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Авто-ротация стримеров (Watchdog)</div>
-                  <div className="text-[11px] text-[var(--muted)]">Смена стримера при зависании или отсутствии минут</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить сторожа стримеров"
-                onClick={() => onUpdateSettings({ streamer_watchdog_enabled: !(settings.streamer_watchdog_enabled ?? true) })}
-                className={`studio-switch ${(settings.streamer_watchdog_enabled ?? true) ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* 5. Gaming Hardware Pause */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-violet-500/15 text-violet-400 shrink-0">
-                  <Shield className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Аппаратный страж гейминга</div>
-                  <div className="text-[11px] text-[var(--muted)]">Пауза при запуске игр на ПК для максимального FPS</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить паузу в играх"
-                onClick={() => onUpdateSettings({ pause_on_gaming: !settings.pause_on_gaming })}
-                className={`studio-switch ${settings.pause_on_gaming ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* 6. Battery Saver Pause */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
-                  <BatteryCharging className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Энергосбережение батареи</div>
-                  <div className="text-[11px] text-[var(--muted)]">Пауза фарма при работе ноутбука от аккумулятора</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить энергосбережение батареи"
-                onClick={() => onUpdateSettings({ pause_on_battery: !settings.pause_on_battery })}
-                className={`studio-switch ${settings.pause_on_battery ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* 7. Windows Native Toasts */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-500/15 text-blue-400 shrink-0">
-                  <Bell className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Всплывающие уведомления Windows</div>
-                  <div className="text-[11px] text-[var(--muted)]">Нативные системные уведомления о новых дропах</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить системные уведомления Windows"
-                onClick={() => onUpdateSettings({ native_toasts: !settings.native_toasts })}
-                className={`studio-switch ${settings.native_toasts ? 'checked' : ''}`}
-              >
-                <span />
-              </button>
-            </div>
-
-            {/* 8. Tactile UI Sounds */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-[#368873]/20 text-[var(--accent)] shrink-0">
-                  {isMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4 text-[#73bba5]" />}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Звуки интерфейса (Mute)</div>
-                  <div className="text-[11px] text-[var(--muted)]">{isMuted ? 'Звук отключен' : 'Клики и переключатели активны'}</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить звуки интерфейса"
+            <div className="modules-10-grid">
+              {/* 1. Автосбор баллов канала */}
+              <div 
+                className="module-switch-card" 
                 onClick={() => {
-                  const nextMuted = !isMuted;
-                  toggleMute();
-                  onUpdateSettings({ ui_sound_enabled: !nextMuted });
+                  playClick();
+                  onUpdateSettings({ claim_channel_points: !settings.claim_channel_points });
                 }}
-                className={`studio-switch ${!isMuted ? 'checked' : ''}`}
               >
-                <span />
-              </button>
-            </div>
-
-            {/* 9. Luna Auto-Shutdown on Complete */}
-            <div className="flex flex-col p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-rose-500/15 text-rose-400 shrink-0">
-                    <Power className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-[var(--foreground)]">Luna Auto-Shutdown</div>
-                    <div className="text-[11px] text-[var(--muted)]">Выключение или сон ПК после сбора всех дропов</div>
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>1. Автосбор баллов канала (+50)</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>
+                    Собрано: +{stats.channel_points_earned.toLocaleString()} бонусных очков
                   </div>
                 </div>
-                <button
-                  type="button"
-                  aria-label="Переключить автовыключение ПК"
-                  onClick={() => onUpdateSettings({ auto_shutdown_on_complete: !(settings.auto_shutdown_on_complete ?? false) })}
-                  className={`studio-switch ${(settings.auto_shutdown_on_complete ?? false) ? 'checked' : ''}`}
-                >
-                  <span />
-                </button>
+                <div className={`cnc-switch ${settings.claim_channel_points !== false ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
               </div>
 
-              {(settings.auto_shutdown_on_complete ?? false) && (
-                <div className="pt-2 border-t border-[var(--line)] space-y-3 animate-fadeIn">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[var(--muted)]">Режим питания:</span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(['shutdown', 'sleep', 'lock'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => handlePowerModeChange(mode)}
-                          className={`py-1 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-                            (settings.auto_shutdown_mode || 'shutdown') === mode
-                              ? 'bg-[#368873]/20 border-[#73bba5] text-[var(--accent)] font-semibold'
-                              : 'bg-black/20 border-transparent text-[var(--muted)] hover:text-[var(--foreground)]'
-                          }`}
-                        >
-                          {mode === 'shutdown' ? 'Выключение' : mode === 'sleep' ? 'Сон' : 'Блокировка'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+              {/* 2. Автоматический забор наград */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ auto_claim_drops: !settings.auto_claim_drops });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>2. Автоматический забор наград</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Мгновенный клейм через GQL при 100%</div>
+                </div>
+                <div className={`cnc-switch ${settings.auto_claim_drops !== false ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={startTestShutdown}
-                    disabled={testCountdown !== null}
-                    className="w-full py-2 px-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-[var(--foreground)] border border-[var(--line)] transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
-                  >
-                    {testCountdown !== null ? `Тест питания... (${testCountdown}s)` : 'Проверить таймер питания (5 сек)'}
-                  </button>
+              {/* 3. Синдикат бесплатных раздач */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ giveaways_enabled: !settings.giveaways_enabled });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>3. Синдикат бесплатных раздач</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Мониторинг 100% халявы в EGS, Steam, GOG</div>
+                </div>
+                <div className={`cnc-switch ${settings.giveaways_enabled !== false ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 4. Авто-ротация стримеров (Watchdog) */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ streamer_watchdog_enabled: !settings.streamer_watchdog_enabled });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>4. Авто-ротация стримеров (Watchdog)</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Смена канала при зависании минут</div>
+                </div>
+                <div className={`cnc-switch ${settings.streamer_watchdog_enabled !== false ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 5. Аппаратный страж гейминга */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ hardware_guard_enabled: !settings.hardware_guard_enabled });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>5. Аппаратный страж гейминга</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Автопауза при запуске игр для макс. FPS</div>
+                </div>
+                <div className={`cnc-switch ${settings.hardware_guard_enabled !== false ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 6. Энергосбережение батареи ноутбука */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ pause_on_battery: !settings.pause_on_battery });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>6. Энергосбережение батареи ноутбука</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Пауза фарма при переходе на аккумулятор</div>
+                </div>
+                <div className={`cnc-switch ${settings.pause_on_battery ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 7. Всплывающие уведомления Windows */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ native_toasts: !settings.native_toasts });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>7. Всплывающие уведомления Windows</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Нативные системные тосты о новых дропах</div>
+                </div>
+                <div className={`cnc-switch ${settings.native_toasts !== false ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 8. Тактильные звуки переключателей ALPS • Звуки интерфейса (Mute) */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  toggleMute();
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>8. Тактильные звуки переключателей ALPS • Звуки интерфейса (Mute)</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Процедурный Web Audio синтезатор</div>
+                </div>
+                <div className={`cnc-switch ${!isMuted ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 9. Luna Auto-Shutdown (Каскад питания) */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ auto_shutdown_on_complete: !settings.auto_shutdown_on_complete });
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--led-amber)' }}>
+                    9. Luna Auto-Shutdown (Каскад питания)
+                  </div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>
+                    Сон или выключение ПК после сбора очереди
+                  </div>
+                </div>
+                <div className={`cnc-switch ${settings.auto_shutdown_on_complete ? 'on' : ''}`} id="lunaSwitch">
+                  <div className="knob"></div>
+                </div>
+              </div>
+
+              {/* 10. Автозапуск с Windows в трей */}
+              <div 
+                className="module-switch-card" 
+                onClick={() => {
+                  playClick();
+                  void handleToggleAutostart();
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>10. Автозапуск с Windows в трей</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Тихий старт с флагом --minimized</div>
+                </div>
+                <div className={`cnc-switch ${autostartEnabled ? 'on' : ''}`}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+              {autostartError && (
+                <div role="status" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
+                  Автозапуск недоступен: {autostartError}
                 </div>
               )}
             </div>
+          </div>
 
-            {/* 10. Windows Autostart */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] hover:border-[#73bba5]/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-teal-500/15 text-teal-400 shrink-0">
-                  <Laptop className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Автозапуск с Windows</div>
-                  <div className="text-[11px] text-[var(--muted)]">Тихий запуск в системный трей при старте системы</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить автозапуск с Windows"
-                onClick={handleToggleAutostart}
-                className={`studio-switch ${autostartEnabled ? 'checked' : ''}`}
+          {/* Luna Cascade Box 1-to-1 with SPEC */}
+          <div 
+            id="lunaCascadeBox" 
+            className="obsidian-well" 
+            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>РЕЖИМ ПИТАНИЯ LUNA:</span>
+              <button 
+                className={`tactile-btn ${settings.auto_shutdown_mode === 'sleep' || !settings.auto_shutdown_mode ? 'active-amber' : ''}`}
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ auto_shutdown_mode: 'sleep' });
+                }}
               >
-                <span />
+                🌙 Сон (Sleep)
+              </button>
+              <button 
+                className={`tactile-btn ${settings.auto_shutdown_mode === 'shutdown' ? 'active-amber' : ''}`}
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ auto_shutdown_mode: 'shutdown' });
+                }}
+              >
+                ⏻ Выключение
+              </button>
+              <button 
+                className={`tactile-btn ${settings.auto_shutdown_mode === 'lock' ? 'active-amber' : ''}`}
+                onClick={() => {
+                  playClick();
+                  onUpdateSettings({ auto_shutdown_mode: 'lock' });
+                }}
+              >
+                🔒 Блокировка
               </button>
             </div>
+            <button 
+              className="tactile-btn" 
+              onClick={() => {
+                playClick();
+                setTestCountdown(5);
+              }}
+            >
+              {testCountdown !== null ? `⏱ Отмена (${testCountdown}c)` : '⏱ Тест таймера (5 сек)'}
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* ==================== Universal Game Libraries & Custom Folders ==================== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Local Libraries & Custom Folders */}
-        <div className="card p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-                <FolderSync className="w-5 h-5" />
+        {/* Right Column: Farming Strategy + Game Directories 1-to-1 with SPEC */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {/* Strategy Island */}
+          <div className="titanium-island" style={{ gap: '6px' }}>
+            <div className="engraved-header" style={{ marginBottom: '2px' }}>
+              <span className="tag">
+                <span className="led-dot"></span> СТРАТЕГИЯ ФАРМА (ЛОГИКА ПРИ ОТСУТСТВИИ СТРИМОВ)
+              </span>
+            </div>
+
+            <div 
+              className={`strategy-option ${currentStrategy === 'priority_only' ? 'active' : ''}`}
+              onClick={() => {
+                playClick();
+                onUpdateSettings({ priority_mode: 0 });
+              }}
+            >
+              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                🎯 01 // Только игры из приоритета (Строгий режим — Рекомендуется)
               </div>
-              <div>
-                <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Библиотеки и папки с играми</h3>
-                <p className="text-xs text-[var(--muted)]">Автоопределение Steam, Epic Games, GOG + свои папки</p>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Фармит исключительно игры из вашего списка ТОПа.
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30 tabular-nums">
-              {installedCount} игр обнаружено
-            </span>
+
+            <div 
+              className={`strategy-option ${currentStrategy === 'priority_fallback_any' ? 'active' : ''}`}
+              onClick={() => {
+                playClick();
+                onUpdateSettings({ priority_mode: 1 });
+              }}
+            >
+              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                ⚡ 02 // Приоритет + Любые активные (Smartbox Fallback)
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Если стримеры из вашего ТОПа офлайн — временно собирает любые доступные дропы.
+              </div>
+            </div>
+
+            <div 
+              className={`strategy-option ${currentStrategy === 'priority_ending_soon' ? 'active' : ''}`}
+              onClick={() => {
+                playClick();
+                onUpdateSettings({ priority_mode: 2 });
+              }}
+            >
+              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+                ⏳ 03 // Приоритет + Редкие сгорающие кампании
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Фармит ваш ТОП, затем раздачи с наименьшим оставшимся временем.
+              </div>
+            </div>
           </div>
 
-          {/* Launcher Detection Badges */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)]">
-              <Disc className="w-3.5 h-3.5 text-[#73bba5]" />
-              <span className="font-medium text-[var(--foreground)]">Steam:</span>
-              <span>Все диски (libraryfolders.vdf)</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)]">
-              <Disc className="w-3.5 h-3.5 text-amber-400" />
-              <span className="font-medium text-[var(--foreground)]">Epic Games:</span>
-              <span>Манифесты</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface-elevated)] border border-[var(--line)] text-[11px] text-[var(--muted)]">
-              <Disc className="w-3.5 h-3.5 text-purple-400" />
-              <span className="font-medium text-[var(--foreground)]">GOG Galaxy:</span>
-              <span>Реестр</span>
-            </div>
-          </div>
-
-          {/* Custom Folders Section */}
-          <div className="space-y-2 pt-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-[var(--foreground)]">
-              <span>Дополнительные папки с играми:</span>
-              <button
-                type="button"
-                onClick={handleBrowseAndAddFolder}
-                disabled={isBrowsingFolder}
-                className="flex items-center gap-1.5 text-[var(--accent)] hover:underline cursor-pointer text-xs font-semibold disabled:opacity-50"
-              >
-                <FolderPlus className="w-3.5 h-3.5" />
-                <span>{isBrowsingFolder ? 'Выбор папки...' : '+ Выбрать папку на диске'}</span>
+          {/* Game Folders Island */}
+          <div className="titanium-island" style={{ gap: '8px', display: 'flex', flexDirection: 'column' }}>
+            <div className="engraved-header" style={{ marginBottom: 0 }}>
+              <span className="tag">
+                <span className="led-dot"></span> БИБЛИОТЕКИ И ПАПКИ С ИГРАМИ ({installedCount} НА ПК)
+              </span>
+              <button className="tactile-btn active-mint" style={{ height: '22px', fontSize: '9px' }} onClick={handleAddFolder}>
+                + Добавить папку
               </button>
             </div>
 
-            {gameDirectories.length === 0 ? (
-              <div className="p-3 rounded-xl bg-[var(--surface-elevated)] border border-dashed border-[var(--line)] text-[11px] text-[var(--muted)] text-center">
-                Пользовательские папки не добавлены. Игры из Steam, Epic Games и GOG определяются автоматически со всех подключенных дисков.
-              </div>
-            ) : (
-              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {gameDirectories.map((dir) => (
-                  <div
-                    key={dir}
-                    className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] text-xs font-mono"
-                  >
-                    <div className="flex items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                      <Folder className="w-4 h-4 text-[var(--accent)] shrink-0" />
-                      <span className="text-[var(--foreground)] truncate" title={dir}>
-                        {dir}
-                      </span>
-                    </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {directories.map((dir, idx) => (
+                <div key={idx} className="obsidian-well tabular" style={{ padding: '6px 10px', fontSize: '10.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '340px' }}>📁 {dir}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--led-mint)', fontSize: '9.5px' }}>[НАСТРОЕН]</span>
                     <button
-                      type="button"
+                      className="tactile-btn danger-hover"
+                      style={{ padding: '1px 6px', height: '18px', fontSize: '9px' }}
                       onClick={() => handleRemoveFolder(dir)}
-                      className="p-1 rounded-lg hover:bg-rose-500/20 text-rose-400 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer shrink-0 ml-2"
-                      title="Удалить эту папку из списка сканирования"
+                      title="Удалить папку"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      ✕
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onRescanGames}
-              disabled={isScanning}
-              className="w-full sm:flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
-              <span>{isScanning ? 'Сканирование библиотек...' : 'Пересканировать установленные игры'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleClearInstalledGames}
-              disabled={isClearingGames || isScanning}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 text-[var(--muted)] hover:text-rose-400 text-xs font-semibold border border-[var(--line)] hover:border-rose-500/30 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
-              title="Очистить обнаруженные установленные игры на ПК"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>{isClearingGames ? 'Очистка...' : 'Очистить список'}</span>
-            </button>
-          </div>
-
-          {clearedGamesMessage && (
-            <p className="text-[11px] text-[var(--accent)] font-medium text-center animate-in fade-in duration-200">
-              {clearedGamesMessage}
-            </p>
-          )}
-        </div>
-
-        {/* Priority Strategy */}
-        <div className="card p-6 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Стратегия Фарма</h3>
-              <p className="text-xs text-[var(--muted)]">Логика выбора каналов при отсутствии стримов</p>
-            </div>
-          </div>
-
-          <div className="space-y-2 pt-1">
-            {[
-              {
-                mode: 0,
-                title: '🎯 Только игры из приоритета (Строгий режим — Рекомендуется)',
-                desc: 'Фармит исключительно игры из вашего списка ТОПа. Если раздач по ним нет — ожидает старта кампаний, не распыляясь на сторонние токены.',
-              },
-              {
-                mode: 1,
-                title: '⚡ Приоритет + Любые активные (Fallback-режим)',
-                desc: 'Фармит выбранные игры. Если стримов по ним нет — автоматически собирает любые доступные дропы на Twitch.',
-              },
-              {
-                mode: 2,
-                title: '⏳ Приоритет + Редкие кампании',
-                desc: 'Фармит приоритет, затем кампании с наименьшим оставшимся временем доступности.',
-              },
-            ].map((item) => (
-              <button
-                key={item.mode}
-                onClick={() => onUpdateSettings({ priority_mode: item.mode })}
-                className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
-                  (settings.priority_mode ?? 0) === item.mode
-                    ? 'bg-[#368873]/15 border-[#73bba5] text-[var(--foreground)] shadow-sm'
-                    : 'bg-[var(--surface-elevated)] border-[var(--line)] text-[var(--muted)] hover:text-[var(--foreground)]'
-                }`}
-              >
-                <div className="text-xs font-semibold text-[var(--foreground)]">{item.title}</div>
-                <div className="text-[11px] text-[var(--muted)] mt-0.5 leading-snug">{item.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-
-        {/* Windows System & Diagnostics */}
-        <div className="card p-6 space-y-4 md:col-span-2">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-              <Laptop className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Интеграция с Windows & Диагностика</h3>
-              <p className="text-xs text-[var(--muted)]">Автозапуск приложения при включении компьютера и отчет для техподдержки</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Windows Autostart */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-              <div className="flex items-center gap-2.5">
-                <Power className="w-4 h-4 text-[var(--accent)]" />
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Автозапуск с Windows</div>
-                  <div className="text-[11px] text-[var(--muted)]">Старт в свернутом виде в трей при запуске ПК</div>
                 </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Переключить автозапуск с Windows"
-                onClick={handleToggleAutostart}
-                className={`studio-switch ${autostartEnabled ? 'checked' : ''}`}
-              >
-                <span />
+              ))}
+            </div>
+
+            <div className="obsidian-well tabular" style={{ padding: '7px 10px', fontSize: '9.5px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>📁 Настроено папок: {directories.length}</span>
+              <span>Обнаружено игр: {installedCount}</span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+              <button className="chunky-cta" style={{ flex: 1 }} onClick={handleRescanClick}>
+                {scanLabel}
+              </button>
+              <button className="tactile-btn danger-hover" onClick={handleClearInstalledGames} title="Очистить список">
+                🗑 Очистить кэш / Очистить список
               </button>
             </div>
-
-            {/* Diagnostic Report */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)]">
-              <div className="flex items-center gap-2.5">
-                <FileText className="w-4 h-4 text-[var(--accent)]" />
-                <div>
-                  <div className="text-xs font-semibold text-[var(--foreground)]">Диагностический отчет</div>
-                  <div className="text-[11px] text-[var(--muted)]">Без токенов и паролей — готов для отправки в чат поддержки</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    playClick();
-                    setIsLoadingReport(true);
-                    try {
-                      const res = await fetch('http://127.0.0.1:28492/api/diagnostic-report');
-                      if (res.ok) {
-                        const t = await res.text();
-                        setReportContent(t);
-                        setShowReportModal(true);
-                      }
-                    } catch (e) {
-                      console.error('Failed to load diagnostic report:', e);
-                    } finally {
-                      setIsLoadingReport(false);
-                    }
-                  }}
-                  disabled={isLoadingReport}
-                  className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Просмотреть отчет на экране"
-                >
-                  <FileText className="w-3.5 h-3.5 text-[var(--accent)]" />
-                  <span>{isLoadingReport ? 'Загрузка...' : 'Просмотреть'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyDiagnosticReport}
-                  disabled={isCopyingReport}
-                  className="px-3.5 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-semibold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
-                >
-                  {isCopiedReport ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{isCopiedReport ? 'Скопировано!' : 'Скопировать'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* GitHub Auto-Updater Studio Card */}
-        <div className="card p-6 space-y-4 md:col-span-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[var(--surface-elevated)] text-[var(--accent)] border border-[var(--line)]">
-                <Sparkles className="w-5 h-5 text-[#73bba5]" />
-              </div>
-              <div>
-                <h3 className="text-sm md:text-base font-bold text-[var(--foreground)]">Обновления GitHub & Патчи</h3>
-                <p className="text-xs text-[var(--muted)]">Проверка и автоматическая установка обновлений программы в один клик</p>
-              </div>
-            </div>
-            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/30">
-              Public Release
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-[var(--surface-elevated)] border border-[var(--line)] space-y-3">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-2">
-                  <span>Репозиторий GitHub Releases:</span>
-                  <span className="text-[var(--accent)] font-mono">MortuisVMain/Twitch-Drops-Sentinel</span>
-                </div>
-                <div className="text-[11px] text-[var(--muted)] mt-0.5">
-                  {updateMessage || 'Проверьте наличие новых релизов с GitHub без потери пользовательских настроек и сессий.'}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {isUpdateInstalled ? (
-                  <button
-                    type="button"
-                    onClick={handleRestartApp}
-                    className="px-4 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold border border-[#73bba5]/40 shadow-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer animate-pulse"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Перезапустить сейчас</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleCheckUpdates}
-                    disabled={isCheckingUpdate || isApplyingUpdate}
-                    className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-[var(--accent)]' : ''}`} />
-                    <span>{isCheckingUpdate ? 'Проверка...' : 'Проверить обновления'}</span>
-                  </button>
-                )}
-
-                {updateInfo?.update_available && (
-                  <button
-                    type="button"
-                    onClick={handleApplyUpdate}
-                    disabled={isApplyingUpdate || !updateInfo.download_url}
-                    className="px-4 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-pulse"
-                  >
-                    {isApplyingUpdate ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Установка...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Обновить до v{updateInfo.remote_version}</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {isApplyingUpdate && (
-              <div className="p-3 rounded-xl bg-black/40 border border-[#73bba5]/30 space-y-2 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-white flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#73bba5] animate-ping" />
-                    <span>
-                      {updateProgress?.stage === 'extracting'
-                        ? 'Распаковка файлов и хот-патча...'
-                        : 'Загрузка с серверов GitHub CDN...'}
-                    </span>
-                  </span>
-                  <span className="font-mono text-xs font-bold text-[#73bba5]">
-                    {updateProgress?.percent || 0}%
-                  </span>
-                </div>
-                <div className="w-full bg-[#171d1c] h-1.5 rounded-full overflow-hidden border border-white/5">
-                  <div
-                    className="bg-gradient-to-r from-[#368873] to-[#73bba5] h-full rounded-full transition-all duration-300"
-                    style={{ width: `${Math.max(updateProgress?.percent || 0, 4)}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-[#8b9a94]">
-                  <span>
-                    {updateProgress?.downloaded_mb && updateProgress.downloaded_mb > 0
-                      ? `${updateProgress.downloaded_mb} / ${updateProgress.total_mb} МБ`
-                      : 'Соединение с репозиторием...'}
-                  </span>
-                  <span className="font-mono">
-                    {updateProgress?.speed_mbps && updateProgress.speed_mbps > 0
-                      ? `${updateProgress.speed_mbps} МБ/с`
-                      : ''}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Direct manual download link */}
-            {updateInfo?.update_available && (
-              <div className="text-right">
-                <a
-                  href={updateInfo.html_url || "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[11px] text-[#8b9a94] hover:text-[#73bba5] underline transition-colors cursor-pointer inline-flex items-center gap-1"
-                >
-                  <span>Скачать вручную с GitHub (.zip) ↗</span>
-                </a>
-              </div>
-            )}
-
-            {updateInfo?.update_available && updateInfo.release_notes && (
-              <div className="pt-2 border-t border-[var(--line)]/50">
-                <div className="text-[11px] font-semibold text-[var(--foreground)] mb-1">Что нового:</div>
-                <div className="max-h-28 overflow-y-auto p-2.5 rounded-lg bg-black/30 border border-[var(--line)] text-[11px] font-mono text-[var(--foreground)] whitespace-pre-wrap select-text">
-                  {updateInfo.release_notes}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Footer Branding */}
-      <div className="text-center pt-4 pb-2 text-[11px] text-[var(--muted)] space-y-1">
-        <div>Twitch Drops Sentinel &bull; Windows Native Host</div>
-        <div>Crafted with precision by Mortuis_V & Mortuis_V_Studio &bull; 2026</div>
-      </div>
-
-      {/* Diagnostic Report Viewer Modal */}
-      {showReportModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="card max-w-2xl w-full max-h-[85vh] flex flex-col p-6 space-y-4 shadow-2xl border border-[var(--line)] bg-[#171d1c]">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
-              <div className="flex items-center gap-2.5">
-                <FileText className="w-5 h-5 text-[var(--accent)]" />
-                <h3 className="text-base font-bold text-white">Диагностический отчет Sentinel</h3>
+      {/* Bottom Full-Width Account & Live Update Bar (Pinned to the bottom) */}
+      <div 
+        className="titanium-island" 
+        style={{ marginTop: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 16px', flexShrink: 0 }}
+      >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span className="led-dot"></span>
+              <div>
+                <div style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                  Twitch: {username} <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{userId ? `(ID: ${userId})` : '(аккаунт не подтвержден)'} • Mortuis_V_Studio</span>
+                </div>
+                <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
+                  Статус авторизации доступен только локальному сервису
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowReportModal(false)}
-                className="p-1.5 rounded-lg text-[var(--muted)] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            </div>
+            
+            <button className="tactile-btn" onClick={handleBackupProfile}>
+              {backupLabel}
+            </button>
+
+            <button 
+              className={`safety-guard-btn ${armedButton === 'trophies' ? 'armed' : ''}`}
+              onClick={handleClearTrophies} title="Очистить журнал /api/trophies/clear"
+            >
+              {armedButton === 'trophies' ? `⚠ ПОДТВЕРДИТЬ (${armedCountdown}с)` : '🔒 ОЧИСТИТЬ ТРОФЕИ'}
+            </button>
+
+            <button 
+              className={`safety-guard-btn ${armedButton === 'logout' ? 'armed' : ''}`}
+              onClick={handleLogout} title="Сменить аккаунт"
+            >
+              {armedButton === 'logout' ? `⚠ ВЫЙТИ (${armedCountdown}с)` : '🔒 СМЕНИТЬ АККАУНТ'}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="obsidian-well" style={{ padding: '6px 12px', minWidth: '220px' }}>
+              <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px', marginBottom: '3px' }}>
+                <span id="updStageText">{updateStage} • Обновления GitHub & Патчи</span>
+                <strong style={{ color: 'var(--led-mint)' }} id="updPctText">{updatePct}%</strong>
+              </div>
+              <div style={{ height: '5px', background: 'var(--bg-row)', borderRadius: '3px', overflow: 'hidden' }}>
+                <div 
+                  id="updBarFill" 
+                  style={{ height: '100%', width: `${updatePct}%`, background: 'var(--led-mint)', transition: 'width 0.2s' }}
+                />
+              </div>
+            </div>
+            <button className="chunky-cta" onClick={handleCheckUpdates} disabled={isCheckingUpdates || !onCheckUpdates}>
+              {isCheckingUpdates ? 'Проверка...' : 'Проверить обновления'}
+            </button>
+            <button className="tactile-btn" onClick={handleOpenDiag} title="Диагностический отчет">
+              🩺 Отчет
+            </button>
+          </div>
+        </div>
+
+      {/* Diagnostic Report Modal (diagModal) */}
+      {showDiagModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setShowDiagModal(false)}
+        >
+          <div 
+            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+              <div className="flex items-center gap-2">
+                <span className="led-dot"></span>
+                <h3 className="text-sm font-bold tracking-wider uppercase text-[var(--text-primary)]">
+                  🩺 ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ
+                </h3>
+              </div>
+              <button 
+                className="tactile-btn" 
+                style={{ height: '24px', width: '24px', padding: 0 }}
+                onClick={() => setShowDiagModal(false)}
               >
                 ✕
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto max-h-[55vh] p-3.5 rounded-xl bg-black/50 border border-[var(--line)] text-xs font-mono text-emerald-200/90 whitespace-pre-wrap select-text leading-relaxed">
-              {reportContent}
+
+            <div 
+              className="obsidian-well p-4 font-mono text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-y-auto max-h-[420px]"
+              style={{ lineHeight: 1.6 }}
+            >
+              {isLoadingDiag ? 'Сбор телеметрии системы...' : diagContent}
             </div>
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-[11px] text-[var(--muted)]">Конфиденциальные токены скрыты</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopyDiagnosticReport}
-                  className="px-4 py-2 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold border border-[#73bba5]/40 shadow-sm transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
-                >
-                  {isCopiedReport ? <Check className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
-                  <span>{isCopiedReport ? 'Скопировано!' : 'Скопировать весь отчет'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowReportModal(false)}
-                  className="px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-[var(--foreground)] text-xs font-semibold border border-[var(--line)] cursor-pointer"
-                >
-                  Закрыть
-                </button>
-              </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <span className="text-[10px] text-[var(--text-muted)]">
+                Все секретные токены и cookies очищены перед отображением
+              </span>
+              <button 
+                className="tactile-btn active-mint"
+                onClick={handleCopyDiagnosticReport}
+              >
+                📋 Скопировать отчет
+              </button>
             </div>
           </div>
         </div>

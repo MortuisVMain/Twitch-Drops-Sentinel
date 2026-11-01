@@ -246,6 +246,7 @@ class BaseDrop:
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                 reward = self.rewards_text().replace("|", "/")
                 game = self.campaign.game.name.replace("|", "/")
+                camp = self.campaign.name.replace("|", "/")
                 # Deduplication check: do not record the same trophy twice for the same game
                 is_duplicate = False
                 if trophies_path.exists():
@@ -396,6 +397,8 @@ class TimedDrop(BaseDrop):
 
     @property
     def progress(self) -> float:
+        if self.is_claimed:
+            return 1.0
         if self.current_minutes <= 0 or self.required_minutes <= 0:
             return 0.0
         elif self.current_minutes >= self.required_minutes:
@@ -560,6 +563,10 @@ class DropsCampaign:
 
     @property
     def progress(self) -> float:
+        if self.finished or (self.total_drops > 0 and self.claimed_drops >= self.total_drops):
+            return 1.0
+        if not self.total_drops:
+            return 0.0
         return sum(d.progress for d in self.drops) / self.total_drops
 
     @property

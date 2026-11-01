@@ -6534,24 +6534,12 @@ var cfg = {
   gog_password: process.env.GOG_PASSWORD || process.env.PASSWORD,
   gog_newsletter: process.env.GOG_NEWSLETTER == "1",
   // do not unsubscribe from newsletter after claiming a game
-  // auth AliExpress
-  ae_email: process.env.AE_EMAIL || process.env.EMAIL,
-  ae_password: process.env.AE_PASSWORD || process.env.PASSWORD,
   // auth Steam
   steam_username: process.env.STEAM_USERNAME || process.env.EMAIL,
   steam_password: process.env.STEAM_PASSWORD || process.env.PASSWORD,
-  steam_id: process.env.STEAM_ID,
+  steam_id: process.env.STEAM_ID
   // steam-games: community id for the library export
   // OTP only via GOG_EMAIL, can't add app...
-  // experimmental
-  pg_redeem: process.env.PG_REDEEM == "1",
-  // prime-gaming: redeem keys on external stores
-  lg_email: process.env.LG_EMAIL || process.env.PG_EMAIL || process.env.EMAIL,
-  // prime-gaming: external: legacy-games: email to use for redeeming
-  pg_claimdlc: process.env.PG_CLAIMDLC == "1",
-  // prime-gaming: claim in-game content
-  pg_timeLeft: Number(process.env.PG_TIMELEFT)
-  // prime-gaming: check time left to claim and skip game if there are more than PG_TIMELEFT days left to claim it
 };
 
 // src/util.js
@@ -6711,13 +6699,33 @@ if (cfg.debug_network) {
 }
 var notify_games = [];
 var user;
-try {
-  await context.addCookies([
+var ensureAgeCookies = async (targetContext) => {
+  const ageCookies = [
     { name: "OptanonAlertBoxClosed", value: new Date(Date.now() - 5 * 24 * 60 * 60 * 1e3).toISOString(), domain: ".epicgames.com", path: "/" },
-    // Accept cookies to get rid of banner to save space on screen. Set accept time to 5 days ago.
-    { name: "HasAcceptedAgeGates", value: "USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18", domain: "store.epicgames.com", path: "/" }
-    // gets rid of 'To continue, please provide your date of birth', https://github.com/vogler/free-games-claimer/issues/275, USK number doesn't seem to matter, cookie from 'Fallout 3: Game of the Year Edition'
-  ]);
+    { name: "egs_age_gate_dob", value: "1990-01-01", domain: ".epicgames.com", path: "/" },
+    { name: "egs_age_gate_dob", value: "1990-01-01", domain: "store.epicgames.com", path: "/" },
+    { name: "HasAcceptedAgeGates", value: "USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18,PEGI:18,ESRB:18,GRAC:18,Generic:18,USK:18", domain: ".epicgames.com", path: "/" },
+    { name: "HasAcceptedAgeGates", value: "USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18,PEGI:18,ESRB:18,GRAC:18,Generic:18,USK:18", domain: "store.epicgames.com", path: "/" }
+  ];
+  try {
+    await targetContext.addCookies(ageCookies);
+  } catch (err) {
+    if (cfg.debug) console.debug("Could not add age cookies:", err);
+  }
+};
+try {
+  await ensureAgeCookies(context);
+  await context.addInitScript(() => {
+    try {
+      document.cookie = "egs_age_gate_dob=1990-01-01; path=/; domain=.epicgames.com";
+      document.cookie = "egs_age_gate_dob=1990-01-01; path=/; domain=store.epicgames.com";
+      document.cookie = "HasAcceptedAgeGates=USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18,PEGI:18,ESRB:18,GRAC:18,Generic:18,USK:18; path=/; domain=.epicgames.com";
+      document.cookie = "HasAcceptedAgeGates=USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18,PEGI:18,ESRB:18,GRAC:18,Generic:18,USK:18; path=/; domain=store.epicgames.com";
+      localStorage.setItem("has_accepted_age_gate", "true");
+      sessionStorage.setItem("has_accepted_age_gate", "true");
+    } catch {
+    }
+  });
   await page.goto(URL_CLAIM, { waitUntil: "domcontentloaded" });
   if (cfg.time) console.timeEnd("startup");
   if (cfg.time) console.time("login");
@@ -6790,6 +6798,7 @@ try {
   ${urls.map((u) => pastelBlue(u)).join("\n  ")}`);
   for (const url of urls) {
     if (cfg.time) console.time("claim game");
+    await ensureAgeCookies(context);
     await page.goto(url);
     await page.waitForFunction(() => {
       const btn = document.querySelector('button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"]') || Array.from(document.querySelectorAll("button")).find((b) => /(get|получить|in library|в библиотеке|requires base game)/i.test(b.textContent));
@@ -6797,19 +6806,66 @@ try {
     });
     const purchaseBtn = page.locator('button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"], button:has-text("Get"), button:has-text("\u041F\u043E\u043B\u0443\u0447\u0438\u0442\u044C"), button:has-text("In Library"), button:has-text("\u0412 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0435")').first();
     const btnText = (await purchaseBtn.innerText()).toLowerCase().trim();
-    if (await page.locator('button:has-text("Continue")').count() > 0) {
-      console.log("  This game contains mature content recommended only for ages 18+");
-      if (await page.locator('[data-testid="AgeSelect"]').count()) {
-        console.error(`  Got "To continue, please provide your date of birth" - This shouldn't happen due to cookie set above. Please report to https://github.com/vogler/free-games-claimer/issues/275`);
-        await page.locator("#month_toggle").click();
-        await page.locator('#month_menu li:has-text("01")').click();
-        await page.locator("#day_toggle").click();
-        await page.locator('#day_menu li:has-text("01")').click();
-        await page.locator("#year_toggle").click();
-        await page.locator('#year_menu li:has-text("1987")').click();
+    const continueLoc = page.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"), button:has-text("View Product"), button:has-text("I Understand")');
+    if (await continueLoc.count() > 0) {
+      console.log("  This game contains mature content recommended only for ages 18+ (Auto-Bypassing)");
+      try {
+        if (await page.locator('[data-testid="AgeSelect"]').count()) {
+          await page.locator("#month_toggle").click({ timeout: 1e3 }).catch(() => {
+          });
+          await page.locator('#month_menu li:has-text("01")').click({ timeout: 1e3 }).catch(() => {
+          });
+          await page.locator("#day_toggle").click({ timeout: 1e3 }).catch(() => {
+          });
+          await page.locator('#day_menu li:has-text("01")').click({ timeout: 1e3 }).catch(() => {
+          });
+          await page.locator("#year_toggle").click({ timeout: 1e3 }).catch(() => {
+          });
+          await page.locator('#year_menu li:has-text("1987")').click({ timeout: 1e3 }).catch(() => {
+          });
+        }
+        const yearSelect = page.locator('select[name*="year" i], select[id*="year" i]');
+        if (await yearSelect.count() > 0) await yearSelect.first().selectOption("1990").catch(() => {
+        });
+        const monthSelect = page.locator('select[name*="month" i], select[id*="month" i]');
+        if (await monthSelect.count() > 0) await monthSelect.first().selectOption({ index: 1 }).catch(() => {
+        });
+        const daySelect = page.locator('select[name*="day" i], select[id*="day" i]');
+        if (await daySelect.count() > 0) await daySelect.first().selectOption({ index: 1 }).catch(() => {
+        });
+        const ageCheck = page.locator('input[type="checkbox"]:not(:checked), [role="checkbox"][aria-checked="false"]');
+        if (await ageCheck.count() > 0) await ageCheck.first().click({ timeout: 1e3 }).catch(() => {
+        });
+      } catch (e) {
+        if (cfg.debug) console.debug("Age gate input probe:", e.message);
       }
-      await page.click('button:has-text("Continue")', { delay: 111 });
-      await page.waitForTimeout(2e3);
+      await page.evaluate(() => {
+        try {
+          document.cookie = "egs_age_gate_dob=1990-01-01; path=/; domain=.epicgames.com";
+          document.cookie = "egs_age_gate_dob=1990-01-01; path=/; domain=store.epicgames.com";
+          document.cookie = "HasAcceptedAgeGates=USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18,PEGI:18,ESRB:18,GRAC:18,Generic:18,USK:18; path=/; domain=.epicgames.com";
+          document.cookie = "HasAcceptedAgeGates=USK:9007199254740991,general:18,EPIC SUGGESTED RATING:18,PEGI:18,ESRB:18,GRAC:18,Generic:18,USK:18; path=/; domain=store.epicgames.com";
+          localStorage.setItem("has_accepted_age_gate", "true");
+        } catch {
+        }
+      });
+      const btn = continueLoc.first();
+      let clicked = false;
+      const isBtnDisabled = await btn.isDisabled().catch(() => false);
+      if (!isBtnDisabled) {
+        try {
+          await btn.click({ timeout: 3500, delay: 111 });
+          clicked = true;
+          await page.waitForTimeout(1500);
+        } catch {
+        }
+      }
+      if (!clicked || await continueLoc.count() > 0 && await continueLoc.first().isVisible().catch(() => false)) {
+        console.log("  Refreshing page with 18+ age verification cookies...");
+        await ensureAgeCookies(context);
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(2e3);
+      }
     }
     let title;
     let bundle_includes;
@@ -6851,14 +6907,17 @@ try {
     } else {
       console.log("  Not in library yet! Click", btnText);
       await purchaseBtn.click({ delay: 11 });
-      for (let attempt = 0; attempt < 6; attempt++) {
+      for (let attempt = 0; attempt < 10; attempt++) {
         await page.waitForTimeout(500);
-        const warningBtn = page.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"), button:has-text("View Product"), button:has-text("Yes, buy now"), button:has-text("Agree"), button:has-text("Accept"), button:has-text("I understand")').first();
+        const warningBtn = page.locator('button:not([disabled]):not(:has(.payment-loading--loading)):has-text("Continue"), button:not([disabled]):has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"), button:not([disabled]):has-text("View Product"), button:not([disabled]):has-text("Yes, buy now"), button:not([disabled]):has-text("Agree"), button:not([disabled]):has-text("Accept"), button:not([disabled]):has-text("I understand"), button:not([disabled]):has-text("Place Order"), button:not([disabled]):has-text("\u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0437\u0430\u043A\u0430\u0437"), button:not([disabled]):has-text("Add to library"), button:not([disabled]):has-text("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0443")').first();
         if (await warningBtn.isVisible().catch(() => false)) {
-          console.log("  Dismissing confirmation/age-gate modal...");
+          const warningBtnText = await warningBtn.innerText().catch(() => "");
+          console.log(`  Dismissing modal / clicking order button: "${warningBtnText.trim()}"...`);
           await warningBtn.click().catch(() => {
           });
           await page.waitForTimeout(1e3);
+        } else {
+          break;
         }
       }
       page.locator(':has-text("end user license agreement")').waitFor({ timeout: 5e3 }).then(async () => {
@@ -6870,37 +6929,38 @@ try {
       }).catch((_) => {
       });
       const checkoutIframeSelector = '#webPurchaseContainer iframe:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="/purchase"]:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="checkout"]:not([src*="hcaptcha"]):not([title*="hCaptcha"])';
-      await page.waitForSelector(checkoutIframeSelector, { state: "attached", timeout: 35e3 });
-      const iframe = page.frameLocator(checkoutIframeSelector).first();
-      if (await iframe.locator(':has-text("unavailable in your region"), :has-text("\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0432\u0430\u0448\u0435\u043C \u0440\u0435\u0433\u0438\u043E\u043D\u0435")').count() > 0) {
-        console.error("  This product is unavailable in your region!");
-        db.data[user][game_id].status = notify_game.status = "unavailable-in-region";
-        if (cfg.time) console.timeEnd("claim game");
-        continue;
-      }
-      iframe.locator(".payment-pin-code").waitFor().then(async () => {
-        if (!cfg.eg_parentalpin) {
-          console.error("  EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
-          notify("epic-games: EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
-        }
-        await iframe.locator("input.payment-pin-code__input").first().pressSequentially(cfg.eg_parentalpin);
-        await iframe.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C")').click({ delay: 11 });
-      }).catch((_) => {
-      });
-      if (cfg.debug) await page.pause();
-      if (cfg.dryrun) {
-        console.log("  DRYRUN=1 -> Skip order!");
-        notify_game.status = "skipped";
-        if (cfg.time) console.timeEnd("claim game");
-        continue;
-      }
-      const checkoutBtn = iframe.locator("button:not(:has(.payment-loading--loading))").filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
-      await checkoutBtn.waitFor({ state: "visible", timeout: 25e3 });
-      await checkoutBtn.click({ delay: 50 });
-      const btnAgree = iframe.locator('button:has-text("I Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")');
-      btnAgree.waitFor().then(() => btnAgree.click()).catch((_) => {
-      });
+      let iframe = null;
       try {
+        await page.waitForSelector(checkoutIframeSelector, { state: "attached", timeout: 8e3 });
+        iframe = page.frameLocator(checkoutIframeSelector).first();
+        if (await iframe.locator(':has-text("unavailable in your region"), :has-text("\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0432\u0430\u0448\u0435\u043C \u0440\u0435\u0433\u0438\u043E\u043D\u0435")').count() > 0) {
+          console.error("  This product is unavailable in your region!");
+          db.data[user][game_id].status = notify_game.status = "unavailable-in-region";
+          if (cfg.time) console.timeEnd("claim game");
+          continue;
+        }
+        iframe.locator(".payment-pin-code").waitFor().then(async () => {
+          if (!cfg.eg_parentalpin) {
+            console.error("  EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
+            notify("epic-games: EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
+          }
+          await iframe.locator("input.payment-pin-code__input").first().pressSequentially(cfg.eg_parentalpin);
+          await iframe.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C")').click({ delay: 11 });
+        }).catch((_) => {
+        });
+        if (cfg.debug) await page.pause();
+        if (cfg.dryrun) {
+          console.log("  DRYRUN=1 -> Skip order!");
+          notify_game.status = "skipped";
+          if (cfg.time) console.timeEnd("claim game");
+          continue;
+        }
+        const checkoutBtn = iframe.locator("button:not(:has(.payment-loading--loading))").filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
+        await checkoutBtn.waitFor({ state: "visible", timeout: 25e3 });
+        await checkoutBtn.click({ delay: 50 });
+        const btnAgree = iframe.locator('button:has-text("I Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")');
+        btnAgree.waitFor().then(() => btnAgree.click()).catch((_) => {
+        });
         const captcha = iframe.locator("#h_captcha_challenge_checkout_free_prod iframe");
         captcha.waitFor().then(async () => {
           console.error("  Got hcaptcha challenge! Lost trust due to too many login attempts? You can solve the captcha in the browser or get a new IP address.");
@@ -6918,6 +6978,29 @@ Game link: ${url}`);
           await notify(`epic-games: got Arkose captcha challenge for ${title}. Run with SHOW=1 to solve it.`);
         }).catch((_) => {
         });
+      } catch (_iframeTimeout) {
+        console.log("  No checkout iframe detected \u2014 using new Epic direct claim flow...");
+        if (cfg.dryrun) {
+          console.log("  DRYRUN=1 -> Skip order!");
+          notify_game.status = "skipped";
+          if (cfg.time) console.timeEnd("claim game");
+          continue;
+        }
+        try {
+          const pageOrderBtn = page.locator([
+            "button:not(:has(.payment-loading--loading)):not([disabled])"
+          ].join(", ")).filter({ hasText: /Place Order|Add to library|Добавить в библиотеку|Оформить заказ|Order Now|Get Now|Claim/i }).first();
+          await pageOrderBtn.waitFor({ state: "visible", timeout: 8e3 });
+          console.log("  Found page-level order button, clicking...");
+          await pageOrderBtn.click({ delay: 50 });
+          const btnAgreeEl = page.locator('button:has-text("I Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")');
+          btnAgreeEl.waitFor({ timeout: 3e3 }).then(() => btnAgreeEl.click()).catch((_) => {
+          });
+        } catch (_noPageBtn) {
+          console.log("  No page-level order button \u2014 waiting for direct In Library transition...");
+        }
+      }
+      try {
         await Promise.any([
           page.locator("text=Thanks for your order!").waitFor({ state: "attached" }),
           // old checkout layout
@@ -6927,9 +7010,18 @@ Game link: ${url}`);
           page.locator("text=Download the Epic Games Launcher to play").waitFor({ state: "attached" }),
           page.locator("text=Is Epic Games Launcher installed?").waitFor({ state: "attached" }),
           page.locator("text=\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0435 \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0443 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 Epic Games").waitFor({ state: "attached" }),
+          page.locator("text=Your order is complete").waitFor({ state: "attached" }),
+          page.locator("text=Claim").waitFor({ state: "detached" }),
+          // button disappears after claim
           page.waitForFunction(() => {
             const btn = document.querySelector('button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"]') || Array.from(document.querySelectorAll("button")).find((b) => /(in library|в библиотеке)/i.test(b.textContent));
             return btn && /in library|в библиотеке/i.test(btn.textContent);
+          }),
+          // Also succeed if "Get" button is gone (meaning claim completed)
+          page.waitForFunction(() => {
+            const getBtn = Array.from(document.querySelectorAll("button")).find((b) => /^(get|получить)$/i.test(b.textContent?.trim()));
+            const inLibBtn = Array.from(document.querySelectorAll("button")).find((b) => /(in library|в библиотеке)/i.test(b.textContent));
+            return !getBtn && inLibBtn;
           })
         ]);
         db.data[user][game_id].status = "claimed";

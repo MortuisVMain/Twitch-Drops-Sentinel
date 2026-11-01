@@ -153,7 +153,7 @@ from gui_headless import STATE_BRIDGE, send_windows_toast
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT
-from utils import json_load, json_save
+from utils import json_load, json_save, smart_game_match, clean_title
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from game_scanner import GameScanner
@@ -325,10 +325,16 @@ class SentinelSupervisor:
             "streamer_watchdog_enabled": True,
             "game_directories": [],
             "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
+            "user_linked_games": ["Hunt: Showdown 1896"],
             "excluded_games": [],
             "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
             "games_to_pause": DEFAULT_GAMES_PROCESSES,
             "ignored_processes": [],
+            "ignored_channels": [],
+            "ui_theme": "titanium",
+            "ui_backdrop_type": "3d",
+            "ui_relief_mode": "hex-magma",
+            "ui_relief_opacity": 85,
         }
         if not CONFIG_FILE.exists():
             default_template = PROJECT_DIR / "config.default.json"
@@ -431,6 +437,7 @@ class SentinelSupervisor:
             try:
                 self.twitch_client.settings.priority = deduped_priority
                 self.twitch_client.settings.exclude = set(exclude_list)
+                self.twitch_client.settings.ignored_channels = self.settings.get("ignored_channels", [])
                 try:
                     self.twitch_client.settings.priority_mode = PriorityMode(priority_mode_val)
                 except Exception as exc:
@@ -451,18 +458,26 @@ class SentinelSupervisor:
             try:
                 with open(TROPHIES_FILE, "r", encoding="utf-8") as f:
                     lines = f.readlines()
-                for i, line in enumerate(lines):
-                    if line.startswith("|") and not line.startswith("| Р”Р°С‚Р°") and not line.startswith("| :---"):
-                        parts = [p.strip() for p in line.strip().split("|")[1:-1]]
-                        if len(parts) >= 5:
-                            trophies.append({
-                                "id": f"tr-{i}",
-                                "date": parts[0],
-                                "game": parts[1].replace("**", ""),
-                                "drop_name": parts[2],
-                                "campaign": parts[3],
-                                "status": "Claimed" if "Р—Р°Р±СЂР°РЅ" in parts[4] else parts[4],
-                            })
+                for i, raw_line in enumerate(lines):
+                    line = raw_line.strip()
+                    if not line.startswith("|"):
+                        continue
+                    parts = [p.strip() for p in line.split("|")[1:-1]]
+                    if len(parts) >= 5:
+                        first_col = parts[0].lower()
+                        second_col = parts[1].lower().replace("**", "")
+                        if any(marker in first_col for marker in ("дата", "date", ":---", "---")):
+                            continue
+                        if second_col in ("игра", "game", "title"):
+                            continue
+                        trophies.append({
+                            "id": f"tr-{i}",
+                            "date": parts[0],
+                            "game": parts[1].replace("**", ""),
+                            "drop_name": parts[2],
+                            "campaign": parts[3],
+                            "status": "Claimed" if ("Забран" in parts[4] or "Claimed" in parts[4]) else parts[4],
+                        })
             except Exception as e:
                 logger.error(f"Error reading Trophies.md: {e}")
         return trophies[::-1]  # Latest first
@@ -473,6 +488,7 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/verify-game", self.handle_verify_game)
         self.app.router.add_get("/api/search-games", self.handle_search_games)
         self.app.router.add_post("/api/settings", self.handle_post_settings)
+        self.app.router.add_post("/api/games/toggle-linked", self.handle_toggle_game_linked)
         self.app.router.add_post("/api/claim", self.handle_claim)
         self.app.router.add_post("/api/switch-streamer", self.handle_switch_streamer)
         self.app.router.add_post("/api/farm/force", self.handle_force_farm)
@@ -498,6 +514,10 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/browse-folder", self.handle_browse_folder)
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
         self.app.router.add_post("/api/auth/logout", self.handle_logout)
+        self.app.router.add_post("/api/logout", self.handle_logout)
+        self.app.router.add_post("/api/backup", self.handle_backup_profile)
+        self.app.router.add_post("/api/game-directories/clear-cache", self.handle_clear_installed_games)
+        self.app.router.add_post("/api/settings/reset", self.handle_reset_settings)
         self.app.router.add_post("/api/restart", self.handle_restart)
         self.app.router.add_post("/api/system/restart", self.handle_restart)
         self.app.router.add_post("/api/toggle-daemon", self.handle_toggle_daemon)
@@ -513,11 +533,17 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
         self.app.router.add_post("/api/v1/giveaways/abort", self.handle_giveaways_abort)
         self.app.router.add_post("/api/v1/giveaways/toggle-scheduler", self.handle_giveaways_toggle_scheduler)
+        self.app.router.add_post("/api/v1/giveaways/scheduler-days", self.handle_giveaways_scheduler_days)
+        self.app.router.add_post("/api/v1/giveaways/auth/{store}", self.handle_giveaways_auth)
         self.app.router.add_get("/api/v1/giveaways/stream", self.handle_giveaways_stream)
         self.app.router.add_get("/api/v1/dimmer/state", self.handle_dimmer_state)
         self.app.router.add_post("/api/v1/dimmer/brightness", self.handle_dimmer_brightness)
         self.app.router.add_post("/api/v1/dimmer/blackout", self.handle_dimmer_blackout)
         self.app.router.add_post("/api/v1/dimmer/timer", self.handle_dimmer_timer)
+        self.app.router.add_post("/api/v1/dimmer/ultradark", self.handle_dimmer_ultradark)
+        self.app.router.add_post("/api/v1/dimmer/mute", self.handle_dimmer_mute)
+        self.app.router.add_post("/api/v1/dimmer/save-baseline", self.handle_dimmer_save_baseline)
+        self.app.router.add_post("/api/v1/dimmer/restore-baseline", self.handle_dimmer_restore_baseline)
 
         # CORS preflight middleware
         self.app.middlewares.append(self.cors_middleware)
@@ -583,18 +609,99 @@ class SentinelSupervisor:
             for camp in inv_list:
                 if hasattr(camp, "game") and camp.game and camp.game.name:
                     camp_map[camp.game.name.strip().lower()] = camp
+            user_linked_set = {str(k).strip().lower() for k in self.settings.get("user_linked_games", [])}
+            trophy_games_set = {t.get("game", "").strip().lower() for t in trophies if t.get("game")}
+
             for g in catalog_games:
                 gn = g.get("name", "").strip().lower()
-                if gn in camp_map:
-                    camp = camp_map[gn]
-                    g["is_account_connected"] = getattr(camp, "linked", True)
+                # 1. Smart campaign lookup (Hunt: Showdown 1896 matches Hunt: Showdown)
+                matched_camp = camp_map.get(gn)
+                if not matched_camp:
+                    for c_name, camp_obj in camp_map.items():
+                        if smart_game_match(c_name, gn):
+                            matched_camp = camp_obj
+                            break
+
+                is_user_linked = (
+                    gn in user_linked_set or
+                    any(smart_game_match(k, gn) for k in user_linked_set)
+                )
+                is_in_trophies = (
+                    gn in trophy_games_set or
+                    any(smart_game_match(t, gn) for t in trophy_games_set)
+                )
+
+                if matched_camp:
+                    camp = matched_camp
+                    claimed = getattr(camp, "claimed_drops", 0) or 0
+                    finished = getattr(camp, "finished", False)
+                    twitch_linked = getattr(camp, "linked", False) is True
+
+                    # Universal Link Detection:
+                    # 1. Twitch native OAuth link
+                    # 2. Drops claimed in Twitch inventory (user proved connection)
+                    # 3. Campaign completed (finished)
+                    # 4. User manually confirmed link or trophy exists in Trophies.md
+                    is_linked = bool(
+                        twitch_linked or
+                        claimed > 0 or
+                        finished or
+                        (g.get("claimed_drops", 0) or 0) > 0 or
+                        g.get("is_finished") is True or
+                        is_user_linked or
+                        is_in_trophies
+                    )
+                    g["is_account_connected"] = is_linked
                     g["account_link_url"] = getattr(camp, "link_url", "") or "https://www.twitch.tv/settings/connections"
-                    g["is_finished"] = getattr(camp, "finished", False)
-                    g["total_drops"] = getattr(camp, "total_drops", 0)
-                    g["claimed_drops"] = getattr(camp, "claimed_drops", 0)
-                    g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
+                    camp_total = getattr(camp, "total_drops", 0) or g.get("total_drops", 0)
+                    camp_claimed = claimed or g.get("claimed_drops", 0)
+                    is_camp_finished = bool(
+                        finished or
+                        g.get("is_finished") is True or
+                        (camp_total > 0 and camp_claimed >= camp_total)
+                    )
+                    g["is_finished"] = is_camp_finished
+                    g["total_drops"] = camp_total
+                    g["claimed_drops"] = camp_claimed
+                    if is_camp_finished:
+                        g["progress_percent"] = 100.0
+                    else:
+                        g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
                     if hasattr(camp, "allowed_channels") and camp.allowed_channels:
                         g["allowed_channels"] = [ch.name for ch in camp.allowed_channels]
+                else:
+                    if (
+                        is_user_linked or
+                        is_in_trophies or
+                        (g.get("claimed_drops", 0) or 0) > 0 or
+                        g.get("is_finished") is True
+                    ):
+                        g["is_account_connected"] = True
+
+            # Also synthesize any campaigns from inventory that have claimed drops or are finished, but not yet in catalog
+            matched_cat_names = {g.get("name", "").strip().lower() for g in catalog_games}
+            for camp in inv_list:
+                c_game_name = getattr(camp.game, "name", "") if hasattr(camp, "game") and camp.game else ""
+                if not c_game_name:
+                    continue
+                c_claimed = getattr(camp, "claimed_drops", 0) or 0
+                c_finished = getattr(camp, "finished", False)
+                if c_claimed > 0 or c_finished:
+                    if not any(smart_game_match(c_game_name, cn) for cn in matched_cat_names):
+                        catalog_games.append({
+                            "id": f"inv-{clean_title(c_game_name).replace(' ', '-')}",
+                            "name": c_game_name,
+                            "is_installed": False,
+                            "has_drops": False,
+                            "is_active_now": False,
+                            "category": f"🏆 Собрано ({c_claimed})",
+                            "box_art": getattr(camp.game, "box_art", "") or "",
+                            "claimed_drops": c_claimed,
+                            "total_drops": getattr(camp, "total_drops", c_claimed) or c_claimed,
+                            "is_account_connected": getattr(camp, "linked", True),
+                            "is_finished": c_finished,
+                        })
+                        matched_cat_names.add(c_game_name.strip().lower())
 
         installed_games = [g for g in catalog_games if g.get("is_installed")]
 
@@ -643,6 +750,29 @@ class SentinelSupervisor:
         query = request.query.get("query", "").strip() or request.query.get("q", "").strip()
         results = await asyncio.to_thread(CAMPAIGNS_FETCHER.search_games, query)
         return web.json_response(results)
+
+    async def handle_toggle_game_linked(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            game_name = str(data.get("game") or data.get("name") or "").strip()
+            if not game_name:
+                return web.json_response({"status": "error", "message": "game name required"}, status=400)
+            
+            user_linked = list(self.settings.get("user_linked_games", []))
+            is_existing = any(smart_game_match(g, game_name) for g in user_linked)
+            if is_existing:
+                user_linked = [g for g in user_linked if not smart_game_match(g, game_name)]
+                is_linked = False
+            else:
+                user_linked.append(game_name)
+                is_linked = True
+            
+            self.settings["user_linked_games"] = user_linked
+            self.save_settings()
+            return web.json_response({"status": "ok", "game": game_name, "is_linked": is_linked, "user_linked_games": user_linked})
+        except Exception as e:
+            logger.error(f"Error in handle_toggle_game_linked: {e}")
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_post_settings(self, request: web.Request) -> web.Response:
         try:
@@ -781,9 +911,18 @@ class SentinelSupervisor:
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_check_updates(self, request: web.Request) -> web.Response:
-        force = request.query.get("force", "0") in ("1", "true")
-        res = await asyncio.to_thread(UPDATER.check_for_updates, force=force)
-        return web.json_response(res)
+        try:
+            force = request.query.get("force", "0") in ("1", "true")
+            res = await asyncio.to_thread(UPDATER.check_for_updates, force=force)
+            return web.json_response(res)
+        except Exception as e:
+            logger.warning(f"Failed to check for updates (network or timeout): {e}")
+            return web.json_response({
+                "has_update": False,
+                "current_version": getattr(UPDATER, "current_version", "3.3.4"),
+                "latest_version": getattr(UPDATER, "current_version", "3.3.4"),
+                "error": str(e)
+            })
 
     async def handle_apply_update(self, request: web.Request) -> web.Response:
         try:
@@ -908,6 +1047,50 @@ class SentinelSupervisor:
             logger.error("Error during logout: %s", e, exc_info=True)
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    async def handle_backup_profile(self, request: web.Request) -> web.Response:
+        try:
+            import zipfile
+            backup_dir = PROJECT_DIR / "data" / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            zip_filename = f"sentinel_profile_backup_{ts}.zip"
+            zip_path = backup_dir / zip_filename
+            files_to_pack = [
+                PROJECT_DIR / "data" / "settings.json",
+                PROJECT_DIR / "data" / "installed_games.json",
+                PROJECT_DIR / "data" / "dimmer_state.json",
+                PROJECT_DIR / "Trophies.md",
+                PROJECT_DIR / "cookies.jar",
+            ]
+            added_names = set()
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fp in files_to_pack:
+                    if fp.exists() and fp.name not in added_names:
+                        zf.write(fp, arcname=fp.name)
+                        added_names.add(fp.name)
+            logger.info(f"Profile backup created successfully: {zip_path}")
+            return web.json_response({
+                "status": "ok",
+                "message": "Backup created successfully",
+                "filename": zip_filename,
+                "path": str(zip_path)
+            })
+        except Exception as e:
+            logger.error(f"Error creating backup: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_reset_settings(self, request: web.Request) -> web.Response:
+        try:
+            from settings import default_settings
+            self.settings = dict(default_settings)
+            self.save_settings()
+            STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
+            await self.broadcast_ws()
+            return web.json_response({"status": "ok", "settings": self.settings})
+        except Exception as e:
+            logger.error(f"Error resetting settings: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
     async def handle_scan_games(self, request: web.Request) -> web.Response:
         logger.info("Rescanning local game libraries (Steam, Epic, GOG, Custom folders)...")
         custom_dirs = self.settings.get("game_directories", [])
@@ -935,7 +1118,7 @@ class SentinelSupervisor:
     async def handle_ignore_process(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
-            proc = str(data.get("process", "")).strip()
+            proc = str(data.get("process") or data.get("process_name") or "").strip()
             if not proc:
                 return web.json_response({"status": "error", "message": "Process name is required"}, status=400)
             
@@ -991,7 +1174,7 @@ class SentinelSupervisor:
         try:
             data = await request.json()
             game_id = str(data.get("id") or data.get("game_id") or "").strip()
-            name = str(data.get("name") or "").strip()
+            name = str(data.get("name") or data.get("game") or "").strip()
             if not game_id and not name:
                 return web.json_response({"status": "error", "message": "id or name required"}, status=400)
             if hasattr(self.scanner, "remove_installed_game"):
@@ -1012,7 +1195,7 @@ class SentinelSupervisor:
         try:
             data = await request.json()
             game_id = str(data.get("id") or data.get("game_id") or "").strip()
-            name = str(data.get("name") or "").strip()
+            name = str(data.get("name") or data.get("game") or "").strip()
             if not game_id and not name:
                 return web.json_response({"status": "error", "message": "id or name required"}, status=400)
             if hasattr(self.scanner, "unignore_game"):
@@ -1174,6 +1357,20 @@ class SentinelSupervisor:
         sched = await self.giveaways.toggle_scheduler(enable=enable)
         return web.json_response({"status": "ok", "scheduler": sched})
 
+    async def handle_giveaways_scheduler_days(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        days = body.get("days", [])
+        sched = await self.giveaways.update_scheduler_days(days=days)
+        return web.json_response({"status": "ok", "scheduler": sched})
+
+    async def handle_giveaways_auth(self, request: web.Request) -> web.Response:
+        store = request.match_info.get("store", "epic")
+        res = await self.giveaways.start_auth(store=store)
+        return web.json_response(res)
+
     async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
         return await self.giveaways.handle_stream(request)
 
@@ -1186,7 +1383,20 @@ class SentinelSupervisor:
             body = await request.json()
         except Exception:
             body = {}
-        monitor_id = body.get("monitorId") or body.get("monitor_id") or "master"
+        monitor_id = body.get("monitorId") or body.get("monitor_id")
+        if not monitor_id and ("monitor_index" in body or "monitorIndex" in body):
+            idx = body.get("monitor_index") if "monitor_index" in body else body.get("monitorIndex")
+            if idx is not None:
+                try:
+                    i = int(idx)
+                    if 0 <= i < len(self.dimmer._monitors):
+                        monitor_id = self.dimmer._monitors[i].get("id")
+                    else:
+                        monitor_id = str(i)
+                except (ValueError, TypeError):
+                    pass
+        if not monitor_id:
+            monitor_id = "master"
         level = body.get("level") if body.get("level") is not None else body.get("brightness", 80)
         level = int(level)
         state = await self.dimmer.set_brightness(monitor_id, level)
@@ -1197,10 +1407,18 @@ class SentinelSupervisor:
             body = await request.json()
         except Exception:
             body = {}
-        enabled = bool(body.get("enabled", True))
-        solo_index = body.get("soloIndex") or body.get("solo_index")
+        if "enabled" in body:
+            enabled = bool(body.get("enabled"))
+        elif "blackout" in body:
+            enabled = bool(body.get("blackout"))
+        else:
+            enabled = True
+        solo_index = body.get("soloIndex") if "soloIndex" in body else body.get("solo_index")
         if solo_index is not None:
-            solo_index = int(solo_index)
+            try:
+                solo_index = int(solo_index)
+            except (ValueError, TypeError):
+                solo_index = None
         state = await self.dimmer.set_blackout(enabled, solo_index)
         return web.json_response({"status": "ok", "state": state, **state})
 
@@ -1211,6 +1429,33 @@ class SentinelSupervisor:
             body = {}
         minutes = int(body.get("minutes", 0))
         state = await self.dimmer.set_timer(minutes)
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_ultradark(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        enabled = bool(body.get("enabled", False))
+        tint = body.get("tint")
+        state = await self.dimmer.set_ultra_dark(enabled, tint)
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_mute(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        enabled = bool(body.get("enabled", False))
+        state = await self.dimmer.set_mute_audio(enabled)
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_save_baseline(self, request: web.Request) -> web.Response:
+        state = await self.dimmer.save_baseline()
+        return web.json_response({"status": "ok", "state": state, **state})
+
+    async def handle_dimmer_restore_baseline(self, request: web.Request) -> web.Response:
+        state = await self.dimmer.restore_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def _on_app_shutdown(self, app):

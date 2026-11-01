@@ -739,21 +739,21 @@ class Twitch:
                         if smart_game_match(k, forced_game_target):
                             self.game_cooldowns.pop(k, None)
 
-                    # Check if forced game still has earnable drops
+                    # Check if forced game already has all drops claimed
                     forced_campaigns = [c for c in self.inventory if _is_forced(c.game.name)]
-                    has_earnable_drops = any(c.can_earn for c in forced_campaigns) if forced_campaigns else False
-                    all_claimed = all(all(d.is_claimed for d in c.drops) for c in forced_campaigns) if forced_campaigns else False
-
-                    if forced_campaigns and (all_claimed or not has_earnable_drops):
-                        logger.info(f"[FORCED FARM] Все доступные Drops для игры '{forced_game_target}' получены! Автоматический возврат в авто-режим.")
+                    all_finished = bool(forced_campaigns and all(c.finished for c in forced_campaigns))
+                    if all_finished:
+                        logger.info(f"[FORCED FARM] 🏆 Все доступные Drops для игры '{forced_game_target}' уже получены (100%)! Возврат в авто-режим.")
                         try:
                             from gui_headless import STATE_BRIDGE
-                            STATE_BRIDGE.add_log("INFO", f"Все награды для '{forced_game_target}' получены. Возврат в авто-режим.")
+                            STATE_BRIDGE.add_log("INFO", f"🏆 Все награды для '{forced_game_target}' уже собраны (100%). Возврат в авто-режим.")
                             STATE_BRIDGE.forced_game = None
                         except Exception as exc:
                             logger.debug("Could not notify STATE_BRIDGE of forced_game clear: %s", exc)
                         self.forced_game = None
                         forced_game_target = None
+                    else:
+                        logger.debug(f"[FORCED FARM] Активен принудительный фокус на игре: '{forced_game_target}'")
 
                 # figure out which games we want
                 self.wanted_games.clear()
@@ -783,7 +783,15 @@ class Twitch:
                         self.wanted_games.append(game)
 
                 if forced_game_target:
-                    self.wanted_games.sort(key=lambda g: 0 if _is_forced(g.name) else 1)
+                    # STRICT FORCED FARM ISOLATION:
+                    # When manual focus is active, ONLY the forced game can be in wanted_games.
+                    self.wanted_games = [g for g in self.wanted_games if _is_forced(g.name)]
+                    if not self.wanted_games:
+                        matching_camp = next((c for c in self.inventory if _is_forced(c.game.name)), None)
+                        if matching_camp:
+                            self.wanted_games = [matching_camp.game]
+                        else:
+                            self.wanted_games = [Game({"id": "", "displayName": forced_game_target})]
                 if priority:
                     has_priority_in_wanted = any(_fuzzy_priority(g.name) != MAX_INT for g in self.wanted_games)
                     if not has_priority_in_wanted:
@@ -1023,7 +1031,16 @@ class Twitch:
                     self._state_change.clear()
                 else:
                     # not watching anything and there isn't anything to watch either
-                    self.print(_("status", "no_channel"))
+                    forced_target = getattr(self, "forced_game", None)
+                    if forced_target:
+                        self.print(f"Ожидание стримеров для принудительного фокуса: {forced_target}")
+                        try:
+                            from gui_headless import STATE_BRIDGE
+                            STATE_BRIDGE.add_log("STATUS", f"[STATUS] Ожидание стримеров для игры '{forced_target}'...")
+                        except Exception:
+                            pass
+                    else:
+                        self.print(_("status", "no_channel"))
                     self.change_state(State.IDLE)
                 del new_watching, selected_channel, watching_channel
             elif self._state is State.RESTART:
@@ -1286,6 +1303,24 @@ class Twitch:
         logger.log(CALL, "Maintenance task requests a reload")
         self.change_state(State.INVENTORY_FETCH)
 
+    def is_channel_ignored(self, channel: Channel) -> bool:
+        ignored = getattr(self.settings, "ignored_channels", None)
+        if not ignored:
+            return False
+        now_ms = time() * 1000
+        ch_name = (channel.name or "").lower()
+        ch_id = str(channel.id)
+        for item in ignored:
+            if isinstance(item, dict):
+                name = (item.get("name") or "").lower()
+                until = item.get("until")
+                if name and (name == ch_name or name == ch_id):
+                    if until is None or until > now_ms:
+                        return True
+            elif isinstance(item, str) and item.lower() in (ch_name, ch_id):
+                return True
+        return False
+
     def can_watch(self, channel: Channel) -> bool:
         """
         Determines if the given channel qualifies as a watching candidate.
@@ -1293,6 +1328,12 @@ class Twitch:
         # exit early if stream is offline
         if not channel.online:
             return False
+        if self.is_channel_ignored(channel):
+            return False
+        forced_target = getattr(self, "forced_game", None)
+        if forced_target:
+            if not channel.game or not smart_game_match(channel.game.name, forced_target):
+                return False
         now_ts = time()
         if channel.id in self.streamer_cooldowns and self.streamer_cooldowns[channel.id] > now_ts:
             return False
@@ -1319,6 +1360,10 @@ class Twitch:
         """
         if not self.can_watch(channel):
             return False
+        forced_target = getattr(self, "forced_game", None)
+        if forced_target:
+            if not channel.game or not smart_game_match(channel.game.name, forced_target):
+                return False
         watching_channel = self.watching_channel.get_with_default(None)
         if watching_channel is None or not self.can_watch(watching_channel):
             return True
@@ -2174,11 +2219,13 @@ class Twitch:
         filters: list[str] = []
         if drops_enabled:
             filters.append("DROPS_ENABLED")
+        slug = game.slug
+        response = None
         try:
             response = await self.gql_request(
                 GQL_QUERIES["GameDirectory"].with_variables({
                     "limit": limit,
-                    "slug": game.slug,
+                    "slug": slug,
                     "options": {
                         "includeRestricted": ["SUB_ONLY_LIVE"],
                         "systemFilters": filters,
@@ -2186,14 +2233,61 @@ class Twitch:
                 })
             )
         except GQLException as exc:
-            raise MinerException(f"Game: {game.slug}") from exc
-        if "game" in response["data"]:
+            logger.debug(f"GameDirectory failed for {slug}: {exc}")
+
+        # If Twitch returned no game (e.g. slug mismatch like 'hunt-showdown-1896' vs 'hunt-showdown'),
+        # resolve the canonical slug via DirectoryGameRedirect (SlugRedirect)
+        if not response or not (response.get("data") or {}).get("game"):
+            try:
+                redirect_resp = await self.gql_request(
+                    GQL_QUERIES["SlugRedirect"].with_variables({"name": game.name})
+                )
+                real_slug = ((redirect_resp.get("data") or {}).get("game") or {}).get("slug")
+                if real_slug and real_slug != slug:
+                    game.slug = real_slug
+                    response = await self.gql_request(
+                        GQL_QUERIES["GameDirectory"].with_variables({
+                            "limit": limit,
+                            "slug": real_slug,
+                            "options": {
+                                "includeRestricted": ["SUB_ONLY_LIVE"],
+                                "systemFilters": filters,
+                            },
+                        })
+                    )
+            except Exception as exc:
+                logger.debug(f"SlugRedirect fallback failed for {game.name}: {exc}")
+
+        # If drops_enabled filter returned 0 streams, fallback without DROPS_ENABLED filter
+        # so Sentinel can discover live streams and validate drops capability individually
+        game_data = (response.get("data") or {}).get("game") if response else None
+        streams_edges = (game_data.get("streams") or {}).get("edges", []) if game_data else []
+        if not streams_edges and filters:
+            try:
+                fallback_slug = getattr(game, "slug", slug)
+                fb_resp = await self.gql_request(
+                    GQL_QUERIES["GameDirectory"].with_variables({
+                        "limit": limit,
+                        "slug": fallback_slug,
+                        "options": {
+                            "includeRestricted": ["SUB_ONLY_LIVE"],
+                            "systemFilters": [],
+                        },
+                    })
+                )
+                fb_game = (fb_resp.get("data") or {}).get("game") if fb_resp else None
+                if fb_game:
+                    streams_edges = (fb_game.get("streams") or {}).get("edges", [])
+            except Exception as exc:
+                logger.debug(f"GameDirectory fallback without filters failed: {exc}")
+
+        if streams_edges:
             return [
                 Channel.from_directory(
                     self, stream_channel_data["node"], drops_enabled=drops_enabled
                 )
-                for stream_channel_data in response["data"]["game"]["streams"]["edges"]
-                if stream_channel_data["node"]["broadcaster"] is not None
+                for stream_channel_data in streams_edges
+                if stream_channel_data.get("node", {}).get("broadcaster") is not None
             ]
         return []
 

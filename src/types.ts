@@ -31,6 +31,16 @@ export interface SentinelStats {
   total_farm_hours: number;
 }
 
+export interface AvailableChannel {
+  id: string;
+  name: string;
+  game: string;
+  viewers: number;
+  drops_enabled: boolean;
+  online: boolean;
+  acl_based: boolean;
+}
+
 export interface GameItem {
   id: string;
   name: string;
@@ -78,13 +88,22 @@ export interface SentinelSettings {
   game_directories?: string[];
   priority_games: string[];
   excluded_games: string[];
+  user_linked_games?: string[];
   priority_mode?: number; // 0 = PRIORITY_ONLY, 1 = ENDING_SOONEST, 2 = LOW_AVBL_FIRST
+  hardware_guard_enabled?: boolean;
+  ignored_channels?: { name: string; until?: number; reason?: 'snooze2h' | 'permaban' }[];
+  ui_theme?: 'titanium' | 'luna-mint' | 'gradient' | 'cyberpunk' | 'light' | 'copper' | 'apple-luna';
+  ui_backdrop_type?: '3d' | '2d-honeycomb' | '2d-lava' | '2d-dots' | '2d-carbon' | 'smooth';
+  ui_relief_mode?: 'hex-magma' | 'hex-theme' | 'tectonic-lava' | 'topo-damascus' | 'carbon-weave' | 'pcb-3d' | 'liquid-silk' | 'apple-luna' | 'none';
+  ui_relief_opacity?: number;
 }
 
 export interface SentinelLogEntry {
   time: string;
   level: string;
   message: string;
+  timestamp?: string;
+  category?: string;
 }
 
 export interface FullSentinelState {
@@ -94,7 +113,7 @@ export interface FullSentinelState {
   username: string;
   status_text?: string;
   watching_channel?: string | null;
-  available_channels?: string[];
+  available_channels?: AvailableChannel[];
   active_drop: ActiveDrop | null;
   hardware: HardwareGuard;
   stats: SentinelStats;
@@ -143,6 +162,8 @@ export interface SchedulerTelemetry {
   lastRunTime: string | null;
   nextRunTime: string | null;
   lastTaskResult: number | null;
+  daysOfWeek?: number | null;
+  activeDays?: string[];
 }
 
 export interface GiveawaysLogEntry {
@@ -176,6 +197,7 @@ export interface DisplayMonitor {
   is_primary: boolean;
   is_laptop_internal: boolean;
   current_brightness: number;
+  baseline_brightness?: number;
   min_brightness: number;
   max_brightness: number;
   supports_control: boolean;
@@ -188,8 +210,12 @@ export interface DimmerState {
   is_blackout: boolean;
   solo_screen_index: number | null;
   sleep_timer_minutes: number;
+  sleep_timer_remaining?: number;
   away_mode_active: boolean;
   mute_audio_on_blackout: boolean;
+  ultra_dark_active?: boolean;
+  ultra_dark_tint?: number;
+  has_baseline_saved?: boolean;
 }
 
 export interface UpdateCheckResult {
@@ -216,4 +242,3 @@ export interface UpdateProgressStatus {
   speed_mbps: number;
   error_message?: string;
 }
-

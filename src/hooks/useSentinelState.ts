@@ -1,30 +1,30 @@
 import { useState, useEffect } from 'react';
 import { FullSentinelState, SentinelSettings, TrophyItem } from '../types';
-import { INITIAL_GAMES_DATABASE, USER_INSTALLED_GAMES } from '../data/gamesCatalog';
 
 const INITIAL_STATE: FullSentinelState = {
-  connected: true,
-  user_id: '492817291',
-  username: 'Mortuis_V',
-  status_text: 'Инициализация Sentinel & опрос Twitch API...',
+  connected: false,
+  user_id: '',
+  username: '',
+  status_text: 'Подключение к локальному сервису Sentinel...',
   watching_channel: null,
   active_drop: null,
   forced_game: null,
   recent_logs: [],
+  available_channels: [],
   hardware: {
     is_gaming: false,
     detected_game: null,
     on_battery: false,
     is_paused: false,
-    ping_ms: 18,
-    cpu_percent: 14,
-    gpu_percent: 8,
+    ping_ms: 0,
+    cpu_percent: 0,
+    gpu_percent: 0,
   },
   stats: {
-    traffic_saved_mb: 28400,
-    total_drops_claimed: 8659,
-    channel_points_earned: 42500,
-    total_farm_hours: 30.6,
+    traffic_saved_mb: 0,
+    total_drops_claimed: 0,
+    channel_points_earned: 0,
+    total_farm_hours: 0,
   },
   settings: {
     auto_shutdown_on_complete: false,
@@ -37,44 +37,12 @@ const INITIAL_STATE: FullSentinelState = {
     giveaways_enabled: true,
     streamer_watchdog_enabled: true,
     priority_mode: 1,
-    priority_games: [
-      'Rust',
-      'Tom Clancy\'s Rainbow Six Siege',
-      'The Witcher 3: Wild Hunt',
-      'Path of Exile 2',
-      'HITMAN World of Assassination',
-      'AION 2',
-    ],
-    excluded_games: ['VALORANT', 'League of Legends'],
+    priority_games: [],
+    excluded_games: [],
   },
-  trophies: [
-    {
-      id: 'tr-001',
-      date: '2026-10-11 21:40',
-      game: 'HITMAN World of Assassination',
-      drop_name: 'Duck Themed Suit & Explosive Device',
-      campaign: 'Hitman October Drops Campaign',
-      status: 'Claimed',
-    },
-    {
-      id: 'tr-002',
-      date: '2026-10-10 18:15',
-      game: 'The Witcher 3: Wild Hunt',
-      drop_name: 'Dwarven Spirit & Rare Gwent Card Pack',
-      campaign: 'CD Projekt RED Anniversary Drops',
-      status: 'Claimed',
-    },
-    {
-      id: 'tr-003',
-      date: '2026-10-09 14:30',
-      game: 'Rust',
-      drop_name: 'Mortuis Tactical AK-47 & Metal Face Mask',
-      campaign: 'Twitch Rivals Rust Edition',
-      status: 'Claimed',
-    },
-  ],
-  installed_games: USER_INSTALLED_GAMES,
-  all_catalog_games: INITIAL_GAMES_DATABASE,
+  trophies: [],
+  installed_games: [],
+  all_catalog_games: [],
 };
 
 export function useSentinelState(
@@ -91,10 +59,19 @@ export function useSentinelState(
     const fetchState = async () => {
       try {
         const res = await fetch('http://127.0.0.1:28492/api/state');
-        if (res.ok) {
-          const data = await res.json();
+        if (!res.ok) {
           if (isMounted) {
-            setSentinelState((prev) => {
+            setSentinelState((prev) => ({
+              ...prev,
+              connected: false,
+              status_text: `Локальный сервис недоступен (HTTP ${res.status})`,
+            }));
+          }
+          return;
+        }
+        const data = await res.json();
+        if (isMounted) {
+          setSentinelState((prev) => {
               let mergedActiveDrop = data.active_drop;
               if (
                 prev.active_drop &&
@@ -115,15 +92,27 @@ export function useSentinelState(
                 ...data,
                 active_drop: mergedActiveDrop,
                 connected: true,
+                settings: {
+                  ...prev.settings,
+                  ...(data.settings || {}),
+                  ignored_channels: Array.isArray(data.settings?.ignored_channels)
+                    ? data.settings.ignored_channels
+                    : (prev.settings.ignored_channels || []),
+                },
                 installed_games: data.installed_games || prev.installed_games,
                 all_catalog_games: data.all_catalog_games || prev.all_catalog_games,
                 ignored_games: data.ignored_games || prev.ignored_games || [],
               };
-            });
-          }
+          });
         }
-      } catch {
-        // Standalone or initializing
+      } catch (error) {
+        if (isMounted) {
+          setSentinelState((prev) => ({
+            ...prev,
+            connected: false,
+            status_text: 'Локальный сервис Sentinel недоступен',
+          }));
+        }
       }
     };
 
@@ -179,13 +168,17 @@ export function useSentinelState(
     );
     const targetName = found ? found.name : gameIdentifier;
 
-    const isPriority = sentinelState.settings.priority_games.some(
-      (name) => name.toLowerCase() === targetName.toLowerCase()
+    const currentPriority = Array.isArray(sentinelState.settings?.priority_games)
+      ? sentinelState.settings.priority_games
+      : [];
+
+    const isPriority = currentPriority.some(
+      (name) => name && name.toLowerCase() === targetName.toLowerCase()
     );
 
     const newPriority = isPriority
-      ? sentinelState.settings.priority_games.filter((name) => name.toLowerCase() !== targetName.toLowerCase())
-      : [...sentinelState.settings.priority_games, targetName];
+      ? currentPriority.filter((name) => name && name.toLowerCase() !== targetName.toLowerCase())
+      : [...currentPriority, targetName];
 
     const updatedSettings = {
       ...sentinelState.settings,
@@ -230,13 +223,17 @@ export function useSentinelState(
     );
     const targetName = found ? found.name : gameIdentifier;
 
-    const isExcluded = sentinelState.settings.excluded_games.some(
-      (name) => name.toLowerCase() === targetName.toLowerCase()
+    const currentExcluded = Array.isArray(sentinelState.settings?.excluded_games)
+      ? sentinelState.settings.excluded_games
+      : [];
+
+    const isExcluded = currentExcluded.some(
+      (name) => name && name.toLowerCase() === targetName.toLowerCase()
     );
 
     const newExcluded = isExcluded
-      ? sentinelState.settings.excluded_games.filter((name) => name.toLowerCase() !== targetName.toLowerCase())
-      : [...sentinelState.settings.excluded_games, targetName];
+      ? currentExcluded.filter((name) => name && name.toLowerCase() !== targetName.toLowerCase())
+      : [...currentExcluded, targetName];
 
     const updatedSettings = {
       ...sentinelState.settings,
@@ -259,6 +256,63 @@ export function useSentinelState(
     }
 
     showToast(isExcluded ? `"${targetName}" возвращена в ротацию` : `"${targetName}" исключена из дропов`);
+  };
+
+  // Toggle User Linked Game with fuzzy match (e.g. Hunt: Showdown 1896 matches Hunt: Showdown)
+  const handleToggleUserLinked = async (gameName: string) => {
+    const currentLinked = Array.isArray(sentinelState.settings?.user_linked_games)
+      ? sentinelState.settings.user_linked_games
+      : [];
+
+    const isGameMatch = (a: string, b: string) => {
+      if (!a || !b) return false;
+      const cleanA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanB = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanA === cleanB) return true;
+      if (cleanA.length >= 5 && cleanB.length >= 5) {
+        if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
+      }
+      return false;
+    };
+
+    const isLinked = currentLinked.some((name) => isGameMatch(name, gameName));
+
+    const newLinked = isLinked
+      ? currentLinked.filter((name) => !isGameMatch(name, gameName))
+      : [...currentLinked, gameName];
+
+    const updatedSettings = {
+      ...sentinelState.settings,
+      user_linked_games: newLinked,
+    };
+
+    const updatedCatalog = sentinelState.all_catalog_games.map((g) => {
+      if (isGameMatch(g.name, gameName)) {
+        return {
+          ...g,
+          is_account_connected: !isLinked,
+        };
+      }
+      return g;
+    });
+
+    setSentinelState((prev) => ({
+      ...prev,
+      settings: updatedSettings,
+      all_catalog_games: updatedCatalog,
+    }));
+
+    try {
+      await fetch('http://127.0.0.1:28492/api/games/toggle-linked', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game: gameName }),
+      });
+    } catch {
+      // Standalone mode
+    }
+
+    showToast(isLinked ? `Привязка для "${gameName}" снята` : `"${gameName}" отмечена как привязанная ✓`);
   };
 
   // Update Settings
@@ -364,14 +418,16 @@ export function useSentinelState(
     showToast('Глубокое сканирование Steam, Epic Games, GOG и выбранных папок...');
     try {
       const res = await fetch('http://127.0.0.1:28492/api/scan-games', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        await handleManualRefresh();
-        showToast(`✓ Найдено установленных игр: ${data.installed_count ?? data.games?.length ?? 0}`);
-      }
-    } catch {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
       await handleManualRefresh();
-      showToast('✓ Сканирование библиотек завершено');
+      const count = data.installed_count ?? data.games?.length;
+      if (typeof count !== 'number') throw new Error('В ответе сервиса нет количества найденных игр');
+      showToast(`✓ Найдено установленных игр: ${count}`);
+      return count;
+    } catch (error) {
+      showToast(`Не удалось завершить сканирование: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     } finally {
       setIsScanning(false);
     }
@@ -425,7 +481,7 @@ export function useSentinelState(
   // Reorder Priority Games (Move UP or DOWN in the queue)
   const handleReorderPriority = async (gameName: string, direction: 'up' | 'down') => {
     playClick();
-    const current = [...sentinelState.settings.priority_games];
+    const current = [...(sentinelState.settings?.priority_games || [])];
     const idx = current.indexOf(gameName);
     if (idx === -1) return;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -470,6 +526,54 @@ export function useSentinelState(
     }
   };
 
+  // Ban or Snooze Streamer
+  const handleBanStreamer = async (channelName: string, isSnooze2h: boolean) => {
+    playClick();
+    const until = isSnooze2h ? Date.now() + 2 * 3600 * 1000 : undefined;
+    const reason: 'snooze2h' | 'permaban' = isSnooze2h ? 'snooze2h' : 'permaban';
+    const existing = sentinelState.settings.ignored_channels || [];
+    const filtered = existing.filter((c) => c.name.toLowerCase() !== channelName.toLowerCase());
+    const newIgnored = [...filtered, { name: channelName, until, reason }];
+    const updatedSettings = {
+      ...sentinelState.settings,
+      ignored_channels: newIgnored,
+    };
+    setSentinelState((prev) => ({ ...prev, settings: updatedSettings }));
+    try {
+      await fetch('http://127.0.0.1:28492/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedSettings),
+      });
+    } catch {
+      // Standalone mode
+    }
+    showToast(isSnooze2h ? `⏳ Канал "${channelName}" скрыт на 2 часа` : `🚫 Канал "${channelName}" добавлен в чёрный список`);
+    handleSwitchStreamer(false);
+  };
+
+  // Unban Streamer
+  const handleUnbanStreamer = async (channelName: string) => {
+    playClick();
+    const existing = sentinelState.settings.ignored_channels || [];
+    const newIgnored = existing.filter((c) => c.name.toLowerCase() !== channelName.toLowerCase());
+    const updatedSettings = {
+      ...sentinelState.settings,
+      ignored_channels: newIgnored,
+    };
+    setSentinelState((prev) => ({ ...prev, settings: updatedSettings }));
+    try {
+      await fetch('http://127.0.0.1:28492/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedSettings),
+      });
+    } catch {
+      // Standalone mode
+    }
+    showToast(`✓ Канал "${channelName}" удалён из черного списка`);
+  };
+
   // Cancel Manual Farm Override (Возврат в авто-очередь)
   const handleCancelForceFarm = async () => {
     playClick();
@@ -501,5 +605,8 @@ export function useSentinelState(
     handleReorderPriority,
     handleForceFarm,
     handleCancelForceFarm,
+    handleBanStreamer,
+    handleUnbanStreamer,
+    handleToggleUserLinked,
   };
 }
