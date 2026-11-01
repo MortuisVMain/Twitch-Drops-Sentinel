@@ -23,15 +23,77 @@ from pathlib import Path
 import psutil
 import re
 import atexit
+import hashlib
+import shutil
+import socket
+import tempfile
 
 WORKSPACE = Path(__file__).resolve().parent
+
+# The suite never touches the user's live data, config, cookies or the live service on port 28492.
+# It copies the code and a read-only snapshot of the data into a temp project root and runs its own
+# service there on a free port. Cookies are never copied, so the sandbox cannot act on the account.
+LIVE_PORT = 28492
+LIVE_PROTECTED = [
+    WORKSPACE / "data" / "installed_games.json",
+    WORKSPACE / "data" / "ignored_games.json",
+    WORKSPACE / "Trophies.md",
+    WORKSPACE / "config.json",
+    WORKSPACE / "core" / "settings.json",
+    WORKSPACE / "cookies.jar",
+    WORKSPACE / "core" / "cookies.jar",
+]
+
+
+def _sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+
+
+def _free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _build_sandbox():
+    root = Path(tempfile.mkdtemp(prefix="sentinel_suite_"))
+    shutil.copytree(WORKSPACE / "core", root / "core", ignore=shutil.ignore_patterns(
+        "__pycache__", "*.log", "*.old", "cookies.jar", "dump.dat", "lock.file", "cache"))
+    for name in ("config.json", "config.default.json", "Trophies.md"):
+        if (WORKSPACE / name).exists():
+            shutil.copy2(WORKSPACE / name, root / name)
+    if (WORKSPACE / "data").exists():
+        shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups"))
+    engine_src = WORKSPACE / "giveaways_engine"
+    if engine_src.exists():
+        shutil.copytree(engine_src, root / "giveaways_engine", ignore=shutil.ignore_patterns("node_modules", "browser", "screenshots", "*.log"))
+    return root
+
+
+SANDBOX = _build_sandbox()
+TEST_PORT = _free_port()
+BASE_URL = f"http://127.0.0.1:{TEST_PORT}"
+_LIVE_HASHES = {path: _sha256(path) for path in LIVE_PROTECTED}
+sys.path.insert(0, str(SANDBOX))  # `core.*` imports resolve to the sandbox copy, not the live tree
+
+
+def _cleanup_sandbox():
+    shutil.rmtree(SANDBOX, ignore_errors=True)
+
+
+atexit.register(_cleanup_sandbox)
+
+
+def assert_live_data_untouched():
+    changed = [str(path.relative_to(WORKSPACE)) for path, digest in _LIVE_HASHES.items() if _sha256(path) != digest]
+    assert not changed, f"Suite modified live user files: {changed}"
 
 def test_artifacts():
     print("[1/10] Testing Binary & Bundle Artifacts...")
     exe_path = WORKSPACE / "TwitchDropsSentinel.exe"
     dist_html = WORKSPACE / "dist" / "index.html"
     app_ico = WORKSPACE / "assets" / "app.ico"
-    cookies_jar = WORKSPACE / "core" / "cookies.jar"
+    cookies_jar = WORKSPACE / "core" / "cookies.jar"  # existence check only
 
     assert exe_path.exists(), f"EXE missing: {exe_path}"
     exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
@@ -62,7 +124,7 @@ def test_installed_games_catalog():
 
 def test_trophy_vault_journal():
     print("[3/10] Testing Trophy Vault Journal (Trophies.md)...")
-    trophies_path = WORKSPACE / "Trophies.md"
+    trophies_path = SANDBOX / "Trophies.md"
     assert trophies_path.exists(), "Trophies.md missing!"
     lines = trophies_path.read_text(encoding="utf-8").splitlines()
     assert any("🏆 Журнал Трофеев" in l for l in lines), "Trophies.md must have valid journal header"
@@ -94,17 +156,18 @@ def ensure_test_service():
     global SUITE_PROC
     for attempt in range(15):
         try:
-            req = urllib.request.Request("http://127.0.0.1:28492/api/state", headers={"Connection": "close", "User-Agent": "Sentinel-Test"})
+            req = urllib.request.Request(BASE_URL + "/api/state", headers={"Connection": "close", "User-Agent": "Sentinel-Test"})
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 if resp.status == 200:
                     return
         except Exception:
             if attempt == 0 and (SUITE_PROC is None or SUITE_PROC.poll() is not None):
                 print("      Spawning test Sentinel Service daemon...")
-                service_script = WORKSPACE / "core" / "sentinel_service.py"
+                service_script = SANDBOX / "core" / "sentinel_service.py"
                 SUITE_PROC = subprocess.Popen(
                     [sys.executable, str(service_script)],
-                    cwd=str(WORKSPACE / "core"),
+                    env={**os.environ, "SENTINEL_SERVICE_PORT": str(TEST_PORT), "SENTINEL_TEST_MODE": "1"},
+                    cwd=str(SANDBOX / "core"),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -113,7 +176,7 @@ def ensure_test_service():
 
 def test_core_service_api():
     print("[5/10] Testing Core Microservice & REST API...")
-    service_script = WORKSPACE / "core" / "sentinel_service.py"
+    service_script = SANDBOX / "core" / "sentinel_service.py"
     ensure_test_service()
 
     def safe_urlopen(req, timeout=10.0, max_retries=3):
@@ -133,7 +196,7 @@ def test_core_service_api():
 
     data = {}
     for _ in range(8):
-        req = urllib.request.Request("http://127.0.0.1:28492/api/state")
+        req = urllib.request.Request(BASE_URL + "/api/state")
         with safe_urlopen(req, timeout=10.0) as res:
             assert res.status == 200, f"Expected 200, got {res.status}"
             data = json.loads(res.read().decode("utf-8"))
@@ -155,7 +218,7 @@ def test_core_service_api():
     test_settings = {"auto_shutdown_on_complete": True, "pause_on_gaming": True}
     post_data = json.dumps(test_settings).encode("utf-8")
     post_req = urllib.request.Request(
-        "http://127.0.0.1:28492/api/settings",
+        BASE_URL + "/api/settings",
         data=post_data,
         headers={"Content-Type": "application/json"}
     )
@@ -166,7 +229,7 @@ def test_core_service_api():
         print("      POST /api/settings: PASS [OK]")
 
     # Test GET /api/verify-game
-    v_req = urllib.request.Request("http://127.0.0.1:28492/api/verify-game?query=Desert")
+    v_req = urllib.request.Request(BASE_URL + "/api/verify-game?query=Desert")
     with safe_urlopen(v_req, timeout=10.0) as res:
         assert res.status == 200
         v_res = json.loads(res.read().decode("utf-8"))
@@ -175,7 +238,7 @@ def test_core_service_api():
         print(f"      GET /api/verify-game (Desert -> {v_res['canonical_name']}, drops={v_res.get('has_active_drops')}): PASS [OK]")
 
     # Test GET /api/catalog
-    c_req = urllib.request.Request("http://127.0.0.1:28492/api/catalog")
+    c_req = urllib.request.Request(BASE_URL + "/api/catalog")
     with safe_urlopen(c_req, timeout=10.0) as res:
         assert res.status == 200
         c_res = json.loads(res.read().decode("utf-8"))
@@ -183,7 +246,7 @@ def test_core_service_api():
         print(f"      GET /api/catalog ({len(c_res)} games): PASS [OK]")
 
     # Test GET /api/v1/giveaways/state
-    g_req = urllib.request.Request("http://127.0.0.1:28492/api/v1/giveaways/state")
+    g_req = urllib.request.Request(BASE_URL + "/api/v1/giveaways/state")
     with safe_urlopen(g_req, timeout=10.0) as res:
         assert res.status == 200
         g_res = json.loads(res.read().decode("utf-8"))
@@ -191,7 +254,7 @@ def test_core_service_api():
         print(f"      GET /api/v1/giveaways/state ({len(g_res.get('stores', {}))} stores, {len(g_res.get('inventory', []))} items): PASS [OK]")
 
     # Test GET /api/updates/check
-    u_req = urllib.request.Request("http://127.0.0.1:28492/api/updates/check")
+    u_req = urllib.request.Request(BASE_URL + "/api/updates/check")
     with safe_urlopen(u_req, timeout=10.0) as res:
         assert res.status == 200
         u_res = json.loads(res.read().decode("utf-8"))
@@ -201,7 +264,7 @@ def test_core_service_api():
         print(f"      GET /api/updates/check (Local: {u_res[ver_key]}, Available: {u_res['update_available']}): PASS [OK]")
 
         # Verify /api/updates/status
-        status_req = urllib.request.Request("http://127.0.0.1:28492/api/updates/status")
+        status_req = urllib.request.Request(BASE_URL + "/api/updates/status")
         with urllib.request.urlopen(status_req, timeout=5) as resp:
             s_res = json.loads(resp.read().decode("utf-8"))
             assert "stage" in s_res
@@ -234,7 +297,7 @@ def test_branding_check():
 def test_streamless_engine_contract():
     print("[8/10] Testing Streamless Twitch Engine & Headless GUI Contract...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
 
@@ -281,7 +344,7 @@ def test_palette_integrity():
 def test_safe_inventory_parsing():
     print("[10/10] Testing Safe GraphQL Dict Parsing & Resiliency...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
 
@@ -304,7 +367,7 @@ def test_safe_inventory_parsing():
 
 def test_mojibake_cleanliness():
     print("[11/15] Testing Zero-Mojibake Cleanliness Across All Core Files...")
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     banned_substrings = ["Р·Р", "рџ", "вњ", "вќ", "РџС", "РќР", "РћС"]
     violations = []
     for py_file in core_dir.glob("*.py"):
@@ -317,7 +380,7 @@ def test_mojibake_cleanliness():
 
 def test_trophy_matching_cyrillic():
     print("[12/15] Testing Cyrillic Trophy Status & Trophies.md Matching...")
-    trophies_path = WORKSPACE / "Trophies.md"
+    trophies_path = SANDBOX / "Trophies.md"
     assert trophies_path.exists(), "Trophies.md missing!"
     # Verify that the regex/substring match correctly matches 'забран'
     test_line = "| 2026-10-12 14:00 | **HITMAN World of Assassination** | Crowbar | The Herbalist | ✅ Забран |"
@@ -329,7 +392,7 @@ def test_trophy_matching_cyrillic():
 def test_channel_drops_enabled_resilience():
     print("[13/15] Testing Channel drops_enabled Resilience & Flapping Prevention...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from channel import Channel, Stream
@@ -371,7 +434,7 @@ def test_channel_drops_enabled_resilience():
 def test_expired_campaign_filtering():
     print("[14/15] Testing Expired Campaign Filtering in Inventory...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from inventory import DropsCampaign
@@ -405,7 +468,7 @@ def test_expired_campaign_filtering():
 def test_watchdog_active_drop_sync():
     print("[15/15] Testing Watchdog Active Drop Sync & Grace Period Logic...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from inventory import DropsCampaign, TimedDrop
@@ -448,7 +511,7 @@ def test_watchdog_active_drop_sync():
 def test_search_games_and_box_art_cache():
     print("[16/16] Testing Multi-Source Game Search & Steam Box Art Cache...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from campaigns_fetcher import CAMPAIGNS_FETCHER, BOX_ART_CACHE_FILE
@@ -468,7 +531,7 @@ def test_search_games_and_box_art_cache():
 def test_sequel_guard_and_no_false_box_art():
     print("[17/17] Testing Strict Sequel Guard & Zero-False-Box-Art Matching...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from campaigns_fetcher import smart_game_match
@@ -519,7 +582,7 @@ def test_giveaways_hub_integration():
     print("[19/19] Testing Free Games Claimer Giveaways Hub Integration...")
     import sys
     import asyncio
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from giveaways_controller import GiveawaysOrchestrator
@@ -559,7 +622,7 @@ def test_giveaways_hub_integration():
 def test_universal_game_scanner():
     print("[20/22] Testing Universal GameScanner (Steam, Epic, GOG, Custom folders)...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from game_scanner import GameScanner
@@ -577,7 +640,7 @@ def test_universal_game_scanner():
 def test_route_aliases_and_directory_management():
     print("[21/22] Testing Route Aliases & Directory Management Endpoints...")
     # Verify that sentinel_service.py has all requested route aliases
-    service_code = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_code = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "/api/scan-games" in service_code, "Route alias /api/scan-games must be registered"
     assert "/api/open-trophies-file" in service_code, "Route alias /api/open-trophies-file must be registered"
     assert "/api/sync" in service_code, "Route /api/sync must be registered"
@@ -635,7 +698,7 @@ def test_argon_public_hardening_and_resilience():
     assert "ShowInTaskbar = false" not in mainform_cs, "MainForm.cs must never mutate ShowInTaskbar to prevent RecreateHandle()"
 
     # 3. Sleep guard and endpoints in sentinel_service.py
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "set_sleep_guard" in service_py, "sentinel_service.py must include set_sleep_guard"
     assert "ES_SYSTEM_REQUIRED" in service_py, "set_sleep_guard must use ES_SYSTEM_REQUIRED"
     assert "/api/autostart" in service_py, "sentinel_service.py must register /api/autostart"
@@ -650,7 +713,7 @@ def test_argon_public_hardening_and_resilience():
     assert "Диагностический отчет" in settings_tsx, "SettingsStudio must render diagnostic report button"
 
     # 5. Diagnostic report sanitization unit test
-    sys.path.insert(0, str(WORKSPACE / "core"))
+    sys.path.insert(0, str(SANDBOX / "core"))
     from sentinel_service import generate_sanitized_diagnostic_report
     fake_settings = {"priority_games": ["Path of Exile 2"], "game_directories": []}
     fake_hw = {"cpu_percent": 15, "on_battery": False, "is_gaming": False}
@@ -665,7 +728,7 @@ def test_github_updater_and_zero_mock_telemetry():
     print("[24/24] Testing GitHub Auto-Updater & Zero-Mock Telemetry...")
 
     # 1. Verify core/updater.py exists and parses versions correctly
-    sys.path.insert(0, str(WORKSPACE / "core"))
+    sys.path.insert(0, str(SANDBOX / "core"))
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
@@ -711,7 +774,7 @@ def test_hardware_guard_false_positive_and_installed_clear():
     print("[25/25] Testing Hardware Guard Anti-False-Positive & Installed Clear...")
     
     # 1. Verify sentinel_service.py contains SYSTEM_NON_GAME_EXES and no blind auto-injection
-    svc_code = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    svc_code = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "SYSTEM_NON_GAME_EXES" in svc_code
     assert "happ.exe" in svc_code
     assert "mscopilot.exe" in svc_code
@@ -742,7 +805,7 @@ def test_hardware_guard_false_positive_and_installed_clear():
     # 6. Verify REST API endpoints respond cleanly
     ensure_test_service()
     req_ignore = urllib.request.Request(
-        "http://127.0.0.1:28492/api/hardware/ignore-process",
+        BASE_URL + "/api/hardware/ignore-process",
         data=json.dumps({"process": "Happ.exe"}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
@@ -753,12 +816,12 @@ def test_hardware_guard_false_positive_and_installed_clear():
         assert d.get("ignored") == "Happ.exe"
 
     req_clear = urllib.request.Request(
-        "http://127.0.0.1:28492/api/installed-games/clear",
+        BASE_URL + "/api/installed-games/clear",
         data=b"{}",
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     # /clear wipes the real data/installed_games.json: keep a copy and put it back.
-    installed_file = WORKSPACE / "data" / "installed_games.json"
+    installed_file = SANDBOX / "data" / "installed_games.json"
     installed_backup = installed_file.read_bytes() if installed_file.exists() else None
     try:
         with urllib.request.urlopen(req_clear, timeout=5.0) as res:
@@ -781,7 +844,7 @@ def test_channel_points_clipboard_and_feature_toggles():
     assert "Clipboard.SetText" in main_cs, "MainForm.cs must copy to system clipboard"
 
     # 2. Verify core/sentinel_service.py has clipboard endpoint and feature flags
-    svc_code = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    svc_code = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "/api/clipboard/copy" in svc_code, "sentinel_service.py must register /api/clipboard/copy"
     assert "handle_clipboard_copy" in svc_code, "sentinel_service.py must implement handle_clipboard_copy"
     assert "claim_channel_points" in svc_code, "load_settings must support claim_channel_points"
@@ -790,7 +853,7 @@ def test_channel_points_clipboard_and_feature_toggles():
     assert "streamer_watchdog_enabled" in svc_code, "load_settings must support streamer_watchdog_enabled"
 
     # 3. Verify core/twitch.py has CommunityPoints topic, claim mutation & feature gates
-    twitch_code = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_code = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
     assert "CommunityPoints" in twitch_code, "twitch.py must subscribe to CommunityPoints topic"
     assert "claim_channel_points_if_available" in twitch_code, "twitch.py must implement claim_channel_points_if_available"
     assert "ClaimCommunityPoints" in twitch_code, "twitch.py must define ClaimCommunityPoints mutation"
@@ -811,7 +874,7 @@ def test_channel_points_clipboard_and_feature_toggles():
 
     # 5. Live test: GET /api/diagnostic-report and POST /api/clipboard/copy
     req_diag = urllib.request.Request(
-        "http://127.0.0.1:28492/api/diagnostic-report",
+        BASE_URL + "/api/diagnostic-report",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     with urllib.request.urlopen(req_diag, timeout=5.0) as res:
@@ -820,7 +883,7 @@ def test_channel_points_clipboard_and_feature_toggles():
         assert "twitch drops sentinel" in diag_text.lower()
 
     req_clip = urllib.request.Request(
-        "http://127.0.0.1:28492/api/clipboard/copy",
+        BASE_URL + "/api/clipboard/copy",
         data=json.dumps({"text": diag_text[:300]}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
@@ -831,7 +894,7 @@ def test_channel_points_clipboard_and_feature_toggles():
 
     # 6. Live test: Settings persistence through /api/settings and /api/state
     req_settings = urllib.request.Request(
-        "http://127.0.0.1:28492/api/settings",
+        BASE_URL + "/api/settings",
         data=json.dumps({
             "claim_channel_points": True,
             "auto_claim_drops": True,
@@ -844,7 +907,7 @@ def test_channel_points_clipboard_and_feature_toggles():
         assert res.status == 200
 
     req_state = urllib.request.Request(
-        "http://127.0.0.1:28492/api/state",
+        BASE_URL + "/api/state",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     with urllib.request.urlopen(req_state, timeout=10.0) as res:
@@ -861,7 +924,7 @@ def test_channel_points_clipboard_and_feature_toggles():
 def test_game_scanner_anti_software_and_patch_filtering():
     print("[27/27] Testing GameScanner Anti-Software, Patch & Container Stop-Word Filtering...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from game_scanner import (
@@ -906,7 +969,7 @@ def test_game_scanner_anti_software_and_patch_filtering():
 
     # 5. Verify live endpoint POST /api/installed-games/remove
     req_remove = urllib.request.Request(
-        "http://127.0.0.1:28492/api/installed-games/remove",
+        BASE_URL + "/api/installed-games/remove",
         data=json.dumps({"id": "test_game_sample_123", "name": "Sample Test Game"}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
@@ -986,11 +1049,11 @@ def test_game_scanner_deduplication_and_trophies_clear():
 
     # 4. Verify Live POST /api/trophies/clear endpoint
     req_clear = urllib.request.Request(
-        "http://127.0.0.1:28492/api/trophies/clear",
+        BASE_URL + "/api/trophies/clear",
         data=b"{}",
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
-    trophies_file = WORKSPACE / "Trophies.md"
+    trophies_file = SANDBOX / "Trophies.md"
     # /clear truncates the real Trophies.md journal: keep a copy and put it back.
     trophies_backup = trophies_file.read_bytes() if trophies_file.exists() else None
     try:
@@ -1023,14 +1086,14 @@ def test_game_scanner_deduplication_and_trophies_clear():
 def test_sleep_guard_watchdog_and_account_protection():
     print("[29/29] Testing Sleep Guard, WebSocket Probe Watchdog, Log Rotation & Account Protection...")
     # 1. Sleep Guard in core/twitch.py
-    twitch_py = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
     assert "SLEEP GUARD" in twitch_py, "twitch.py must contain SLEEP GUARD log"
     assert "raw_step_elapsed > 60.0" in twitch_py, "twitch.py must clamp sleep gap when raw_step_elapsed > 60s"
     assert "streamer_watch_start += sleep_gap" in twitch_py, "twitch.py must adjust streamer_watch_start by sleep_gap"
     assert "is_linked" in twitch_py, "switch_priority must check is_linked"
 
     # 2. WebSocket Heartbeat Watchdog in core/websocket.py
-    ws_py = (WORKSPACE / "core" / "websocket.py").read_text(encoding="utf-8")
+    ws_py = (SANDBOX / "core" / "websocket.py").read_text(encoding="utf-8")
     assert "_last_msg_time" in ws_py, "websocket.py must track _last_msg_time"
     assert "_probe_sent" in ws_py, "websocket.py must track _probe_sent"
     assert "now - self._last_msg_time > 45.0" in ws_py, "websocket.py must send probe PING after 45s of silence"
@@ -1042,7 +1105,7 @@ def test_sleep_guard_watchdog_and_account_protection():
     assert ".old" in mainform_cs, "MainForm.cs must archive old log with .old suffix"
 
     # 4. Logout / Account Switcher
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "/api/auth/logout" in service_py, "sentinel_service.py must register /api/auth/logout"
     assert "handle_logout" in service_py, "sentinel_service.py must implement handle_logout"
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
@@ -1050,7 +1113,7 @@ def test_sleep_guard_watchdog_and_account_protection():
     assert "Сменить аккаунт" in settings_tsx, "SettingsStudio must render 'Сменить аккаунт' button"
 
     # 5. Linked Account Warning & Badges
-    fetcher_py = (WORKSPACE / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
+    fetcher_py = (SANDBOX / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
     assert "is_account_connected" in fetcher_py, "campaigns_fetcher.py must propagate is_account_connected"
     assert "account_link_url" in fetcher_py, "campaigns_fetcher.py must propagate account_link_url"
     shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
@@ -1066,18 +1129,18 @@ def test_r6s_showcase_acl_and_strict_priority_guard():
     print("[30/30] Testing Showcase ACL Matching, Twitch Drops Directory Discovery & Strict Priority Guard...")
 
     # 1. Verify core/channel.py has available_campaign_ids and showcase ACL check
-    channel_py = (WORKSPACE / "core" / "channel.py").read_text(encoding="utf-8")
+    channel_py = (SANDBOX / "core" / "channel.py").read_text(encoding="utf-8")
     assert "available_campaign_ids" in channel_py, "Channel.__slots__ must include available_campaign_ids"
     assert "self.available_campaign_ids = {" in channel_py, "_check_drops_enabled must store available_campaign_ids"
     assert "len(campaign.allowed_channels) <= 10" in channel_py, "_check_drops_enabled must allow showcase ACLs <= 10"
 
     # 2. Verify core/inventory.py allows showcase ACLs & AvailableDrops confirmed channels
-    inv_py = (WORKSPACE / "core" / "inventory.py").read_text(encoding="utf-8")
+    inv_py = (SANDBOX / "core" / "inventory.py").read_text(encoding="utf-8")
     assert "available_campaign_ids" in inv_py, "inventory.py _base_can_earn must check available_campaign_ids"
     assert "len(self.allowed_channels) <= 10" in inv_py, "inventory.py _base_can_earn must check len(allowed_channels) <= 10"
 
     # 3. Verify core/twitch.py discovers live streams for games with showcase ACLs
-    twitch_py = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
     assert "len(campaign.allowed_channels) <= 10" in twitch_py, "twitch.py must add campaign.game to no_acl when ACL <= 10"
 
     # 4. Verify LiveDashboard.tsx keeps all games visible in default ALL tab
@@ -1086,7 +1149,7 @@ def test_r6s_showcase_acl_and_strict_priority_guard():
     assert "if (shelfFilter === 'ALL') return true;" in dashboard_tsx, "LiveDashboard ALL tab must return true"
 
     # 5. Verify settings.json priority clean from unwanted games
-    settings_raw = (WORKSPACE / "core" / "settings.json").read_text(encoding="utf-8")
+    settings_raw = (SANDBOX / "core" / "settings.json").read_text(encoding="utf-8")
     settings_json = json.loads(settings_raw)
     priority_list = settings_json.get("priority", [])
     assert "Infestation: The New Z" not in priority_list, "Infestation: The New Z must not be in priority list"
@@ -1098,13 +1161,13 @@ def test_giveaways_stores_persistence_and_version_standardization():
     print("[31/31] Testing Giveaways Store Persistence & Single-Location Dynamic Version...")
 
     # 1. Verify sentinel_service.py returns version in state and defaults giveaways stores
-    sentinel_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    sentinel_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert '"version": self.get_app_version()' in sentinel_py, "sentinel_service must include version in get_full_state"
     assert '"giveaways_selected_stores"' in sentinel_py, "sentinel_service must include giveaways_selected_stores in load_settings"
     assert '"giveaways_headless"' in sentinel_py, "sentinel_service must include giveaways_headless in load_settings"
 
     # 2. Verify updater.py dynamic local version reading and cache invalidation
-    updater_py = (WORKSPACE / "core" / "updater.py").read_text(encoding="utf-8")
+    updater_py = (SANDBOX / "core" / "updater.py").read_text(encoding="utf-8")
     assert "def get_live_local_version()" in updater_py, "updater.py must contain get_live_local_version"
     assert "local_ver = parse_version(live_current)" in updater_py, "updater.py must compare against live_current"
     assert "self._cached_result = None" in updater_py, "updater.py must invalidate cache on update apply"
@@ -1129,7 +1192,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     # 6. Verify live REST API /api/state returns dynamic version
     ensure_test_service()
     req_state = urllib.request.Request(
-        "http://127.0.0.1:28492/api/state",
+        BASE_URL + "/api/state",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     with urllib.request.urlopen(req_state, timeout=5.0) as res:
@@ -1168,7 +1231,7 @@ def test_game_shelf_claimed_tab_and_trophies_integration():
 
     # 6. Verify Ace Combat 8 vs Ace Combat Zero distinction in smart_game_match
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from campaigns_fetcher import smart_game_match
@@ -1180,7 +1243,7 @@ def test_twitch_drops_sync_and_active_filter():
     print("[33/33] Testing Live Twitch Drops Sync & Active-Only Drops Filter...")
     import sys
     from datetime import datetime, timezone, timedelta
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from campaigns_fetcher import is_campaign_active_now, CAMPAIGNS_FETCHER
@@ -1228,7 +1291,7 @@ def test_twitch_drops_sync_and_active_filter():
     assert "onManualRefresh={handleManualRefresh}" in app_tsx, "App.tsx must pass onManualRefresh to GameShelf"
 
     # 6. Test sentinel_service routes
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "/api/campaigns/sync" in service_py, "sentinel_service must register /api/campaigns/sync"
     assert "handle_sync" in service_py, "sentinel_service must have handle_sync"
 
@@ -1237,7 +1300,7 @@ def test_twitch_drops_sync_and_active_filter():
 def test_shelf_removed_tab_and_startup_sync():
     print("[34/34] Testing Removed Tab, Startup Drops Sync & Protected Action Buttons...")
     import sys
-    core_dir = WORKSPACE / "core"
+    core_dir = SANDBOX / "core"
     if str(core_dir) not in sys.path:
         sys.path.insert(0, str(core_dir))
     from game_scanner import GameScanner
@@ -1254,7 +1317,7 @@ def test_shelf_removed_tab_and_startup_sync():
     assert "test_gate34_game" not in ignored_after, "Game must be removed from ignored set after unignore_game"
 
     # 2. Test sentinel_service endpoints and full state keys
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "/api/installed-games/restore" in service_py, "sentinel_service must register /api/installed-games/restore"
     assert "/api/ignored-games/restore" in service_py, "sentinel_service must register /api/ignored-games/restore"
     assert "/api/ignored-games" in service_py, "sentinel_service must register /api/ignored-games"
@@ -1262,7 +1325,7 @@ def test_shelf_removed_tab_and_startup_sync():
     assert '"ignored_games":' in service_py, "sentinel_service must return ignored_games in get_full_state"
 
     # 3. Test campaigns_fetcher startup sync in background loop
-    camp_fetcher_py = (WORKSPACE / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
+    camp_fetcher_py = (SANDBOX / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
     assert "await asyncio.to_thread(self.sync_active_drops, True)" in camp_fetcher_py, "campaigns_fetcher must trigger sync_active_drops on startup"
 
     # 4. Test GameShelf.tsx removed tab, banners, disabled buttons, and restore button
@@ -1288,7 +1351,7 @@ def test_shelf_removed_tab_and_startup_sync():
     # 7. Test live REST endpoint for ignored games & restore
     ensure_test_service()
     req_ignored = urllib.request.Request(
-        "http://127.0.0.1:28492/api/ignored-games",
+        BASE_URL + "/api/ignored-games",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     with urllib.request.urlopen(req_ignored, timeout=5.0) as res:
@@ -1321,7 +1384,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     
     from giveaways_controller import resolve_fgc_root
     resolved = resolve_fgc_root()
-    assert resolved == fgc_local, f"resolve_fgc_root() must resolve to workspace root {fgc_local}, got {resolved}"
+    assert resolved == SANDBOX / "giveaways_engine", f"resolve_fgc_root() must resolve to the project root engine, got {resolved}"
 
     # 3. Settings Studio Unification
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
@@ -1347,7 +1410,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     # 5. Live Dimmer REST API
     ensure_test_service()
     req_dimmer = urllib.request.Request(
-        "http://127.0.0.1:28492/api/v1/dimmer/state",
+        BASE_URL + "/api/v1/dimmer/state",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     with urllib.request.urlopen(req_dimmer, timeout=5.0) as res:
@@ -1357,7 +1420,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
         assert "is_blackout" in dimmer_data, "Dimmer state must include is_blackout"
 
     req_br = urllib.request.Request(
-        "http://127.0.0.1:28492/api/v1/dimmer/brightness",
+        BASE_URL + "/api/v1/dimmer/brightness",
         data=json.dumps({"brightness": 75}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
         method="POST"
@@ -1369,7 +1432,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
         assert resp_br.get("state", {}).get("master_brightness") == 75
 
     req_bo = urllib.request.Request(
-        "http://127.0.0.1:28492/api/v1/dimmer/blackout",
+        BASE_URL + "/api/v1/dimmer/blackout",
         data=json.dumps({"enabled": True}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
         method="POST"
@@ -1381,7 +1444,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
         assert resp_bo.get("state", {}).get("is_blackout") is True
 
     req_bo_off = urllib.request.Request(
-        "http://127.0.0.1:28492/api/v1/dimmer/blackout",
+        BASE_URL + "/api/v1/dimmer/blackout",
         data=json.dumps({"enabled": False}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
         method="POST"
@@ -1390,7 +1453,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
         assert res.status == 200
 
     req_br_reset = urllib.request.Request(
-        "http://127.0.0.1:28492/api/v1/dimmer/brightness",
+        BASE_URL + "/api/v1/dimmer/brightness",
         data=json.dumps({"brightness": 100}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
         method="POST"
@@ -1404,14 +1467,14 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     print("[36/36] Verifying Manual Game Farm Override & Native Hardware ScreenDimmer Pro...")
 
     # 1. Backend Core Twitch & SentinelService verification
-    twitch_py = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
     assert "self.forced_game" in twitch_py, "Twitch client must have self.forced_game"
     assert "set_forced_game" in twitch_py, "Twitch client must implement set_forced_game"
     assert "clear_forced_game" in twitch_py, "Twitch client must implement clear_forced_game"
     assert "FORCED FARM" in twitch_py, "Twitch client must log [FORCED FARM] transitions"
     assert "smart_game_match" in twitch_py, "Twitch client must use safe smart_game_match"
 
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
     assert "/api/farm/force" in service_py, "SentinelService must expose /api/farm/force"
     assert "/api/farm/cancel-force" in service_py, "SentinelService must expose /api/farm/cancel-force"
     assert "handle_force_farm" in service_py, "SentinelService must implement handle_force_farm"
@@ -1421,7 +1484,7 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     # 2. Live REST API verification for Force Farm
     ensure_test_service()
     req_force = urllib.request.Request(
-        "http://127.0.0.1:28492/api/farm/force",
+        BASE_URL + "/api/farm/force",
         data=json.dumps({"game": "Rust"}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
         method="POST"
@@ -1434,7 +1497,7 @@ def test_manual_farm_override_and_native_screendimmer_suite():
 
     # Verify state reflects forced game
     req_state = urllib.request.Request(
-        "http://127.0.0.1:28492/api/state",
+        BASE_URL + "/api/state",
         headers={"Connection": "close", "User-Agent": "Sentinel-Test"}
     )
     with urllib.request.urlopen(req_state, timeout=5.0) as res:
@@ -1444,7 +1507,7 @@ def test_manual_farm_override_and_native_screendimmer_suite():
 
     # Cancel force farm
     req_cancel = urllib.request.Request(
-        "http://127.0.0.1:28492/api/farm/cancel-force",
+        BASE_URL + "/api/farm/cancel-force",
         data=json.dumps({}).encode("utf-8"),
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"},
         method="POST"
@@ -1495,7 +1558,7 @@ def test_manual_farm_override_and_native_screendimmer_suite():
 def test_update_check_failure_reports_running_version():
     print("[audit F-001] Update check failure must report the real running version...")
     import asyncio, json as _json
-    sys.path.insert(0, str(WORKSPACE / "core"))
+    sys.path.insert(0, str(SANDBOX / "core"))
     from sentinel_service import SentinelSupervisor, UPDATER
     from version import __version__
 
@@ -1516,22 +1579,7 @@ def test_update_check_failure_reports_running_version():
     assert data["latest_version"] == __version__, data
 
 
-def _protect_user_files():
-    """Gates scan, clear and rewrite real user files: restore them when the run ends."""
-    protected = [WORKSPACE / "data" / "installed_games.json", WORKSPACE / "Trophies.md"]
-    snapshots = {p: p.read_bytes() for p in protected if p.exists()}
-
-    def restore():
-        for path, content in snapshots.items():
-            if path.read_bytes() != content:
-                path.write_bytes(content)
-                print(f"      Restored user file touched by the suite: {path.name}")
-
-    atexit.register(restore)
-
-
 if __name__ == "__main__":
-    _protect_user_files()
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
     print("  Author: Mortuis_V / Mortuis_V_Studio")
@@ -1573,6 +1621,8 @@ if __name__ == "__main__":
     test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite()
     test_manual_farm_override_and_native_screendimmer_suite()
     test_update_check_failure_reports_running_version()
+    assert_live_data_untouched()
+    print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
     print("  ALL 36 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)

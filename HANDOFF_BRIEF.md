@@ -198,5 +198,4 @@ npm run dev
 Разделы 3 и 5 выше описывают тему Apple Luna 2.0 и сохранены как история. Актуальный UI называется **Sentinel Field-Deck** (Flat-2D). Эталон токенов: `src/index.css` (`[data-theme]`: titanium по умолчанию, luna-mint, gradient, cyberpunk, light, copper, apple-luna). Подробности: приложение в конце `DESIGN.md` и `docs/solutions/052-v3.3.5-field-deck-audit.md`.
 
 Дополнение к Hard Constraints:
-- `test_sentinel_suite.py` бьёт в боевой порт 28492 и вызывает `/api/installed-games/clear` и `/api/trophies/clear`. Теперь тест сам сохраняет и возвращает `data/installed_games.json` и `Trophies.md`, но всё равно запускать только при закрытом приложении.
-- Запуск с portable Python: `portable_runtime\python\python.exe -c "import sys,runpy; sys.path.insert(0,'.'); runpy.run_path('test_sentinel_suite.py', run_name='__main__')"` (у embeddable Python файл `._pth` не добавляет папку скрипта в `sys.path`).
+- `test_sentinel_suite.py` изолирован (с аудита, второй круг): он копирует код и снапшот данных (без cookies) во временную папку, поднимает там свой сервис на свободном порту (`SENTINEL_SERVICE_PORT`, `SENTINEL_TEST_MODE=1`) и в конце сверяет sha256 боевых файлов. Его можно запускать, пока программа фармит: `portable_runtime\python\python.exe test_sentinel_suite.py`.
