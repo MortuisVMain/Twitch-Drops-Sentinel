@@ -410,7 +410,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             <span className="tag">
               <span className="led-dot" /> ПОЛКА КАМПАНИЙ (<span id="queueCount">{queueCampaigns.length + (activeGame ? 1 : 0)}</span>)
             </span>
-<div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+<div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
               {forcedGame ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: '9.5px', color: 'var(--led-amber)', fontWeight: 700 }}>
                   <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
