@@ -1053,7 +1053,7 @@ export const App: React.FC = () => {
 
             <span>🎮 Полка Игр</span>
 
-            <span className="badge-num">{sentinelState.installed_games.length}</span>
+            <span className="badge-num" title="Игр, установленных на этом ПК">{sentinelState.installed_games.length}</span>
 
           </button>
 
