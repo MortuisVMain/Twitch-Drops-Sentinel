@@ -200,6 +200,7 @@ export const App: React.FC = () => {
   });
 
   const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const [isPipMode, setIsPipMode] = useState(false);
 
@@ -869,9 +870,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
 
-    const closeMenu = () => setShowThemeMenu(false);
+    const closeMenu = () => { setShowThemeMenu(false); setShowMoreMenu(false); };
 
-    if (showThemeMenu) {
+    if (showThemeMenu || showMoreMenu) {
 
       window.addEventListener('click', closeMenu);
 
@@ -879,7 +880,7 @@ export const App: React.FC = () => {
 
     }
 
-  }, [showThemeMenu]);
+  }, [showThemeMenu, showMoreMenu]);
 
 
 
@@ -1062,18 +1063,13 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'giveaways' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('giveaways')}
+            title="Раздачи: 7 магазинов"
 
           >
 
             <span>🎁 Раздачи</span>
 
-            <span className="badge-num">
-
-              <span className="badge-full">7 STORES</span>
-
-              <span className="badge-short">7</span>
-
-            </span>
+            <span className="badge-num" title="Магазинов в радаре раздач">7</span>
 
           </button>
 
@@ -1082,18 +1078,12 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'dimmer' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('dimmer')}
+            title="Диммер мониторов: DDC/CI"
 
           >
 
             <span>🖥 Диммер</span>
 
-            <span className="badge-num">
-
-              <span className="badge-full">DDC/CI</span>
-
-              <span className="badge-short">DDC</span>
-
-            </span>
 
           </button>
 
@@ -1102,18 +1092,12 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('settings')}
+            title="Настройки: 10 систем Sentinel"
 
           >
 
             <span>⚙ Настройки</span>
 
-            <span className="badge-num">
-
-              <span className="badge-full">10 SYS</span>
-
-              <span className="badge-short">10</span>
-
-            </span>
 
           </button>
 
@@ -1179,69 +1163,75 @@ export const App: React.FC = () => {
 
           >
 
-            <span>⌘K</span>
+            <Search className="w-3.5 h-3.5 inline" /><span className="ml-1">Ctrl+K</span>
 
           </button>
 
 
 
-          <button 
-
-            className={`tactile-btn ${isPipMode ? 'active-mint' : ''}`} 
-
-            id="pipToggleBtn" 
-
-            onClick={handleTogglePipMode} 
-
-            title={isPipMode ? "Вернуться в стандартный оконный режим (Ctrl+M)" : "Выделенный мини-кокпит PIP для второго монитора (Ctrl+M)"}
-
-          >
-
-            <span>{isPipMode ? '📐 В ОКНО' : '📐 PIP'}</span>
-
-          </button>
-
-
-
-          <button 
-
-            className={`tactile-btn pip-hide ${isNightGuard ? 'active-mint' : ''}`} 
-
-            id="nightGuardBtn" 
-
-            onClick={handleToggleNightGuard} 
-
-            title="Ночной режим в 1 клик"
-
-          >
-
-            <span>🌙 НОЧЬ</span>
-
-          </button>
+          {isPipMode && (
+            <button 
+  
+              className={`tactile-btn ${isPipMode ? 'active-mint' : ''}`} 
+  
+              id="pipToggleBtn" 
+  
+              onClick={handleTogglePipMode} 
+  
+              title={isPipMode ? "Вернуться в стандартный оконный режим (Ctrl+M)" : "Выделенный мини-кокпит PIP для второго монитора (Ctrl+M)"}
+  
+            >
+  
+              <span>{isPipMode ? '📐 В ОКНО' : '📐 PIP'}</span>
+  
+            </button>
+          )}
 
 
 
+
+
+
+          <div className="header-more-wrap pip-hide">
+            <button
+              className={`tactile-btn ${showMoreMenu ? 'active-mint' : ''}`}
+              id="moreMenuBtn"
+              onClick={(e) => { e.stopPropagation(); playClick(); setShowThemeMenu(false); setShowMoreMenu(!showMoreMenu); }}
+              title="Ещё: мини-окно, ночной режим, тема, звук"
+              aria-haspopup="menu"
+              aria-expanded={showMoreMenu}
+              aria-label="Дополнительные действия"
+            >
+              <span>⋯</span>
+              {isNightGuard && <span className="more-night" title="Ночной режим включён" aria-label="Ночной режим включён">🌙</span>}
+            </button>
+            <div className={`more-menu ${showMoreMenu ? 'open' : ''}`} role="menu" onClick={(e) => e.stopPropagation()}>
+              <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); handleTogglePipMode(); }}>
+                <span>📐 Мини-окно (PIP)</span>
+                <span className="more-hint">Ctrl+M</span>
+              </button>
+              <button className="more-item" role="menuitemcheckbox" aria-checked={isNightGuard} onClick={() => { playClick(); handleToggleNightGuard(); }}>
+                <span>🌙 Ночной режим</span>
+                <span className="more-check">{isNightGuard ? '✓' : ''}</span>
+              </button>
+              <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
+                <span>🎨 Тема</span>
+                <span className="more-hint">▸</span>
+              </button>
+              <button
+                className="more-item"
+                role="menuitemcheckbox"
+                aria-checked={!isMuted}
+                onClick={() => { toggleMute(); showToast(!isMuted ? '🔇 Звук интерфейса выключен' : '🔊 Звук интерфейса включён'); }}
+              >
+                <span>{isMuted ? '🔇' : '🔊'} Звук интерфейса: {isMuted ? 'выкл' : 'вкл'}</span>
+                <span className="more-check">{!isMuted ? '✓' : ''}</span>
+              </button>
+            </div>
           {/* MASTER DROPDOWN: 1. THEMES (6) | 2. 3D RELIEFS (6) | 3. 2D FLAT (6) | 4. BRIGHTNESS */}
 
           <div className="theme-dropdown-wrap pip-hide" id="themeDropdownWrap">
 
-            <button 
-
-              className="tactile-btn active-mint" 
-
-              onClick={(e) => { e.stopPropagation(); playClick(); setShowThemeMenu(!showThemeMenu); }} 
-
-              title="Выбрать тему, 3D-объемный или 2D-плоский задник"
-
-            >
-
-              <span id="currentThemeName">
-
-                <span>🎨 ТЕМА ▾</span>
-
-              </span>
-
-            </button>
 
 
 
@@ -1710,24 +1700,10 @@ export const App: React.FC = () => {
 
 
 
-          <button 
-
-            className={`tactile-btn pip-hide sound-toggle-btn ${!isMuted ? 'active-mint' : ''}`} 
-
-            onClick={() => { toggleMute(); showToast(!isMuted ? '🔇 MUTE' : '🔊 ALPS'); }}
-
-            title={!isMuted ? 'Выключить тактильный звук (Mute)' : 'Включить тактильный звук ALPS'}
-
-          >
-
-            {isMuted ? <VolumeX className="w-3.5 h-3.5 inline sound-icon" /> : <Volume2 className="w-3.5 h-3.5 inline sound-icon" />}
-
-            <span className="sound-label-full ml-1">{!isMuted ? 'ALPS' : 'MUTE'}</span>
-
-          </button>
 
 
 
+          </div>
           <button 
 
             className="tactile-btn help-btn pip-hide" 
@@ -2299,6 +2275,10 @@ export const App: React.FC = () => {
           { id: 'switch-streamer', key: 'GQL Switch', icon: '↻', title: 'Сменить узел стримера', action: () => handleSwitchStreamer(false) },
           { id: 'refresh-twitch', key: 'F5', icon: '⟳', title: 'Принудительная синхронизация с Twitch', action: () => handleManualRefresh() },
           { id: 'toggle-daemon', key: 'Space', icon: '⏯', title: sentinelState.hardware.is_paused ? 'Запустить сбор дропов' : 'Приостановить сбор дропов', action: () => handleToggleDaemon() },
+          { id: 'toggle-pip', key: 'Ctrl+M', icon: '📐', title: isPipMode ? 'Вернуться из мини-окна (PIP)' : 'Мини-окно (PIP)', action: () => handleTogglePipMode() },
+          { id: 'toggle-night', key: 'Ночь', icon: '🌙', title: isNightGuard ? 'Выключить ночной режим' : 'Включить ночной режим', action: () => handleToggleNightGuard() },
+          { id: 'open-theme', key: 'Тема', icon: '🎨', title: 'Выбрать тему оформления', action: () => setShowThemeMenu(true) },
+          { id: 'toggle-sound', key: 'Звук', icon: isMuted ? '🔇' : '🔊', title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? '🔇 Звук интерфейса выключен' : '🔊 Звук интерфейса включён'); } },
           { id: 'open-help', key: '?', icon: '💡', title: 'База Знаний и Горячие Клавиши', action: () => setShowHelpModal(true) },
         ].filter(item => !query || item.title.toLowerCase().includes(query) || item.key.toLowerCase().includes(query));
 
