@@ -857,7 +857,7 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <h2
                   style={{
-                    fontFamily: "'Outfit', sans-serif",
+                    fontFamily: 'var(--font-ui)',
                     fontSize: '18px',
                     fontWeight: 800,
                     whiteSpace: 'nowrap',

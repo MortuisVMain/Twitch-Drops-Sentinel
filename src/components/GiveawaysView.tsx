@@ -638,7 +638,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               flex: '0 1 auto',
               minHeight: logs.length > 0 ? '160px' : 0,
               padding: logs.length > 0 ? '9px' : '7px 10px',
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: 'var(--font-ui)',
               fontSize: '10px',
               color: 'var(--text-secondary)',
               lineHeight: 1.5,

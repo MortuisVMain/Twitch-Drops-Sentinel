@@ -1721,7 +1721,7 @@ export const App: React.FC = () => {
 
           <div className="master-rocker-wrap" title="Главный тумблер фонового демона">
 
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '10px', fontWeight: 700, color: 'var(--text-engraved)' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '10px', fontWeight: 700, color: 'var(--text-engraved)' }}>
 
               FARM
 
@@ -2309,7 +2309,7 @@ export const App: React.FC = () => {
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
                 />
-                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[9.5px] font-mono text-[#8b9a94] shrink-0 select-none">
+                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[9.5px] tabular text-[#8b9a94] shrink-0 select-none">
                   ESC
                 </kbd>
               </div>
@@ -2317,7 +2317,7 @@ export const App: React.FC = () => {
               <div className="p-2 overflow-y-auto space-y-2 scrollbar-thin flex-1 min-h-0">
                 {navActions.length > 0 && (
                   <div>
-                    <div className="text-[9.5px] font-mono font-bold text-[#828f88] uppercase tracking-wider px-2 py-0.5">
+                    <div className="text-[9.5px] tabular font-bold text-[#828f88] uppercase tracking-wider px-2 py-0.5">
                       Навигация
                     </div>
                     <div className="space-y-0.5">
@@ -2337,7 +2337,7 @@ export const App: React.FC = () => {
                               {item.title}
                             </span>
                           </div>
-                          <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[#73bba5] font-bold shrink-0">
+                          <span className="text-[9.5px] tabular px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[#73bba5] font-bold shrink-0">
                             {item.key}
                           </span>
                         </button>
@@ -2348,7 +2348,7 @@ export const App: React.FC = () => {
 
                 {quickActions.length > 0 && (
                   <div>
-                    <div className="text-[9.5px] font-mono font-bold text-[#828f88] uppercase tracking-wider px-2 py-0.5 pt-1">
+                    <div className="text-[9.5px] tabular font-bold text-[#828f88] uppercase tracking-wider px-2 py-0.5 pt-1">
                       Действия
                     </div>
                     <div className="space-y-0.5">
@@ -2369,7 +2369,7 @@ export const App: React.FC = () => {
                             </span>
                           </div>
                           {item.key && (
-                            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
+                            <span className="text-[9.5px] tabular px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
                               {item.key}
                             </span>
                           )}
@@ -2381,7 +2381,7 @@ export const App: React.FC = () => {
 
                 {matchingGames.length > 0 && (
                   <div>
-                    <div className="text-[9.5px] font-mono font-bold text-[#73bba5] uppercase tracking-wider px-2 py-0.5 pt-1 flex items-center justify-between">
+                    <div className="text-[9.5px] tabular font-bold text-[#73bba5] uppercase tracking-wider px-2 py-0.5 pt-1 flex items-center justify-between">
                       <span>Игры в каталоге</span>
                       <span className="text-[9px] text-[#828f88]">Фокус ↵</span>
                     </div>
@@ -2404,7 +2404,7 @@ export const App: React.FC = () => {
                               {game.name}
                             </span>
                           </div>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold shrink-0">
+                          <span className="text-[9px] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold shrink-0">
                             В ФОКУС ↵
                           </span>
                         </button>
@@ -2422,7 +2422,7 @@ export const App: React.FC = () => {
               </div>
 
               <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[10.5px] text-[#828f88] shrink-0 select-none">
-                <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white font-mono text-[9px]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white font-mono text-[9px]">Esc</kbd> Закрыть</span>
+                <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[9px]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[9px]">Esc</kbd> Закрыть</span>
               </div>
             </div>
           </div>
@@ -2538,7 +2538,7 @@ export const App: React.FC = () => {
                 <div className="flex justify-between text-[11px] text-[var(--text-muted)]">
 
                   <span>{updateProgress.error_message || updateProgress.stage}</span>
-                  <span className="font-mono text-[var(--led-mint)]">{updateProgress.percent}%</span>
+                  <span className="tabular text-[var(--led-mint)]">{updateProgress.percent}%</span>
 
                 </div>
 

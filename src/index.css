@@ -4,6 +4,7 @@
      1. MULTI-THEME TOKEN ENGINE (6 BESPOKE DESIGN SYSTEMS)
      ========================================================================== */
   :root, [data-theme="titanium"] {
+    --font-ui: 'Inter Variable', 'Segoe UI', sans-serif;
     --bg-body: #050608;
     --bg-chassis-base: #080A0E;
     --bg-island: radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.05) 0%, transparent 65%), rgba(13, 16, 22, 0.84);
@@ -221,7 +222,7 @@
     height: 100vh;
     background-color: var(--bg-body, #050608);
     color: var(--text-primary, #F3F5F8);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-ui);
     overflow: hidden;
     box-sizing: border-box;
   }
@@ -258,7 +259,7 @@
   ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
   ::-webkit-scrollbar-thumb { background: rgba(150,150,150,0.25); border-radius: 4px; }
 
-  .tabular { font-variant-numeric: tabular-nums slashed-zero; font-family: 'JetBrains Mono', monospace; }
+  .tabular { font-variant-numeric: tabular-nums; font-family: var(--font-ui); }
 
   /* ==========================================================================
      2. MASTER CHASSIS & DUAL BACKDROP ENGINE (3D CANVAS + 2D FLAT CSS + OPTICAL LENS)
@@ -489,7 +490,7 @@
     align-items: center;
     justify-content: center;
     gap: 3.5px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-ui);
     font-size: 7.5px;
     font-weight: 800;
     color: var(--led-mint);
@@ -521,7 +522,7 @@
     -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent 100%);
   }
   .pip-marquee-text {
-    display: inline-block; font-family: 'Outfit', sans-serif; font-size: 15.5px; font-weight: 800;
+    display: inline-block; font-family: var(--font-ui); font-size: 15.5px; font-weight: 800;
     color: var(--text-primary); padding-right: 40px;
   }
   .pip-marquee-text.scrolling { animation: marqueeScroll 9s linear infinite; }
@@ -568,7 +569,7 @@
     height: 29px; padding: 0 10px; border-radius: 8px;
     background: rgba(58, 210, 159, 0.1); border: 1px solid var(--led-mint);
     box-shadow: var(--shadow-well); color: var(--led-mint);
-    font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700;
+    font-family: var(--font-ui); font-size: 9.5px; font-weight: 700;
     display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }
 
@@ -606,7 +607,7 @@
     white-space: nowrap; flex-shrink: 0;
   }
   .brand-title h1 {
-    font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 800;
+    font-family: var(--font-ui); font-size: 13px; font-weight: 800;
     letter-spacing: 0.03em; text-transform: uppercase; display: flex; align-items: center; gap: 6px;
     white-space: nowrap; flex-shrink: 0; line-height: 1.1; margin: 0;
   }
@@ -616,12 +617,12 @@
   .relief-chip-short { display: none; }
 
   .version-chip {
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+    font-family: var(--font-ui); font-size: 10px; font-weight: 700;
     color: var(--led-mint); background: rgba(58, 210, 159, 0.12);
     border: 1px solid var(--led-mint); padding: 1px 5px; border-radius: 4px; white-space: nowrap;
   }
   .brand-title p {
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-engraved); letter-spacing: 0.08em;
+    font-family: var(--font-ui); font-size: 10px; color: var(--text-engraved); letter-spacing: 0.08em;
     white-space: nowrap; flex-shrink: 0; margin: 0; line-height: 1.1;
   }
 
@@ -658,7 +659,7 @@
   .tab-title-full { display: inline; }
   .tab-title-short { display: none; }
   .badge-num {
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; background: var(--bg-well);
+    font-family: var(--font-ui); font-size: 10px; background: var(--bg-well);
     padding: 1px 4px; border-radius: 4px; color: var(--text-muted); border: 1px solid var(--border-subtle);
     white-space: nowrap;
   }
@@ -784,8 +785,8 @@
     color: var(--text-primary); font-size: 12px; font-weight: 600; text-align: left; cursor: pointer;
   }
   .more-item:hover, .more-item:focus-visible { background: var(--bg-row-hover); border-color: var(--border-main); outline: none; }
-  .more-hint { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
-  .more-check { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--led-mint); min-width: 12px; text-align: right; }
+  .more-hint { font-family: var(--font-ui); font-size: 10px; color: var(--text-muted); }
+  .more-check { font-family: var(--font-ui); font-size: 12px; color: var(--led-mint); min-width: 12px; text-align: right; }
   .theme-dropdown-menu {
     position: absolute;
     top: calc(100% + 8px);
@@ -922,7 +923,7 @@
     padding-bottom: 5px; margin-bottom: 7px; border-bottom: 1px solid var(--border-subtle);
   }
   .engraved-header .tag {
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+    font-family: var(--font-ui); font-size: 10px; font-weight: 700;
     letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-engraved);
     display: flex; align-items: center; gap: 6px; white-space: nowrap;
   }
@@ -1023,7 +1024,7 @@
   .campaign-row-actions { display: flex; gap: 5px; justify-content: flex-end; }
   .new-campaign-chip {
     position: absolute; top: 8px; left: 8px; z-index: 3; padding: 1px 7px; border-radius: 5px;
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+    font-family: var(--font-ui); font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
     color: var(--cta-text); background: var(--led-mint); box-shadow: 0 0 0 1px var(--border-main);
   }
   .queue-link-caption {
@@ -1057,7 +1058,7 @@
 
   .chrono-hero-grid { display: grid; grid-template-columns: 98px 1fr 240px; gap: 12px; align-items: center; }
   .idle-hero { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px 4px; min-width: 0; }
-  .idle-hero-title { font-family: 'Outfit', sans-serif; font-size: 20px; font-weight: 800; color: var(--text-primary); }
+  .idle-hero-title { font-family: var(--font-ui); font-size: 20px; font-weight: 800; color: var(--text-primary); }
   .idle-hero-reason { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
   .idle-hero-extra { font-size: 11px; color: var(--led-mint); }
   .idle-hero-link {
@@ -1080,7 +1081,7 @@
 
   .streamer-viewfinder { padding: 7px 9px; display: flex; flex-direction: column; justify-content: space-between; gap: 5px; }
   .node-chip {
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 5px; border-radius: 4px;
+    font-family: var(--font-ui); font-size: 10px; padding: 2px 5px; border-radius: 4px;
     background: var(--bg-row); color: var(--text-secondary); cursor: pointer; border: 1px solid var(--border-subtle);
   }
   .node-chip.active { color: var(--led-mint); border-color: var(--led-mint); }
@@ -1104,8 +1105,8 @@
 
   .guard-sensors-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
   .sensor-pod { padding: 5px 8px; display: flex; flex-direction: column; gap: 1px; }
-  .sensor-pod .lbl { font-family: 'JetBrains Mono', monospace; font-size: 7.5px; color: var(--text-engraved); letter-spacing: 0.08em; }
-  .sensor-pod .val { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; }
+  .sensor-pod .lbl { font-family: var(--font-ui); font-size: 7.5px; color: var(--text-engraved); letter-spacing: 0.08em; }
+  .sensor-pod .val { font-family: var(--font-ui); font-size: 11px; font-weight: 700; }
 
   /* MIDDLE MODULE: LIVE APPLICATION ACTIONS CONSOLE */
   .middle-console-island {
@@ -1126,7 +1127,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-ui);
     font-size: 10px;
   }
   .console-log-viewport::-webkit-scrollbar {
@@ -1241,7 +1242,7 @@
     box-shadow: var(--shadow-well); border: 1px solid var(--border-subtle);
   }
   .r-step {
-    flex: 1; text-align: center; padding: 4px 1px; font-family: 'JetBrains Mono', monospace;
+    flex: 1; text-align: center; padding: 4px 1px; font-family: var(--font-ui);
     font-size: 10px; font-weight: 700; color: var(--text-muted); border-radius: 5px; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.2px;
     transition: all 0.15s ease;
@@ -1267,7 +1268,7 @@
   .store-pod-header { display: flex; justify-content: space-between; align-items: center; }
   .store-pod-title { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .store-select-badge {
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+    font-family: var(--font-ui); font-size: 10px; font-weight: 700;
     padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted);
   }
   .store-pod.selected .store-select-badge {
@@ -1285,7 +1286,7 @@
   }
   .claimed-tab-pill {
     height: 22px; padding: 0 8px; border-radius: 6px; font-size: 9.5px; font-weight: 700;
-    font-family: 'Outfit', sans-serif; background: var(--bg-well); border: 1px solid var(--border-subtle);
+    font-family: var(--font-ui); background: var(--bg-well); border: 1px solid var(--border-subtle);
     color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
     transition: all 0.15s ease;
   }
@@ -1321,7 +1322,7 @@
   }
   .claimed-card-header-row {
     display: flex; align-items: center; justify-content: space-between; font-size: 10px;
-    font-family: 'JetBrains Mono', monospace; gap: 4px;
+    font-family: var(--font-ui); gap: 4px;
   }
   .claimed-card-header-row > span { white-space: nowrap; }
   .claimed-card-header-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -1371,7 +1372,7 @@
   .strategy-option.active { border-color: var(--led-mint); background: rgba(58, 210, 159, 0.08); }
 
   .safety-guard-btn {
-    height: 29px; padding: 0 10px; border-radius: 7px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; cursor: pointer;
+    height: 29px; padding: 0 10px; border-radius: 7px; font-family: var(--font-ui); font-size: 9.5px; font-weight: 700; cursor: pointer;
     border: 1px solid var(--led-rose);
     background: repeating-linear-gradient(45deg, rgba(248,113,113,0.12), rgba(248,113,113,0.12) 6px, transparent 6px, transparent 12px);
     color: var(--led-rose); transition: all 0.2s ease;
@@ -1381,7 +1382,7 @@
     display: flex; align-items: center; flex-wrap: wrap; gap: 8px 22px; padding: 9px 16px; flex-shrink: 0;
     border: 1px solid rgba(248,113,113,0.38); border-radius: 12px; background: rgba(248,113,113,0.05);
   }
-  .danger-zone-title { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--led-rose); }
+  .danger-zone-title { font-family: var(--font-ui); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--led-rose); }
   .danger-zone-item { display: flex; align-items: center; gap: 8px; min-height: 29px; }
   .danger-zone-hint { font-size: 10px; color: var(--text-muted); }
   .danger-zone-question { font-size: 11.5px; font-weight: 700; color: var(--text-primary); }
@@ -1389,7 +1390,7 @@
   .modal-backdrop { position: fixed; inset: 0; background: rgba(3, 4, 6, 0.78); backdrop-filter: blur(14px); z-index: 150; display: none; align-items: center; justify-content: center; padding: 20px; }
   .modal-backdrop.open { display: flex; }
 
-  .console-footer { display: flex; align-items: center; justify-content: space-between; height: 22px; padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-engraved); border-top: 1px solid var(--border-subtle); flex-shrink: 0; z-index: 20; }
+  .console-footer { display: flex; align-items: center; justify-content: space-between; height: 22px; padding: 0 6px; font-family: var(--font-ui); font-size: 9px; color: var(--text-engraved); border-top: 1px solid var(--border-subtle); flex-shrink: 0; z-index: 20; }
 
 /* Extra utility classes for backwards compatibility with existing views */
 .glass-panel {
@@ -1507,7 +1508,7 @@
   }
 
   .scheduler-days-label {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-ui);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.12em;
@@ -1532,7 +1533,7 @@
     border: 1px solid var(--border-subtle);
     border-radius: 5px;
     color: var(--text-engraved);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-ui);
     font-size: 9.5px;
     font-weight: 700;
     cursor: pointer;

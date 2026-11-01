@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { installTranslator } from './i18n';
+import './fonts.css';
 import './index.css';
 
 interface RootErrorBoundaryState {
@@ -29,7 +30,7 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           height: '100vh', width: '100vw', backgroundColor: '#050608', color: '#F3F5F8',
-          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', padding: '24px',
+          fontFamily: "'Inter Variable', 'Segoe UI', sans-serif", padding: '24px',
           boxSizing: 'border-box', textAlign: 'center'
         }}>
           <div style={{
@@ -44,7 +45,7 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
             </p>
             <pre style={{
               backgroundColor: '#050608', padding: '12px', borderRadius: '8px', fontSize: '11px',
-              fontFamily: 'JetBrains Mono, monospace', color: '#FCA5A5', textAlign: 'left',
+              fontFamily: "'Inter Variable', 'Segoe UI', sans-serif", color: '#FCA5A5', textAlign: 'left',
               overflowX: 'auto', maxHeight: '180px', border: '1px solid rgba(255,255,255,0.08)',
               whiteSpace: 'pre-wrap'
             }}>

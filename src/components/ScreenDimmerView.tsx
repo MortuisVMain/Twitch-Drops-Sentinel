@@ -642,7 +642,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       style={{
                         flexShrink: 0,
                         fontSize: '9px',
-                        fontFamily: 'var(--font-mono)',
+                        fontFamily: 'var(--font-ui)',
                         padding: '1px 5px',
                         borderRadius: '3px',
                         background: 'rgba(255,255,255,0.05)',
@@ -657,11 +657,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
                     <span
                       title="Текущая яркость монитора"
-                      style={{ fontFamily: 'var(--font-mono)', fontSize: '22px', fontWeight: 800, lineHeight: 1, color: locked ? 'var(--text-muted)' : 'var(--accent-mint)' }}
+                      style={{ fontFamily: 'var(--font-ui)', fontSize: '22px', fontWeight: 800, lineHeight: 1, color: locked ? 'var(--text-muted)' : 'var(--accent-mint)' }}
                     >
                       {displayBri}%
                     </span>
-                    <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textAlign: 'right' }}>
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--font-ui)', color: 'var(--text-muted)', textAlign: 'right' }}>
                       база <strong style={{ color: 'var(--text-heading)' }}>{baseBri}%</strong>
                       {!locked && diff !== 0 && (
                         <span style={{ color: diff > 0 ? '#60a5fa' : '#f59e0b' }}> ({diff > 0 ? `+${diff}` : diff})</span>
@@ -735,7 +735,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               title="Вернуть базовую яркость всех мониторов"
             >
               <span>☀️ Вернуть базу всем</span>
-              <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,0,0,0.4)', color: '#ffffff' }}>
+              <span style={{ fontSize: '10px', fontFamily: 'var(--font-ui)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,0,0,0.4)', color: '#ffffff' }}>
                 Alt+Shift+Backspace
               </span>
             </button>
@@ -838,7 +838,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               >
                 <span
                   style={{
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-ui)',
                     fontSize: '18px',
                     fontWeight: 800,
                     color: isBlackout ? 'var(--text-muted)' : 'var(--accent-mint)',
@@ -847,7 +847,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 >
                   {monitors.length === 0 ? '—' : isBlackout ? '0' : masterBrightness}
                 </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-ui)' }}>
                   %
                 </span>
               </div>
@@ -863,7 +863,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     fontSize: '9.5px',
                     justifyContent: 'flex-start',
                     padding: '0 8px',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-ui)',
                     fontWeight: 700,
                   }}
                   onClick={() => {
@@ -931,7 +931,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <span
               style={{
                 fontSize: '9px',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: 'var(--font-ui)',
                 padding: '2px 5px',
                 borderRadius: '3px',
                 background: 'rgba(0,0,0,0.3)',
@@ -957,7 +957,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <span
               style={{
                 fontSize: '9px',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: 'var(--font-ui)',
                 fontWeight: 700,
                 color: sleepTimerMinutes > 0 ? 'var(--accent-mint)' : 'var(--text-muted)',
               }}
@@ -980,7 +980,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   height: '24px',
                   fontSize: '9.5px',
                   padding: '0 8px',
-                  fontFamily: 'var(--font-mono)',
+                  fontFamily: 'var(--font-ui)',
                   fontWeight: 700,
                 }}
                 onClick={() => handleSelectSleepTimer(t.mins)}
@@ -1054,7 +1054,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   Блэкаут снимается только по Esc или Alt+Backspace
                 </span>
               </div>
-              <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--accent-mint)' }}>
+              <span style={{ fontSize: '9px', fontFamily: 'var(--font-ui)', color: 'var(--accent-mint)' }}>
                 АКТИВЕН
               </span>
             </div>
@@ -1083,7 +1083,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
 
           {/* UltraDark Tint Depth Slider */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-ui)' }}>
               <span>Глубина тонирования:</span>
               <span style={{ color: 'var(--accent-mint)', fontWeight: 700 }}>{ultraDarkTint}%</span>
             </div>
@@ -1143,7 +1143,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             borderRadius: '6px',
             padding: '8px 10px',
             overflowY: 'auto',
-            fontFamily: 'var(--font-mono)',
+            fontFamily: 'var(--font-ui)',
             fontSize: '9.5px',
             lineHeight: 1.45,
             background: 'rgba(10, 14, 12, 0.75)',
@@ -1187,7 +1187,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           border: '1px solid var(--border-subtle)',
           fontSize: '9.5px',
           color: 'var(--text-secondary)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: 'var(--font-ui)',
           flexShrink: 0,
         }}
       >

@@ -315,7 +315,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           {selectedCategory !== 'hotkeys' ? (
             <>
               <div className="flex items-center justify-between pb-0.5">
-                <span className="text-[11px] font-bold text-[#8b9a94] uppercase tracking-wider font-mono">
+                <span className="text-[11px] font-bold text-[#8b9a94] uppercase tracking-wider tabular">
                   {TAB_TIPS[selectedCategory].title}
                 </span>
                 {activeTab === selectedCategory && (
@@ -342,7 +342,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                         </span>
                       </div>
                       {tip.badge && (
-                        <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-semibold shrink-0">
+                        <span className="text-[9.5px] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-semibold shrink-0">
                           {tip.badge}
                         </span>
                       )}
@@ -357,7 +357,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           ) : (
             <>
               <div className="flex items-center justify-between pb-0.5">
-                <span className="text-[11px] font-bold text-[#8b9a94] uppercase tracking-wider font-mono">
+                <span className="text-[11px] font-bold text-[#8b9a94] uppercase tracking-wider tabular">
                   Быстрые клавиши и управление
                 </span>
               </div>
@@ -372,7 +372,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                       <div className="text-xs font-bold text-white leading-snug break-words">{hk.label}</div>
                       <div className="text-[10px] text-[#8b9a94] mt-0.5 leading-snug break-words">{hk.desc}</div>
                     </div>
-                    <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[11px] font-mono font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
+                    <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[11px] tabular font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
                       {hk.key}
                     </kbd>
                   </div>
@@ -394,7 +394,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
         {/* Modal Footer - shrink-0 ensures it is ALWAYS 100% visible */}
         <div className="py-3 px-6 border-t border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
           <div className="text-[11px] text-[#8b9a94] flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9.5px] font-mono text-white">Esc</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9.5px] tabular text-white">Esc</kbd>
             <span>для закрытия</span>
           </div>
 

@@ -714,7 +714,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div 
-              className="obsidian-well p-4 font-mono text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-y-auto max-h-[420px]"
+              className="obsidian-well p-4 tabular text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-y-auto max-h-[420px]"
               style={{ lineHeight: 1.6 }}
             >
               {isLoadingDiag ? 'Сбор телеметрии системы...' : diagContent}
