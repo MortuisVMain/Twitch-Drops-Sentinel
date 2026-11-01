@@ -429,7 +429,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('priority'); }}
           >
-            ⭐ В моем ТОПе ({priorityList.length})
+            ⭐ В моей очереди ({priorityList.length})
           </button>
           <button 
             className={`tactile-btn ${activeFilter === 'claimed' ? 'active-amber' : ''}`}
@@ -588,17 +588,17 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             let subtitle = 'Ожидание новой раздачи';
             let subtitleColor = 'var(--text-muted)';
             if (isExcluded) {
-              subtitle = '🚫 В исключениях (нельзя в ТОП)';
+              subtitle = '🚫 В исключениях (нельзя в очередь)';
               subtitleColor = 'var(--text-muted)';
             } else if (isRemoved) {
-              subtitle = '🗑 В удалённых (нельзя в ТОП)';
+              subtitle = '🗑 В удалённых (нельзя в очередь)';
               subtitleColor = 'var(--text-muted)';
             } else if (isForced) {
               subtitle = '⚡ ПРИНУДИТЕЛЬНЫЙ ФАРМ #1';
               subtitleColor = 'var(--led-amber)';
             } else if (isInPriority) {
               const rewardsTxt = game.rewards_count || (game as any).drops_count;
-              subtitle = `⭐ #${priorityIndex + 1} в ТОПе • ${rewardsTxt ? `${rewardsTxt} наград` : 'В очереди'}`;
+              subtitle = `⭐ #${priorityIndex + 1} в очереди • ${rewardsTxt ? `${rewardsTxt} наград` : 'награды уточняются'}`;
               subtitleColor = 'var(--led-amber)';
             } else if (game.is_installed) {
               subtitle = '💾 Установлено на ПК';
@@ -840,7 +840,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   </div>
                 )}
 
-                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (СТАНДАРТ) / QUEUE (В ТОПЕ) / FORCE #1 (СЕЙЧАС #1) */}
+                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (СТАНДАРТ) / QUEUE (ОЧЕРЕДЬ) / FORCE #1 (СЕЙЧАС #1) */}
                 <div className="rocker-3p" data-mode={isForced ? "FORCE #1" : isInPriority ? "QUEUE" : "IDLE"}>
                   <span 
                     className={`r-step ${!isInPriority && !isForced ? 'idle' : ''}`}
@@ -860,15 +860,15 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     onClick={() => {
                       playClick();
                       if (isExcluded || isRemoved) {
-                        if (onShowToast) onShowToast(isExcluded ? 'В исключениях (нельзя в ТОП)' : 'В удалённых (нельзя в ТОП)');
+                        if (onShowToast) onShowToast(isExcluded ? 'В исключениях (нельзя в очередь)' : 'В удалённых (нельзя в очередь)');
                         return;
                       }
                       if (isForced && onCancelForceFarm) onCancelForceFarm();
                       if (!isInPriority) onAddToPriority(game.name);
                     }}
-                    title={isExcluded ? 'В исключениях (нельзя в ТОП)' : isRemoved ? 'В удалённых (нельзя в ТОП)' : 'Приоритетная очередь: фармить раньше обычных игр'}
+                    title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : 'Приоритетная очередь: фармить раньше обычных игр'}
                   >
-                    В ТОПЕ
+                    ОЧЕРЕДЬ
                   </span>
                   <span 
                     className={`r-step ${isForced ? 'force' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -876,7 +876,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     onClick={() => {
                       playClick();
                       if (isExcluded || isRemoved) {
-                        if (onShowToast) onShowToast(isExcluded ? 'В исключениях (нельзя в ТОП)' : 'В удалённых (нельзя в ТОП)');
+                        if (onShowToast) onShowToast(isExcluded ? 'В исключениях (нельзя в очередь)' : 'В удалённых (нельзя в очередь)');
                         return;
                       }
                       if (isForced) {
@@ -885,7 +885,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         if (onForceFarm) onForceFarm(game.name);
                       }
                     }}
-                    title={isExcluded ? 'В исключениях (нельзя в ТОП)' : isRemoved ? 'В удалённых (нельзя в ТОП)' : isForced ? 'Нажмите для отмены принудительного фарма' : 'Фармить прямо сейчас: наивысший приоритет #1'}
+                    title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : isForced ? 'Нажмите для отмены принудительного фарма' : 'Фармить прямо сейчас: наивысший приоритет #1'}
                   >
                     СЕЙЧАС #1
                   </span>

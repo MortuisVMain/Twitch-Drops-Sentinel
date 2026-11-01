@@ -542,7 +542,7 @@ const idleInfo = useMemo(
         <section className="titanium-island dashboard-shelf-island" style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header">
             <span className="tag">
-              <span className="led-dot" /> <span title="Очередь кампаний: игры из ТОПа в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueCampaigns.length + (activeGame ? 1 : 0)}</span></span>
+              <span className="led-dot" /> <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueCampaigns.length + (activeGame ? 1 : 0)}</span></span>
             </span>
 <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
               {forcedGame ? (
@@ -570,7 +570,7 @@ const idleInfo = useMemo(
                   onUpdateSettings?.({ priority_mode: settings.priority_mode === 0 ? 1 : 0 });
                 }}
               >
-                {settings.priority_mode === 0 ? '🎯 ТОЛЬКО ТОП ⇄' : '⚡ ТОП + ЛЮБЫЕ ⇄'}
+                {settings.priority_mode === 0 ? '🎯 Только очередь ⇄' : '⚡ Очередь + любые ⇄'}
               </button>
             </div>
           </div>
@@ -591,7 +591,7 @@ const idleInfo = useMemo(
               <div className="gql-autocomplete" id="gqlDropdown" style={{ display: 'flex' }}>
                 <div className="tabular" style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', padding: '2px 6px' }}>
                   <span>ПРОВЕРКА TWITCH</span>
-                  <span>ENTER ➔ В ТОП</span>
+                  <span>ENTER ➔ В ОЧЕРЕДЬ</span>
                 </div>
                 {searchResults.map((item, idx) => (
                   <div
@@ -610,7 +610,7 @@ const idleInfo = useMemo(
                         {item.has_active_drops ? '● Активные Twitch Drops доступны' : '○ Нет активных дропов'}
                       </div>
                     </div>
-                    <span className="version-chip">+ В ТОП</span>
+                    <span className="version-chip">+ В ОЧЕРЕДЬ</span>
                   </div>
                 ))}
               </div>
@@ -1157,7 +1157,7 @@ const idleInfo = useMemo(
                   style={{ height: '28px', fontSize: '10px', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
                 >
-                  ⭐ ТОП ({topPriorityCount})
+                  ⭐ Очередь ({topPriorityCount})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
@@ -1206,7 +1206,7 @@ const idleInfo = useMemo(
                             </span>
                             {isTop && (
                               <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                                ⭐ ТОП
+                                ⭐ Очередь
                               </span>
                             )}
                             {g.is_installed && (
@@ -1233,9 +1233,9 @@ const idleInfo = useMemo(
                               onAddToPriority?.(g.name);
                             }
                           }}
-                          title={isTop ? 'Удалить из приоритетной очереди' : 'Добавить в ТОП-очередь'}
+                          title={isTop ? 'Удалить из приоритетной очереди' : 'Добавить в очередь'}
                         >
-                          {isTop ? '★ В ТОПе' : '+ В ТОП'}
+                          {isTop ? '★ В очереди' : '+ В ОЧЕРЕДЬ'}
                         </button>
                         <button 
                           className={`tactile-btn ${isForced ? 'active-amber' : 'active-mint'}`}

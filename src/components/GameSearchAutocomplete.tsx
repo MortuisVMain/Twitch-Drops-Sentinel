@@ -300,7 +300,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                               </span>
                               {inPriority && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/40 shrink-0">
-                                  В ТОПе #{priorityList.indexOf(game.name) + 1}
+                                  В очереди #{priorityList.indexOf(game.name) + 1}
                                 </span>
                               )}
                               {inExcluded && (
@@ -371,12 +371,12 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                             {inPriority ? (
                               <>
                                 <Check className="w-3 h-3 text-white" />
-                                <span>В ТОПе</span>
+                                <span>В очереди</span>
                               </>
                             ) : (
                               <>
                                 <Plus className="w-3 h-3" />
-                                <span>+ В ТОП</span>
+                                <span>+ В очередь</span>
                               </>
                             )}
                           </button>

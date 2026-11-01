@@ -1347,8 +1347,8 @@ def test_shelf_removed_tab_and_startup_sync():
     assert "🗑️ Удалённые" in shelf_tsx, "GameShelf must have '🗑️ Удалённые' tab"
     assert "filterMode === 'removed'" in shelf_tsx, "GameShelf must handle filterMode === 'removed'"
     assert "handleRestoreGame" in shelf_tsx, "GameShelf must have handleRestoreGame"
-    assert "В исключениях (нельзя в ТОП)" in shelf_tsx, "GameShelf must disable priority button for excluded games"
-    assert "В удалённых (нельзя в ТОП)" in shelf_tsx, "GameShelf must disable priority button for removed games"
+    assert "В исключениях (нельзя в очередь)" in shelf_tsx, "GameShelf must disable priority button for excluded games"
+    assert "В удалённых (нельзя в очередь)" in shelf_tsx, "GameShelf must disable priority button for removed games"
     assert "Восстановить" in shelf_tsx, "GameShelf must provide 'Восстановить' button"
 
     # 5. Test GameSearchAutocomplete.tsx badges and disabled buttons

@@ -78,7 +78,7 @@ export const computeIdleInfo = ({ priorityList, allGames, strictMode, now, smart
 
   let reason: string;
   if (priorityList.length === 0) {
-    reason = 'Список ТОПа пуст: добавьте игры, чтобы Sentinel мог их фармить';
+    reason = 'Очередь пуста: добавьте игры, чтобы Sentinel мог их фармить';
   } else if (workable.length > 0) {
     reason = `Кампании есть (${workable.slice(0, 3).map(({ name }) => shortGameName(name)).join(', ')}), ждём стримеров с дропами`;
   } else if (strictMode) {

@@ -596,7 +596,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 🎯 01 // Только игры из приоритета (Строгий режим — Рекомендуется)
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Фармит исключительно игры из вашего списка ТОПа.
+                Фармит исключительно игры из вашей очереди.
               </div>
             </div>
 
@@ -611,7 +611,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 ⚡ 02 // Приоритет + Любые активные (Smartbox Fallback)
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Если стримеры из вашего ТОПа офлайн — временно собирает любые доступные дропы.
+                Если стримеры из вашей очереди офлайн — временно собирает любые доступные дропы.
               </div>
             </div>
 
@@ -626,7 +626,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 ⏳ 03 // Приоритет + Редкие сгорающие кампании
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Фармит ваш ТОП, затем раздачи с наименьшим оставшимся временем.
+                Фармит вашу очередь, затем раздачи с наименьшим оставшимся временем.
               </div>
             </div>
           </div>

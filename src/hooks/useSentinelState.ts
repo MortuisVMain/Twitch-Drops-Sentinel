@@ -213,7 +213,7 @@ export function useSentinelState(
       // Standalone mode
     }
 
-    showToast(isPriority ? `"${targetName}" удалена из приоритета` : `"${targetName}" добавлена в ТОП-приоритет фарма`);
+    showToast(isPriority ? `"${targetName}" удалена из приоритета` : `"${targetName}" добавлена в очередь фарма`);
   };
 
   // Toggle Game Exclude
