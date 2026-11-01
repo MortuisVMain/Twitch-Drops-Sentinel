@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
+import { TEXT_SCALES, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 
@@ -35,6 +36,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   updateInfo,
   updateProgress,
 }) => {
+  const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
   const [scanLabel, setScanLabel] = useState<string>('↻ Пересканировать все диски');
   const [backupLabel, setBackupLabel] = useState<string>('📦 Бэкап профиля (.zip)');
@@ -456,6 +458,19 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onClick={() => { playClick(); if (getLang() !== value) void setLang(value as Lang); }}
               >
                 {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }} title="Крупнее текст: удобнее читать, на экране помещается меньше">
+            <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>РАЗМЕР ТЕКСТА:</span>
+            {TEXT_SCALES.map((value) => (
+              <button
+                key={value}
+                className={`tactile-btn ${textScale === value ? 'active-amber' : ''}`}
+                onClick={() => { playClick(); setTextScaleState(value); void setTextScale(value); }}
+              >
+                {value}%
               </button>
             ))}
           </div>

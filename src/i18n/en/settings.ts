@@ -70,6 +70,8 @@ export const SETTINGS: Record<string, string> = {
   'Автозапуск недоступен:': 'Autostart unavailable:',
   'ПРИ ЗАКРЫТИИ ОКНА:': 'ON WINDOW CLOSE:',
   'ЯЗЫК ИНТЕРФЕЙСА:': 'INTERFACE LANGUAGE:',
+  'РАЗМЕР ТЕКСТА:': 'TEXT SIZE:',
+  'Крупнее текст: удобнее читать, на экране помещается меньше': 'Larger text: easier to read, less fits on screen',
   'ПОСЛЕ ОЧЕРЕДИ:': 'AFTER THE QUEUE:',
   '🌙 Сон (Sleep)': '🌙 Sleep',
   '⏻ Выключение': '⏻ Shutdown',

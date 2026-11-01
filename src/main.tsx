@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { installTranslator } from './i18n';
+import { applyTextScale, getTextScale } from './utils/textScale';
 import './fonts.css';
 import './index.css';
 
@@ -68,6 +69,7 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
   }
 }
 
+applyTextScale(getTextScale());
 installTranslator();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
