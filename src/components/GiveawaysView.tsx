@@ -560,7 +560,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
         {/* Right Bento: Task Scheduler & Log */}
         <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', gap: '8px' }}>
-          <div className="engraved-header" style={{ marginBottom: 0, flexShrink: 0 }}>
+          <div className="engraved-header" style={{ marginBottom: 0, flexShrink: 0, flexWrap: 'wrap', rowGap: '4px' }}>
             <span className="tag">
               <span className="led-dot"></span> TASK SCHEDULER: FreeGamesClaimerStudio
             </span>
