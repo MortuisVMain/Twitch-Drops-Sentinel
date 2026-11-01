@@ -173,49 +173,65 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const handleClearInstalled = async () => {
     playClick();
     try {
-      await fetch('http://127.0.0.1:28492/api/installed-games/clear', { method: 'POST' });
+      const res = await fetch('http://127.0.0.1:28492/api/installed-games/clear', { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (onManualRefresh) onManualRefresh();
       if (onShowToast) onShowToast('Список установленных игр очищен');
-    } catch {}
+    } catch (err) {
+      console.error('GameShelf: не удалось очистить список установленных игр', err);
+      if (onShowToast) onShowToast('Не удалось очистить список: сервис недоступен');
+    }
   };
 
   const handleRemoveInstalled = async (gameName: string) => {
     setRemovedKeys(prev => [...prev, gameName]);
     if (onAddToExcluded) onAddToExcluded(gameName);
     try {
-      await fetch('http://127.0.0.1:28492/api/installed-games/remove', {
+      const res = await fetch('http://127.0.0.1:28492/api/installed-games/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: gameName, game: gameName })
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (onShowToast) onShowToast(`"${gameName}" скрыта с полки`);
       if (onManualRefresh) onManualRefresh();
-    } catch {}
+    } catch (err) {
+      console.error(`GameShelf: не удалось скрыть "${gameName}"`, err);
+      if (onShowToast) onShowToast(`Не удалось скрыть "${gameName}": сервис недоступен`);
+    }
   };
 
   const handleRestoreGame = async (gameName: string) => {
     setRemovedKeys(prev => prev.filter(k => k.toLowerCase() !== gameName.toLowerCase()));
     if (onRemoveFromExcluded) onRemoveFromExcluded(gameName);
     try {
-      await fetch('http://127.0.0.1:28492/api/installed-games/restore', {
+      const res = await fetch('http://127.0.0.1:28492/api/installed-games/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: gameName, game: gameName })
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (onShowToast) onShowToast(`"${gameName}" восстановлена на полку`);
       if (onManualRefresh) onManualRefresh();
-    } catch {}
+    } catch (err) {
+      console.error(`GameShelf: не удалось восстановить "${gameName}"`, err);
+      if (onShowToast) onShowToast(`Не удалось восстановить "${gameName}": сервис недоступен`);
+    }
   };
 
   const handleSyncClick = async () => {
     playClick();
     setSyncLabel('↻ Синхронизация...');
+    let synced = true;
     try {
       if (onManualRefresh) {
         await onManualRefresh();
       }
-    } catch {}
-    setSyncLabel(`✓ ОБНОВЛЕНО (${games.length})`);
+    } catch (err) {
+      synced = false;
+      console.error('GameShelf: синхронизация не удалась', err);
+    }
+    setSyncLabel(synced ? `✓ ОБНОВЛЕНО (${games.length})` : '✗ ОШИБКА СИНХРОНИЗАЦИИ');
     setTimeout(() => {
       setSyncLabel('↻ Синхронизировать Drops');
     }, 3000);
