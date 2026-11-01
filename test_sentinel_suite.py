@@ -2489,6 +2489,81 @@ def test_cover_search_names_and_non_game_filter():
     assert "NON_GAME_NAMES.search(" in svc, "scanned utilities must be hidden from the catalog"
 
 
+def _serve_zip_once(zip_path):
+    """Serve one file on a free local port; returns (url, server)."""
+    import http.server
+    import threading
+    directory = str(zip_path.parent)
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k):
+            super().__init__(*a, directory=directory, **k)
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}/{zip_path.name}", server
+
+
+def test_patch_update_keeps_user_data_and_blocks_path_traversal():
+    print("[clean-install] Hot-patch over an older install: user data kept, code replaced, traversal blocked...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import zipfile
+    import updater
+
+    work = SANDBOX / "patch_update_check"
+    shutil.rmtree(work, ignore_errors=True)
+    install = work / "install"
+    (install / "core").mkdir(parents=True)
+    (install / "data").mkdir()
+    (install / "giveaways_engine" / "data").mkdir(parents=True)
+    user_files = {
+        "config.json": '{"priority_games": ["My Game"]}',
+        "Trophies.md": "| my trophy |",
+        "core/cookies.jar": "SECRET-SESSION",
+        "data/installed_games.json": '[{"name": "Mine"}]',
+        "giveaways_engine/data/claims.json": '{"claimed": 7}',
+    }
+    for rel, body in user_files.items():
+        (install / rel).write_text(body, encoding="utf-8")
+    (install / "core" / "version.py").write_text('__version__ = "3.3.4"\n', encoding="utf-8")
+
+    patch = work / "patch.zip"
+    with zipfile.ZipFile(patch, "w") as zf:
+        zf.writestr("Twitch Drops Sentinel v3.3.5/core/version.py", '__version__ = "3.3.5"\n')
+        zf.writestr("Twitch Drops Sentinel v3.3.5/core/new_module.py", "X = 1\n")
+        for rel in user_files:
+            zf.writestr(f"Twitch Drops Sentinel v3.3.5/{rel}", "OVERWRITTEN-BY-PATCH")
+        zf.writestr("Twitch Drops Sentinel v3.3.5/../../evil.txt", "traversal")
+    url, server = _serve_zip_once(patch)
+    saved_dir = updater.PROJECT_DIR
+    updater.PROJECT_DIR = install
+    try:
+        ok, message = updater.GitHubUpdater().apply_update_from_url(url)
+    finally:
+        updater.PROJECT_DIR = saved_dir
+        server.shutdown()
+    assert ok, message
+    assert (install / "core" / "version.py").read_text(encoding="utf-8").strip() == '__version__ = "3.3.5"'
+    assert (install / "core" / "new_module.py").exists()
+    for rel, body in user_files.items():
+        assert (install / rel).read_text(encoding="utf-8") == body, f"user file overwritten by the patch: {rel}"
+    assert not (work / "evil.txt").exists() and not (SANDBOX / "evil.txt").exists(), "path traversal must be blocked"
+
+    # no network: a clear message, nothing half-installed
+    saved_dir = updater.PROJECT_DIR
+    updater.PROJECT_DIR = install
+    try:
+        ok, message = updater.GitHubUpdater().apply_update_from_url("http://127.0.0.1:9/none.zip")
+    finally:
+        updater.PROJECT_DIR = saved_dir
+    assert ok is False and "Не удалось загрузить" in message, message
+    assert (install / "core" / "version.py").read_text(encoding="utf-8").strip() == '__version__ = "3.3.5"'
+    shutil.rmtree(work, ignore_errors=True)
+
+
 def test_missing_webview2_runtime_has_an_explanation():
     print("[clean-install] A PC without the WebView2 Runtime gets a Russian explanation and the download page...")
     main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -2584,6 +2659,7 @@ if __name__ == "__main__":
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
         test_missing_webview2_runtime_has_an_explanation,
+        test_patch_update_keeps_user_data_and_blocks_path_traversal,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
