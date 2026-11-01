@@ -119,7 +119,7 @@ def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -
 
     report_lines = [
         "==================================================",
-        "TWITCH DROPS SENTINEL v3.1 — DIAGNOSTIC REPORT",
+        f"TWITCH DROPS SENTINEL v{APP_VERSION} — DIAGNOSTIC REPORT",
         "==================================================",
         f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"OS: {os_info}",

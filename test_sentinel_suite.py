@@ -728,9 +728,26 @@ def test_argon_public_hardening_and_resilience():
     from sentinel_service import generate_sanitized_diagnostic_report
     fake_settings = {"priority_games": ["Path of Exile 2"], "game_directories": []}
     fake_hw = {"cpu_percent": 15, "on_battery": False, "is_gaming": False}
-    report = generate_sanitized_diagnostic_report(fake_settings, fake_hw)
-    assert "TWITCH DROPS SENTINEL v3.1 — DIAGNOSTIC REPORT" in report
-    assert "oauth:[REDACTED]" in report or "oauth:" not in report
+    from version import __version__ as _real_version
+    from gui_headless import STATE_BRIDGE
+    secret_logs = [
+        {"time": "12:00:00", "level": "INFO", "message": "login with oauth:abcdef0123456789abcdef0123456789"},
+        {"time": "12:00:01", "level": "INFO", "message": "auth_token=SECRETTOKENVALUE123 refreshed"},
+        {"time": "12:00:02", "level": "INFO", "message": "password=hunter2secret saved"},
+    ]
+    _saved_logs = list(STATE_BRIDGE.recent_logs)
+    STATE_BRIDGE.recent_logs = secret_logs
+    try:
+        report = generate_sanitized_diagnostic_report(fake_settings, fake_hw)
+    finally:
+        STATE_BRIDGE.recent_logs = _saved_logs
+    # the title carries the real version from core/version.py, not a hard-coded one
+    assert f"TWITCH DROPS SENTINEL v{_real_version} — DIAGNOSTIC REPORT" in report, report.splitlines()[1]
+    assert "v3.1 " not in report.splitlines()[1]
+    # no token, password or cookie value may leak into the report
+    for secret in ("abcdef0123456789abcdef0123456789", "SECRETTOKENVALUE123", "hunter2secret"):
+        assert secret not in report, f"diagnostic report leaked a secret: {secret}"
+    assert "oauth:[REDACTED]" in report
     assert "END OF DIAGNOSTIC REPORT" in report
 
     print("      Argon Hardening & Host Resilience: ALL PASS [OK]")
