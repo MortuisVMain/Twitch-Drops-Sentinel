@@ -260,7 +260,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
               <div>
                 <div className="px-2 py-1 text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider flex items-center gap-1">
                   <Flame className="w-3 h-3 text-[var(--accent)]" />
-                  <span>Гарантированные Drops (Идут прямо сейчас)</span>
+                  <span>Активные кампании (идут сейчас)</span>
                 </div>
                 <div className="space-y-1 mt-1">
                   {activeDropsSuggestions.map((game, idx) => {
@@ -561,7 +561,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                       : 'bg-[#368873] hover:bg-[#2d7462] text-white border border-[#73bba5]/40'
                   }`}
                 >
-                  {liveVerification.data?.has_active_drops ? '⚡ Гарантированный фарм' : 'Добавить'}
+                  {liveVerification.data?.has_active_drops ? '⚡ Есть активная кампания' : 'Добавить'}
                 </button>
               </div>
             )}

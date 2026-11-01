@@ -997,6 +997,13 @@
 
   .queue-row .reorder-rocker { opacity: 0; transition: opacity 0.15s ease; }
   .queue-row:hover .reorder-rocker, .queue-row:focus-within .reorder-rocker { opacity: 1; }
+  .campaign-sort { display: inline-flex; gap: 4px; margin-left: 6px; }
+  .cartridge-card { position: relative; }
+  .new-campaign-chip {
+    position: absolute; top: 8px; left: 8px; z-index: 3; padding: 1px 7px; border-radius: 5px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--cta-text); background: var(--led-mint); box-shadow: 0 0 0 1px var(--border-main);
+  }
   .queue-link-caption {
     padding: 0; border: none; background: none; cursor: pointer; font: inherit; color: var(--led-amber);
     text-decoration: underline; text-underline-offset: 2px;

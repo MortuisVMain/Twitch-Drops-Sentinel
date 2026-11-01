@@ -1878,6 +1878,72 @@ def test_console_folds_progress_and_repeated_lines():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_active_campaigns_tab_sorting_and_new_marker():
+    print("[audit F-035] Active campaigns tab: honest running set, freshest first, new marker, sort modes...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "campaign_list_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignList.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'campaignList.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    now = 1793534400000  # 2026-11-01T12:00:00Z
+    def g(i, name, start, end, **kw):
+        return {"id": i, "name": name, "has_drops": True, "is_active_now": True, "drops_start_at": start, "drops_end_at": end,
+                "is_installed": False, **kw}
+    games = [
+        g("a", "Alpha", "2026-10-20T00:00:00Z", "2026-11-20T00:00:00Z"),
+        g("b", "Bravo", "2026-10-31T00:00:00Z", "2026-11-02T00:00:00Z"),
+        g("c", "Charlie", "2026-10-25T00:00:00Z", "2026-11-10T00:00:00Z"),
+        g("d", "Delta", None, "2026-11-30T00:00:00Z"),
+        g("e", "Echo", "2026-12-01T00:00:00Z", "2026-12-30T00:00:00Z"),   # starts in the future
+        g("f", "Foxtrot", "2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z"),  # already over
+        {"id": "g", "name": "Golf", "has_drops": False, "is_active_now": False},
+    ]
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { isCampaignRunning, sortCampaigns, isNewCampaign, campaignKey, mergeSeen } from './campaignList.mjs';\n"
+        f"const games = {json.dumps(games)}; const now = {now};\n"
+        "const running = games.filter(g => isCampaignRunning(g, now));\n"
+        "const names = (l) => l.map(g => g.name);\n"
+        "const seenAll = new Set(running.map(campaignKey));\n"
+        # Charlie is older than Bravo but unseen: must come first in 'new' mode
+        "const seenOld = new Set(running.filter(g => g.name !== 'Charlie').map(campaignKey));\n"
+        "const out = {\n"
+        "  running: names(running),\n"
+        "  firstVisit: names(sortCampaigns(running, 'new', null)),\n"
+        "  firstVisitNew: running.filter(g => isNewCampaign(g, null)).length,\n"
+        "  seenAll: names(sortCampaigns(running, 'new', seenAll)),\n"
+        "  withNewcomer: names(sortCampaigns(running, 'new', seenOld)),\n"
+        "  newcomerFlag: running.filter(g => isNewCampaign(g, seenOld)).map(g => g.name),\n"
+        "  ending: names(sortCampaigns(running, 'ending', seenAll)),\n"
+        "  alpha: names(sortCampaigns(running, 'alpha', seenAll)),\n"
+        "  none: games.filter(g => isCampaignRunning({ ...g, has_drops: false }, now)).length,\n"
+        "  merged: mergeSeen(seenOld, running).length,\n"
+        "};\n"
+        "console.log(JSON.stringify(out));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["running"] == ["Alpha", "Bravo", "Charlie", "Delta"], d["running"]     # no future, no past, no non-campaign
+    assert d["firstVisit"] == ["Bravo", "Charlie", "Alpha", "Delta"], d["firstVisit"]  # freshest first, undated last
+    assert d["firstVisitNew"] == 0, "first visit must not mark anything as new"
+    assert d["seenAll"] == ["Bravo", "Charlie", "Alpha", "Delta"], d["seenAll"]
+    assert d["withNewcomer"][0] == "Charlie" and d["newcomerFlag"] == ["Charlie"], d
+    assert d["ending"] == ["Bravo", "Charlie", "Alpha", "Delta"], d["ending"]
+    assert d["alpha"] == ["Alpha", "Bravo", "Charlie", "Delta"], d["alpha"]
+    assert d["none"] == 0, "counter must be an honest 0, not the catalog size"
+    assert d["merged"] == 4
+    shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "|| games.length" not in shelf, "the active-campaigns counter must not fall back to the catalog size"
+    assert "Активные кампании" in shelf and "Гарантированные" not in shelf
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1927,6 +1993,7 @@ if __name__ == "__main__":
     test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns()
     test_queue_wait_message_counts_the_whole_queue()
     test_console_folds_progress_and_repeated_lines()
+    test_active_campaigns_tab_sorting_and_new_marker()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

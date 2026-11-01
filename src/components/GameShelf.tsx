@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
 import { resolveGameBoxArtSources } from '../utils/gameBoxArts';
@@ -124,6 +125,35 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const [showTrophyVault, setShowTrophyVault] = useState<boolean>(true);
   const [syncLabel, setSyncLabel] = useState<string>('↻ Синхронизировать Drops');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortMode, setSortMode] = useState<CampaignSortMode>(() => {
+    try {
+      const saved = localStorage.getItem('sentinel_campaign_sort');
+      return saved === 'ending' || saved === 'alpha' || saved === 'new' ? saved : 'new';
+    } catch (err) {
+      console.warn('GameShelf: localStorage недоступен', err);
+      return 'new';
+    }
+  });
+  const changeSortMode = (mode: CampaignSortMode) => {
+    setSortMode(mode);
+    try {
+      localStorage.setItem('sentinel_campaign_sort', mode);
+    } catch (err) {
+      console.warn('GameShelf: не удалось сохранить порядок сортировки', err);
+    }
+  };
+  // null = first visit or no storage: nothing is marked as new
+  const [seenAtOpen] = useState<Set<string> | null>(() => {
+    try {
+      const raw = localStorage.getItem('sentinel_seen_campaigns');
+      if (raw === null) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? new Set<string>(parsed) : null;
+    } catch (err) {
+      console.warn('GameShelf: не удалось прочитать просмотренные кампании', err);
+      return null;
+    }
+  });
 
   useEffect(() => {
     if (ignoredGames && ignoredGames.length > 0) {
@@ -334,7 +364,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         return false;
       }
       if (activeFilter === 'all' || filterMode === 'drops') {
-        return isDropActiveNow(g);
+        return isCampaignRunning(g);
       }
       if (activeFilter === 'priority') {
         return priorityList.includes(g.name);
@@ -353,11 +383,24 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       });
     }
 
-    return list;
-  }, [games, priorityList, excludedList, excludedSet, allRemovedLower, activeFilter, searchQuery, claimedTrophiesByGame]);
+    return activeFilter === 'all' ? sortCampaigns(list, sortMode, seenAtOpen) : list;
+  }, [games, priorityList, excludedList, excludedSet, allRemovedLower, activeFilter, searchQuery, claimedTrophiesByGame, sortMode, seenAtOpen]);
 
   const installedCount = useMemo(() => games.filter(g => g.is_installed).length, [games]);
-  const dropsCount = useMemo(() => games.filter(g => isDropActiveNow(g)).length || games.length, [games]);
+  const visibleRunning = useMemo(
+    () => games.filter((g) => isCampaignRunning(g) && !excludedSet.has(g.name) && !excludedList.includes(g.name) && !allRemovedLower.has(g.name.toLowerCase())),
+    [games, excludedSet, excludedList, allRemovedLower]
+  );
+  const dropsCount = visibleRunning.length;
+  // remember what has been shown, so the next visit can mark newcomers
+  useEffect(() => {
+    if (visibleRunning.length === 0) return;
+    try {
+      localStorage.setItem('sentinel_seen_campaigns', JSON.stringify(mergeSeen(seenAtOpen, visibleRunning)));
+    } catch (err) {
+      console.warn('GameShelf: не удалось сохранить просмотренные кампании', err);
+    }
+  }, [visibleRunning, seenAtOpen]);
   const claimedCount = useMemo(() => {
     const claimedGames = new Set<string>();
     games.forEach(g => {
@@ -423,7 +466,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             className={`tactile-btn ${activeFilter === 'all' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('all'); }}
           >
-            🔥 Гарантированные Drops ({dropsCount})
+            🔥 Активные кампании ({dropsCount})
           </button>
           <button 
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}
@@ -457,6 +500,20 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             🗑️ Удалённые ({removedCount})
           </button>
 
+          {activeFilter === 'all' && (
+            <div className="campaign-sort" role="group" aria-label="Порядок кампаний">
+              {(Object.keys(SORT_LABELS) as CampaignSortMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  className={`node-chip ${sortMode === mode ? 'active' : ''}`}
+                  onClick={() => { playClick(); changeSortMode(mode); }}
+                  aria-pressed={sortMode === mode}
+                >
+                  {SORT_LABELS[mode]}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <input
               type="text"
@@ -621,6 +678,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
             return (
               <div key={game.name} className="cartridge-card">
+                {activeFilter === 'all' && isNewCampaign(game, seenAtOpen) && <span className="new-campaign-chip" title="Кампания появилась после вашего прошлого визита">НОВАЯ</span>}
                 <div 
                   style={{ 
                     position: 'relative', 
