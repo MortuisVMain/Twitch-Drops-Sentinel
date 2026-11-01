@@ -1443,7 +1443,8 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     
     from giveaways_controller import resolve_fgc_root
     resolved = resolve_fgc_root()
-    assert resolved == SANDBOX / "giveaways_engine", f"resolve_fgc_root() must resolve to the project root engine, got {resolved}"
+    # resolve(): on a CI runner TEMP is an 8.3 short path (RUNNER~1), the module path is the long form
+    assert resolved.resolve() == (SANDBOX / "giveaways_engine").resolve(), f"resolve_fgc_root() must resolve to the project root engine, got {resolved}"
 
     # 3. Settings Studio Unification
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
