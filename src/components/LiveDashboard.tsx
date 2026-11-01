@@ -233,12 +233,14 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     priorityList.some((name) => safeLower(name) === safeLower(game.name))
   ).length;
   const installedActiveCount = activeTwitchDropsGames.filter((game) => game.is_installed).length;
-  const modalFilteredGames = useMemo(() => activeTwitchDropsGames.filter((game) => {
+  const forceCandidates = useMemo(() => safeAllGames.filter((g) => g.has_drops || g.is_installed), [safeAllGames]);
+
+  const modalFilteredGames = useMemo(() => forceCandidates.filter((game) => {
     if (catalogModalSearch.trim() && !safeLower(game.name).includes(safeLower(catalogModalSearch))) return false;
     if (catalogModalTab === 'TOP' && !priorityList.some((name) => safeLower(name) === safeLower(game.name))) return false;
     if (catalogModalTab === 'INSTALLED' && !game.is_installed) return false;
     return true;
-  }), [activeTwitchDropsGames, catalogModalSearch, catalogModalTab, priorityList]);
+  }), [forceCandidates, catalogModalSearch, catalogModalTab, priorityList]);
 
   const queueCampaigns = useMemo(() => {
     const list: Array<{
@@ -335,15 +337,24 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     return best;
   }, [priorityList, allGames, endingSoonByGame]);
 
-  // Filtered manual override games (6-12 top active games)
-  const overrideGames = useMemo(() => {
+  // Manual focus candidates: closing soon first, then live campaigns, finished, the rest
+  const overrideAll = useMemo(() => {
     let list = allGames.filter((g) => g.has_drops || g.is_installed);
     if (overrideFilter.trim()) {
       const q = safeLower(overrideFilter);
       list = list.filter((g) => safeLower(g.name).includes(q));
     }
-    return list.slice(0, 12);
-  }, [allGames, overrideFilter]);
+    const rank = (g: GameItem): number => {
+      if (endingSoonByGame.has(safeLower(g.name))) return 0;
+      const finished = Boolean(g.is_finished || (g.total_drops && g.claimed_drops && g.claimed_drops >= g.total_drops) || (g.progress_percent !== undefined && g.progress_percent >= 100));
+      if (g.has_drops && !finished) return 1;
+      if (g.has_drops) return 2;
+      return 3;
+    };
+    return [...list].sort((x, y) => rank(x) - rank(y));
+  }, [allGames, overrideFilter, endingSoonByGame]);
+  const OVERRIDE_VISIBLE = 6;
+  const overrideGames = overrideAll.slice(0, OVERRIDE_VISIBLE);
 
   // Filtered console logs
   const filteredLogs = useMemo(() => {
@@ -1030,7 +1041,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               </div>
             </div>
 
-            <div className="override-scroll-grid" id="overrideGrid" style={{ maxHeight: '115px', overflowY: 'auto', minHeight: 0 }}>
+            <div className="override-scroll-grid" id="overrideGrid" style={{ maxHeight: 'none', overflow: 'visible' }}>
               {overrideGames.length === 0 ? (
                 <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
                   Нет подходящих кампаний для ручного переключения
@@ -1076,6 +1087,15 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 })
               )}
             </div>
+            {overrideAll.length > OVERRIDE_VISIBLE && (
+              <button
+                className="tactile-btn override-show-all"
+                onClick={() => { playClick(); setShowFullCatalogModal(true); }}
+                title="Открыть полный список игр для ручного фокуса"
+              >
+                Показать все · {overrideAll.length}
+              </button>
+            )}
           </section>
 
         </div>
@@ -1275,7 +1295,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
             {/* Modal Footer */}
             <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)] shrink-0">
-              <span>Показано: {modalFilteredGames.length} из {activeTwitchDropsGames.length} активных кампаний</span>
+              <span>Показано: {modalFilteredGames.length} из {forceCandidates.length} игр</span>
               <span className="text-[9px] text-[var(--text-secondary)]">
                 Фокус переключает бота на выбранную игру вне очереди
               </span>
