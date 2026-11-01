@@ -791,7 +791,7 @@ def test_github_updater_and_zero_mock_telemetry():
     assert __version__ == "3.4.1", f"Version mismatch: {__version__}"
     assert parse_version("3.4.1") == (3, 4, 1)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.4.1") > parse_version("3.4.1")
+    assert parse_version("v3.4.1") > parse_version("3.4.0")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
