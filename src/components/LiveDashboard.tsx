@@ -308,21 +308,32 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const sortedQueuedCampaigns = queueCampaigns;
   const allQueuedCampaignsLabel = `Все (${sortedQueuedCampaigns.length})`;
 
-  // Ending soon game for radar banner (< 24 hours)
-  const endingSoonGame = useMemo(() => {
+  // Campaigns closing within 24h, by game name. The banner is only for games in the user's queue;
+  // the rest get a small "closing in ..." tag on their card in the off-queue block.
+  const endingSoonByGame = useMemo(() => {
+    const map = new Map<string, { hours: number; timeLeft: string }>();
     for (const g of allGames) {
-      if (g.has_drops && g.drops_end_at) {
-        const end = new Date(g.drops_end_at).getTime();
-        const diffHours = (end - Date.now()) / (1000 * 3600);
-        if (diffHours > 0 && diffHours <= 24) {
-          const h = Math.floor(diffHours);
-          const m = Math.floor((diffHours - h) * 60);
-          return { name: g.name, timeLeft: `${h}ч ${m}м` };
-        }
+      if (!g.has_drops || !g.drops_end_at) continue;
+      const diffHours = (new Date(g.drops_end_at).getTime() - Date.now()) / (1000 * 3600);
+      if (diffHours > 0 && diffHours <= 24) {
+        const h = Math.floor(diffHours);
+        const m = Math.floor((diffHours - h) * 60);
+        map.set(safeLower(g.name), { hours: diffHours, timeLeft: `${h}ч ${m}м` });
       }
     }
-    return null;
+    return map;
   }, [allGames]);
+
+  const endingSoonGame = useMemo(() => {
+    let best: { name: string; timeLeft: string; hours: number } | null = null;
+    for (const queued of priorityList) {
+      const match = allGames.find((g) => safeLower(g.name) === safeLower(queued) || smartGameMatch(g.name, queued));
+      if (!match || match.is_finished || (match.progress_percent !== undefined && match.progress_percent >= 100)) continue;
+      const info = endingSoonByGame.get(safeLower(match.name));
+      if (info && (!best || info.hours < best.hours)) best = { name: match.name, ...info };
+    }
+    return best;
+  }, [priorityList, allGames, endingSoonByGame]);
 
   // Filtered manual override games (6-12 top active games)
   const overrideGames = useMemo(() => {
