@@ -1733,6 +1733,8 @@ export const App: React.FC = () => {
             className="tactile-btn help-btn pip-hide" 
 
             onClick={() => { playClick(); setShowHelpModal(true); }}
+            title="База знаний и горячие клавиши"
+            aria-label="База знаний и горячие клавиши"
 
           >
 
