@@ -30,6 +30,10 @@ import tempfile
 
 WORKSPACE = Path(__file__).resolve().parent
 
+# On a CI runner there is no exe, no cookies, no journal and no live Twitch: gates that need them print an
+# explicit SKIP instead of failing (set CI=1 locally to rehearse it).
+IN_CI = os.environ.get("CI", "").lower() in ("1", "true", "yes")
+
 # The suite never touches the user's live data, config, cookies or the live service on port 28492.
 # It copies the code and a read-only snapshot of the data into a temp project root and runs its own
 # service there on a free port. Cookies are never copied, so the sandbox cannot act on the account.
@@ -73,6 +77,13 @@ def _build_sandbox():
     for name in ("config.json", "config.default.json", "Trophies.md"):
         if (WORKSPACE / name).exists():
             shutil.copy2(WORKSPACE / name, root / name)
+    if IN_CI:
+        # a fresh checkout has neither the user's config nor the trophy journal: start from the defaults
+        if not (root / "config.json").exists() and (root / "config.default.json").exists():
+            shutil.copy2(root / "config.default.json", root / "config.json")
+        if not (root / "Trophies.md").exists():
+            (root / "Trophies.md").write_text("# \U0001f3c6 \u0416\u0443\u0440\u043d\u0430\u043b \u0422\u0440\u043e\u0444\u0435\u0435\u0432\n\n| \u0414\u0430\u0442\u0430 | \u0418\u0433\u0440\u0430 | \u0414\u0440\u043e\u043f | \u041a\u0430\u043c\u043f\u0430\u043d\u0438\u044f | \u0421\u0442\u0430\u0442\u0443\u0441 |\n|---|---|---|---|---|\n", encoding="utf-8")
+        (root / "data").mkdir(exist_ok=True)
     if (WORKSPACE / "data").exists():
         shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups"))
     engine_src = WORKSPACE / "giveaways_engine"
@@ -106,10 +117,13 @@ def test_artifacts():
     app_ico = WORKSPACE / "assets" / "app.ico"
     cookies_jar = WORKSPACE / "core" / "cookies.jar"  # existence check only
 
-    assert exe_path.exists(), f"EXE missing: {exe_path}"
-    exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
-    print(f"      TwitchDropsSentinel.exe size: {exe_size_mb:.2f} MB")
-    assert exe_size_mb > 50, "EXE size too small for standalone publish!"
+    if IN_CI and not exe_path.exists():
+        print("      SKIP: TwitchDropsSentinel.exe is built later in the pipeline, not present on the runner")
+    else:
+        assert exe_path.exists(), f"EXE missing: {exe_path}"
+        exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
+        print(f"      TwitchDropsSentinel.exe size: {exe_size_mb:.2f} MB")
+        assert exe_size_mb > 50, "EXE size too small for standalone publish!"
 
     assert dist_html.exists(), "dist/index.html missing!"
     html_kb = dist_html.stat().st_size / 1024
@@ -117,7 +131,10 @@ def test_artifacts():
     assert html_kb > 200, "dist/index.html appears incomplete!"
 
     assert app_ico.exists(), "app.ico missing!"
-    assert cookies_jar.exists(), "cookies.jar missing!"
+    if IN_CI and not cookies_jar.exists():
+        print("      SKIP: cookies.jar is a private user file and never lives in the repository")
+    else:
+        assert cookies_jar.exists(), "cookies.jar missing!"
     print("      Artifacts: ALL PASS [OK]")
 
 def test_installed_games_catalog():
