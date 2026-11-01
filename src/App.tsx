@@ -2262,23 +2262,23 @@ export const App: React.FC = () => {
         const query = cmdSearch.toLowerCase().trim();
 
         const navActions = [
-          { id: 'dashboard', key: '1', icon: '⊞', title: 'Перейти в Дашборд', action: () => handleTabChange('dashboard') },
-          { id: 'shelf', key: '2', icon: '🎮', title: 'Открыть Полку Игр', action: () => handleTabChange('shelf') },
-          { id: 'giveaways', key: '3', icon: '🎁', title: 'Радар раздач (7 магазинов)', action: () => handleTabChange('giveaways') },
-          { id: 'dimmer', key: '4', icon: '🖥', title: 'Диммер мониторов DDC/CI', action: () => handleTabChange('dimmer') },
-          { id: 'settings', key: '5', icon: '⚙', title: 'Настройки студии Sentinel', action: () => handleTabChange('settings') },
+          { id: 'dashboard', key: '1', icon: '⊞', title: 'Дашборд', action: () => handleTabChange('dashboard') },
+          { id: 'shelf', key: '2', icon: '🎮', title: 'Полка игр', action: () => handleTabChange('shelf') },
+          { id: 'giveaways', key: '3', icon: '🎁', title: 'Раздачи', action: () => handleTabChange('giveaways') },
+          { id: 'dimmer', key: '4', icon: '🖥', title: 'Диммер', action: () => handleTabChange('dimmer') },
+          { id: 'settings', key: '5', icon: '⚙', title: 'Настройки', action: () => handleTabChange('settings') },
         ].filter(item => !query || item.title.toLowerCase().includes(query) || item.key === query);
 
         const quickActions = [
-          { id: 'switch-streamer', key: 'Стример', icon: '↻', title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
-          { id: 'refresh-twitch', key: 'F5', icon: '⟳', title: 'Принудительная синхронизация с Twitch', action: () => handleManualRefresh() },
-          { id: 'toggle-daemon', key: 'Space', icon: '⏯', title: sentinelState.hardware.is_paused ? 'Запустить сбор дропов' : 'Приостановить сбор дропов', action: () => handleToggleDaemon() },
+          { id: 'switch-streamer', icon: '↻', title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
+          { id: 'refresh-twitch', key: 'F5', icon: '⟳', title: 'Обновить данные Twitch', action: () => handleManualRefresh() },
+          { id: 'toggle-daemon', icon: '⏯', title: sentinelState.hardware.is_paused ? 'Запустить сбор дропов' : 'Приостановить сбор дропов', action: () => handleToggleDaemon() },
           { id: 'toggle-pip', key: 'Ctrl+M', icon: '📐', title: isPipMode ? 'Вернуться из мини-окна (PIP)' : 'Мини-окно (PIP)', action: () => handleTogglePipMode() },
-          { id: 'toggle-night', key: 'Ночь', icon: '🌙', title: isNightGuard ? 'Выключить ночной режим' : 'Включить ночной режим', action: () => handleToggleNightGuard() },
-          { id: 'open-theme', key: 'Тема', icon: '🎨', title: 'Выбрать тему оформления', action: () => setShowThemeMenu(true) },
-          { id: 'toggle-sound', key: 'Звук', icon: isMuted ? '🔇' : '🔊', title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? '🔇 Звук интерфейса выключен' : '🔊 Звук интерфейса включён'); } },
-          { id: 'open-help', key: '?', icon: '💡', title: 'База Знаний и Горячие Клавиши', action: () => setShowHelpModal(true) },
-        ].filter(item => !query || item.title.toLowerCase().includes(query) || item.key.toLowerCase().includes(query));
+          { id: 'toggle-night', icon: '🌙', title: isNightGuard ? 'Выключить ночной режим' : 'Включить ночной режим', action: () => handleToggleNightGuard() },
+          { id: 'open-theme', icon: '🎨', title: 'Выбрать тему оформления', action: () => setShowThemeMenu(true) },
+          { id: 'toggle-sound', icon: isMuted ? '🔇' : '🔊', title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? '🔇 Звук интерфейса выключен' : '🔊 Звук интерфейса включён'); } },
+          { id: 'open-help', icon: '💡', title: 'Справка и горячие клавиши', action: () => setShowHelpModal(true) },
+        ].filter(item => !query || item.title.toLowerCase().includes(query) || (item.key || '').toLowerCase().includes(query));
 
         const matchingGames = (sentinelState?.all_catalog_games || [])
           .filter(g => query && g.name.toLowerCase().includes(query))
@@ -2328,7 +2328,7 @@ export const App: React.FC = () => {
                           }}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="text-xs shrink-0">{item.icon}</span>
+                            <span className="w-5 text-center text-xs shrink-0">{item.icon}</span>
                             <span className="text-xs font-semibold text-white group-hover:text-[#73bba5] transition-colors truncate">
                               {item.title}
                             </span>
@@ -2359,14 +2359,16 @@ export const App: React.FC = () => {
                           }}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="text-xs shrink-0">{item.icon}</span>
+                            <span className="w-5 text-center text-xs shrink-0">{item.icon}</span>
                             <span className="text-xs font-semibold text-white group-hover:text-[#73bba5] transition-colors truncate">
                               {item.title}
                             </span>
                           </div>
-                          <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
-                            {item.key}
-                          </span>
+                          {item.key && (
+                            <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
+                              {item.key}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -2393,7 +2395,7 @@ export const App: React.FC = () => {
                           }}
                         >
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs shrink-0">🎯</span>
+                            <span className="w-5 text-center text-xs shrink-0">🎯</span>
                             <span className="text-xs font-bold text-white group-hover:text-[#73bba5] transition-colors truncate">
                               {game.name}
                             </span>
@@ -2417,7 +2419,6 @@ export const App: React.FC = () => {
 
               <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[10.5px] text-[#828f88] shrink-0 select-none">
                 <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white font-mono text-[9px]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white font-mono text-[9px]">Esc</kbd> Закрыть</span>
-                <span className="font-mono text-[#73bba5]">Spotlight Switcher</span>
               </div>
             </div>
           </div>
