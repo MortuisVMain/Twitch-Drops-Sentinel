@@ -629,9 +629,6 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 <span className="led-dot" /> ЦЕЛЕВАЯ НАГРАДА // АКТИВНЫЙ ХРОНОГРАФ
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
-                  ✓ ЗАПАС ДО КОНЦА РАЗДАЧИ: +18Ч
-                </span>
                 <span className="version-chip">STREAMLESS PROTOCOL</span>
               </div>
             </div>
@@ -790,7 +787,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
                 <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
                   <span>SPADE BEACON: 20s HEAD</span>
-                  <span style={{ color: 'var(--led-mint)' }}>200 OK • DIRECT 18ms</span>
+                  <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
                 </div>
               </div>
             </div>

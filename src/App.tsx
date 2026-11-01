@@ -1944,7 +1944,7 @@ export const App: React.FC = () => {
 
               <span className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
 
-                📡 @{sentinelState.watching_channel || 'поиск...'} • ТИК: 12С
+                📡 {sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}
 
               </span>
 
