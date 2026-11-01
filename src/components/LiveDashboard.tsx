@@ -94,6 +94,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 }) => {
   const { playClick } = useTactileAudio();
   const [logFilter, setLogFilter] = useState<'ALL' | 'WATCH' | 'CLAIM' | 'CORE'>('ALL');
+  const [expandedSync, setExpandedSync] = useState<string[]>([]);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const handleIgnoreDetectedProcess = async (procName: string) => {
@@ -377,7 +378,7 @@ const filteredLogs = useMemo(() => {
           return true;
         });
     // display only: progress spam and repeated lines are folded, "Copy" still takes the full journal
-    return collapseLogs(base.slice(-200)).slice(-60);
+    return collapseLogs(base.slice(-200), { expandSync: logFilter === 'CORE' }).slice(-60);
   }, [safeRecentLogs, logFilter]);
 
   // Idle hero: why nothing is being farmed right now, from data already in /api/state
@@ -502,6 +503,12 @@ const filteredLogs = useMemo(() => {
                   </div>
                 </div>
   );
+
+  const syncKey = (block: SentinelLogEntry[]) => `${block[0].time || block[0].timestamp}|${block[0].message}`;
+  const toggleSync = (block: SentinelLogEntry[]) => {
+    const key = syncKey(block);
+    setExpandedSync((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev.slice(-20), key]));
+  };
 
   return (
     <div id="view-dashboard" className="view-tab active">
@@ -995,13 +1002,19 @@ const filteredLogs = useMemo(() => {
                   Журнал операций ожидает входящих событий...
                 </div>
               ) : (
-                filteredLogs.map(({ log, count }, i) => {
+                filteredLogs.map(({ log, count, block }, i) => {
                   const cat = (log.level || log.category || 'INFO').toUpperCase();
                   const isClaim = cat.includes('CLAIM') || cat.includes('DROP');
                   const isWatch = cat.includes('WATCH') || cat.includes('STREAM');
                   const isError = cat.includes('ERR') || cat.includes('WARN');
                   return (
-                    <div key={i} style={{ display: 'flex', gap: '8px', lineHeight: '1.4' }}>
+                    <React.Fragment key={i}>
+                    <div
+                      style={{ display: 'flex', gap: '8px', lineHeight: '1.4', cursor: block ? 'pointer' : 'default' }}
+                      onClick={block ? () => toggleSync(block) : undefined}
+                      title={block ? `Свёрнуто строк: ${block.length}. Нажмите, чтобы раскрыть` : undefined}
+                      role={block ? 'button' : undefined}
+                    >
                       <span className="tabular" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
                         [{log.time || log.timestamp || '00:00:00'}]
                       </span>
@@ -1015,10 +1028,17 @@ const filteredLogs = useMemo(() => {
                         [{cat}]
                       </span>
                       <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                        {log.message}
+                        {block ? (expandedSync.includes(syncKey(block)) ? '▾ ' : '▸ ') : ''}{log.message}
                         {count > 1 && <span className="tabular" style={{ color: 'var(--text-muted)', marginLeft: '6px' }}>×{count}</span>}
                       </span>
                     </div>
+                    {block && expandedSync.includes(syncKey(block)) && block.map((b, j) => (
+                      <div key={`${i}-${j}`} style={{ display: 'flex', gap: '8px', lineHeight: '1.4', paddingLeft: '18px', opacity: 0.75 }}>
+                        <span className="tabular" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>[{b.time || b.timestamp || '00:00:00'}]</span>
+                        <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{b.message}</span>
+                      </div>
+                    ))}
+                    </React.Fragment>
                   );
                 })
               )}

@@ -1944,6 +1944,65 @@ def test_active_campaigns_tab_sorting_and_new_marker():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_console_folds_sync_cycles_but_never_important_events():
+    print("[audit F-036] Console: sync cycles fold into one row, CLAIM/WARN/errors never fold...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "console_sync_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "consoleLog.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    cycle = [
+        "Синхронизация активных Twitch Drops и каталога игр...",
+        "Каталог собран: 235 игр, из них с активными дропами 98.",
+        "Синхронизация завершена: активных дропов 98, всего игр в каталоге 235.",
+        "Кампании обновлены: установлено игр 138, размер каталога 235.",
+        "Раздачи Twitch синхронизированы: 98 активных кампаний онлайн.",
+    ]
+    logs, n = [], 0
+    def add(level, message):
+        nonlocal n
+        n += 1
+        logs.append({"time": f"12:{n // 60:02d}:{n % 60:02d}", "level": level, "message": message})
+    for _ in range(2):          # two cycles
+        for m in cycle:
+            add("INFO", m)
+    add("CLAIM", "Drop получено: Hunt Red (2/2)")
+    for m in cycle:             # one more cycle after the claim
+        add("INFO", m)
+    add("WARNING", "Не удалось получить кампании: HTTP 429")
+    for m in cycle[:2]:         # a short, interrupted tail
+        add("INFO", m)
+    add("ERROR", "Ошибка движка Twitch")
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { collapseLogs } from './consoleLog.mjs';\n"
+        f"const logs = {json.dumps(logs, ensure_ascii=False)};\n"
+        "const fold = collapseLogs(logs).map(r => [r.log.level, r.log.message, r.count, r.block ? r.block.length : 0]);\n"
+        "const raw = collapseLogs(logs, { expandSync: true }).length;\n"
+        "console.log(JSON.stringify({ fold, raw, total: logs.length }));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    fold = d["fold"]
+    levels = [r[0] for r in fold]
+    # block, CLAIM, block, WARNING, block (2 lines), ERROR
+    assert levels == ["INFO", "CLAIM", "INFO", "WARNING", "INFO", "ERROR"], fold
+    assert fold[0][1] == "Синхронизация: 235 игр, 98 кампаний, установлено 138" and fold[0][2] == 2 and fold[0][3] == 10, fold[0]
+    assert fold[2][2] == 1 and fold[2][3] == 5, fold[2]
+    assert fold[1][1].startswith("Drop получено") and fold[3][1].startswith("Не удалось") and fold[5][1] == "Ошибка движка Twitch"
+    assert d["raw"] == d["total"] - 0 or d["raw"] <= d["total"], "expandSync keeps the lines unfolded"
+    assert d["raw"] > len(fold), "the Core filter must show more rows than the folded view"
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "safeRecentLogs.map((l) =>" in dash, "Copy must still use the full journal"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1994,6 +2053,7 @@ if __name__ == "__main__":
     test_queue_wait_message_counts_the_whole_queue()
     test_console_folds_progress_and_repeated_lines()
     test_active_campaigns_tab_sorting_and_new_marker()
+    test_console_folds_sync_cycles_but_never_important_events()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
