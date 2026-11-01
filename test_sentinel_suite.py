@@ -22,6 +22,7 @@ from contextlib import suppress
 from pathlib import Path
 import psutil
 import re
+import atexit
 
 WORKSPACE = Path(__file__).resolve().parent
 
@@ -82,6 +83,13 @@ def test_hardware_guard():
 
 SUITE_PROC = None
 
+def _terminate_suite_proc():
+    """Stop the daemon spawned by the suite even when a gate fails mid-run."""
+    if SUITE_PROC is not None and SUITE_PROC.poll() is None:
+        SUITE_PROC.terminate()
+        with suppress(Exception):
+            SUITE_PROC.wait(timeout=3)
+
 def ensure_test_service():
     global SUITE_PROC
     for attempt in range(15):
@@ -100,6 +108,7 @@ def ensure_test_service():
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                atexit.register(_terminate_suite_proc)
             time.sleep(0.5)
 
 def test_core_service_api():
@@ -748,11 +757,18 @@ def test_hardware_guard_false_positive_and_installed_clear():
         data=b"{}",
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
-    with urllib.request.urlopen(req_clear, timeout=5.0) as res:
-        assert res.status == 200
-        d = json.loads(res.read().decode("utf-8"))
-        assert d.get("status") == "ok"
-        assert d.get("cleared") is True
+    # /clear wipes the real data/installed_games.json: keep a copy and put it back.
+    installed_file = WORKSPACE / "data" / "installed_games.json"
+    installed_backup = installed_file.read_bytes() if installed_file.exists() else None
+    try:
+        with urllib.request.urlopen(req_clear, timeout=5.0) as res:
+            assert res.status == 200
+            d = json.loads(res.read().decode("utf-8"))
+            assert d.get("status") == "ok"
+            assert d.get("cleared") is True
+    finally:
+        if installed_backup is not None:
+            installed_file.write_bytes(installed_backup)
 
     print("      Hardware Guard Anti-False-Positive & Installed Clear: ALL PASS [OK]")
 
@@ -974,18 +990,24 @@ def test_game_scanner_deduplication_and_trophies_clear():
         data=b"{}",
         headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"}
     )
-    with urllib.request.urlopen(req_clear, timeout=5.0) as res:
-        assert res.status == 200
-        d = json.loads(res.read().decode("utf-8"))
-        assert d.get("status") == "ok"
-        assert d.get("cleared") is True
-
     trophies_file = WORKSPACE / "Trophies.md"
-    assert trophies_file.exists(), "Trophies.md must exist after clearing"
-    content = trophies_file.read_text(encoding="utf-8")
-    assert "# 🏆 Журнал Трофеев Twitch Drops Sentinel" in content
-    lines = [l for l in content.splitlines() if l.strip()]
-    assert len(lines) <= 5, "Cleared Trophies.md must contain only the header table"
+    # /clear truncates the real Trophies.md journal: keep a copy and put it back.
+    trophies_backup = trophies_file.read_bytes() if trophies_file.exists() else None
+    try:
+        with urllib.request.urlopen(req_clear, timeout=5.0) as res:
+            assert res.status == 200
+            d = json.loads(res.read().decode("utf-8"))
+            assert d.get("status") == "ok"
+            assert d.get("cleared") is True
+
+        assert trophies_file.exists(), "Trophies.md must exist after clearing"
+        content = trophies_file.read_text(encoding="utf-8")
+        assert "# 🏆 Журнал Трофеев Twitch Drops Sentinel" in content
+        lines = [l for l in content.splitlines() if l.strip()]
+        assert len(lines) <= 5, "Cleared Trophies.md must contain only the header table"
+    finally:
+        if trophies_backup is not None:
+            trophies_file.write_bytes(trophies_backup)
 
     # 5. Verify SettingsStudio.tsx has clear button
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
