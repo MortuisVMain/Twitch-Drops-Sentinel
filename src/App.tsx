@@ -1062,13 +1062,11 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'giveaways' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('giveaways')}
-            title="Раздачи: 7 магазинов"
+            title="Бесплатные раздачи"
 
           >
 
             <span>🎁 Раздачи</span>
-
-            <span className="badge-num" title="Магазинов в радаре раздач">7</span>
 
           </button>
 
