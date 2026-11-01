@@ -1516,7 +1516,22 @@ def test_update_check_failure_reports_running_version():
     assert data["latest_version"] == __version__, data
 
 
+def _protect_user_files():
+    """Gates scan, clear and rewrite real user files: restore them when the run ends."""
+    protected = [WORKSPACE / "data" / "installed_games.json", WORKSPACE / "Trophies.md"]
+    snapshots = {p: p.read_bytes() for p in protected if p.exists()}
+
+    def restore():
+        for path, content in snapshots.items():
+            if path.read_bytes() != content:
+                path.write_bytes(content)
+                print(f"      Restored user file touched by the suite: {path.name}")
+
+    atexit.register(restore)
+
+
 if __name__ == "__main__":
+    _protect_user_files()
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
     print("  Author: Mortuis_V / Mortuis_V_Studio")
