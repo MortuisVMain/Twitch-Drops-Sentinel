@@ -1301,6 +1301,9 @@
     display: flex; align-items: center; justify-content: space-between; font-size: 10px;
     font-family: 'JetBrains Mono', monospace; gap: 4px;
   }
+  .claimed-card-header-row > span { white-space: nowrap; }
+  .claimed-card-header-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .claimed-card-header-row > span:last-child { flex-shrink: 0; }
   .claimed-card-title {
     font-size: 11px; font-weight: 700; color: var(--text-primary);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25;

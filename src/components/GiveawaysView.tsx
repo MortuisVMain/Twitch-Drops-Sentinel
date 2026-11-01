@@ -28,7 +28,7 @@ const STORES: StoreMeta[] = [
   { id: 'epic', name: 'Epic Games', tag: 'EPIC GAMES', badge: 'забрано', icon: '⚡', color: '#3AD29F', bg: 'rgba(58, 210, 159, 0.1)' },
   { id: 'gog', name: 'GOG.com', tag: 'GOG.COM', badge: 'забрано', icon: '🕹️', color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.1)' },
   { id: 'steam', name: 'Steam', tag: 'STEAM', badge: 'забрано', icon: '🎮', color: '#60A5FA', bg: 'rgba(96, 165, 250, 0.1)' },
-  { id: 'fab', name: 'Fab (UE5)', tag: 'FAB (UNREAL ENGINE 5)', badge: 'забрано', icon: '🔷', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
+  { id: 'fab', name: 'Fab (Unreal Engine 5)', tag: 'FAB', badge: 'забрано', icon: '🔷', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
   { id: 'unity', name: 'Unity Store', tag: 'UNITY STORE', badge: 'забрано', icon: '📦', color: '#F472B6', bg: 'rgba(244, 114, 182, 0.1)' },
   { id: 'prime', name: 'Prime Gaming', tag: 'PRIME GAMING', badge: 'забрано', icon: '👑', color: '#FBBF24', bg: 'rgba(251, 191, 36, 0.1)' },
   { id: 'itch', name: 'Itch.io', tag: 'ITCH.IO', badge: 'забрано', icon: '👾', color: '#FB7185', bg: 'rgba(251, 113, 133, 0.1)' },
@@ -384,18 +384,19 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: '14.5px', fontWeight: 800 }}>
-            Бесплатные раздачи и ассеты
+            Бесплатные раздачи
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-            Авто-клейм 100% бесплатных игр в 7 магазинах • Префлайт GOG/Steam &lt;450 мс
+            Забираем бесплатные игры и ассеты в 7 магазинах
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button 
             className={`tactile-btn ${headless ? 'active-mint' : ''}`}
             onClick={handleToggleHeadless}
+            title="Браузер работает скрыто: окно магазина не появляется на экране"
           >
-            👁 Скрытый режим браузера: {headless ? 'ВКЛ' : 'ВЫКЛ'}
+            👁 Фоновый режим: {headless ? 'вкл' : 'выкл'}
           </button>
           <button 
             className={`chunky-cta ${isClaiming ? 'amber' : ''}`}
@@ -413,7 +414,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           const storeData = data?.stores ? (data.stores as any)[store.id] : null;
           const count = storeData?.claimedCount ?? 0;
           const isAuthed = Boolean(storeData?.account);
-          const accountName = storeData?.account || 'Нет данных аккаунта';
+          const accountName = storeData?.account || '';
 
           return (
             <div 
@@ -440,32 +441,51 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 </span>
               </div>
 
-              <div className="tabular" style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
                 <span className={`led-dot ${!isAuthed ? 'off' : ''}`}></span>
-                <span style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)' }}>
+                <span
+                  style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={isAuthed ? `Вы вошли как ${accountName}` : 'Нужно войти в аккаунт магазина'}
+                >
                   {isAuthed ? accountName : '⚠ Требуется вход'}
                 </span>
+                {isAuthed && (
+                  <button
+                    className="tactile-btn"
+                    style={{ height: '20px', width: '22px', padding: 0, fontSize: '11px', justifyContent: 'center', flexShrink: 0 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleStoreAuth(store.id);
+                    }}
+                    title="Сменить аккаунт"
+                    aria-label={`Сменить аккаунт ${store.name}`}
+                  >
+                    ⇄
+                  </button>
+                )}
               </div>
 
-              <button 
-                className={`tactile-btn ${!isAuthed ? 'active-mint' : ''}`} 
-                style={{ height: '24px', fontSize: '9px', width: '100%', justifyContent: 'center' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleStoreAuth(store.id);
-                }}
-              >
-                {isAuthed ? 'Сменить аккаунт' : '🔑 Войти в аккаунт'}
-              </button>
+              {!isAuthed && (
+                <button
+                  className="tactile-btn active-mint"
+                  style={{ height: '24px', fontSize: '9px', width: '100%', justifyContent: 'center' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStoreAuth(store.id);
+                  }}
+                >
+                  🔑 Войти в аккаунт
+                </button>
+              )}
             </div>
           );
         })}
       </div>
 
       {/* 2-Column Bento: Left Collected Collection + Right Task Scheduler 1-to-1 with SPEC */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px', flex: 1, minHeight: 0, overflow: 'hidden', alignItems: 'start' }}>
         {/* Left Bento: Collection */}
-        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header" style={{ marginBottom: '8px', flexShrink: 0 }}>
             <span className="tag">
               <span className="led-dot"></span> <span title="Коллекция забранных игр и UE5-ассетов">КОЛЛЕКЦИЯ · {claimedItems.length}</span>
@@ -504,7 +524,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           </div>
 
           {/* Compact Tiles Grid */}
-          <div className="claimed-compact-grid">
+          <div className="claimed-compact-grid" style={{ flex: '0 1 auto' }}>
             {filteredClaimedItems.length > 0 ? (
               filteredClaimedItems.map((item) => {
                 const storeMeta = STORES.find(s => s.id === item.store) || STORES[0];
@@ -522,7 +542,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
                     <div className="claimed-card-body">
                       <div className="claimed-card-header-row">
-                        <span style={{ color: storeMeta.color, fontWeight: 700 }}>
+                        <span style={{ color: storeMeta.color, fontWeight: 700 }} title={storeMeta.name}>
                           {storeMeta.tag}
                         </span>
                         <span style={{ color: 'var(--text-muted)' }}>
@@ -559,7 +579,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         </div>
 
         {/* Right Bento: Task Scheduler & Log */}
-        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', gap: '8px' }}>
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', minHeight: 0, overflow: 'hidden', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: 0, flexShrink: 0, flexWrap: 'wrap', rowGap: '4px' }}>
             <span className="tag">
               <span className="led-dot"></span> <span title="Планировщик задач Windows: FreeGamesClaimerStudio">ПЛАНИРОВЩИК</span>
@@ -608,25 +628,26 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             </div>
           </div>
 
-          <div 
+          <div
             ref={terminalRef}
             onScroll={handleTerminalScroll}
-            className="obsidian-well" 
-            style={{ 
-              flex: 1, 
-              padding: '9px', 
-              fontFamily: "'JetBrains Mono', monospace", 
-              fontSize: '10px', 
-              color: 'var(--text-secondary)', 
-              lineHeight: 1.5, 
-              overflowY: 'auto' 
+            className="obsidian-well"
+            style={{
+              flex: '0 1 auto',
+              minHeight: logs.length > 0 ? '160px' : 0,
+              padding: logs.length > 0 ? '9px' : '7px 10px',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: '10px',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.5,
+              overflowY: 'auto'
             }}
           >
             {logs.length > 0 ? (
               logs.map((l, i) => renderLogLine(l, i))
             ) : (
-              <div style={{ marginBottom: '2.5px', color: 'var(--text-secondary)' }}>
-                Журнал событий пока пуст.
+              <div style={{ color: 'var(--text-muted)' }}>
+                Журнал пуст — появится после первого автосбора
               </div>
             )}
           </div>
