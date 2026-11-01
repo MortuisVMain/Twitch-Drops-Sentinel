@@ -199,3 +199,28 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     res = asyncio.run(hydrate_installed_games())
     print(f"Result: {res}")
+
+
+async def head_ok(session: aiohttp.ClientSession, url: str) -> bool:
+    try:
+        async with session.head(url, timeout=aiohttp.ClientTimeout(total=5), allow_redirects=True) as resp:
+            return resp.status == 200
+    except Exception as exc:
+        logger.debug("HEAD %s failed: %s", url, exc)
+        return False
+
+
+async def keep_covers_alive(games: list) -> int:
+    """One pass of the cover keeper over the catalog with the real network."""
+    from cover_keeper import COVER_KEEPER
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        async def head(url: str) -> bool:
+            return await head_ok(session, url)
+
+        async def search(name: str) -> list:
+            await asyncio.sleep(0.2)  # be polite to the Steam search
+            resolved = await resolve_game_assets(session, name)
+            return list(resolved["urls"]) if resolved else []
+
+        return await COVER_KEEPER.refresh(games, head, search)

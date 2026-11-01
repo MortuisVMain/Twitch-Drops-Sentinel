@@ -385,7 +385,7 @@ export function registerDynamicBoxArt(gameName: string, url: string): void {
  * Resolves an ordered list of authentic game box art sources
  * (Candidate URLs -> Exact Direct Overrides -> Exact Steam Maps -> Smart Matches)
  */
-export function resolveGameBoxArtSources(
+function collectBoxArtSources(
   gameName: string,
   candidateUrls?: string | (string | undefined)[] | null
 ): string[] {
@@ -467,6 +467,40 @@ export function resolveGameBoxArtSources(
     }
   }
 
+  return sources;
+}
+
+const STEAM_APP_URL = /\/steam\/apps\/(\d+)\//;
+
+/**
+ * The ordered covers to try. New Steam games have no direct library_600x900.jpg, so after the known
+ * sources we also try header and capsule of every Steam app we have seen; the caller shows initials
+ * when the whole list fails (and must not retry it).
+ */
+export function resolveGameBoxArtSources(
+  gameName: string,
+  candidateUrls?: string | (string | undefined)[] | null
+): string[] {
+  const sources = collectBoxArtSources(gameName, candidateUrls);
+  const seen = new Set(sources);
+  const apps = new Set<string>();
+  for (const url of sources) {
+    const match = STEAM_APP_URL.exec(url);
+    if (match) apps.add(match[1]);
+  }
+  for (const app of apps) {
+    for (const file of ['header.jpg', 'capsule_616x353.jpg']) {
+      for (const url of [
+        `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${app}/${file}`,
+        `https://cdn.cloudflare.steamstatic.com/steam/apps/${app}/${file}`,
+      ]) {
+        if (!seen.has(url)) {
+          seen.add(url);
+          sources.push(url);
+        }
+      }
+    }
+  }
   return sources;
 }
 

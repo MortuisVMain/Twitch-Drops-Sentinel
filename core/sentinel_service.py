@@ -162,6 +162,7 @@ from updater import UPDATER
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import set_enabled as set_native_toasts
+from cover_keeper import COVER_KEEPER
 
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
@@ -715,6 +716,11 @@ class SentinelSupervisor:
                             "is_finished": c_finished,
                         })
                         matched_cat_names.add(c_game_name.strip().lower())
+
+        for g in catalog_games:
+            cover = COVER_KEEPER.pick(g.get("name", ""), g.get("box_art"))
+            if cover != g.get("box_art"):
+                g["box_art"] = cover
 
         installed_games = [g for g in catalog_games if g.get("is_installed")]
 
@@ -1663,6 +1669,19 @@ class SentinelSupervisor:
         except ValueError:
             logger.warning(f"Unknown language '{language}' in config.json, keeping {_.current}.")
 
+    async def cover_keeper_loop(self):
+        """Every half hour: check the covers of games not judged yet and find replacements for the broken or missing ones."""
+        from box_art_resolver import keep_covers_alive
+        await asyncio.sleep(60)
+        while self.is_running:
+            try:
+                found = await keep_covers_alive(list(CAMPAIGNS_FETCHER.get_catalog()))
+                if found:
+                    logger.info("Cover keeper: found %d replacement covers", found)
+            except Exception as exc:
+                logger.warning("Cover keeper pass failed: %s", exc, exc_info=True)
+            await asyncio.sleep(1800)
+
     async def start(self):
         self.apply_engine_language()
         runner = web.AppRunner(self.app, access_log=None)
@@ -1680,7 +1699,7 @@ class SentinelSupervisor:
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
         else:
-            loops += [self.run_twitch_engine(), CAMPAIGNS_FETCHER.start_background_loop()]
+            loops += [self.run_twitch_engine(), CAMPAIGNS_FETCHER.start_background_loop(), self.cover_keeper_loop()]
         await asyncio.gather(*loops, return_exceptions=True)
 
 if __name__ == "__main__":

@@ -2373,6 +2373,86 @@ def test_campaign_dates_line():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_cover_keeper_replaces_broken_and_missing_covers():
+    print("[round5] Covers: a broken or missing cover gets a verified replacement, a good one is left alone...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import asyncio
+    from cover_keeper import CoverKeeper, steam_fallback_urls
+
+    lib = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3527290/library_600x900.jpg"
+    fb = steam_fallback_urls(lib)
+    assert fb[0].endswith("/3527290/header.jpg") and any("capsule_616x353" in u for u in fb) and len(fb) == 4
+    assert steam_fallback_urls("https://static-cdn.jtvnw.net/ttv-boxart/500188_IGDB-285x380.jpg") == []
+    assert steam_fallback_urls("") == []
+
+    work = SANDBOX / "cover_keeper_check"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    store = work / "verified.json"
+    twitch_bad = "https://static-cdn.jtvnw.net/ttv-boxart/500188_IGDB-285x380.jpg"
+    good = "https://static-cdn.jtvnw.net/ttv-boxart/1_IGDB-285x380.jpg"
+    steam_header = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3527290/header.jpg"
+    hunt_steam = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/594650/header.jpg"
+    alive = {good, steam_header, hunt_steam, "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/777/header.jpg"}
+    searched = []
+
+    async def head(url):
+        return url in alive
+
+    async def search(name):
+        searched.append(name)
+        return [hunt_steam] if name == "Hunt: Showdown 1896" else []
+
+    games = [
+        {"name": "Fine Game", "box_art": good},
+        {"name": "PEAK", "box_art": lib},                      # new Steam game: no library poster, header works
+        {"name": "Hunt: Showdown 1896", "box_art": twitch_bad},  # Twitch art went 404: Steam search by name
+        {"name": "Epic Only Game", "box_art": None},            # nothing found anywhere
+    ]
+    keeper = CoverKeeper(store)
+    found = asyncio.run(keeper.refresh(games, head, search))
+    assert found == 2, found
+    assert keeper.pick("Fine Game", good) == good
+    assert keeper.pick("PEAK", lib) == steam_header
+    assert keeper.pick("Hunt: Showdown 1896", twitch_bad) == hunt_steam
+    assert keeper.pick("Epic Only Game", None) is None
+    # a working cover is never swapped; the keeper does not search for games that are fine
+    assert "Fine Game" not in searched and "PEAK" not in searched
+    # memory survives a restart, and a game nothing was found for is not searched again right away
+    searched.clear()
+    again = CoverKeeper(store)
+    assert again.pick("PEAK", lib) == steam_header
+    asyncio.run(again.refresh(games, head, search))
+    asyncio.run(again.refresh(games, head, search))
+    assert searched.count("Epic Only Game") == 1, searched
+    shutil.rmtree(work, ignore_errors=True)
+
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: front half skipped)")
+        return
+    out_dir = SANDBOX / "box_art_sources_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "gameBoxArts.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'gameBoxArts.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { resolveGameBoxArtSources } from './gameBoxArts.mjs';\n"
+        f"const lib = '{lib}';\n"
+        "console.log(JSON.stringify({ peak: resolveGameBoxArtSources('PEAK', [lib]), none: resolveGameBoxArtSources('Totally Unknown Indie', [undefined, null]), twitch: resolveGameBoxArtSources('Unknown Thing', ['https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg']) }));\n",
+        encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["peak"][0] == lib and any(u.endswith("/3527290/header.jpg") for u in d["peak"]) and len(d["peak"]) == len(set(d["peak"]))
+    assert d["none"] == [], "no source at all: the component shows initials instead of a broken image"
+    assert d["twitch"] == ["https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg"]
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2432,6 +2512,7 @@ if __name__ == "__main__":
         test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,
         test_listed_but_unfarmable_campaign_never_reads_as_available,
         test_campaign_dates_line,
+        test_cover_keeper_replaces_broken_and_missing_covers,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
