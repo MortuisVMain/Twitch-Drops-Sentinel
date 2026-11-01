@@ -403,6 +403,98 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     document.getElementById('overrideSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
+  // Queue rows: finished games (100%) go to a collapsed group at the bottom, priority numbers are kept
+  const [showFinishedQueue, setShowFinishedQueue] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sentinel_queue_finished_open') === '1';
+    } catch (err) {
+      console.warn('LiveDashboard: localStorage недоступен', err);
+      return false;
+    }
+  });
+  const toggleFinishedGroup = () => {
+    playClick();
+    const next = !showFinishedQueue;
+    setShowFinishedQueue(next);
+    try {
+      localStorage.setItem('sentinel_queue_finished_open', next ? '1' : '0');
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить состояние группы', err);
+    }
+  };
+  const activeQueue = queueCampaigns.filter((item) => item.pct < 100);
+  const finishedQueue = queueCampaigns.filter((item) => item.pct >= 100);
+
+  const renderQueueRow = (item: (typeof queueCampaigns)[number]) => (
+                <div
+                  key={item.name}
+                  className="queue-row"
+                  onClick={() => {
+                    playClick();
+                    onForceFarm?.(item.name);
+                  }}
+                  title={`Кликните для переключения фарма на ${item.name}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
+                    <img
+                      className="box-thumb"
+                      src={item.art}
+                      alt={item.name}
+                      style={{ width: '34px', height: '34px', borderRadius: '6px' }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.name}{' '}
+                        {item.priorityIndex >= 0 && (
+                          <span className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
+                            #{item.priorityIndex + 1}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.drop}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                    <span className="tabular" style={{ fontSize: '10.5px', fontWeight: 700, color: item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                      {item.pct}%
+                    </span>
+
+                    {item.priorityIndex >= 0 && onReorderPriority && (
+                      <div className="reorder-rocker">
+                        <button
+                          onClick={() => {
+                            playClick();
+                            onReorderPriority(item.name, 'up');
+                          }}
+                          disabled={item.priorityIndex === 0}
+                          style={{ opacity: item.priorityIndex === 0 ? 0.2 : 1 }}
+                          title="Поднять в очереди"
+                        >
+                          ▲
+                        </button>
+                        <button
+                          onClick={() => {
+                            playClick();
+                            onReorderPriority(item.name, 'down');
+                          }}
+                          disabled={item.priorityIndex === priorityList.length - 1}
+                          style={{ opacity: item.priorityIndex === priorityList.length - 1 ? 0.2 : 1 }}
+                          title="Опустить в очереди"
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+  );
+
   return (
     <div id="view-dashboard" className="view-tab active">
       {!connected && (
@@ -569,75 +661,22 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 Очередь кампаний пуста
               </div>
             ) : (
-              queueCampaigns.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="queue-row"
-                  onClick={() => {
-                    playClick();
-                    onForceFarm?.(item.name);
-                  }}
-                  title={`Кликните для переключения фарма на ${item.name}`}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
-                    <img
-                      className="box-thumb"
-                      src={item.art}
-                      alt={item.name}
-                      style={{ width: '34px', height: '34px', borderRadius: '6px' }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.name}{' '}
-                        {item.priorityIndex >= 0 && (
-                          <span className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
-                            #{item.priorityIndex + 1}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.drop}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
-                    <span className="tabular" style={{ fontSize: '10.5px', fontWeight: 700, color: item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
-                      {item.pct}%
-                    </span>
-
-                    {item.priorityIndex >= 0 && onReorderPriority && (
-                      <div className="reorder-rocker">
-                        <button
-                          onClick={() => {
-                            playClick();
-                            onReorderPriority(item.name, 'up');
-                          }}
-                          disabled={item.priorityIndex === 0}
-                          style={{ opacity: item.priorityIndex === 0 ? 0.2 : 1 }}
-                          title="Поднять в очереди"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          onClick={() => {
-                            playClick();
-                            onReorderPriority(item.name, 'down');
-                          }}
-                          disabled={item.priorityIndex === priorityList.length - 1}
-                          style={{ opacity: item.priorityIndex === priorityList.length - 1 ? 0.2 : 1 }}
-                          title="Опустить в очереди"
-                        >
-                          ▼
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
+              <>
+                {activeQueue.map(renderQueueRow)}
+                {finishedQueue.length > 0 && (
+                  <>
+                    <button
+                      className="queue-finished-toggle"
+                      onClick={toggleFinishedGroup}
+                      aria-expanded={showFinishedQueue}
+                      title="Игры, где все награды уже получены; порядок приоритета сохраняется"
+                    >
+                      <span>{showFinishedQueue ? '▾' : '▸'} Завершено · {finishedQueue.length}</span>
+                    </button>
+                    {showFinishedQueue && finishedQueue.map(renderQueueRow)}
+                  </>
+                )}
+              </>
             )}
           </div>
         </section>
