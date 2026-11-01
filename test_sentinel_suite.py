@@ -789,7 +789,7 @@ def test_github_updater_and_zero_mock_telemetry():
 
     # 6. Verify SettingsStudio.tsx has GitHub updater card
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
-    assert "Обновления GitHub & Патчи" in settings_tsx, "SettingsStudio must render GitHub updates card"
+    assert "Обновления: не проверялись" in settings_tsx, "SettingsStudio must render the short update status"
     assert "handleCheckUpdates" in settings_tsx, "SettingsStudio must have handleCheckUpdates"
 
     # 7. Verify orphaned legacy components are purged

@@ -319,15 +319,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const handleLogout = () => handleArmSafety('logout');
   const handlePowerModeChange = (mode: string) => onUpdateSettings({ auto_shutdown_mode: mode as any });
   const [showReportModal, setShowReportModal] = [showDiagModal, setShowDiagModal];
+  const updateStageNames: Record<string, string> = {
+    downloading: 'Загрузка обновления',
+    extracting: 'Распаковка обновления',
+    done: 'Обновление готово',
+    error: 'Ошибка обновления',
+  };
   const updateStage = updateCheckError
     ? `Ошибка проверки: ${updateCheckError}`
-    : updateProgress
-      ? updateProgress.error_message || updateProgress.stage
+    : updateProgress && updateProgress.stage !== 'idle'
+      ? updateProgress.error_message || updateStageNames[updateProgress.stage] || updateProgress.stage
       : updateInfo?.update_available
         ? `Доступно обновление v${updateInfo.remote_version}`
         : updateInfo
           ? `Установлена актуальная версия v${updateInfo.local_version}`
-          : 'Проверка обновлений еще не выполнялась';
+          : 'Обновления: не проверялись';
   const updatePct = updateProgress?.percent ?? (updateInfo ? 100 : 0);
 
   const moduleOn = moduleStates(settings, { muted: isMuted, autostart: autostartEnabled });
@@ -593,11 +599,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span className="led-dot"></span>
               <div>
-                <div style={{ fontSize: '11.5px', fontWeight: 800 }}>
-                  Twitch: {username} <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{userId ? `(ID: ${userId})` : '(аккаунт не подтвержден)'} • Mortuis_V_Studio</span>
-                </div>
-                <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
-                  Статус авторизации доступен только локальному сервису
+                <div style={{ fontSize: '11.5px', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
+                  Twitch: {username} <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{userId ? '' : '(аккаунт не подтверждён) '}• Mortuis_V_Studio</span>
                 </div>
               </div>
             </div>
@@ -622,9 +625,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="obsidian-well" style={{ padding: '6px 12px', minWidth: '220px' }}>
+            <div className="obsidian-well" style={{ padding: '6px 12px', width: '240px', minWidth: 0 }}>
               <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px', marginBottom: '3px' }}>
-                <span id="updStageText">{updateStage} • Обновления GitHub & Патчи</span>
+                <span id="updStageText" title={updateStage} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{updateStage}</span>
                 <strong style={{ color: 'var(--led-mint)' }} id="updPctText">{updatePct}%</strong>
               </div>
               <div style={{ height: '5px', background: 'var(--bg-row)', borderRadius: '3px', overflow: 'hidden' }}>
