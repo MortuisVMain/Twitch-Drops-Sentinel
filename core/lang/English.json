@@ -20,6 +20,14 @@
         "fetcher_refreshed": "Campaigns refreshed: {installed} installed games, catalog size: {catalog}",
         "idle_standby": "Idle standby: refreshing inventory and checking newly live streamers...",
         "inventory_enriched": "Enriched inventory with live campaigns: total {count} campaigns loaded.",
+        "scan_steam": "Steam scan discovered {count} games.",
+        "scan_epic": "Epic Games scan discovered {count} games.",
+        "scan_gog": "GOG scan discovered {count} games.",
+        "scan_registry": "Windows Uninstall registry scan discovered {count} games.",
+        "scan_custom": "Custom directories scan discovered {count} games.",
+        "scan_saved": "Atomically saved {count} installed games to {file}",
+        "scanner_started": "Games Folder Auto-Scanner initialized (monitoring Steam, Epic, GOG, and custom directories).",
+        "scanner_refreshed": "Auto-Scanner: Game libraries refreshed ({count} installed titles).",
         "games_active": "{count} games with active drops: {names}..."
     },
     "login": {

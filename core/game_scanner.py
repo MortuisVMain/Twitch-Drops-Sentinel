@@ -24,6 +24,12 @@ import string
 from pathlib import Path
 from typing import Any, Optional, Iterator
 
+try:
+    from translate import _
+except ImportError:  # imported as core.game_scanner without core/ on sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from translate import _
+
 logger = logging.getLogger("TwitchDropsSentinel.GameScanner")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -1023,7 +1029,7 @@ class GameScanner:
         try:
             steam_games = self.scan_steam()
             register(steam_games)
-            logger.info(f"Steam scan discovered {len(steam_games)} games.")
+            logger.info(_("sentinel", "scan_steam").format(count=len(steam_games)))
         except Exception as e:
             logger.error(f"Steam scan error: {e}", exc_info=True)
 
@@ -1031,7 +1037,7 @@ class GameScanner:
         try:
             epic_games = self.scan_epic()
             register(epic_games)
-            logger.info(f"Epic Games scan discovered {len(epic_games)} games.")
+            logger.info(_("sentinel", "scan_epic").format(count=len(epic_games)))
         except Exception as e:
             logger.error(f"Epic Games scan error: {e}", exc_info=True)
 
@@ -1039,7 +1045,7 @@ class GameScanner:
         try:
             gog_games = self.scan_gog()
             register(gog_games)
-            logger.info(f"GOG scan discovered {len(gog_games)} games.")
+            logger.info(_("sentinel", "scan_gog").format(count=len(gog_games)))
         except Exception as e:
             logger.error(f"GOG scan error: {e}", exc_info=True)
 
@@ -1047,7 +1053,7 @@ class GameScanner:
         try:
             reg_games = self.scan_windows_uninstall()
             register(reg_games)
-            logger.info(f"Windows Uninstall registry scan discovered {len(reg_games)} games.")
+            logger.info(_("sentinel", "scan_registry").format(count=len(reg_games)))
         except Exception as e:
             logger.error(f"Windows Uninstall registry scan error: {e}", exc_info=True)
 
@@ -1056,7 +1062,7 @@ class GameScanner:
             try:
                 custom_games = self.scan_custom_directories(custom_dirs)
                 register(custom_games)
-                logger.info(f"Custom directories scan discovered {len(custom_games)} games.")
+                logger.info(_("sentinel", "scan_custom").format(count=len(custom_games)))
             except Exception as e:
                 logger.error(f"Custom directories scan error: {e}", exc_info=True)
 
@@ -1069,7 +1075,7 @@ class GameScanner:
             payload = [g.to_dict() for g in all_games]
             tmp_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp_file, self.cache_file)
-            logger.info(f"Atomically saved {len(all_games)} installed games to {self.cache_file.name}")
+            logger.info(_("sentinel", "scan_saved").format(count=len(all_games), file=self.cache_file.name))
         except Exception as e:
             logger.error(f"Failed to save installed_games.json: {e}", exc_info=True)
 

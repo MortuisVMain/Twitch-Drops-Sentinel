@@ -236,6 +236,14 @@ class SentinelMessages(TypedDict):
     fetcher_refreshed: str
     idle_standby: str
     inventory_enriched: str
+    scan_steam: str
+    scan_epic: str
+    scan_gog: str
+    scan_registry: str
+    scan_custom: str
+    scan_saved: str
+    scanner_started: str
+    scanner_refreshed: str
     games_active: str
 
 
@@ -271,6 +279,14 @@ default_translation: Translation = {
         "fetcher_refreshed": "Campaigns refreshed: {installed} installed games, catalog size: {catalog}",
         "idle_standby": "Idle standby: refreshing inventory and checking newly live streamers...",
         "inventory_enriched": "Enriched inventory with live campaigns: total {count} campaigns loaded.",
+        "scan_steam": "Steam scan discovered {count} games.",
+        "scan_epic": "Epic Games scan discovered {count} games.",
+        "scan_gog": "GOG scan discovered {count} games.",
+        "scan_registry": "Windows Uninstall registry scan discovered {count} games.",
+        "scan_custom": "Custom directories scan discovered {count} games.",
+        "scan_saved": "Atomically saved {count} installed games to {file}",
+        "scanner_started": "Games Folder Auto-Scanner initialized (monitoring Steam, Epic, GOG, and custom directories).",
+        "scanner_refreshed": "Auto-Scanner: Game libraries refreshed ({count} installed titles).",
         "games_active": "{count} games with active drops: {names}...",
     },
     "login": {

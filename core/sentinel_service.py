@@ -1603,14 +1603,14 @@ class SentinelSupervisor:
 
     async def games_folder_rescan_loop(self):
         """Silently scans game libraries every 30 minutes for newly installed titles."""
-        logger.info("Games Folder Auto-Scanner initialized (monitoring Steam, Epic, GOG, and custom directories).")
+        logger.info(_("sentinel", "scanner_started"))
         await asyncio.sleep(5)
         while self.is_running:
             try:
                 custom_dirs = self.settings.get("game_directories", [])
                 installed_games = await self.scanner.scan_all_async(custom_dirs)
                 CAMPAIGNS_FETCHER.refresh_installed_games()
-                logger.info(f"Auto-Scanner: Game libraries refreshed ({len(installed_games)} installed titles).")
+                logger.info(_("sentinel", "scanner_refreshed").format(count=len(installed_games)))
             except Exception as e:
                 logger.error(f"Games folder rescan error: {e}")
             await asyncio.sleep(1800)
