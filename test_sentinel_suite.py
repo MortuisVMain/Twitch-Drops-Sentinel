@@ -33,6 +33,8 @@ WORKSPACE = Path(__file__).resolve().parent
 # On a CI runner there is no exe, no cookies, no journal and no live Twitch: gates that need them print an
 # explicit SKIP instead of failing (set CI=1 locally to rehearse it).
 IN_CI = os.environ.get("CI", "").lower() in ("1", "true", "yes")
+# test_giveaways_hub_integration reads the claimed-games inventory of the user's own giveaways database
+CI_LIVE_ONLY: set = {"test_giveaways_hub_integration"}
 
 # The suite never touches the user's live data, config, cookies or the live service on port 28492.
 # It copies the code and a read-only snapshot of the data into a temp project root and runs its own
@@ -260,17 +262,24 @@ def test_core_service_api():
     with safe_urlopen(v_req, timeout=10.0) as res:
         assert res.status == 200
         v_res = json.loads(res.read().decode("utf-8"))
-        assert v_res.get("verified") is True
-        assert "Desert" in v_res.get("canonical_name", "")
-        print(f"      GET /api/verify-game (Desert -> {v_res['canonical_name']}, drops={v_res.get('has_active_drops')}): PASS [OK]")
+        if IN_CI and v_res.get("verified") is not True:
+            print("      SKIP: /api/verify-game needs the live Twitch catalog, which a CI runner does not have")
+        else:
+            assert v_res.get("verified") is True
+            assert "Desert" in v_res.get("canonical_name", "")
+            print(f"      GET /api/verify-game (Desert -> {v_res['canonical_name']}, drops={v_res.get('has_active_drops')}): PASS [OK]")
 
     # Test GET /api/catalog
     c_req = urllib.request.Request(BASE_URL + "/api/catalog")
     with safe_urlopen(c_req, timeout=10.0) as res:
         assert res.status == 200
         c_res = json.loads(res.read().decode("utf-8"))
-        assert isinstance(c_res, list) and len(c_res) > 50
-        print(f"      GET /api/catalog ({len(c_res)} games): PASS [OK]")
+        assert isinstance(c_res, list)
+        if IN_CI and len(c_res) <= 50:
+            print("      SKIP: a catalog of more than 50 games needs the user's installed games and live Twitch data")
+        else:
+            assert len(c_res) > 50
+            print(f"      GET /api/catalog ({len(c_res)} games): PASS [OK]")
 
     # Test GET /api/v1/giveaways/state
     g_req = urllib.request.Request(BASE_URL + "/api/v1/giveaways/state")
@@ -2261,56 +2270,76 @@ if __name__ == "__main__":
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
     print("  Author: Mortuis_V / Mortuis_V_Studio")
     print("=" * 65)
-    test_artifacts()
-    test_installed_games_catalog()
-    test_trophy_vault_journal()
-    test_hardware_guard()
-    test_core_service_api()
-    test_prd_compliance()
-    test_branding_check()
-    test_streamless_engine_contract()
-    test_palette_integrity()
-    test_safe_inventory_parsing()
-    test_mojibake_cleanliness()
-    test_trophy_matching_cyrillic()
-    test_channel_drops_enabled_resilience()
-    test_expired_campaign_filtering()
-    test_watchdog_active_drop_sync()
-    test_search_games_and_box_art_cache()
-    test_sequel_guard_and_no_false_box_art()
-    test_audited_steam_app_ids_and_verified_sequels()
-    test_giveaways_hub_integration()
-    test_universal_game_scanner()
-    test_route_aliases_and_directory_management()
-    test_audio_mute_and_release_safety()
-    test_argon_public_hardening_and_resilience()
-    test_github_updater_and_zero_mock_telemetry()
-    test_hardware_guard_false_positive_and_installed_clear()
-    test_channel_points_clipboard_and_feature_toggles()
-    test_game_scanner_anti_software_and_patch_filtering()
-    test_game_scanner_deduplication_and_trophies_clear()
-    test_sleep_guard_watchdog_and_account_protection()
-    test_r6s_showcase_acl_and_strict_priority_guard()
-    test_giveaways_stores_persistence_and_version_standardization()
-    test_game_shelf_claimed_tab_and_trophies_integration()
-    test_twitch_drops_sync_and_active_filter()
-    test_shelf_removed_tab_and_startup_sync()
-    test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite()
-    test_manual_farm_override_and_native_screendimmer_suite()
-    test_update_check_failure_reports_running_version()
-    test_campaigns_fetcher_backoff_retry_after_and_fresh_cache()
-    test_console_messages_follow_configured_language()
-    test_giveaways_hung_node_process_hits_ceiling()
-    test_shutdown_aborts_running_giveaways_process()
-    test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns()
-    test_queue_wait_message_counts_the_whole_queue()
-    test_console_folds_progress_and_repeated_lines()
-    test_active_campaigns_tab_sorting_and_new_marker()
-    test_console_folds_sync_cycles_but_never_important_events()
-    test_settings_modules_counter_matches_switches()
-    test_shelf_facts_trophy_line_and_sync_age()
-    test_queue_filter_only_with_campaigns()
-    test_toast_gate_dedup_switch_and_priming()
+    GATES = [
+        test_artifacts,
+        test_installed_games_catalog,
+        test_trophy_vault_journal,
+        test_hardware_guard,
+        test_core_service_api,
+        test_prd_compliance,
+        test_branding_check,
+        test_streamless_engine_contract,
+        test_palette_integrity,
+        test_safe_inventory_parsing,
+        test_mojibake_cleanliness,
+        test_trophy_matching_cyrillic,
+        test_channel_drops_enabled_resilience,
+        test_expired_campaign_filtering,
+        test_watchdog_active_drop_sync,
+        test_search_games_and_box_art_cache,
+        test_sequel_guard_and_no_false_box_art,
+        test_audited_steam_app_ids_and_verified_sequels,
+        test_giveaways_hub_integration,
+        test_universal_game_scanner,
+        test_route_aliases_and_directory_management,
+        test_audio_mute_and_release_safety,
+        test_argon_public_hardening_and_resilience,
+        test_github_updater_and_zero_mock_telemetry,
+        test_hardware_guard_false_positive_and_installed_clear,
+        test_channel_points_clipboard_and_feature_toggles,
+        test_game_scanner_anti_software_and_patch_filtering,
+        test_game_scanner_deduplication_and_trophies_clear,
+        test_sleep_guard_watchdog_and_account_protection,
+        test_r6s_showcase_acl_and_strict_priority_guard,
+        test_giveaways_stores_persistence_and_version_standardization,
+        test_game_shelf_claimed_tab_and_trophies_integration,
+        test_twitch_drops_sync_and_active_filter,
+        test_shelf_removed_tab_and_startup_sync,
+        test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite,
+        test_manual_farm_override_and_native_screendimmer_suite,
+        test_update_check_failure_reports_running_version,
+        test_campaigns_fetcher_backoff_retry_after_and_fresh_cache,
+        test_console_messages_follow_configured_language,
+        test_giveaways_hung_node_process_hits_ceiling,
+        test_shutdown_aborts_running_giveaways_process,
+        test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns,
+        test_queue_wait_message_counts_the_whole_queue,
+        test_console_folds_progress_and_repeated_lines,
+        test_active_campaigns_tab_sorting_and_new_marker,
+        test_console_folds_sync_cycles_but_never_important_events,
+        test_settings_modules_counter_matches_switches,
+        test_shelf_facts_trophy_line_and_sync_age,
+        test_queue_filter_only_with_campaigns,
+        test_toast_gate_dedup_switch_and_priming,
+    ]
+    # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
+    # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
+    failed = []
+    for gate in GATES:
+        if IN_CI and gate.__name__ in CI_LIVE_ONLY:
+            print(f"      SKIP [{gate.__name__}]: needs the user's data, the exe or live Twitch; not available on a CI runner")
+            continue
+        if os.environ.get("CI_COLLECT") == "1":
+            try:
+                gate()
+            except Exception as exc:  # noqa: BLE001 - collecting, reported below
+                failed.append(gate.__name__)
+                print(f"      COLLECT-FAIL [{gate.__name__}]: {type(exc).__name__}: {exc}")
+        else:
+            gate()
+    if failed:
+        print("CI_COLLECT failures:", failed)
+        sys.exit(1)
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
