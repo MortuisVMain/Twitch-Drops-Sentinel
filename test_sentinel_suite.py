@@ -1701,6 +1701,32 @@ def test_giveaways_hung_node_process_hits_ceiling():
     assert asyncio.run(scenario()) == [True], "Hung process must be aborted by the ceiling"
 
 
+def test_shutdown_aborts_running_giveaways_process():
+    print("[audit F-025] Service shutdown/restart must not leave the Node giveaways process behind...")
+    import asyncio
+    from types import SimpleNamespace
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from sentinel_service import SentinelSupervisor
+
+    aborted = []
+
+    async def abort_claim():
+        aborted.append(True)
+        return {"status": "aborted"}
+
+    fake = SimpleNamespace(giveaways=SimpleNamespace(abort_claim=abort_claim))
+
+    async def scenario():
+        try:
+            await SentinelSupervisor._delayed_stop(fake)
+        except SystemExit:
+            return True
+        return False
+
+    assert asyncio.run(scenario()), "_delayed_stop must end with SystemExit"
+    assert aborted == [True], "_delayed_stop must abort the giveaways process first"
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1746,6 +1772,7 @@ if __name__ == "__main__":
     test_campaigns_fetcher_backoff_retry_after_and_fresh_cache()
     test_console_messages_follow_configured_language()
     test_giveaways_hung_node_process_hits_ceiling()
+    test_shutdown_aborts_running_giveaways_process()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

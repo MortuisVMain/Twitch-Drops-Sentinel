@@ -839,7 +839,7 @@ class SentinelSupervisor:
         self.is_running = False
         if self.twitch_client:
             self.twitch_client.close()
-        asyncio.create_task(self._delayed_stop())
+        self._stop_task = asyncio.create_task(self._delayed_stop())  # keep a reference so it cannot be collected
         return web.json_response({"status": "shutting_down"})
 
     async def handle_restart(self, request: web.Request) -> web.Response:
@@ -848,10 +848,15 @@ class SentinelSupervisor:
         self.is_running = False
         if self.twitch_client:
             self.twitch_client.close()
-        asyncio.create_task(self._delayed_stop())
+        self._stop_task = asyncio.create_task(self._delayed_stop())  # keep a reference so it cannot be collected
         return web.json_response({"status": "restarting"})
 
     async def _delayed_stop(self):
+        # Stop the Node giveaways tree first, otherwise it outlives the service.
+        try:
+            await asyncio.wait_for(self.giveaways.abort_claim(), timeout=2.5)
+        except Exception as e:
+            logger.warning(f"Could not abort giveaways process on shutdown: {e}")
         await asyncio.sleep(0.5)
         sys.exit(0)
 
