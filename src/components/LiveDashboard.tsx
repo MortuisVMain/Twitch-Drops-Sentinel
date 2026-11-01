@@ -1172,7 +1172,7 @@ const filteredLogs = useMemo(() => {
                         <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.name}
                         </div>
-                        <div className="tabular clip-1" style={{ fontSize: 'var(--fs-xs)', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}>
+                        <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}>
                           {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : endingSoonByGame.has(safeLower(g.name)) ? `⏳ сгорает через ${endingSoonByGame.get(safeLower(g.name))?.timeLeft}` : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
                         </div>
                       </div>
