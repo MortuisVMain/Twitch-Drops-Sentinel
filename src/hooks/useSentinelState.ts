@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { followBackendLanguage } from '../i18n';
+import { followBackendTextScale } from '../utils/textScale';
 import { FullSentinelState, SentinelSettings, TrophyItem } from '../types';
 
 const INITIAL_STATE: FullSentinelState = {
@@ -89,6 +91,8 @@ export function useSentinelState(
                   };
                 }
               }
+              followBackendLanguage(data.settings?.language);
+              followBackendTextScale((data.settings as { ui_text_scale?: unknown } | undefined)?.ui_text_scale);
               return {
                 ...prev,
                 ...data,

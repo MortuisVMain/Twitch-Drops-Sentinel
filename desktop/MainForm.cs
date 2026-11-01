@@ -396,6 +396,8 @@ namespace TwitchDropsSentinel
         private volatile bool _isShuttingDown = false;
 
         private volatile bool _isForceClosing = false;
+        private string _closeAction = "ask"; // ask | tray | exit
+        private bool _closeDialogOpen;
 
         private FormWindowState _lastNonMinimizedState = FormWindowState.Normal;
 
@@ -628,6 +630,7 @@ namespace TwitchDropsSentinel
             // Load and restore previous window size & position
 
             LoadWindowState();
+            LoadShellSettings();
 
 
 
@@ -1630,6 +1633,14 @@ namespace TwitchDropsSentinel
 
                 }
 
+                else if (type == "GET_CLOSE_ACTION")
+                {
+                    PostCloseAction();
+                }
+                else if (type == "SET_CLOSE_ACTION" && root.TryGetProperty("value", out var closeProp))
+                {
+                    SetCloseAction(closeProp.GetString());
+                }
                 else if (type == "SELECT_FOLDER" || type == "BROWSE_FOLDER")
 
                 {
@@ -1959,24 +1970,10 @@ namespace TwitchDropsSentinel
                         }
 
                         else if (action == "close")
-
-                        {
-
-                            this.Hide();
-
-                            if (_trayIcon != null)
-
-                            {
-
-                                _trayIcon.Visible = true;
-
-                                _trayIcon.ShowBalloonTip(1500, "Twitch Drops Sentinel", "Приложение свернуто в системный трей. Фарм продолжается в фоне.", ToolTipIcon.Info);
-
-                            }
-
-                        }
-
-                    }));
+{
+    HandleCloseRequest();
+}
+}));
 
                 }
 
@@ -2078,39 +2075,7 @@ namespace TwitchDropsSentinel
 
                 showItem.Font = new Font(showItem.Font, FontStyle.Bold);
 
-                var exitItem = new ToolStripMenuItem("Выход из Sentinel", null, (s, e) =>
-
-                {
-
-                    SaveWindowState();
-
-                    ShutdownBackend();
-
-                    try
-
-                    {
-
-                        _webView?.Dispose();
-
-                    }
-
-                    catch { }
-
-                    if (_trayIcon != null)
-
-                    {
-
-                        _trayIcon.Visible = false;
-
-                        _trayIcon.Dispose();
-
-                        _trayIcon = null;
-
-                    }
-
-                    Application.Exit();
-
-                });
+                var exitItem = new ToolStripMenuItem("Выход из Sentinel", null, (s, e) => ExitApplication());
 
 
 
@@ -2316,7 +2281,7 @@ namespace TwitchDropsSentinel
 
                     _trayIcon.Visible = true;
 
-                    _trayIcon.ShowBalloonTip(1500, "Twitch Drops Sentinel", "Приложение свернуто в системный трей. Фарм продолжается в фоне.", ToolTipIcon.Info);
+                    ShowTrayHint();
 
                 }
 
@@ -2351,34 +2316,11 @@ namespace TwitchDropsSentinel
 
 
             if (e.CloseReason == CloseReason.UserClosing)
-
-            {
-
-                e.Cancel = true;
-
-                if (WindowState != FormWindowState.Minimized)
-
-                {
-
-                    _lastNonMinimizedState = WindowState;
-
-                }
-
-                Hide();
-
-                if (_trayIcon != null)
-
-                {
-
-                    _trayIcon.Visible = true;
-
-                    _trayIcon.ShowBalloonTip(1500, "Twitch Drops Sentinel", "Работа продолжается в трее. Для полного закрытия: правый клик по иконке -> Выход.", ToolTipIcon.Info);
-
-                }
-
-            }
-
-            else
+{
+    e.Cancel = true;
+    HandleCloseRequest();
+}
+else
 
             {
 
@@ -2878,7 +2820,7 @@ namespace TwitchDropsSentinel
 
                     _trayIcon.Visible = true;
 
-                    _trayIcon.ShowBalloonTip(1500, "Twitch Drops Sentinel", "Приложение свернуто в системный трей. Фарм продолжается в фоне.", ToolTipIcon.Info);
+                    ShowTrayHint();
 
                 }
 
@@ -3035,6 +2977,133 @@ namespace TwitchDropsSentinel
         }
 
 
+
+        private static string GetShellSettingsFilePath()
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "shell_settings.json");
+        }
+
+        private static string NormalizeCloseAction(string? value)
+        {
+            return value == "tray" || value == "exit" ? value : "ask";
+        }
+
+        private void LoadShellSettings()
+        {
+            try
+            {
+                string file = GetShellSettingsFilePath();
+                if (!File.Exists(file)) return;
+                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                if (doc.RootElement.TryGetProperty("close_action", out var prop))
+                {
+                    _closeAction = NormalizeCloseAction(prop.GetString());
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDesktopError("LoadShellSettings", ex);
+            }
+        }
+
+        private void SetCloseAction(string? value)
+        {
+            _closeAction = NormalizeCloseAction(value);
+            try
+            {
+                string file = GetShellSettingsFilePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                File.WriteAllText(file, JsonSerializer.Serialize(new Dictionary<string, string> { ["close_action"] = _closeAction }, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception ex)
+            {
+                LogDesktopError("SaveShellSettings", ex);
+            }
+            PostCloseAction();
+        }
+
+        private void PostCloseAction()
+        {
+            try
+            {
+                _webView?.CoreWebView2?.PostWebMessageAsJson($"{{\"type\":\"CLOSE_ACTION\",\"value\":\"{_closeAction}\"}}");
+            }
+            catch (Exception ex)
+            {
+                LogDesktopError("PostCloseAction", ex);
+            }
+        }
+
+        private void ShowTrayHint()
+        {
+            _trayIcon?.ShowBalloonTip(5000, "Twitch Drops Sentinel", "Окно скрыто, фарм продолжается в трее. Открыть: клик по значку. Выйти полностью: правый клик по значку → «Выход из Sentinel».", ToolTipIcon.Info);
+        }
+
+        private void HideToTray()
+        {
+            if (WindowState != FormWindowState.Minimized)
+            {
+                _lastNonMinimizedState = WindowState;
+            }
+            Hide();
+            if (_trayIcon != null)
+            {
+                _trayIcon.Visible = true;
+                ShowTrayHint();
+            }
+        }
+
+        private void ExitApplication()
+        {
+            SaveWindowState();
+            ShutdownBackend();
+            try { _webView?.Dispose(); } catch (Exception ex) { LogDesktopError("ExitApplication.WebView", ex); }
+            if (_trayIcon != null)
+            {
+                _trayIcon.Visible = false;
+                _trayIcon.Dispose();
+                _trayIcon = null;
+            }
+            Application.Exit();
+        }
+
+        /// <summary>The X button, Alt+F4 and the UI close button all land here: tray, exit, or ask once and remember.</summary>
+        private void HandleCloseRequest()
+        {
+            if (_closeAction == "exit") { ExitApplication(); return; }
+            if (_closeAction == "tray") { HideToTray(); return; }
+            if (_closeDialogOpen) return;
+            _closeDialogOpen = true;
+            try
+            {
+                var trayButton = new TaskDialogButton("Свернуть в трей");
+                var exitButton = new TaskDialogButton("Выйти полностью");
+                var remember = new TaskDialogVerificationCheckBox("Запомнить мой выбор");
+                var page = new TaskDialogPage
+                {
+                    Caption = "Twitch Drops Sentinel",
+                    Heading = "Что сделать при закрытии окна?",
+                    Text = "В трее фарм дропов продолжается, а окно можно открыть кликом по значку. При полном выходе фарм остановится. Выбор можно изменить в Настройках.",
+                    Icon = TaskDialogIcon.Information,
+                    AllowCancel = true,
+                    Verification = remember,
+                    Buttons = { trayButton, exitButton }
+                };
+                var result = TaskDialog.ShowDialog(this, page);
+                if (result != trayButton && result != exitButton) return;
+                if (remember.Checked) SetCloseAction(result == exitButton ? "exit" : "tray");
+                if (result == exitButton) ExitApplication(); else HideToTray();
+            }
+            catch (Exception ex)
+            {
+                LogDesktopError("HandleCloseRequest", ex);
+                HideToTray();
+            }
+            finally
+            {
+                _closeDialogOpen = false;
+            }
+        }
 
         private void RestoreFromTray()
 

@@ -232,7 +232,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
       onClick={onClose}
     >
       <div 
-        className="w-[min(920px,92vw)] bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[88vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
+        className="w-[min(920px,92vw)] bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -247,7 +247,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
               <h2 className="text-sm md:text-base font-bold text-white">
                 Справка и горячие клавиши
               </h2>
-              <p className="text-[11px] text-[#8b9a94] mt-0.5">
+              <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5">
                 Практические советы, правила работы и быстрые сочетания клавиш
               </p>
             </div>
@@ -259,14 +259,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
               onClose();
             }}
             aria-label="Закрыть"
-            className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[#8b9a94] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
+            className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* Categories Tab Navigation Strip - shrink-0 */}
-        <div className="py-2 px-6 bg-[#171d1c] border-b border-[#303a35] flex items-center gap-1.5 overflow-x-auto scrollbar-thin shrink-0">
+        <div className="py-2 px-6 bg-[#171d1c] border-b border-[#303a35] flex flex-wrap items-center gap-1.5 shrink-0">
           {(Object.keys(TAB_TIPS) as Array<Exclude<HelpCategory, 'hotkeys'>>).map((catKey) => {
             const cat = TAB_TIPS[catKey];
             const isCurrentActiveTab = activeTab === catKey;
@@ -282,7 +282,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 select-none ${
                   isSelected
                     ? 'bg-[#368873]/25 text-[#73bba5] border border-[#73bba5]/40 shadow-sm'
-                    : 'text-[#8b9a94] hover:text-white hover:bg-white/[0.04] border border-transparent'
+                    : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
                 }`}
               >
                 <span>{cat.icon}</span>
@@ -302,7 +302,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
             className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 select-none ${
               selectedCategory === 'hotkeys'
                 ? 'bg-[#368873]/25 text-[#73bba5] border border-[#73bba5]/40 shadow-sm'
-                : 'text-[#8b9a94] hover:text-white hover:bg-white/[0.04] border border-transparent'
+                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
             }`}
           >
             <Keyboard size={15} />
@@ -315,11 +315,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           {selectedCategory !== 'hotkeys' ? (
             <>
               <div className="flex items-center justify-between pb-0.5">
-                <span className="text-[11px] font-bold text-[#8b9a94] uppercase tracking-wider font-mono">
+                <span className="text-[length:var(--fs-xs)] font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] tabular">
                   {TAB_TIPS[selectedCategory].title}
                 </span>
                 {activeTab === selectedCategory && (
-                  <span className="text-[10.5px] font-semibold text-[#73bba5] flex items-center gap-1">
+                  <span className="text-[length:var(--fs-xs)] font-semibold text-[#73bba5] flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     Активная вкладка
                   </span>
@@ -342,12 +342,12 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                         </span>
                       </div>
                       {tip.badge && (
-                        <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-semibold shrink-0">
+                        <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-semibold shrink-0">
                           {tip.badge}
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-[#8b9a94] leading-relaxed pl-8">
+                    <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed pl-8">
                       {tip.description}
                     </p>
                   </div>
@@ -357,7 +357,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           ) : (
             <>
               <div className="flex items-center justify-between pb-0.5">
-                <span className="text-[11px] font-bold text-[#8b9a94] uppercase tracking-wider font-mono">
+                <span className="text-[length:var(--fs-xs)] font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] tabular">
                   Быстрые клавиши и управление
                 </span>
               </div>
@@ -370,9 +370,9 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold text-white leading-snug break-words">{hk.label}</div>
-                      <div className="text-[10px] text-[#8b9a94] mt-0.5 leading-snug break-words">{hk.desc}</div>
+                      <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 leading-snug break-words">{hk.desc}</div>
                     </div>
-                    <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[11px] font-mono font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
+                    <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
                       {hk.key}
                     </kbd>
                   </div>
@@ -384,7 +384,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           {/* Bottom Security / Architecture Note - Compact */}
           <div className="mt-2 p-3 px-4 rounded-xl bg-gradient-to-r from-[#202725] to-[#1a2320] border border-[#368873]/30 flex items-start gap-2.5 shrink-0">
             <ShieldCheck size={16} className="text-[#73bba5] shrink-0 mt-0.5" />
-            <div className="text-[10.5px] text-[#8b9a94] leading-relaxed">
+            <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed">
               <strong className="text-white inline mr-1">Принцип автономности и безопасности Sentinel:</strong>
               Все пароли, сессии и авторизационные токены хранятся исключительно в локальных файлах на вашем компьютере. Никаких внешних серверов, аналитики или облачных баз данных.
             </div>
@@ -393,8 +393,8 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
 
         {/* Modal Footer - shrink-0 ensures it is ALWAYS 100% visible */}
         <div className="py-3 px-6 border-t border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
-          <div className="text-[11px] text-[#8b9a94] flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9.5px] font-mono text-white">Esc</kbd>
+          <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] flex items-center gap-1.5">
+            <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[length:var(--fs-xs)] tabular text-white">Esc</kbd>
             <span>для закрытия</span>
           </div>
 

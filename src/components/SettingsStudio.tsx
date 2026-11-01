@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
+import { getLang, setLang, type Lang } from '../i18n';
+import { TEXT_SCALES, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 
@@ -34,6 +36,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   updateInfo,
   updateProgress,
 }) => {
+  const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
   const [scanLabel, setScanLabel] = useState<string>('↻ Пересканировать все диски');
   const [backupLabel, setBackupLabel] = useState<string>('📦 Бэкап профиля (.zip)');
@@ -46,6 +49,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
   const [autostartError, setAutostartError] = useState<string | null>(null);
+  const [closeAction, setCloseAction] = useState<'ask' | 'tray' | 'exit' | null>(null);
 
   const [directories, setDirectories] = useState<string[]>([]);
 
@@ -86,6 +90,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     const handleWebviewMessage = (event: any) => {
       try {
         const data = event.data;
+        if (data && data.type === 'CLOSE_ACTION') {
+          setCloseAction(data.value === 'tray' || data.value === 'exit' ? data.value : 'ask');
+        }
         if (data && data.type === 'FOLDER_SELECTED' && !data.cancelled && data.path) {
           fetch('http://127.0.0.1:28492/api/game-directories/add', {
             method: 'POST',
@@ -116,6 +123,16 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       window.removeEventListener('message', handleWebviewMessage);
     };
   }, [onRescanGames]);
+
+  // The shell (MainForm.cs) owns the close-button behavior; ask it for the current value
+  useEffect(() => {
+    (window as any).chrome?.webview?.postMessage({ type: 'GET_CLOSE_ACTION' });
+  }, []);
+
+  const handleCloseActionChange = (value: 'ask' | 'tray' | 'exit') => {
+    playClick();
+    (window as any).chrome?.webview?.postMessage({ type: 'SET_CLOSE_ACTION', value });
+  };
 
   // Test countdown for Luna timer
   useEffect(() => {
@@ -402,8 +419,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               {moduleCards.map((m) => (
                 <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '11.5px', fontWeight: 700 }}>{m.title}</div>
-                    <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{m.hint}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{m.title}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{m.hint}</div>
                   </div>
                   <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
                     <div className="knob"></div>
@@ -411,21 +428,61 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 </div>
               ))}
               {autostartError && (
-                <div role="status" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
+                <div role="status" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}>
                   Автозапуск недоступен: {autostartError}
                 </div>
               )}
             </div>
           </div>
 
+          <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} title="Что делает крестик окна. Фарм продолжается, пока приложение не закрыто полностью">ПРИ ЗАКРЫТИИ ОКНА:</span>
+            {([['ask', 'Спрашивать'], ['tray', 'В трей'], ['exit', 'Выход']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                className={`tactile-btn ${closeAction === value ? 'active-amber' : ''}`}
+                disabled={closeAction === null}
+                onClick={() => handleCloseActionChange(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ЯЗЫК ИНТЕРФЕЙСА:</span>
+            {([['ru', 'Русский'], ['en', 'English']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                className={`tactile-btn ${getLang() === value ? 'active-amber' : ''}`}
+                onClick={() => { playClick(); if (getLang() !== value) void setLang(value as Lang); }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }} title="Крупнее текст: удобнее читать, на экране помещается меньше">
+            <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>РАЗМЕР ТЕКСТА:</span>
+            {TEXT_SCALES.map((value) => (
+              <button
+                key={value}
+                className={`tactile-btn ${textScale === value ? 'active-amber' : ''}`}
+                onClick={() => { playClick(); setTextScaleState(value); void setTextScale(value); }}
+              >
+                {value}%
+              </button>
+            ))}
+          </div>
+
           {/* Luna Cascade Box 1-to-1 with SPEC */}
           <div 
             id="lunaCascadeBox" 
             className="obsidian-well" 
-            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
               <button 
                 className={`tactile-btn ${settings.auto_shutdown_mode === 'sleep' || !settings.auto_shutdown_mode ? 'active-amber' : ''}`}
                 onClick={() => {
@@ -484,10 +541,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onUpdateSettings({ priority_mode: 0 });
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                 🎯 Только очередь (рекомендуется)
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Фармит только игры из вашей очереди.
               </div>
             </div>
@@ -499,10 +556,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onUpdateSettings({ priority_mode: 1 });
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                 ⚡ Очередь, а если пусто — любые доступные
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Если по очереди нечего фармить (нет кампаний или стримеры офлайн), временно берёт любые доступные дропы.
               </div>
             </div>
@@ -514,10 +571,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onUpdateSettings({ priority_mode: 2 });
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                 ⏳ Очередь, затем кампании, которые скоро закончатся
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Сначала ваша очередь, потом кампании с наименьшим оставшимся временем.
               </div>
             </div>
@@ -529,20 +586,20 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span className="tag">
                 <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
-              <button className="tactile-btn active-mint" style={{ height: '22px', fontSize: '9px' }} onClick={handleAddFolder}>
+              <button className="tactile-btn active-mint" style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
                 + Добавить папку
               </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {directories.map((dir, idx) => (
-                <div key={idx} className="obsidian-well tabular" style={{ padding: '6px 10px', fontSize: '10.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={idx} className="obsidian-well tabular" style={{ padding: '6px 10px', fontSize: 'var(--fs-xs)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '340px' }}>📁 {dir}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ color: 'var(--led-mint)', fontSize: '9.5px' }}>[НАСТРОЕН]</span>
+                    <span style={{ color: 'var(--led-mint)', fontSize: 'var(--fs-xs)' }}>[НАСТРОЕН]</span>
                     <button
                       className="tactile-btn danger-hover"
-                      style={{ padding: '1px 6px', height: '18px', fontSize: '9px' }}
+                      style={{ padding: '1px 6px', minHeight: '18px', fontSize: 'var(--fs-xs)' }}
                       onClick={() => handleRemoveFolder(dir)}
                       title="Удалить папку"
                     >
@@ -553,7 +610,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               ))}
             </div>
 
-            <div className="obsidian-well tabular" style={{ padding: '7px 10px', fontSize: '9.5px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="obsidian-well tabular" style={{ padding: '7px 10px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>📁 Настроено папок: {directories.length}</span>
               <span>Обнаружено игр: {installedCount}</span>
             </div>
@@ -606,14 +663,14 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       {/* Bottom Full-Width Account & Live Update Bar (Pinned to the bottom) */}
       <div 
         className="titanium-island" 
-        style={{ marginTop: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 16px', flexShrink: 0 }}
+        style={{ marginTop: 'auto', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 12px', padding: '10px 16px', flexShrink: 0 }}
       >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
+            <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, maxWidth: '100%' }}>
               <span className="led-dot"></span>
-              <div>
-                <div style={{ fontSize: '11.5px', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
-                  Twitch: {username} <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{userId ? '' : '(аккаунт не подтверждён) '}• Mortuis_V_Studio</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="clip-1" style={{ fontSize: 'var(--fs-xs)', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
+                  Twitch: {username} <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{userId ? '' : '(аккаунт не подтверждён) '}• Mortuis_V_Studio</span>
                 </div>
               </div>
             </div>
@@ -623,9 +680,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="obsidian-well" style={{ padding: '6px 12px', width: '240px', minWidth: 0 }}>
-              <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px', marginBottom: '3px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div className="obsidian-well" style={{ padding: '6px 12px', width: '15rem', maxWidth: '100%', minWidth: 0 }}>
+              <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', marginBottom: '3px' }}>
                 <span id="updStageText" title={updateStage} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{updateStage}</span>
                 <strong style={{ color: 'var(--led-mint)' }} id="updPctText">{updatePct}%</strong>
               </div>
@@ -658,7 +715,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
               <div className="flex items-center gap-2">
                 <span className="led-dot"></span>
-                <h3 className="text-sm font-bold tracking-wider uppercase text-[var(--text-primary)]">
+                <h3 className="text-sm font-bold tracking-[0.04em] uppercase text-[var(--text-primary)]">
                   🩺 ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ
                 </h3>
               </div>
@@ -672,14 +729,14 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div 
-              className="obsidian-well p-4 font-mono text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-y-auto max-h-[420px]"
+              className="obsidian-well p-4 tabular text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-y-auto max-h-[420px]"
               style={{ lineHeight: 1.6 }}
             >
               {isLoadingDiag ? 'Сбор телеметрии системы...' : diagContent}
             </div>
 
             <div className="flex justify-between items-center pt-2">
-              <span className="text-[10px] text-[var(--text-muted)]">
+              <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
                 Все секретные токены и cookies очищены перед отображением
               </span>
               <button 

@@ -55,16 +55,16 @@ const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, box
           alignItems: 'center',
           justifyContent: 'center',
           gap: '6px',
-          fontFamily: "'JetBrains Mono', monospace",
+          fontFamily: 'var(--font-ui)',
           color: 'var(--led-mint)',
-          letterSpacing: '1px',
+          letterSpacing: '0.04em',
           userSelect: 'none'
         }}
       >
-        <span style={{ fontSize: '28px', fontWeight: 900, textShadow: '0 0 16px rgba(115, 187, 165, 0.35)' }}>
+        <span style={{ fontSize: 'var(--fs-xl)', fontWeight: 900, textShadow: '0 0 16px rgba(115, 187, 165, 0.35)' }}>
           {initials}
         </span>
-        <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px' }}>
+        <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
           NO POSTER
         </span>
       </div>
@@ -501,11 +501,11 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           <CartridgeCover name={game.name} boxArt={game.box_art} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={game.name}>
+          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={game.name}>
             {activeFilter === 'all' && isNewCampaign(game, seenAtOpen) && <span className="new-campaign-chip" title="Кампания появилась после вашего прошлого визита">НОВАЯ</span>}
             {game.name}
           </div>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
             {isExcluded ? '🚫 В исключениях' : isRemoved ? '🗑 В удалённых' : isForced ? '⚡ Принудительный фарм' : isInPriority ? `⭐ #${priorityIndex + 1} в очереди` : game.is_installed ? '💾 Установлено на ПК' : ' '}
           </div>
           {dates && (
@@ -528,14 +528,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         </span>
         <div className="campaign-row-actions">
           {blocked ? (
-            <button className="tactile-btn" style={{ height: '24px', fontSize: '10px' }} onClick={() => { playClick(); handleRestoreGame(game.name); }}>
+            <button className="tactile-btn" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={() => { playClick(); handleRestoreGame(game.name); }}>
               ↩ Восстановить
             </button>
           ) : (
             <>
               <button
                 className={`tactile-btn ${isForced ? 'active-amber' : ''}`}
-                style={{ height: '24px', fontSize: '10px' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   if (isForced) {
@@ -550,7 +550,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               </button>
               <button
                 className={`tactile-btn ${isInPriority ? 'active-mint' : ''}`}
-                style={{ height: '24px', fontSize: '10px' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   if (isInPriority) onRemoveFromPriority(game.name);
@@ -562,7 +562,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               </button>
               <button
                 className="tactile-btn"
-                style={{ height: '24px', fontSize: '10px' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => { playClick(); onAddToExcluded(game.name); }}
                 title="Скрыть игру / в исключения"
               >
@@ -643,7 +643,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '7px',
                 padding: '4px 22px 4px 10px',
-                fontSize: '11px',
+                fontSize: 'var(--fs-xs)',
                 color: 'var(--text-primary)',
                 outline: 'none',
                 marginLeft: '6px',
@@ -660,7 +660,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   border: 'none',
                   color: 'var(--text-muted)',
                   cursor: 'pointer',
-                  fontSize: '11px',
+                  fontSize: 'var(--fs-xs)',
                   lineHeight: '1',
                   padding: '2px',
                 }}
@@ -706,7 +706,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           {agoLabel(lastSyncAt, nowTick) && (
             <span
-              style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
               title="Когда Sentinel в последний раз успешно запросил кампании у Twitch"
             >
               {agoLabel(lastSyncAt, nowTick)}
@@ -729,7 +729,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               <span className="tag" style={{ color: 'var(--led-amber)' }}>
                 <span title="Журнал полученных наград (Trophies.md)">🏆 Трофеи</span>
               </span>
-              <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={trophyLine}>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={trophyLine}>
                 {trophyLine.replace(/^Трофеи\s*·?\s*/, '')}
               </span>
             </div>
@@ -737,14 +737,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               {activeFilter !== 'claimed' && (
                 <button
                   className="tactile-btn"
-                  style={{ height: '24px', fontSize: '9.5px' }}
+                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => { playClick(); toggleTrophyVault(); }}
                   title="Свернуть или развернуть блок трофеев"
                 >
                   {showTrophyVault ? '▲ Свернуть' : '▼ Развернуть'}
                 </button>
               )}
-              <button className="tactile-btn" style={{ height: '24px', fontSize: '9.5px' }} onClick={handleOpenTrophies}>
+              <button className="tactile-btn" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={handleOpenTrophies}>
                 📄 Открыть Trophies.md
               </button>
             </div>
@@ -757,14 +757,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 const claimTime = item.date || (item as any).claimed_at || 'НЕДАВНО';
                 return (
                   <div key={idx} className="holo-card">
-                    <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--led-mint)' }}>
+                    <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
                       <span>{gameTitle}</span>
                       <span>{claimTime}</span>
                     </div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 800, margin: '4px 0' }}>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, margin: '4px 0' }}>
                       {dropTitle}
                     </div>
-                    <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
+                    <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}>
                       ★ Получено автоматически
                     </div>
                   </div>
@@ -782,14 +782,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             className="titanium-island" 
             style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}
           >
-            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
+            <div style={{ fontSize: 'var(--fs-md)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
               {activeFilter === 'claimed'
                 ? '🏆 Наград пока не собрано'
                 : activeFilter === 'removed'
                   ? 'Список удалённых пуст'
                   : 'Игры не найдены'}
             </div>
-            <div style={{ fontSize: '11.5px', maxWidth: '440px', margin: '0 auto', lineHeight: '1.6' }}>
+            <div style={{ fontSize: 'var(--fs-xs)', maxWidth: '440px', margin: '0 auto', lineHeight: '1.6' }}>
               {activeFilter === 'claimed'
                 ? 'Sentinel автоматически фиксирует полученные трофеи в Trophies.md при каждом завершении кампании. Запустите фарм, и первые трофеи появятся здесь!'
                 : activeFilter === 'removed'
@@ -854,6 +854,20 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   }}
                 >
                   <CartridgeCover name={game.name} boxArt={game.box_art} />
+                  {!isExcluded && !isRemoved && (
+                    <button
+                      className="cover-exclude-btn"
+                      title="Скрыть / в исключения"
+                      aria-label="Исключить"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playClick();
+                        onAddToExcluded(game.name);
+                      }}
+                    >
+                      <span aria-hidden="true">🚫</span><span className="lbl">Исключить</span>
+                    </button>
+                  )}
                   {isLinked && isDropActive && (
                     <div 
                       onClick={(e) => {
@@ -863,14 +877,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       }}
                       style={{
                         position: 'absolute',
-                        top: '6px',
+                        top: '34px',
                         right: '6px',
                         maxWidth: 'calc(100% - 12px)',
                         padding: '2px 6px',
                         borderRadius: '5px',
-                        fontSize: '10px',
+                        fontSize: 'var(--fs-xs)',
                         fontWeight: 800,
-                        fontFamily: "'JetBrains Mono', monospace",
+                        fontFamily: 'var(--font-ui)',
                         background: 'rgba(6, 44, 28, 0.94)',
                         color: 'var(--led-mint)',
                         border: '1px solid rgba(58, 210, 159, 0.5)',
@@ -887,7 +901,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       }}
                       title="Аккаунт привязан к Twitch (нажмите, чтобы изменить статус)"
                     >
-                      <span style={{ fontSize: '10px' }}>✓</span>
+                      <span style={{ fontSize: 'var(--fs-xs)' }}>✓</span>
                       <span>Привязан</span>
                     </div>
                   )}
@@ -895,7 +909,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     <div
                       style={{
                         position: 'absolute',
-                        top: '6px',
+                        top: '34px',
                         right: '6px',
                         maxWidth: 'calc(100% - 12px)',
                         display: 'flex',
@@ -912,9 +926,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         style={{
                           padding: '2px 5px',
                           borderRadius: '5px 0 0 5px',
-                          fontSize: '10px',
+                          fontSize: 'var(--fs-xs)',
                           fontWeight: 800,
-                          fontFamily: "'JetBrains Mono', monospace",
+                          fontFamily: 'var(--font-ui)',
                           background: 'rgba(54, 30, 4, 0.94)',
                           color: 'var(--led-amber)',
                           border: '1px solid rgba(245, 158, 11, 0.5)',
@@ -941,9 +955,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         style={{
                           padding: '2px 5px',
                           borderRadius: '0 5px 5px 0',
-                          fontSize: '10px',
+                          fontSize: 'var(--fs-xs)',
                           fontWeight: 800,
-                          fontFamily: "'JetBrains Mono', monospace",
+                          fontFamily: 'var(--font-ui)',
                           background: 'rgba(58, 210, 159, 0.18)',
                           color: 'var(--led-mint)',
                           border: '1px solid rgba(58, 210, 159, 0.5)',
@@ -961,10 +975,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {game.name}
                   </div>
-                  <div className="tabular" style={{ fontSize: '9.5px', color: subtitleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: subtitleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {subtitle}
                   </div>
                   {(facts.timeLeft || facts.drops || facts.link) && (
@@ -992,7 +1006,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 {isExcluded ? (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', fontSize: '9px', width: '100%' }}
+                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1004,7 +1018,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 ) : isRemoved ? (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', fontSize: '9px', width: '100%' }}
+                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1019,7 +1033,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}
+                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Повысить приоритет (переместить выше в очереди)"
                           disabled={priorityIndex === 0}
                           onClick={(e) => {
@@ -1032,7 +1046,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         </button>
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}
+                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Понизить приоритет (переместить ниже в очереди)"
                           disabled={priorityIndex === priorityList.length - 1}
                           onClick={(e) => {
@@ -1043,7 +1057,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         >
                           ▼
                         </button>
-                        <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>#{priorityIndex + 1}</span>
+                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>#{priorityIndex + 1}</span>
                       </div>
                     ) : <div />}
 
@@ -1051,7 +1065,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       {game.is_installed && (
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 4px', fontSize: '10px' }}
+                          style={{ minHeight: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
                           title="Удалить из списка установленных"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1062,19 +1076,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                           <Trash2 style={{ width: '10px', height: '10px' }} />
                         </button>
                       )}
-                      <button
-                        className="node-chip"
-                        style={{ height: '18px', padding: '0 4px', fontSize: '10px' }}
-                        title="Скрыть / в исключения"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playClick();
-                          const gameName = game.name;
-                          onAddToExcluded(gameName);
-                        }}
-                      >
-                        🚫 Исключить
-                      </button>
                     </div>
                   </div>
                 )}

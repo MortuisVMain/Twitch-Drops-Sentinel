@@ -788,10 +788,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.3.5", f"Version mismatch: {__version__}"
-    assert parse_version("3.3.5") == (3, 3, 5)
+    assert __version__ == "3.4.0", f"Version mismatch: {__version__}"
+    assert parse_version("3.4.0") == (3, 4, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.3.5") > parse_version("3.3.4")
+    assert parse_version("v3.4.0") > parse_version("3.3.5")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -2536,11 +2536,11 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
 
     patch = work / "patch.zip"
     with zipfile.ZipFile(patch, "w") as zf:
-        zf.writestr("Twitch Drops Sentinel v3.3.5/core/version.py", '__version__ = "3.3.5"\n')
-        zf.writestr("Twitch Drops Sentinel v3.3.5/core/new_module.py", "X = 1\n")
+        zf.writestr("Twitch Drops Sentinel v3.4.0/core/version.py", '__version__ = "3.4.0"\n')
+        zf.writestr("Twitch Drops Sentinel v3.4.0/core/new_module.py", "X = 1\n")
         for rel in user_files:
-            zf.writestr(f"Twitch Drops Sentinel v3.3.5/{rel}", "OVERWRITTEN-BY-PATCH")
-        zf.writestr("Twitch Drops Sentinel v3.3.5/../../evil.txt", "traversal")
+            zf.writestr(f"Twitch Drops Sentinel v3.4.0/{rel}", "OVERWRITTEN-BY-PATCH")
+        zf.writestr("Twitch Drops Sentinel v3.4.0/../../evil.txt", "traversal")
     url, server = _serve_zip_once(patch)
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
@@ -2550,7 +2550,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
         updater.PROJECT_DIR = saved_dir
         server.shutdown()
     assert ok, message
-    assert (install / "core" / "version.py").read_text(encoding="utf-8").strip() == '__version__ = "3.3.5"'
+    assert (install / "core" / "version.py").read_text(encoding="utf-8").strip() == '__version__ = "3.4.0"'
     assert (install / "core" / "new_module.py").exists()
     for rel, body in user_files.items():
         assert (install / rel).read_text(encoding="utf-8") == body, f"user file overwritten by the patch: {rel}"
@@ -2564,7 +2564,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     finally:
         updater.PROJECT_DIR = saved_dir
     assert ok is False and "Не удалось загрузить" in message, message
-    assert (install / "core" / "version.py").read_text(encoding="utf-8").strip() == '__version__ = "3.3.5"'
+    assert (install / "core" / "version.py").read_text(encoding="utf-8").strip() == '__version__ = "3.4.0"'
     shutil.rmtree(work, ignore_errors=True)
 
 
@@ -2662,6 +2662,18 @@ def test_giveaways_without_node_explains_what_is_missing():
     assert orch._proc is None, "nothing may be left running after the refusal"
 
 
+def test_english_ui_covers_every_russian_string():
+    print("[i18n] Every Russian string of the UI has an English translation...")
+    node = shutil.which("node")
+    if not node or not (WORKSPACE / "node_modules" / "typescript").exists():
+        print("      SKIP: Node.js or node_modules (npm ci) is missing, the translation check cannot run")
+        return
+    result = subprocess.run([node, str(WORKSPACE / "tools" / "check_i18n.mjs")], cwd=str(WORKSPACE),
+                            capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 0, (result.stdout + result.stderr)[-2000:]
+    print("      " + result.stdout.strip().splitlines()[-1] + " [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2728,6 +2740,7 @@ if __name__ == "__main__":
         test_login_code_copy_and_activate_link,
         test_config_files_saved_with_a_bom_still_load,
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
+        test_english_ui_covers_every_russian_string,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
@@ -2750,7 +2763,7 @@ if __name__ == "__main__":
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
-    print("  ALL 36 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 37 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()
