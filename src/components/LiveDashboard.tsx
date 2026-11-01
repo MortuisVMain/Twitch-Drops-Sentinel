@@ -7,6 +7,7 @@ import {
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
+import { computeIdleInfo } from '../utils/idleInfo';
 
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
@@ -61,30 +62,6 @@ const getChannelName = (drop: ActiveDrop | null | undefined, watchingChannel?: s
 
 const safeLower = (val: any): string => {
   return typeof val === 'string' ? val.toLowerCase().trim() : '';
-};
-
-// "Hunt: Showdown 1896" -> "Hunt", long names are cut so the idle reason stays on one line
-const shortGameName = (name: string): string => {
-  const base = name.split(/:| - /)[0].trim();
-  return base.length > 18 ? `${base.slice(0, 17)}…` : base;
-};
-
-const pluralRu = (n: number, one: string, few: string, many: string): string => {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-};
-
-const formatTimeLeft = (ms: number): string => {
-  const totalMin = Math.max(0, Math.floor(ms / 60000));
-  const days = Math.floor(totalMin / 1440);
-  const hours = Math.floor((totalMin % 1440) / 60);
-  const minutes = totalMin % 60;
-  if (days > 0) return `${days}д ${hours}ч`;
-  if (hours > 0) return `${hours}ч ${minutes}м`;
-  return `${minutes}м`;
 };
 
 export const LiveDashboard: React.FC<LiveDashboardProps> = ({
@@ -372,42 +349,17 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
   // Idle hero: why nothing is being farmed right now, from data already in /api/state
   const isIdle = !(activeDrop && activeGame);
-  const idleInfo = useMemo(() => {
-    const isFinishedGame = (g?: GameItem) =>
-      Boolean(g && (g.is_finished || (g.progress_percent !== undefined && g.progress_percent >= 100)));
-    const queueGames = priorityList.map((name) => ({
-      name,
-      match: allGames.find((g) => safeLower(g.name) === safeLower(name) || smartGameMatch(g.name, name)),
-    }));
-    const workable = queueGames.filter(({ match }) => match?.has_drops && match.is_active_now && !isFinishedGame(match));
-    const shown = queueGames.slice(0, 4).map(({ name }) => shortGameName(name));
-    const more = queueGames.length - shown.length;
-    const listText = `${shown.join(', ')}${more > 0 ? ` и ещё ${more}` : ''}`;
-    let reason: string;
-    if (priorityList.length === 0) {
-      reason = 'Список ТОПа пуст: добавьте игры, чтобы Sentinel мог их фармить';
-    } else if (workable.length > 0) {
-      reason = `Кампании есть (${workable.slice(0, 3).map(({ name }) => shortGameName(name)).join(', ')}), ждём стримеров с дропами`;
-    } else if (settings.priority_mode === 0) {
-      reason = `Для игр из ТОПа (${listText}) нет активных кампаний`;
-    } else {
-      reason = 'Нет активных кампаний для игр в очереди';
-    }
-    const now = Date.now();
-    const upcoming = allGames
-      .filter((g) => g.drops_start_at && new Date(g.drops_start_at).getTime() > now)
-      .sort((a, b) => new Date(a.drops_start_at as string).getTime() - new Date(b.drops_start_at as string).getTime())[0];
-    const outsideCount = activeTwitchDropsGames.filter(
-      (g) => !priorityList.some((p) => safeLower(p) === safeLower(g.name)) && !isFinishedGame(g)
-    ).length;
-    let extra: string | null = null;
-    if (upcoming) {
-      extra = `Ближайшее: ${upcoming.name} — через ${formatTimeLeft(new Date(upcoming.drops_start_at as string).getTime() - now)}`;
-    } else if (outsideCount > 0) {
-      extra = `Доступно вне очереди: ${outsideCount} ${pluralRu(outsideCount, 'кампания', 'кампании', 'кампаний')}`;
-    }
-    return { reason, extra };
-  }, [priorityList, allGames, activeTwitchDropsGames, settings.priority_mode]);
+const idleInfo = useMemo(
+    () =>
+      computeIdleInfo({
+        priorityList,
+        allGames,
+        strictMode: settings.priority_mode === 0,
+        now: Date.now(),
+        smartMatch: smartGameMatch,
+      }),
+    [priorityList, allGames, settings.priority_mode]
+  );
 
   const scrollToOverride = () => {
     playClick();

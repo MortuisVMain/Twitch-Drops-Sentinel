@@ -1741,6 +1741,52 @@ def test_shutdown_aborts_running_giveaways_process():
     assert aborted == [True], "_delayed_stop must abort the giveaways process first"
 
 
+def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
+    print("[audit F-032] Idle hero must not say 'campaigns exist' for claimed or unlinked games...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "idle_check"
+    out_dir.mkdir(exist_ok=True)
+    bundle = out_dir / "idleInfo.mjs"
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "idleInfo.ts"), "--format=esm", f"--outfile={bundle}"],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+
+    now = "2026-11-01T12:00:00.000Z"
+    base = {"has_drops": True, "is_active_now": True, "drops_start_at": "2026-10-30T00:00:00.000Z",
+            "drops_end_at": "2026-11-04T00:00:00.000Z"}
+    games = [
+        # claimed already (trophies exist), backend sends no progress fields
+        {**base, "name": "EVE Online", "is_account_connected": True},
+        # account not linked: backend legitimately skips it
+        {**base, "name": "World of Tanks", "is_account_connected": False, "total_drops": 3, "claimed_drops": 0,
+         "progress_percent": 0.0, "is_finished": False, "account_link_url": "https://example.test/link"},
+        {**base, "name": "Battlefield REDSEC", "is_account_connected": True},
+    ]
+    fixture = {"priorityList": ["EVE Online", "World of Tanks", "Battlefield REDSEC"], "allGames": games, "strictMode": True,
+               "now": 1793534400000}
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { computeIdleInfo, isWorkableCampaign } from './idleInfo.mjs';\n"
+        f"const f = {json.dumps(fixture)};\n"
+        "const info = computeIdleInfo(f);\n"
+        "const live = { ...f.allGames[0], progress_percent: 40, total_drops: 2, claimed_drops: 0 };\n"
+        "console.log(JSON.stringify({ info, liveWorkable: isWorkableCampaign(live), unlinkedWorkable: isWorkableCampaign(f.allGames[1]) }));\n",
+        encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    data = json.loads(run.stdout)
+    assert "Кампании есть" not in data["info"]["reason"], data
+    assert data["info"]["workableNames"] == [], data
+    assert data["liveWorkable"] is True, "A linked campaign with progress below 100% must stay workable"
+    assert data["unlinkedWorkable"] is False, "An unlinked account must not count as workable"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1787,6 +1833,7 @@ if __name__ == "__main__":
     test_console_messages_follow_configured_language()
     test_giveaways_hung_node_process_hits_ceiling()
     test_shutdown_aborts_running_giveaways_process()
+    test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
