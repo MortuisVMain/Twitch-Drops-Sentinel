@@ -1470,6 +1470,30 @@ def test_manual_farm_override_and_native_screendimmer_suite():
 
     print("      Manual Game Farm Override & Native ScreenDimmer Pro: ALL PASS [OK]")
 
+def test_update_check_failure_reports_running_version():
+    print("[audit F-001] Update check failure must report the real running version...")
+    import asyncio, json as _json
+    sys.path.insert(0, str(WORKSPACE / "core"))
+    from sentinel_service import SentinelSupervisor, UPDATER
+    from version import __version__
+
+    def boom(force=False):
+        raise RuntimeError("simulated network failure")
+
+    original = UPDATER.check_for_updates
+    UPDATER.check_for_updates = boom
+    try:
+        class _Req:
+            query = {}
+        resp = asyncio.run(SentinelSupervisor.handle_check_updates(None, _Req()))
+    finally:
+        UPDATER.check_for_updates = original
+    data = _json.loads(resp.text)
+    assert data["has_update"] is False
+    assert data["current_version"] == __version__, data
+    assert data["latest_version"] == __version__, data
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1511,6 +1535,7 @@ if __name__ == "__main__":
     test_shelf_removed_tab_and_startup_sync()
     test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite()
     test_manual_farm_override_and_native_screendimmer_suite()
+    test_update_check_failure_reports_running_version()
     print("=" * 65)
     print("  ALL 36 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)

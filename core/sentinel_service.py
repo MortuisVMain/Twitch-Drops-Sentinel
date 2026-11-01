@@ -158,6 +158,7 @@ from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from game_scanner import GameScanner
 from updater import UPDATER
+from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 
 class LiveLogCaptureHandler(logging.Handler):
@@ -919,8 +920,8 @@ class SentinelSupervisor:
             logger.warning(f"Failed to check for updates (network or timeout): {e}")
             return web.json_response({
                 "has_update": False,
-                "current_version": getattr(UPDATER, "current_version", "3.3.4"),
-                "latest_version": getattr(UPDATER, "current_version", "3.3.4"),
+                "current_version": APP_VERSION,
+                "latest_version": APP_VERSION,
                 "error": str(e)
             })
 
