@@ -161,6 +161,7 @@ from game_scanner import GameScanner
 from updater import UPDATER
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
+from notifications import set_enabled as set_native_toasts
 
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
@@ -293,6 +294,7 @@ class SentinelSupervisor:
         self.twitch_client: Optional[Twitch] = None
         self.scanner = GameScanner()
         self.settings: dict = self.load_settings()
+        set_native_toasts(self.settings.get("native_toasts", True))
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
         self.force_paused = False
@@ -411,6 +413,7 @@ class SentinelSupervisor:
         ]
 
         priority_mode_val = int(self.settings.get("priority_mode", 0))
+        set_native_toasts(self.settings.get("native_toasts", True))
 
         # 2. Save supervisor configuration
         try:

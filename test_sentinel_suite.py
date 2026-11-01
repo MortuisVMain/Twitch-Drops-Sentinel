@@ -2170,6 +2170,76 @@ def test_queue_filter_only_with_campaigns():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_toast_gate_dedup_switch_and_priming():
+    print("[audit F-040] Windows toasts: one per event, the switch is honoured, first run is silent, a restart repeats nothing...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from notifications import ToastGate, MAX_TOASTS_PER_BATCH
+
+    work = SANDBOX / "toast_gate_check"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    store = work / "notified.json"
+    sent = []
+    flag = {"on": True}
+
+    def make_gate():
+        return ToastGate(lambda title, msg: sent.append((title, msg)), lambda: flag["on"], store)
+
+    one = lambda game: f"one {game}"
+    many = lambda games: f"many {len(games)}"
+
+    gate = make_gate()
+    assert gate.notify("drop_claimed", "d1", "T", "m1") is True
+    assert gate.notify("drop_claimed", "d1", "T", "m1") is False, "the same drop must toast once"
+    assert gate.notify("needs_link", "d1", "T", "m1") is True, "another kind with the same id is another event"
+    assert len(sent) == 2
+
+    # switch off: the event is remembered, nothing is sent, and switching on does not replay it
+    flag["on"] = False
+    assert gate.notify("drop_claimed", "d2", "T", "m2") is False
+    flag["on"] = True
+    assert gate.notify("drop_claimed", "d2", "T", "m2") is False
+    assert len(sent) == 2
+
+    # state-derived kinds: the first call only remembers what is already true
+    sent.clear()
+    assert gate.notify_new("campaign_started", [("c1", "A"), ("c2", "B")], "T", one, many) == 0 and sent == []
+    assert gate.notify_new("campaign_started", [("c1", "A"), ("c2", "B"), ("c3", "C")], "T", one, many) == 1
+    assert sent == [("T", "one C")], sent
+    assert gate.notify_new("campaign_started", [("c1", "A"), ("c2", "B"), ("c3", "C")], "T", one, many) == 0
+    sent.clear()
+    burst = [(f"n{i}", f"G{i}") for i in range(MAX_TOASTS_PER_BATCH + 2)]
+    assert gate.notify_new("campaign_started", burst, "T", one, many) == 1, "a burst becomes one summary toast"
+    assert sent == [("T", f"many {MAX_TOASTS_PER_BATCH + 2}")], sent
+
+    # restart: a new gate on the same memory repeats nothing but still toasts genuinely new campaigns
+    sent.clear()
+    gate2 = make_gate()
+    assert gate2.notify("drop_claimed", "d1", "T", "m1") is False
+    assert gate2.notify_new("campaign_started", [("c1", "A"), ("c9", "Z")], "T", one, many) == 1
+    assert sent == [("T", "one Z")], sent
+
+    # switched off while a campaign starts: remembered silently
+    sent.clear()
+    flag["on"] = False
+    assert gate2.notify_new("needs_link", [("l1", "Q")], "T", one, many) == 0
+    flag["on"] = True
+    assert gate2.notify_new("needs_link", [("l1", "Q")], "T", one, many) == 0 and sent == []
+
+    # a damaged memory file must not stop the service
+    store.write_text("{not json", encoding="utf-8")
+    sent.clear()
+    assert make_gate().notify("drop_claimed", "x", "T", "m") is True
+
+    core = SANDBOX / "core"
+    inventory_py = (core / "inventory.py").read_text(encoding="utf-8")
+    assert "NOTIFIER.notify(" in inventory_py and "send_toast_msg" not in inventory_py, "claims must go through the gate"
+    assert "tray.notify(claim_text" not in inventory_py, "the second, ungated claim toast must be gone"
+    assert "_notify_queue_events(priority, exclude)" in (core / "twitch.py").read_text(encoding="utf-8")
+    assert "set_native_toasts(" in (core / "sentinel_service.py").read_text(encoding="utf-8")
+    shutil.rmtree(work, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2224,6 +2294,7 @@ if __name__ == "__main__":
     test_settings_modules_counter_matches_switches()
     test_shelf_facts_trophy_line_and_sync_age()
     test_queue_filter_only_with_campaigns()
+    test_toast_gate_dedup_switch_and_priming()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

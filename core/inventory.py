@@ -230,14 +230,18 @@ class BaseDrop:
             self._twitch.print(
                 _("status", "claimed_drop").format(drop=claim_text.replace('\n', ' '))
             )
-            self._twitch.gui.tray.notify(claim_text, _("gui", "tray", "notification_title"))
 
-            # Sentinel Trophy Vault & Toast Hook
+            # One toast per claimed drop; honours the "Windows notifications" switch
             try:
-                from gui import send_toast_msg
-                send_toast_msg("Twitch Drops Sentinel 🏆", f"Забран трофей: {self.rewards_text()} ({self.campaign.game.name})")
+                from notifications import NOTIFIER
+                NOTIFIER.notify(
+                    "drop_claimed",
+                    self.id,
+                    "Twitch Drops Sentinel 🏆",
+                    f"Получен дроп: {self.rewards_text()} ({self.campaign.game.name})",
+                )
             except Exception as exc:
-                logger.debug("Toast notification failed: %s", exc)
+                logger.warning("Toast notification failed: %s", exc, exc_info=True)
             try:
                 from pathlib import Path
                 trophies_path = Path(__file__).resolve().parent.parent / "Trophies.md"

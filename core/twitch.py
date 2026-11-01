@@ -801,6 +801,7 @@ class Twitch:
                             self.gui.status.update(_("sentinel", "queue_waiting_status").format(count=queue_size))
                         else:
                             logger.info(_("sentinel", "queue_no_campaigns").format(count=queue_size))
+                self._notify_queue_events(priority, exclude)
                 full_cleanup = True
                 self.restart_watching()
                 self.change_state(State.CHANNELS_CLEANUP)
@@ -1066,6 +1067,35 @@ class Twitch:
             await asyncio.wait_for(self._watching_restart.wait(), timeout=delay)
 
     @task_wrapper(critical=True)
+    def _notify_queue_events(self, priority: list[str], exclude: set[str]) -> None:
+        """Windows toasts for games from the queue: a campaign is running / it waits for the account link.
+        Deduplicated per campaign by the notification gate."""
+        try:
+            from notifications import NOTIFIER
+            queue_campaigns = [
+                c for c in self.inventory
+                if c.active
+                and not c.finished
+                and any(smart_game_match(c.game.name, p) for p in priority)
+                and not any(smart_game_match(c.game.name, ex) for ex in exclude)
+            ]
+            NOTIFIER.notify_new(
+                "campaign_started",
+                [(c.id, c.game.name) for c in queue_campaigns if c.linked],
+                "Twitch Drops Sentinel 🎮",
+                lambda game: f"Началась кампания для игры из очереди: {game}",
+                lambda games: f"Начались кампании для игр из очереди ({len(games)}): {', '.join(games[:3])} и другие",
+            )
+            NOTIFIER.notify_new(
+                "needs_link",
+                [(c.id, c.game.name) for c in queue_campaigns if not c.linked],
+                "Twitch Drops Sentinel 🔗",
+                lambda game: f"{game}: кампания ждёт привязки аккаунта игры",
+                lambda games: f"Кампании ждут привязки аккаунта ({len(games)}): {', '.join(games[:3])} и другие",
+            )
+        except Exception as exc:
+            logger.warning("Queue notifications failed: %s", exc, exc_info=True)
+
     async def _watch_loop(self) -> NoReturn:
         interval: float = WATCH_INTERVAL.total_seconds()
         current_streamer_id: int | None = None
