@@ -83,7 +83,6 @@ def _build_sandbox():
             shutil.copy2(root / "config.default.json", root / "config.json")
         if not (root / "Trophies.md").exists():
             (root / "Trophies.md").write_text("# \U0001f3c6 \u0416\u0443\u0440\u043d\u0430\u043b \u0422\u0440\u043e\u0444\u0435\u0435\u0432\n\n| \u0414\u0430\u0442\u0430 | \u0418\u0433\u0440\u0430 | \u0414\u0440\u043e\u043f | \u041a\u0430\u043c\u043f\u0430\u043d\u0438\u044f | \u0421\u0442\u0430\u0442\u0443\u0441 |\n|---|---|---|---|---|\n", encoding="utf-8")
-        (root / "data").mkdir(exist_ok=True)
     if (WORKSPACE / "data").exists():
         shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups"))
     engine_src = WORKSPACE / "giveaways_engine"
