@@ -1742,7 +1742,7 @@ def test_shutdown_aborts_running_giveaways_process():
 
 
 def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
-    print("[audit F-032] Idle hero must not say 'campaigns exist' for claimed or unlinked games...")
+    print("[audit F-032] Shared campaign rules: hero, queue rows and off-queue block must agree...")
     import shutil as _sh
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
     node = _sh.which("node")
@@ -1752,39 +1752,70 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
     out_dir = SANDBOX / "idle_check"
     out_dir.mkdir(exist_ok=True)
     bundle = out_dir / "idleInfo.mjs"
-    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "idleInfo.ts"), "--format=esm", f"--outfile={bundle}"],
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "idleInfo.ts"), "--bundle", "--format=esm", f"--outfile={bundle}"],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    state_bundle = out_dir / "campaignState.mjs"
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm", f"--outfile={state_bundle}"],
                          capture_output=True, text=True, timeout=60)
     assert res.returncode == 0, res.stderr
 
-    now = "2026-11-01T12:00:00.000Z"
     base = {"has_drops": True, "is_active_now": True, "drops_start_at": "2026-10-30T00:00:00.000Z",
             "drops_end_at": "2026-11-04T00:00:00.000Z"}
     games = [
-        # claimed already (trophies exist), backend sends no progress fields
-        {**base, "name": "EVE Online", "is_account_connected": True},
+        # received already (trophies exist), backend sends no progress fields
+        {**base, "name": "EVE Online", "is_account_connected": True, "rewards_count": 1},
         # account not linked: backend legitimately skips it
         {**base, "name": "World of Tanks", "is_account_connected": False, "total_drops": 3, "claimed_drops": 0,
          "progress_percent": 0.0, "is_finished": False, "account_link_url": "https://example.test/link"},
-        {**base, "name": "Battlefield REDSEC", "is_account_connected": True},
+        {**base, "name": "Battlefield REDSEC", "is_account_connected": True, "rewards_count": 1},
+        # in the queue as #83 and closing: must not show up as off-queue
+        {**base, "name": "Albion Online", "is_account_connected": True, "total_drops": 2, "claimed_drops": 0, "progress_percent": 0.0},
+        # not in the queue, everything received
+        {**base, "name": "Castlevania: Belmont's Curse", "is_account_connected": True, "total_drops": 1, "claimed_drops": 1,
+         "progress_percent": 100.0},
+        # not in the queue, live campaign: the only valid off-queue candidate
+        {**base, "name": "Caliber", "is_account_connected": True, "total_drops": 2, "claimed_drops": 0, "progress_percent": 0.0},
+        # no campaign at all
+        {"name": "Hearthstone", "has_drops": False, "is_active_now": False},
     ]
-    fixture = {"priorityList": ["EVE Online", "World of Tanks", "Battlefield REDSEC"], "allGames": games, "strictMode": True,
-               "now": 1793534400000}
+    trophies = [
+        {"id": "1", "date": "2026-11-01 10:00", "game": "EVE Online", "drop_name": "Drop 1", "campaign": "c", "status": "Claimed"},
+        {"id": "2", "date": "2026-11-01 11:00", "game": "Battlefield REDSEC", "drop_name": "Cup", "campaign": "c", "status": "Claimed"},
+        # a trophy from an older campaign must not count
+        {"id": "3", "date": "2026-09-01 11:00", "game": "Caliber", "drop_name": "Old", "campaign": "old", "status": "Claimed"},
+    ]
+    queue = ["EVE Online", "World of Tanks", "Battlefield REDSEC", "Albion Online", "Hearthstone"]
+    fixture = {"priorityList": queue, "allGames": games, "trophies": trophies, "strictMode": True, "now": 1793534400000}
     driver = out_dir / "driver.mjs"
     driver.write_text(
-        "import { computeIdleInfo, isWorkableCampaign } from './idleInfo.mjs';\n"
+        "import { computeIdleInfo, isOffQueueCandidate } from './idleInfo.mjs';\n"
+        "import { getCampaignState, campaignLabel } from './campaignState.mjs';\n"
         f"const f = {json.dumps(fixture)};\n"
         "const info = computeIdleInfo(f);\n"
-        "const live = { ...f.allGames[0], progress_percent: 40, total_drops: 2, claimed_drops: 0 };\n"
-        "console.log(JSON.stringify({ info, liveWorkable: isWorkableCampaign(live), unlinkedWorkable: isWorkableCampaign(f.allGames[1]) }));\n",
+        "const labels = Object.fromEntries(f.allGames.map(g => [g.name, campaignLabel(getCampaignState(g, f.trophies))]));\n"
+        "const offQueue = f.allGames.filter(g => isOffQueueCandidate(g, f.priorityList, f.trophies)).map(g => g.name);\n"
+        "console.log(JSON.stringify({ info, labels, offQueue }));\n",
         encoding="utf-8")
-    run = subprocess.run([node, str(driver)], capture_output=True, text=True, timeout=60)
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
     data = json.loads(run.stdout)
-    assert "Кампании есть" not in data["info"]["reason"], data
-    assert data["info"]["workableNames"] == [], data
-    assert data["info"]["unlinked"] == [{"name": "World of Tanks", "count": 3, "url": "https://example.test/link"}], data["info"]["unlinked"]
-    assert data["liveWorkable"] is True, "A linked campaign with progress below 100% must stay workable"
-    assert data["unlinkedWorkable"] is False, "An unlinked account must not count as workable"
+    info = data["info"]
+    # hero: Albion is the only queue game with something left, so the hero may name it, but never EVE/WoT/REDSEC
+    assert "EVE" not in info["reason"] and "REDSEC" not in info["reason"] and "World of Tanks" not in info["reason"], info
+    assert info["unlinked"] == [{"name": "World of Tanks", "count": 3, "url": "https://example.test/link"}], info["unlinked"]
+    # queue rows use the same rules
+    assert data["labels"]["EVE Online"] == "всё получено", data["labels"]
+    assert data["labels"]["Battlefield REDSEC"] == "всё получено", data["labels"]
+    assert data["labels"]["World of Tanks"] == "привяжите аккаунт", data["labels"]
+    assert data["labels"]["Albion Online"] == "идёт · 2 дропа", data["labels"]
+    assert data["labels"]["Hearthstone"] == "нет кампании", data["labels"]
+    assert data["labels"]["Caliber"] == "идёт · 2 дропа", "an old trophy must not count for the current campaign"
+    # off-queue block: no queue games and nothing already received
+    assert data["offQueue"] == ["Caliber"], data["offQueue"]
+    assert "Albion Online" not in data["offQueue"]
+    assert "Castlevania: Belmont's Curse" not in data["offQueue"]
+    assert "outsideCount" in info and info["outsideCount"] == 1, info
     shutil.rmtree(out_dir, ignore_errors=True)
 
 

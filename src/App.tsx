@@ -2105,6 +2105,7 @@ export const App: React.FC = () => {
               }
 
               allGames={sentinelState.all_catalog_games}
+              trophies={sentinelState.trophies}
 
               forcedGame={sentinelState.forced_game}
 

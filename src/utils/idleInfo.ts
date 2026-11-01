@@ -1,14 +1,16 @@
-import type { GameItem } from '../types';
+import type { GameItem, TrophyItem } from '../types';
+import { getCampaignState, isInQueue, namesMatch, type NameMatcher } from './campaignState';
 
-// Pure model of the idle hero: why nothing is being farmed. No imports besides types so it can be
-// transpiled and tested on its own.
+// Pure model of the idle hero: why nothing is being farmed. Imports only types and the shared
+// campaign rules so it can be transpiled and tested on its own.
 
 export interface IdleInfoInput {
   priorityList: string[];
   allGames: GameItem[];
+  trophies?: TrophyItem[];
   strictMode: boolean;
   now: number;
-  smartMatch?: (a: string, b: string) => boolean;
+  smartMatch?: NameMatcher;
 }
 
 export interface UnlinkedCampaign {
@@ -22,9 +24,8 @@ export interface IdleInfo {
   extra: string | null;
   workableNames: string[];
   unlinked: UnlinkedCampaign[];
+  outsideCount: number;
 }
-
-const lower = (v: unknown): string => (typeof v === 'string' ? v.toLowerCase().trim() : '');
 
 export const shortGameName = (name: string): string => {
   const base = name.split(/:| - /)[0].trim();
@@ -49,50 +50,36 @@ export const formatTimeLeft = (ms: number): string => {
   return `${minutes}м`;
 };
 
-export const hasProgressData = (g: GameItem): boolean =>
-  g.progress_percent !== undefined || g.total_drops !== undefined || g.is_finished !== undefined;
+// Games that are neither in the queue nor already fully received: the "off-queue" set
+export const isOffQueueCandidate = (
+  g: GameItem,
+  priorityList: string[],
+  trophies: TrophyItem[],
+  smartMatch?: NameMatcher
+): boolean => !isInQueue(g.name, priorityList, smartMatch) && getCampaignState(g, trophies, smartMatch).kind !== 'done';
 
-export const isFinishedGame = (g?: GameItem): boolean =>
-  Boolean(
-    g &&
-      (g.is_finished ||
-        (g.total_drops && g.claimed_drops !== undefined && g.claimed_drops >= g.total_drops) ||
-        (g.progress_percent !== undefined && g.progress_percent >= 100))
-  );
-
-// A campaign is worth waiting for only when the account is linked (or unknown-but-not-false), the
-// backend reports progress, and that progress is below 100%. Without progress data (a campaign that
-// may already be claimed) nothing is promised.
-export const isWorkableCampaign = (g?: GameItem): boolean =>
-  Boolean(g && g.has_drops && g.is_active_now && g.is_account_connected !== false && hasProgressData(g) && !isFinishedGame(g));
-
-export const computeIdleInfo = ({ priorityList, allGames, strictMode, now, smartMatch }: IdleInfoInput): IdleInfo => {
+export const computeIdleInfo = ({ priorityList, allGames, trophies = [], strictMode, now, smartMatch }: IdleInfoInput): IdleInfo => {
   const queueGames = priorityList.map((name) => ({
     name,
-    match: allGames.find((g) => lower(g.name) === lower(name) || (smartMatch ? smartMatch(g.name, name) : false)),
+    match: allGames.find((g) => namesMatch(g.name, name, smartMatch)),
   }));
-  const workable = queueGames.filter(({ match }) => isWorkableCampaign(match));
-  const shown = queueGames.slice(0, 4).map(({ name }) => shortGameName(name));
-  const more = queueGames.length - shown.length;
-  const listText = `${shown.join(', ')}${more > 0 ? ` и ещё ${more}` : ''}`;
+  const states = queueGames.map((q) => ({ ...q, state: getCampaignState(q.match, trophies, smartMatch) }));
+  const workable = states.filter((q) => q.state.kind === 'running');
 
   let reason: string;
   if (priorityList.length === 0) {
     reason = 'Очередь пуста: добавьте игры, чтобы Sentinel мог их фармить';
   } else if (workable.length > 0) {
-    reason = `Кампании есть (${workable.slice(0, 3).map(({ name }) => shortGameName(name)).join(', ')}), ждём стримеров с дропами`;
-  } else if (strictMode) {
-    reason = `Для игр из ТОПа (${listText}) нет доступных кампаний`;
+    reason = `Кампании есть (${workable.slice(0, 3).map((q) => shortGameName(q.name)).join(', ')}), ждём стримеров с дропами`;
   } else {
-    reason = 'Нет доступных кампаний для игр в очереди';
+    reason = `Ни для одной из ${priorityList.length} ${pluralRu(priorityList.length, 'игры', 'игр', 'игр')} очереди нет доступных кампаний`;
   }
 
   const upcoming = allGames
     .filter((g) => g.drops_start_at && new Date(g.drops_start_at).getTime() > now)
     .sort((a, b) => new Date(a.drops_start_at as string).getTime() - new Date(b.drops_start_at as string).getTime())[0];
-  const inQueue = (g: GameItem) => priorityList.some((p) => lower(p) === lower(g.name));
   const outsideCount = allGames.filter(
-    (g) => isWorkableCampaign(g) && !inQueue(g)
+    (g) => isOffQueueCandidate(g, priorityList, trophies, smartMatch) && getCampaignState(g, trophies, smartMatch).kind === 'running'
   ).length;
   let extra: string | null = null;
   if (upcoming) {
@@ -100,13 +87,10 @@ export const computeIdleInfo = ({ priorityList, allGames, strictMode, now, smart
   } else if (outsideCount > 0) {
     extra = `Доступно вне очереди: ${outsideCount} ${pluralRu(outsideCount, 'кампания', 'кампании', 'кампаний')}`;
   }
-  // Queue games with a live campaign that cannot be farmed until the game account is linked
-  const unlinked: UnlinkedCampaign[] = queueGames
-    .filter(({ match }) => match && match.has_drops && match.is_active_now && match.is_account_connected === false && !isFinishedGame(match))
-    .map(({ name, match }) => {
-      const m = match as GameItem;
-      const left = m.total_drops !== undefined ? Math.max(0, m.total_drops - (m.claimed_drops || 0)) : m.rewards_count || 1;
-      return { name, count: left, url: m.account_link_url || null };
-    });
-  return { reason, extra, workableNames: workable.map(({ name }) => name), unlinked };
+
+  const unlinked: UnlinkedCampaign[] = states
+    .filter((q) => q.state.kind === 'link')
+    .map((q) => ({ name: q.name, count: q.state.remaining, url: q.state.linkUrl }));
+
+  return { reason, extra, workableNames: workable.map((q) => q.name), unlinked, outsideCount };
 };

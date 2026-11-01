@@ -4,7 +4,7 @@ import {
   Search, X, RotateCcw, Flame, CheckCircle2, Tv, AlertTriangle,
   ChevronUp, ChevronDown
 } from 'lucide-react';
-import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem } from '../types';
+import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
 import { computeIdleInfo, pluralRu, shortGameName } from '../utils/idleInfo';
@@ -24,6 +24,7 @@ export interface LiveDashboardProps {
   oauthCode?: string | null;
   oauthUri?: string | null;
   allGames?: GameItem[];
+  trophies?: TrophyItem[];
   onAddToPriority?: (gameName: string) => void;
   onRemoveFromPriority?: (gameName: string) => void;
   onToggleAutoShutdown: () => void;
@@ -79,6 +80,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   oauthCode,
   oauthUri,
   allGames = [],
+  trophies = [],
   onAddToPriority,
   onRemoveFromPriority,
   onSwitchStreamer,
@@ -349,16 +351,17 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
   // Idle hero: why nothing is being farmed right now, from data already in /api/state
   const isIdle = !(activeDrop && activeGame);
-const idleInfo = useMemo(
+  const idleInfo = useMemo(
     () =>
       computeIdleInfo({
         priorityList,
         allGames,
+        trophies,
         strictMode: settings.priority_mode === 0,
         now: Date.now(),
         smartMatch: smartGameMatch,
       }),
-    [priorityList, allGames, settings.priority_mode]
+    [priorityList, allGames, trophies, settings.priority_mode]
   );
 
   const scrollToOverride = () => {
