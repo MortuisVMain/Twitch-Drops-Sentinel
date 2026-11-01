@@ -7,7 +7,7 @@ import {
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
-import { computeIdleInfo, pluralRu, shortGameName } from '../utils/idleInfo';
+import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { campaignLabel, getCampaignState, type CampaignState } from '../utils/campaignState';
 
 export interface LiveDashboardProps {
@@ -317,7 +317,8 @@ const state = getCampaignState(match, trophies, smartGameMatch);
 
   // Manual focus candidates: closing soon first, then live campaigns, finished, the rest
   const overrideAll = useMemo(() => {
-    let list = allGames.filter((g) => g.has_drops || g.is_installed);
+    // off-queue only: not in the queue (same matcher as everywhere) and not already fully received
+    let list = allGames.filter((g) => (g.has_drops || g.is_installed) && isOffQueueCandidate(g, priorityList, trophies, smartGameMatch));
     if (overrideFilter.trim()) {
       const q = safeLower(overrideFilter);
       list = list.filter((g) => safeLower(g.name).includes(q));
@@ -330,7 +331,7 @@ const state = getCampaignState(match, trophies, smartGameMatch);
       return 3;
     };
     return [...list].sort((x, y) => rank(x) - rank(y));
-  }, [allGames, overrideFilter, endingSoonByGame]);
+  }, [allGames, overrideFilter, endingSoonByGame, priorityList, trophies]);
   const OVERRIDE_VISIBLE = 6;
   const overrideGames = overrideAll.slice(0, OVERRIDE_VISIBLE);
 
