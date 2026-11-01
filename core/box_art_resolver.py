@@ -203,11 +203,39 @@ if __name__ == "__main__":
 
 async def head_ok(session: aiohttp.ClientSession, url: str) -> bool:
     try:
-        async with session.head(url, timeout=aiohttp.ClientTimeout(total=5), allow_redirects=True) as resp:
+        # no redirects: Twitch answers an unknown cover name with a 302 to a placeholder, which is not a cover
+        async with session.head(url, timeout=aiohttp.ClientTimeout(total=5), allow_redirects=False) as resp:
             return resp.status == 200
     except Exception as exc:
         logger.debug("HEAD %s failed: %s", url, exc)
         return False
+
+
+TWITCH_GQL = "https://gql.twitch.tv/gql"
+TWITCH_PUBLIC_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
+
+
+async def twitch_cover(session: aiohttp.ClientSession, title: str) -> str | None:
+    """285x380 box art of the Twitch category whose name matches the title closely (None otherwise)."""
+    from cover_keeper import same_game
+    query = {"query": "query($q: String!) { searchCategories(query: $q, first: 6) { edges { node { displayName boxArtURL } } } }",
+             "variables": {"q": title}}
+    try:
+        async with session.post(TWITCH_GQL, json=query, headers={"Client-ID": TWITCH_PUBLIC_CLIENT_ID},
+                                timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+    except Exception as exc:
+        logger.debug("Twitch category search failed for %s: %s", title, exc)
+        return None
+    edges = (((data or {}).get("data") or {}).get("searchCategories") or {}).get("edges") or []
+    for edge in edges:
+        node = edge.get("node") or {}
+        art = node.get("boxArtURL") or ""
+        if art and same_game(title, node.get("displayName", "")):
+            return art.replace("{width}", "285").replace("{height}", "380")
+    return None
 
 
 async def keep_covers_alive(games: list) -> int:
@@ -219,8 +247,13 @@ async def keep_covers_alive(games: list) -> int:
             return await head_ok(session, url)
 
         async def search(name: str) -> list:
-            await asyncio.sleep(0.2)  # be polite to the Steam search
-            resolved = await resolve_game_assets(session, name)
+            from cover_keeper import normalize_game_name
+            title = normalize_game_name(name)
+            await asyncio.sleep(0.2)  # be polite to the search endpoints
+            twitch = await twitch_cover(session, title)
+            if twitch:
+                return [twitch]
+            resolved = await resolve_game_assets(session, title)
             return list(resolved["urls"]) if resolved else []
 
         return await COVER_KEEPER.refresh(games, head, search)

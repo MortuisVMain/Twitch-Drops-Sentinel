@@ -124,3 +124,47 @@ class CoverKeeper:
 
 
 COVER_KEEPER = CoverKeeper()
+
+
+# ---------- game names from folders -> searchable titles ----------
+_ABBREVIATIONS = {"pvz": "Plants vs. Zombies", "ac": "Assassin's Creed"}
+_CAMEL_SPLIT = [
+    (re.compile(r"(?<=[a-z])(?=[A-Z])"), " "),   # ItTakesTwo -> It Takes Two
+    (re.compile(r"(?<=[A-Za-z])(?=\d)"), " "),   # Breathedge2 -> Breathedge 2
+]
+
+
+def normalize_game_name(name: str) -> str:
+    """Turn a folder-style game name into the title a store would list:
+    ItTakesTwo -> It Takes Two, Breathedge2 -> Breathedge 2, "A - B" -> "A: B", PVZ -> Plants vs. Zombies,
+    40000 -> 40,000, and no (R)/(TM) marks."""
+    text = re.sub(r"[\u00ae\u2122\u00a9]", "", name or "").strip()
+    words = []
+    for word in text.split():
+        if word.lower() in _ABBREVIATIONS:
+            words.append(_ABBREVIATIONS[word.lower()])
+            continue
+        # CamelCase only for a single glued word (a folder name), never inside brands like "Marvel's"
+        if re.fullmatch(r"[A-Za-z]+\d*", word) and len(re.findall(r"[A-Z]", word)) >= 2:
+            for pattern, repl in _CAMEL_SPLIT:
+                word = pattern.sub(repl, word)
+        elif re.fullmatch(r"[A-Za-z]{3,}\d", word):
+            word = _CAMEL_SPLIT[1][0].sub(" ", word)
+        words.append(word)
+    text = " ".join(words)
+    text = re.sub(r"\s+-\s+", ": ", text)
+    text = re.sub(r"\b(\d{2,3})000\b", lambda m: f"{m.group(1)},000", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _compact(title: str) -> str:
+    return re.sub(r"[^a-z0-9\u0430-\u044f]+", "", (title or "").lower())
+
+
+def same_game(query: str, candidate: str) -> bool:
+    """High-similarity test between a (normalised) folder name and a store title; a different game is worse than a placeholder."""
+    from box_art_resolver import is_verified_match
+    q, c = normalize_game_name(query), normalize_game_name(candidate)
+    if not q or not c:
+        return False
+    return _compact(q) == _compact(c) or is_verified_match(q, c)

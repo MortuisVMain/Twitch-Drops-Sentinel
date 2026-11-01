@@ -2453,6 +2453,42 @@ def test_cover_keeper_replaces_broken_and_missing_covers():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_cover_search_names_and_non_game_filter():
+    print("[round5] Covers by name: folder names are normalised, only a close title is accepted, utilities are not games...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from cover_keeper import normalize_game_name, same_game
+    cases = {
+        "ItTakesTwo": "It Takes Two",
+        "Breathedge2": "Breathedge 2",
+        "Marvel's SpiderMan - Miles Morales": "Marvel's Spider Man: Miles Morales",
+        "PVZ Replanted": "Plants vs. Zombies Replanted",
+        "Warhammer 40000 Mechanicus II": "Warhammer 40,000 Mechanicus II",
+        "PlayStation\u00ae Accessories": "Play Station Accessories",
+        "Hearthstone": "Hearthstone",
+        "StarCraft II": "Star Craft II",
+    }
+    for raw, want in cases.items():
+        assert normalize_game_name(raw) == want, (raw, normalize_game_name(raw), want)
+    assert "\u00ae" not in normalize_game_name("Game\u00ae\u2122")
+    # accepted: the same game under the store's spelling
+    assert same_game("ItTakesTwo", "It Takes Two")
+    assert same_game("Marvel's SpiderMan - Miles Morales", "Marvel's Spider-Man: Miles Morales")
+    assert same_game("Marvels Spider-Man 2", "Marvel's Spider-Man 2")
+    assert same_game("StarCraft II", "StarCraft II")
+    assert same_game("Breathedge2", "Breathedge 2")
+    # refused: a different game, a sequel, a lookalike
+    assert not same_game("Breathedge2", "Breathedge")
+    assert not same_game("Marvel's SpiderMan - Remastered", "Marvel's Spider-Man 2")
+    assert not same_game("Hearthstone", "Hearthstorm")
+    assert not same_game("StarCraft II", "StarCraft: Remastered")
+    assert not same_game("", "Anything")
+    from game_scanner import NON_GAME_NAMES
+    assert NON_GAME_NAMES.search("PlayStation\u00ae Accessories") and NON_GAME_NAMES.search("REDlauncher")
+    assert not NON_GAME_NAMES.search("Cyberpunk 2077") and not NON_GAME_NAMES.search("Hearthstone")
+    svc = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "NON_GAME_NAMES.search(" in svc, "scanned utilities must be hidden from the catalog"
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2513,6 +2549,7 @@ if __name__ == "__main__":
         test_listed_but_unfarmable_campaign_never_reads_as_available,
         test_campaign_dates_line,
         test_cover_keeper_replaces_broken_and_missing_covers,
+        test_cover_search_names_and_non_game_filter,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
