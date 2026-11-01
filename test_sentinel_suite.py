@@ -1388,7 +1388,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     assert "0.8 GB" not in dash_tsx, "LiveDashboard must not contain '0.8 GB сэкономлено'"
     assert "Spade Stealth: 0% GPU" not in dash_tsx, "LiveDashboard must not contain Spade Stealth GPU mock"
     assert "Streamless WebSocket Protocol: 0% нагрузки на GPU" not in dash_tsx, "LiveDashboard must not contain 0% GPU banner"
-    assert "Фарм активен" in dash_tsx, "LiveDashboard must show clean '● Фарм активен' badge"
+    assert "Ожидание кампаний" in dash_tsx, "LiveDashboard must render the dedicated idle hero (Ожидание кампаний)"
 
     # 2. Giveaways Engine Self-Containment
     fgc_local = WORKSPACE / "giveaways_engine"
