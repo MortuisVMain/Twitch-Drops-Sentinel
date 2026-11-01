@@ -1579,6 +1579,62 @@ def test_update_check_failure_reports_running_version():
     assert data["latest_version"] == __version__, data
 
 
+def test_campaigns_fetcher_backoff_retry_after_and_fresh_cache():
+    print("[audit F-020] Campaigns API client: Retry-After, exponential backoff, fresh-cache startup...")
+    import email.message
+    import urllib.error
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import campaigns_fetcher as cf
+
+    calls = []
+
+    def make_urlopen(code, retry_after=None):
+        def fake(req, timeout=None):
+            calls.append(code)
+            headers = email.message.Message()
+            if retry_after is not None:
+                headers["Retry-After"] = str(retry_after)
+            raise urllib.error.HTTPError(req.full_url, code, "err", headers, None)
+        return fake
+
+    real_urlopen = cf.urllib.request.urlopen
+    try:
+        fetcher = cf.CampaignsFetcher()
+        fetcher._cached_campaigns = [{"id": "cached"}]
+
+        # 429 with Retry-After: one request, then blocked even for force=True.
+        cf.urllib.request.urlopen = make_urlopen(429, retry_after=120)
+        assert fetcher.fetch_sync(force=True) == [{"id": "cached"}]
+        assert len(calls) == 1
+        assert fetcher._blocked_until - time.time() >= 119, "Retry-After must be honoured"
+        fetcher.fetch_sync(force=True)
+        assert len(calls) == 1, "No request may be sent while blocked"
+
+        # Without Retry-After the delay grows exponentially (with jitter).
+        fetcher._fail_count = 0
+        fetcher._blocked_until = 0
+        calls.clear()
+        cf.urllib.request.urlopen = make_urlopen(500)
+        fetcher.fetch_sync(force=True)
+        first = fetcher._blocked_until - time.time()
+        fetcher._blocked_until = 0
+        fetcher.fetch_sync(force=True)
+        second = fetcher._blocked_until - time.time()
+        assert len(calls) == 2 and second > first > 30, (first, second)
+
+        # Fresh cache: startup must not call the API.
+        fetcher._blocked_until = 0
+        fetcher._fail_count = 0
+        calls.clear()
+        fetcher._last_fetch_time = time.time() - 600
+        fetcher.fetch_sync(max_age=900)
+        assert not calls, "Cache younger than max_age must not trigger a request"
+        fetcher.fetch_sync()
+        assert len(calls) == 1, "Default max_age (5 min) must refetch a 10 min old cache"
+    finally:
+        cf.urllib.request.urlopen = real_urlopen
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1621,6 +1677,7 @@ if __name__ == "__main__":
     test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite()
     test_manual_farm_override_and_native_screendimmer_suite()
     test_update_check_failure_reports_running_version()
+    test_campaigns_fetcher_backoff_retry_after_and_fresh_cache()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
