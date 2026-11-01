@@ -1631,3 +1631,17 @@
   }
   .store-pod-header { flex-wrap: wrap; gap: 2px 6px; }
   .store-select-badge { white-space: nowrap; }
+
+  /* Exclude button on the cover corner: icon only, label on hover or when the cover is wide */
+  .cartridge-card > div:first-of-type { container-type: inline-size; }
+  .cover-exclude-btn {
+    position: absolute; top: 6px; right: 6px; z-index: 4; display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px; min-height: 24px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+    font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 700; color: #F3F5F8;
+    background: rgba(8, 10, 14, 0.78); border: 1px solid rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  }
+  .cover-exclude-btn:hover, .cover-exclude-btn:focus-visible { background: rgba(8, 10, 14, 0.92); border-color: var(--led-rose); outline: none; }
+  .cover-exclude-btn .lbl { display: none; }
+  .cover-exclude-btn:hover .lbl, .cover-exclude-btn:focus-visible .lbl { display: inline; }
+  @container (min-width: 11rem) { .cover-exclude-btn .lbl { display: inline; } }

@@ -854,6 +854,20 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   }}
                 >
                   <CartridgeCover name={game.name} boxArt={game.box_art} />
+                  {!isExcluded && !isRemoved && (
+                    <button
+                      className="cover-exclude-btn"
+                      title="Скрыть / в исключения"
+                      aria-label="Исключить"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playClick();
+                        onAddToExcluded(game.name);
+                      }}
+                    >
+                      <span aria-hidden="true">🚫</span><span className="lbl">Исключить</span>
+                    </button>
+                  )}
                   {isLinked && isDropActive && (
                     <div 
                       onClick={(e) => {
@@ -863,7 +877,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       }}
                       style={{
                         position: 'absolute',
-                        top: '6px',
+                        top: '34px',
                         right: '6px',
                         maxWidth: 'calc(100% - 12px)',
                         padding: '2px 6px',
@@ -895,7 +909,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     <div
                       style={{
                         position: 'absolute',
-                        top: '6px',
+                        top: '34px',
                         right: '6px',
                         maxWidth: 'calc(100% - 12px)',
                         display: 'flex',
@@ -1062,19 +1076,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                           <Trash2 style={{ width: '10px', height: '10px' }} />
                         </button>
                       )}
-                      <button
-                        className="node-chip"
-                        style={{ minHeight: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
-                        title="Скрыть / в исключения"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playClick();
-                          const gameName = game.name;
-                          onAddToExcluded(gameName);
-                        }}
-                      >
-                        🚫 Исключить
-                      </button>
                     </div>
                   </div>
                 )}
