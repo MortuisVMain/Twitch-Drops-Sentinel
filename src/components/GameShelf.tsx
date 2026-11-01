@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
@@ -122,7 +123,23 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   // 1. All useState hooks declared cleanly at the top to prevent TDZ errors
   const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed'>('all');
   const [removedKeys, setRemovedKeys] = useState<string[]>(ignoredGames || []);
-  const [showTrophyVault, setShowTrophyVault] = useState<boolean>(true);
+  const [showTrophyVault, setShowTrophyVault] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sentinel_trophy_vault_open') === '1';
+    } catch (err) {
+      console.warn('GameShelf: localStorage недоступен', err);
+      return false;
+    }
+  });
+  const toggleTrophyVault = () => {
+    const next = !showTrophyVault;
+    setShowTrophyVault(next);
+    try {
+      localStorage.setItem('sentinel_trophy_vault_open', next ? '1' : '0');
+    } catch (err) {
+      console.warn('GameShelf: не удалось сохранить состояние блока трофеев', err);
+    }
+  };
   const [syncLabel, setSyncLabel] = useState<string>('↻ Синхронизировать Drops');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortMode, setSortMode] = useState<CampaignSortMode>(() => {
@@ -416,46 +433,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     return claimedGames.size;
   }, [games, claimedTrophiesByGame]);
 
+  const vaultOpen = activeFilter === 'claimed' || showTrophyVault;
+  const trophyLine = useMemo(() => lastTrophyLine(trophies, claimedCount), [trophies, claimedCount]);
+
   const removedCount = useMemo(() => {
     return allRemovedLower.size;
   }, [allRemovedLower]);
 
-  // Fallback demo trophies if none loaded yet
-  const displayTrophies = useMemo(() => {
-    if (trophies && trophies.length > 0) return trophies.slice(0, 9);
-    return [
-      {
-        id: 'tr-001',
-        game: 'RUST • TWITCH RIVALS',
-        name: 'Tactical Thompson & Metal Mask',
-        drop_name: 'Tactical Thompson & Metal Mask',
-        date: '2026-10-24',
-        claimed_at: '2026-10-24',
-        campaign: 'Twitch Rivals',
-        status: 'CLAIMED',
-      },
-      {
-        id: 'tr-002',
-        game: 'THE WITCHER 3: WILD HUNT',
-        name: 'Dwarven Spirit & Gwent Pack',
-        drop_name: 'Dwarven Spirit & Gwent Pack',
-        date: '2026-10-22',
-        claimed_at: '2026-10-22',
-        campaign: 'Witcher 3 Anniversary',
-        status: 'CLAIMED',
-      },
-      {
-        id: 'tr-003',
-        game: 'HITMAN WORLD OF ASSASSINATION',
-        name: 'Duck Suit & Explosive Device',
-        drop_name: 'Duck Suit & Explosive Device',
-        date: '2026-10-19',
-        claimed_at: '2026-10-19',
-        campaign: 'Duck Festival',
-        status: 'CLAIMED',
-      },
-    ];
-  }, [trophies]);
+  const displayTrophies = useMemo(() => trophies.slice(0, 9), [trophies]);
 
   return (
     <div id="view-shelf" className="view-tab" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -476,7 +461,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           </button>
           <button 
             className={`tactile-btn ${activeFilter === 'claimed' ? 'active-amber' : ''}`}
-            onClick={() => { playClick(); setActiveFilter('claimed'); setShowTrophyVault(true); }}
+            onClick={() => { playClick(); setActiveFilter('claimed'); }}
             title="Показать игры с полученными наградами и блок трофеев"
           >
             🏆 Собрано ({claimedCount})
@@ -559,54 +544,59 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         </button>
       </div>
 
-      {/* Collapsible 3D Trophy Showcase (#holoTrophyVault) 1-to-1 with SPEC */}
-      {(showTrophyVault || activeFilter === 'claimed') && (
-        <div id="holoTrophyVault" className="titanium-island">
-          <div className="engraved-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {/* Trophies: one line on the campaigns tab (expandable, remembered), always open on "Собрано" */}
+      {(activeFilter === 'all' || activeFilter === 'claimed') && (
+        <div id="holoTrophyVault" className="titanium-island" style={vaultOpen ? undefined : { padding: '6px 14px' }}>
+          <div
+            className="engraved-header"
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...(vaultOpen ? {} : { margin: 0, padding: 0, borderBottom: 'none' }) }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <span className="tag" style={{ color: 'var(--led-amber)' }}>
-                <span title="Коллекционная 3D-витрина трофеев (Trophies.md)">🏆 ТРОФЕИ</span>
+                <span title="Журнал полученных наград (Trophies.md)">🏆 Трофеи</span>
               </span>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                🏆 Трофеи • {claimedCount} игр с наградами
+              <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={trophyLine}>
+                {trophyLine.replace(/^Трофеи\s*·?\s*/, '')}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button 
-                className="tactile-btn" 
-                style={{ height: '24px', fontSize: '9.5px' }} 
-                onClick={() => setShowTrophyVault(prev => !prev)}
-                title="Свернуть или развернуть блок трофеев"
-              >
-                {showTrophyVault ? '▲ Свернуть' : '▼ 🏆 Трофеи'}
-              </button>
-              <button className="tactile-btn" style={{ height: '24px' }} onClick={handleOpenTrophies}>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              {activeFilter !== 'claimed' && (
+                <button
+                  className="tactile-btn"
+                  style={{ height: '24px', fontSize: '9.5px' }}
+                  onClick={() => { playClick(); toggleTrophyVault(); }}
+                  title="Свернуть или развернуть блок трофеев"
+                >
+                  {showTrophyVault ? '▲ Свернуть' : '▼ Развернуть'}
+                </button>
+              )}
+              <button className="tactile-btn" style={{ height: '24px', fontSize: '9.5px' }} onClick={handleOpenTrophies}>
                 📄 Открыть Trophies.md
               </button>
             </div>
           </div>
-          {showTrophyVault && (
-          <div className="holo-trophy-grid">
-            {displayTrophies.map((item, idx) => {
-              const gameTitle = item.game || (item as any).game_name || item.campaign || 'DROPS EVENT';
-              const dropTitle = item.drop_name || (item as any).name || 'Unlocked In-Game Trophy';
-              const claimTime = item.date || (item as any).claimed_at || 'НЕДАВНО';
-              return (
-                <div key={idx} className="holo-card">
-                  <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--led-mint)' }}>
-                    <span>{gameTitle}</span>
-                    <span>{claimTime}</span>
+          {vaultOpen && displayTrophies.length > 0 && (
+            <div className="holo-trophy-grid">
+              {displayTrophies.map((item, idx) => {
+                const gameTitle = item.game || (item as any).game_name || item.campaign || 'DROPS EVENT';
+                const dropTitle = item.drop_name || (item as any).name || 'Unlocked In-Game Trophy';
+                const claimTime = item.date || (item as any).claimed_at || 'НЕДАВНО';
+                return (
+                  <div key={idx} className="holo-card">
+                    <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--led-mint)' }}>
+                      <span>{gameTitle}</span>
+                      <span>{claimTime}</span>
+                    </div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 800, margin: '4px 0' }}>
+                      {dropTitle}
+                    </div>
+                    <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
+                      ★ Получено автоматически
+                    </div>
                   </div>
-                  <div style={{ fontSize: '13.5px', fontWeight: 800, margin: '4px 0' }}>
-                    {dropTitle}
-                  </div>
-                  <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
-                    ★ Получено автоматически
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
