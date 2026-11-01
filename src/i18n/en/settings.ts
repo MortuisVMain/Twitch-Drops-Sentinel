@@ -71,6 +71,8 @@ export const SETTINGS: Record<string, string> = {
   'ПРИ ЗАКРЫТИИ ОКНА:': 'ON WINDOW CLOSE:',
   'ЯЗЫК ИНТЕРФЕЙСА:': 'INTERFACE LANGUAGE:',
   'РАЗМЕР ТЕКСТА:': 'TEXT SIZE:',
+  'Размер текста': 'Text size',
+  'Сбросить (100 %)': 'Reset (100 %)',
   'Крупнее текст: удобнее читать, на экране помещается меньше': 'Larger text: easier to read, less fits on screen',
   'ПОСЛЕ ОЧЕРЕДИ:': 'AFTER THE QUEUE:',
   '🌙 Сон (Sleep)': '🌙 Sleep',

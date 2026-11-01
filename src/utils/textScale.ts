@@ -1,20 +1,27 @@
 // "Размер текста": scales html font-size, so every rem-based size (type scale, Tailwind) follows.
-export const TEXT_SCALES = [100, 115, 130] as const;
-export type TextScale = (typeof TEXT_SCALES)[number];
+export const TEXT_SCALE_MIN = 70;
+export const TEXT_SCALE_MAX = 130;
+export const TEXT_SCALE_STEP = 5;
+export const TEXT_SCALE_DEFAULT = 100;
+export type TextScale = number;
 
 const STORAGE_KEY = 'sentinel_ui_text_scale';
 const API_SETTINGS = 'http://127.0.0.1:28492/api/settings';
 
-function normalize(value: unknown): TextScale {
+/** Any input -> a multiple of 5 in 70..130; missing or non-numeric input -> 100. */
+export function normalizeTextScale(value: unknown): TextScale {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return TEXT_SCALE_DEFAULT;
   const n = Number(value);
-  return (TEXT_SCALES as readonly number[]).includes(n) ? (n as TextScale) : 100;
+  if (!Number.isFinite(n)) return TEXT_SCALE_DEFAULT;
+  const stepped = Math.round(n / TEXT_SCALE_STEP) * TEXT_SCALE_STEP;
+  return Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, stepped));
 }
 
 let current: TextScale = (() => {
   try {
-    return normalize(localStorage.getItem(STORAGE_KEY));
+    return normalizeTextScale(localStorage.getItem(STORAGE_KEY));
   } catch {
-    return 100;
+    return TEXT_SCALE_DEFAULT;
   }
 })();
 
@@ -22,14 +29,16 @@ export function getTextScale(): TextScale {
   return current;
 }
 
-export function applyTextScale(scale: TextScale): void {
+export function applyTextScale(raw: TextScale): void {
+  const scale = normalizeTextScale(raw);
   current = scale;
   document.documentElement.style.fontSize = `${(16 * scale) / 100}px`;
   document.documentElement.dataset.textScale = String(scale);
 }
 
 /** Applies at once (no reload) and saves to localStorage and config.json (ui_text_scale). */
-export async function setTextScale(scale: TextScale): Promise<void> {
+export async function setTextScale(raw: TextScale): Promise<void> {
+  const scale = normalizeTextScale(raw);
   applyTextScale(scale);
   try {
     localStorage.setItem(STORAGE_KEY, String(scale));
@@ -50,7 +59,7 @@ export async function setTextScale(scale: TextScale): Promise<void> {
 /** config.json is the source of truth after a reinstall or on another WebView profile. */
 export function followBackendTextScale(value: unknown): void {
   if (value === undefined || value === null) return;
-  const scale = normalize(value);
+  const scale = normalizeTextScale(value);
   if (scale === current) return;
   applyTextScale(scale);
   try {

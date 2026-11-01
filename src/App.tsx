@@ -1110,7 +1110,7 @@ export const App: React.FC = () => {
 
         <div 
 
-          className="header-drag-zone" 
+          className="header-drag-zone" data-overflow-ok 
 
           onMouseDown={handleHeaderMouseDown} 
 

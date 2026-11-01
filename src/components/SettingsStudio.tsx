@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
-import { TEXT_SCALES, getTextScale, setTextScale } from '../utils/textScale';
+import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 
@@ -464,15 +464,24 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
           <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }} title="Крупнее текст: удобнее читать, на экране помещается меньше">
             <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>РАЗМЕР ТЕКСТА:</span>
-            {TEXT_SCALES.map((value) => (
-              <button
-                key={value}
-                className={`tactile-btn ${textScale === value ? 'active-amber' : ''}`}
-                onClick={() => { playClick(); setTextScaleState(value); void setTextScale(value); }}
-              >
-                {value}%
-              </button>
-            ))}
+            <input
+              type="range"
+              min={TEXT_SCALE_MIN}
+              max={TEXT_SCALE_MAX}
+              step={TEXT_SCALE_STEP}
+              value={textScale}
+              aria-label="Размер текста"
+              onChange={(e) => { const value = Number(e.target.value); setTextScaleState(value); void setTextScale(value); }}
+              style={{ flex: '1 1 8rem', minWidth: '6rem', maxWidth: '16rem', accentColor: 'var(--led-mint)', cursor: 'pointer' }}
+            />
+            <span className="tabular" style={{ minWidth: '3.2em', fontWeight: 700, color: 'var(--led-amber)' }}>{textScale}%</span>
+            <button
+              className="tactile-btn"
+              disabled={textScale === TEXT_SCALE_DEFAULT}
+              onClick={() => { playClick(); setTextScaleState(TEXT_SCALE_DEFAULT); void setTextScale(TEXT_SCALE_DEFAULT); }}
+            >
+              Сбросить (100 %)
+            </button>
           </div>
 
           {/* Luna Cascade Box 1-to-1 with SPEC */}

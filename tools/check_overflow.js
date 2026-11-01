@@ -3,10 +3,11 @@
 //   clipped-x   content wider than its box (scrollWidth > clientWidth + 1) without an ellipsis/line-clamp rule
 //   clipped-y   overflow:hidden box whose text is cut off vertically (no line-clamp)
 //   off-window  element sticks out of the window width
-//   tiny-text   text rendered smaller than 12 px
+//   tiny-text   text smaller than 12 px x text scale (12 px at 100 %, 8.4 px at 70 %)
 // Opt out a node on purpose with the attribute data-overflow-ok (canvas backdrops, decorative layers).
 (function () {
-  var MIN_FONT_PX = 12;
+  // 12 px at 100 %: the floor moves with "Размер текста" (html font-size / 16)
+  function minFontPx() { return 12 * parseFloat(getComputedStyle(document.documentElement).fontSize) / 16; }
 
   function visible(el) {
     var r = el.getBoundingClientRect();
@@ -46,7 +47,7 @@
       if (/^(SCRIPT|STYLE|CANVAS|SVG|PATH|IMG|BR)$/i.test(el.tagName) || el.closest('[data-overflow-ok]') || !visible(el)) continue;
       var cs = getComputedStyle(el);
       var text = ownText(el);
-      if (text && parseFloat(cs.fontSize) < MIN_FONT_PX - 0.01) {
+      if (text && parseFloat(cs.fontSize) < minFontPx() - 0.01) {
         found.push({ kind: 'tiny-text', el: label(el), detail: cs.fontSize + ' "' + text.slice(0, 40) + '"' });
       }
       if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0 && !clipsText(cs) && cs.display !== 'inline') {
