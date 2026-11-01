@@ -8,6 +8,7 @@ import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLog
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
 import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
+import { collapseLogs } from '../utils/consoleLog';
 import { campaignLabel, getCampaignState, type CampaignState } from '../utils/campaignState';
 
 export interface LiveDashboardProps {
@@ -365,17 +366,18 @@ const endingSoonGame = useMemo(() => {
   const overrideGames = overrideAll.slice(0, OVERRIDE_VISIBLE);
 
   // Filtered console logs
-  const filteredLogs = useMemo(() => {
-    if (logFilter === 'ALL') return safeRecentLogs.slice(-60);
-    return safeRecentLogs
-      .filter((l) => {
-        const cat = (l.level || l.category || '').toUpperCase();
-        if (logFilter === 'WATCH') return cat.includes('WATCH') || cat.includes('STREAM');
-        if (logFilter === 'CLAIM') return cat.includes('CLAIM') || cat.includes('DROP');
-        if (logFilter === 'CORE') return cat.includes('CORE') || cat.includes('SYS') || cat.includes('GUARD');
-        return true;
-      })
-      .slice(-60);
+const filteredLogs = useMemo(() => {
+    const base = logFilter === 'ALL'
+      ? safeRecentLogs
+      : safeRecentLogs.filter((l) => {
+          const cat = (l.level || l.category || '').toUpperCase();
+          if (logFilter === 'WATCH') return cat.includes('WATCH') || cat.includes('STREAM');
+          if (logFilter === 'CLAIM') return cat.includes('CLAIM') || cat.includes('DROP');
+          if (logFilter === 'CORE') return cat.includes('CORE') || cat.includes('SYS') || cat.includes('GUARD');
+          return true;
+        });
+    // display only: progress spam and repeated lines are folded, "Copy" still takes the full journal
+    return collapseLogs(base.slice(-200)).slice(-60);
   }, [safeRecentLogs, logFilter]);
 
   // Idle hero: why nothing is being farmed right now, from data already in /api/state
@@ -993,7 +995,7 @@ const endingSoonGame = useMemo(() => {
                   Журнал операций ожидает входящих событий...
                 </div>
               ) : (
-                filteredLogs.map((log, i) => {
+                filteredLogs.map(({ log, count }, i) => {
                   const cat = (log.level || log.category || 'GQL').toUpperCase();
                   const isClaim = cat.includes('CLAIM') || cat.includes('DROP');
                   const isWatch = cat.includes('WATCH') || cat.includes('STREAM');
@@ -1014,6 +1016,7 @@ const endingSoonGame = useMemo(() => {
                       </span>
                       <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>
                         {log.message}
+                        {count > 1 && <span className="tabular" style={{ color: 'var(--text-muted)', marginLeft: '6px' }}>×{count}</span>}
                       </span>
                     </div>
                   );

@@ -1835,6 +1835,49 @@ def test_queue_wait_message_counts_the_whole_queue():
         _.set_language("English")
 
 
+def test_console_folds_progress_and_repeated_lines():
+    print("[audit F-034] Console display folds progress spam and repeats, the journal itself is untouched...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "console_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "consoleLog.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    logs = []
+    for n in range(1, 6):
+        logs.append({"time": f"12:00:0{n}", "level": "STATUS", "message": f"[STATUS] Добавление кампаний в инвентарь... ({100 + n}/120)"})
+    logs.append({"time": "12:00:10", "level": "INFO", "message": "Каталог собран: 235 игр"})
+    logs.append({"time": "12:00:11", "level": "INFO", "message": "Каталог собран: 235 игр"})
+    logs.append({"time": "12:00:12", "level": "INFO", "message": "Каталог собран: 235 игр"})
+    logs.append({"time": "12:00:13", "level": "CLAIM", "message": "Drop получено: Hunt Red (1/2)"})
+    logs.append({"time": "12:00:14", "level": "CLAIM", "message": "Drop получено: Hunt Blue (1/2)"})
+    logs.append({"time": "12:00:15", "level": "INFO", "message": "Каталог собран: 235 игр"})
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { collapseLogs } from './consoleLog.mjs';\n"
+        f"const logs = {json.dumps(logs, ensure_ascii=False)};\n"
+        "const out = collapseLogs(logs).map(r => [r.log.message, r.count, r.log.time]);\n"
+        "console.log(JSON.stringify({ out, total: logs.length }));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    data = json.loads(run.stdout)
+    rows = data["out"]
+    assert [r[0] for r in rows].count("[STATUS] Добавление кампаний в инвентарь... (105/120)") == 1 and len([r for r in rows if "Добавление кампаний" in r[0]]) == 1, rows
+    catalog = [r for r in rows if r[0].startswith("Каталог собран")]
+    assert [r[1] for r in catalog] == [3, 1], rows  # 3 in a row folded, a later one stays separate
+    assert len([r for r in rows if r[0].startswith("Drop получено")]) == 2, "different drops must stay separate"
+    assert data["total"] == 11 and len(rows) == 5, rows
+    # the copy handler must keep working on the full journal
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "safeRecentLogs.map((l) =>" in dash, "Copy must use the full journal"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1883,6 +1926,7 @@ if __name__ == "__main__":
     test_shutdown_aborts_running_giveaways_process()
     test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns()
     test_queue_wait_message_counts_the_whole_queue()
+    test_console_folds_progress_and_repeated_lines()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
