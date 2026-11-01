@@ -678,7 +678,7 @@ def test_audio_mute_and_release_safety():
     settings_code = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     assert "handleBrowseAndAddFolder" in settings_code, "SettingsStudio must have handleBrowseAndAddFolder"
     assert "handleRemoveFolder" in settings_code, "SettingsStudio must have handleRemoveFolder"
-    assert "Звуки интерфейса (Mute)" in settings_code, "SettingsStudio must have UI sound mute switch"
+    assert "Звуки интерфейса" in settings_code, "SettingsStudio must have UI sound mute switch"
 
     # 4. Verify C# MainForm.cs handles SELECT_FOLDER message
     mainform_code = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -720,7 +720,7 @@ def test_argon_public_hardening_and_resilience():
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     assert "handleToggleAutostart" in settings_tsx, "SettingsStudio must have autostart handler"
     assert "handleCopyDiagnosticReport" in settings_tsx, "SettingsStudio must have diagnostic report copy handler"
-    assert "Автозапуск с Windows" in settings_tsx, "SettingsStudio must render Windows autostart option"
+    assert "Запускать с Windows" in settings_tsx, "SettingsStudio must render Windows autostart option"
     assert "Диагностический отчет" in settings_tsx, "SettingsStudio must render diagnostic report button"
 
     # 5. Diagnostic report sanitization unit test
@@ -2020,6 +2020,49 @@ def test_console_folds_sync_cycles_but_never_important_events():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_settings_modules_counter_matches_switches():
+    print("[audit F-037] Settings: 'Включено: N из 10' is computed from the same states as the switches...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "module_switch_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "moduleSwitches.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'moduleSwitches.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { moduleStates, modulesLabel } from './moduleSwitches.mjs';\n"
+        "const base = { auto_shutdown_on_complete: true, pause_on_battery: true };\n"
+        "const on = (s, extras) => modulesLabel(moduleStates(s, extras));\n"
+        "const out = {\n"
+        "  allOn: on(base, { muted: false, autostart: true }),\n"
+        # the real report: modules 5 (hardware guard) and 7 (toasts) switched off
+        "  fiveAndSevenOff: on({ ...base, hardware_guard_enabled: false, native_toasts: false }, { muted: false, autostart: true }),\n"
+        "  serviceSilent: on(base, { muted: false, autostart: null }),\n"
+        "  muted: on(base, { muted: true, autostart: true }),\n"
+        "  defaults: on({}, { muted: false, autostart: false }),\n"
+        "  keys: Object.keys(moduleStates(base, { muted: false, autostart: true })).length,\n"
+        "};\n"
+        "console.log(JSON.stringify(out));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["allOn"] == "Включено: 10 из 10", d
+    assert d["fiveAndSevenOff"] == "Включено: 8 из 10", d      # the bug: the old header always said 10 / 10
+    assert d["serviceSilent"] == "Включено: 9 из 10", d         # autostart unknown counts as off
+    assert d["muted"] == "Включено: 9 из 10", d
+    assert d["defaults"] == "Включено: 7 из 10", d              # battery pause, power cascade and autostart default to off
+    assert d["keys"] == 10
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "10 / 10" not in settings_tsx and "ПОД КОНТРОЛЕМ" not in settings_tsx, "the counter must not be hard-coded"
+    assert "modulesLabel(moduleOn)" in settings_tsx and "moduleOn[m.key]" in settings_tsx, "counter and switches must share moduleOn"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2071,6 +2114,7 @@ if __name__ == "__main__":
     test_console_folds_progress_and_repeated_lines()
     test_active_campaigns_tab_sorting_and_new_marker()
     test_console_folds_sync_cycles_but_never_important_events()
+    test_settings_modules_counter_matches_switches()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 
 interface SettingsStudioProps {
   settings: SentinelSettings;
@@ -329,6 +330,74 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           : 'Проверка обновлений еще не выполнялась';
   const updatePct = updateProgress?.percent ?? (updateInfo ? 100 : 0);
 
+  const moduleOn = moduleStates(settings, { muted: isMuted, autostart: autostartEnabled });
+  const powerModeWord = settings.auto_shutdown_mode === 'shutdown' ? 'выключится' : settings.auto_shutdown_mode === 'lock' ? 'заблокируется' : 'уйдёт в сон';
+  const moduleCards: { key: ModuleKey; title: string; hint: string; tooltip?: string; onToggle: () => void }[] = [
+    {
+      key: 'claimPoints',
+      title: 'Собирать бонусные баллы канала',
+      hint: `Собрано: +${stats.channel_points_earned.toLocaleString()} бонусных очков`,
+      onToggle: () => { playClick(); onUpdateSettings({ claim_channel_points: !moduleOn.claimPoints }); },
+    },
+    {
+      key: 'autoClaim',
+      title: 'Забирать дропы автоматически',
+      hint: 'Сразу после 100 %',
+      onToggle: () => { playClick(); onUpdateSettings({ auto_claim_drops: !moduleOn.autoClaim }); },
+    },
+    {
+      key: 'giveaways',
+      title: 'Бесплатные раздачи',
+      hint: 'Следит за бесплатными играми в магазинах',
+      onToggle: () => { playClick(); onUpdateSettings({ giveaways_enabled: !moduleOn.giveaways }); },
+    },
+    {
+      key: 'watchdog',
+      title: 'Менять зависший стрим',
+      hint: 'Если минуты не идут, берёт другой канал',
+      tooltip: 'Следит, чтобы минуты просмотра росли; при зависании переключается на другого стримера',
+      onToggle: () => { playClick(); onUpdateSettings({ streamer_watchdog_enabled: !moduleOn.watchdog }); },
+    },
+    {
+      key: 'hardwareGuard',
+      title: 'Пауза, когда вы играете',
+      hint: 'Фарм встаёт на паузу, пока запущена игра',
+      tooltip: 'Чтобы фарм не отнимал FPS: пока Sentinel видит запущенную игру, он ничего не смотрит',
+      onToggle: () => { playClick(); onUpdateSettings({ hardware_guard_enabled: !moduleOn.hardwareGuard }); },
+    },
+    {
+      key: 'batteryPause',
+      title: 'Энергосбережение батареи ноутбука',
+      hint: 'Пауза фарма при переходе на аккумулятор',
+      onToggle: () => { playClick(); onUpdateSettings({ pause_on_battery: !moduleOn.batteryPause }); },
+    },
+    {
+      key: 'toasts',
+      title: 'Всплывающие уведомления Windows',
+      hint: 'Сообщает о дропах и важных событиях',
+      onToggle: () => { playClick(); onUpdateSettings({ native_toasts: !moduleOn.toasts }); },
+    },
+    {
+      key: 'sounds',
+      title: 'Звуки интерфейса',
+      hint: 'Щелчки и сигналы при действиях',
+      onToggle: () => { toggleMute(); },
+    },
+    {
+      key: 'powerCascade',
+      title: 'Выключить или усыпить ПК после очереди',
+      hint: moduleOn.powerCascade ? `Когда очередь закончится, ПК ${powerModeWord}` : 'Сон, выключение или блокировка после очереди',
+      tooltip: 'Включено: Sentinel выполнит выбранное действие с ПК, когда все дропы очереди получены (за 60 секунд до этого покажет предупреждение)',
+      onToggle: () => { playClick(); onUpdateSettings({ auto_shutdown_on_complete: !moduleOn.powerCascade }); },
+    },
+    {
+      key: 'autostart',
+      title: 'Запускать с Windows (свёрнуто)',
+      hint: 'Стартует вместе с системой, окно скрыто в трее',
+      onToggle: () => { playClick(); void handleToggleAutostart(); },
+    },
+  ];
+
 
   return (
     <div id="view-settings" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '100%', gap: '12px' }}>
@@ -341,184 +410,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span className="tag">
                 <span className="led-dot"></span> <span title="Управление модулями и автоматизация (все 10 систем Sentinel)">МОДУЛИ</span>
               </span>
-              <span className="version-chip">10 / 10 ПОД КОНТРОЛЕМ</span>
+              <span className="version-chip" title="Сколько из десяти модулей сейчас включено">{modulesLabel(moduleOn)}</span>
             </div>
 
             <div className="modules-10-grid">
-              {/* 1. Автосбор баллов канала */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ claim_channel_points: !settings.claim_channel_points });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>1. Автосбор баллов канала (+50)</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>
-                    Собрано: +{stats.channel_points_earned.toLocaleString()} бонусных очков
+              {moduleCards.map((m) => (
+                <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '11.5px', fontWeight: 700 }}>{m.title}</div>
+                    <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{m.hint}</div>
+                  </div>
+                  <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
+                    <div className="knob"></div>
                   </div>
                 </div>
-                <div className={`cnc-switch ${settings.claim_channel_points !== false ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 2. Автоматический забор наград */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ auto_claim_drops: !settings.auto_claim_drops });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>2. Автоматический забор наград</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Мгновенно забирает награду при 100%</div>
-                </div>
-                <div className={`cnc-switch ${settings.auto_claim_drops !== false ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 3. Синдикат бесплатных раздач */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ giveaways_enabled: !settings.giveaways_enabled });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>3. Синдикат бесплатных раздач</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Мониторинг 100% халявы в EGS, Steam, GOG</div>
-                </div>
-                <div className={`cnc-switch ${settings.giveaways_enabled !== false ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 4. Авто-ротация стримеров (Watchdog) */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ streamer_watchdog_enabled: !settings.streamer_watchdog_enabled });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>4. Авто-ротация стримеров (Watchdog)</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Смена канала при зависании минут</div>
-                </div>
-                <div className={`cnc-switch ${settings.streamer_watchdog_enabled !== false ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 5. Аппаратный страж гейминга */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ hardware_guard_enabled: !settings.hardware_guard_enabled });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>5. Аппаратный страж гейминга</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Автопауза при запуске игр для макс. FPS</div>
-                </div>
-                <div className={`cnc-switch ${settings.hardware_guard_enabled !== false ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 6. Энергосбережение батареи ноутбука */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ pause_on_battery: !settings.pause_on_battery });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>6. Энергосбережение батареи ноутбука</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Пауза фарма при переходе на аккумулятор</div>
-                </div>
-                <div className={`cnc-switch ${settings.pause_on_battery ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 7. Всплывающие уведомления Windows */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ native_toasts: !settings.native_toasts });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>7. Всплывающие уведомления Windows</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Нативные системные тосты о новых дропах</div>
-                </div>
-                <div className={`cnc-switch ${settings.native_toasts !== false ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 8. Тактильные звуки переключателей ALPS • Звуки интерфейса (Mute) */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  toggleMute();
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>8. Тактильные звуки переключателей ALPS • Звуки интерфейса (Mute)</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Процедурный Web Audio синтезатор</div>
-                </div>
-                <div className={`cnc-switch ${!isMuted ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 9. Luna Auto-Shutdown (Каскад питания) */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  onUpdateSettings({ auto_shutdown_on_complete: !settings.auto_shutdown_on_complete });
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--led-amber)' }}>
-                    9. Luna Auto-Shutdown (Каскад питания)
-                  </div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>
-                    Сон или выключение ПК после сбора очереди
-                  </div>
-                </div>
-                <div className={`cnc-switch ${settings.auto_shutdown_on_complete ? 'on' : ''}`} id="lunaSwitch">
-                  <div className="knob"></div>
-                </div>
-              </div>
-
-              {/* 10. Автозапуск с Windows в трей */}
-              <div 
-                className="module-switch-card" 
-                onClick={() => {
-                  playClick();
-                  void handleToggleAutostart();
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '11.5px', fontWeight: 700 }}>10. Автозапуск с Windows в трей</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Тихий старт с флагом --minimized</div>
-                </div>
-                <div className={`cnc-switch ${autostartEnabled ? 'on' : ''}`}>
-                  <div className="knob"></div>
-                </div>
-              </div>
+              ))}
               {autostartError && (
                 <div role="status" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
                   Автозапуск недоступен: {autostartError}
