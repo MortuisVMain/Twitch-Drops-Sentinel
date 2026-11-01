@@ -190,3 +190,13 @@ npm run dev
 
 ---
 *Документ входит в состав Handoff Package v3.3.4 студии Mortuis_V_Studio.*
+
+---
+
+## Приложение: актуальное состояние UI v3.3.5 (аудит 2026-11-01)
+
+Разделы 3 и 5 выше описывают тему Apple Luna 2.0 и сохранены как история. Актуальный UI называется **Sentinel Field-Deck** (Flat-2D). Эталон токенов: `src/index.css` (`[data-theme]`: titanium по умолчанию, luna-mint, gradient, cyberpunk, light, copper, apple-luna). Подробности: приложение в конце `DESIGN.md` и `docs/solutions/052-v3.3.5-field-deck-audit.md`.
+
+Дополнение к Hard Constraints:
+- `test_sentinel_suite.py` бьёт в боевой порт 28492 и вызывает `/api/installed-games/clear` и `/api/trophies/clear`. Теперь тест сам сохраняет и возвращает `data/installed_games.json` и `Trophies.md`, но всё равно запускать только при закрытом приложении.
+- Запуск с portable Python: `portable_runtime\python\python.exe -c "import sys,runpy; sys.path.insert(0,'.'); runpy.run_path('test_sentinel_suite.py', run_name='__main__')"` (у embeddable Python файл `._pth` не добавляет папку скрипта в `sys.path`).

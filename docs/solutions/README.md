@@ -52,3 +52,4 @@
 | **049** | [Epic Games 18+ Age Gate Bypass & Console Sticky-Scroll](./049-epic-games-18plus-age-gate-bypass-and-console-sticky-scroll.md) | Giveaways Engine / Epic Games 18+ Cookie Bypass / egs_age_gate_dob / GiveawaysView & Dashboard Sticky Scroll |
 | **050** | [Dashboard Telemetry Sensor Pod Elimination](./050-dashboard-telemetry-sensor-pod-elimination.md) | LiveDashboard UI / Clean Apple Luna 2.0 / Removal of guard-sensors-4 / Expanded Live Console Island |
 | **051** | [Release v3.3.5 Packaging & Workspace Purification](./051-release-v335-packaging-and-workspace-purification.md) | Release Engineering / Version 3.3.5 / Clean Distribution Build / Deep Workspace De-Cluttering |
+| **052** | [v3.3.5 Field-Deck Audit: Destructive Test Suite, Silent Errors & UI Terminology](./052-v3.3.5-field-deck-audit.md) | Audit / Test Safety / Silent Failures / Header Wrap / Drops vs Giveaways Wording |

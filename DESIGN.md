@@ -34,3 +34,16 @@
 - **Numbers & Metrics:** `font-variant-numeric: tabular-nums slashed-zero; font-mono` for all timers, percentages, ping, and memory.
 - **Laser Micro-Labels:** `10px uppercase tracking-[0.09em] font-semibold text-[var(--text-muted)]`.
 - **Spring Micro-Interactions:** `cubic-bezier(0.22, 1, 0.36, 1)` with `active:scale-[0.985]`.
+
+---
+
+## Приложение: Field-Deck / Flat-2D (v3.3.5, добавлено при аудите 2026-11-01)
+
+Разделы выше описывают Apple Luna 2.0 и сохранены как история. Текущий интерфейс 3.3.5 называется **Sentinel Field-Deck** (бренд в шапке `App.tsx`) и является эталоном.
+
+- **Темы:** переключатель «ТЕМА» + «НОЧЬ». Токены лежат в `src/index.css` как CSS-переменные на `[data-theme]`: `titanium` (по умолчанию, `:root`), `luna-mint`, `gradient`, `cyberpunk`, `light`, `copper`, `apple-luna`.
+- **Базовая палитра titanium:** фон `#050608`, шасси `#080A0E`, текст `#F3F5F8 / #9CA3B0 / #5E6573`, LED: мята `#3AD29F`, янтарь `#F59E0B`, циан `#38BDF8`, роза `#F87171`.
+- **Вкладки:** Дашборд, Полка Игр, Раздачи, Диммер, Настройки; шапка: ⌘K, PIP, НОЧЬ, ТЕМА, ALPS (звук), ?, переключатель FARM.
+- **Терминология:** «дроп / кампания» = Twitch Drops; «Раздачи» = только вкладка бесплатных игр (7 магазинов). Не смешивать (аудит F-011, F-017).
+- **Заголовки карточек** (`.engraved-header .tag`) не переносятся (`white-space: nowrap`); если шапка шире карточки, переносить блок кнопок (`flex-wrap`), как в планировщике Раздач.
+- **Минимальное окно** 1180×750 физических px; при масштабе 150% это ~787 CSS px, шапка (~1090 px) в таком окне обрезается (наблюдение P3).
