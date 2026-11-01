@@ -1656,6 +1656,51 @@ def test_console_messages_follow_configured_language():
     assert "apply_engine_language" in service_py
 
 
+def test_giveaways_hung_node_process_hits_ceiling():
+    print("[audit F-024] A Node process that stops producing output must be aborted at the ceiling...")
+    import asyncio
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    class _HungStdout:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(3600)
+
+    class _HungProc:
+        pid = 4242
+        returncode = None
+        stdout = _HungStdout()
+
+        async def wait(self):
+            await asyncio.sleep(3600)
+
+    async def scenario():
+        orch = gc.GiveawaysOrchestrator()
+        proc = _HungProc()
+        orch._proc = proc
+        aborted = []
+
+        async def fake_abort():
+            aborted.append(True)
+            proc.returncode = 1
+            return {"status": "aborted"}
+
+        orch.abort_claim = fake_abort
+        orch._read_inventory_sync = lambda force=False: None
+        original = gc.FGC_RUN_CEILING_SECONDS
+        gc.FGC_RUN_CEILING_SECONDS = 0.3
+        try:
+            await asyncio.wait_for(orch._monitor_process(proc), timeout=5.0)
+        finally:
+            gc.FGC_RUN_CEILING_SECONDS = original
+        return aborted
+
+    assert asyncio.run(scenario()) == [True], "Hung process must be aborted by the ceiling"
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1700,6 +1745,7 @@ if __name__ == "__main__":
     test_update_check_failure_reports_running_version()
     test_campaigns_fetcher_backoff_retry_after_and_fresh_cache()
     test_console_messages_follow_configured_language()
+    test_giveaways_hung_node_process_hits_ceiling()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

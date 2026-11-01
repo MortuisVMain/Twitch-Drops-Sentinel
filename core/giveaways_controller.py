@@ -74,6 +74,9 @@ def bitmask_to_days(mask: Optional[int]) -> List[str]:
     return [d for d in ordered if (mask & DAY_BITS[d]) != 0]
 
 
+FGC_RUN_CEILING_SECONDS = 1800.0  # hard limit for one claim run, including time spent without output
+FGC_SETUP_CEILING_SECONDS = 900.0  # npm install / browser download
+
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
@@ -406,7 +409,7 @@ class GiveawaysOrchestrator:
                         l = raw_l.decode("utf-8", errors="replace").strip()
                         if l:
                             self._broadcast("log", {"line": f"[npm] {l}", "ts": datetime.now(timezone.utc).isoformat()})
-                await npm_proc.wait()
+                await self._wait_or_kill(npm_proc, "npm install")
                 br_proc = await asyncio.create_subprocess_exec(
                     "cmd.exe", "/c", "npx", "patchright", "install", "chromium",
                     cwd=str(fgc_dir),
@@ -414,7 +417,7 @@ class GiveawaysOrchestrator:
                     stderr=asyncio.subprocess.DEVNULL,
                     creationflags=0x08000000
                 )
-                await br_proc.wait()
+                await self._wait_or_kill(br_proc, "patchright install")
 
             logger.info(f"Starting FGC claim run: stores={valid_stores}, headless={headless}")
             self._proc = await asyncio.create_subprocess_exec(
@@ -432,7 +435,7 @@ class GiveawaysOrchestrator:
         return await self.start_claim(stores=[store], headless=False)
 
     async def _monitor_process(self, proc: asyncio.subprocess.Process) -> None:
-        try:
+        async def pump_output() -> None:
             assert proc.stdout is not None
             async for raw_line in proc.stdout:
                 line = ANSI_ESCAPE_RE.sub("", raw_line.decode("utf-8", errors="replace")).rstrip("\r\n")
@@ -440,7 +443,11 @@ class GiveawaysOrchestrator:
                     entry = {"line": line, "ts": datetime.now(timezone.utc).isoformat()}
                     self._log_buffer.append(entry)
                     self._broadcast("log", entry)
-            await asyncio.wait_for(proc.wait(), timeout=1800.0)  # 30-min hard ceiling
+            await proc.wait()
+
+        try:
+            # The ceiling covers the output loop too: a hung process never reaches EOF on stdout.
+            await asyncio.wait_for(pump_output(), timeout=FGC_RUN_CEILING_SECONDS)
         except asyncio.TimeoutError:
             logger.warning("FGC process exceeded 30-minute ceiling. Forcing tree abort.")
             await self.abort_claim()
@@ -454,6 +461,19 @@ class GiveawaysOrchestrator:
             # Invalidate cache to immediately show newly claimed games
             self._read_inventory_sync(force=True)
             self._broadcast("state", {"state": "idle", "exitCode": rc})
+
+    async def _wait_or_kill(self, proc: asyncio.subprocess.Process, label: str) -> None:
+        """Wait for a setup subprocess; kill its tree if it hangs past the setup ceiling."""
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=FGC_SETUP_CEILING_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning(f"{label} exceeded {FGC_SETUP_CEILING_SECONDS:.0f}s, killing process tree PID {proc.pid}.")
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill.exe", "/F", "/T", "/PID", str(proc.pid),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                creationflags=0x08000000
+            )
+            await killer.wait()
 
     async def abort_claim(self) -> dict:
         if not self._proc or self._proc.returncode is not None:
