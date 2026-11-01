@@ -1531,7 +1531,22 @@ namespace TwitchDropsSentinel
 
             {
 
-                MessageBox.Show($"WebView2 initialization failed:\n{ex.Message}", "Twitch Drops Sentinel", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // A PC without the WebView2 Runtime gets an explanation and the download page, not a bare English error
+                if (ex is WebView2RuntimeNotFoundException)
+                {
+                    var answer = MessageBox.Show(
+                        "Для работы окна Sentinel нужен Microsoft Edge WebView2 Runtime, он не найден на этом компьютере.\n\n" +
+                        "Открыть страницу загрузки? Установите «Evergreen Bootstrapper» и запустите Sentinel снова.",
+                        "Twitch Drops Sentinel", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    if (answer == DialogResult.Yes)
+                    {
+                        Process.Start(new ProcessStartInfo("https://developer.microsoft.com/microsoft-edge/webview2/") { UseShellExecute = true });
+                    }
+                }
+                else
+                {
+                    MessageBox.Show($"Не удалось запустить окно интерфейса (WebView2):\n{ex.Message}", "Twitch Drops Sentinel", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
 
             }
 

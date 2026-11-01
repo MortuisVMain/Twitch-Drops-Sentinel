@@ -2489,6 +2489,12 @@ def test_cover_search_names_and_non_game_filter():
     assert "NON_GAME_NAMES.search(" in svc, "scanned utilities must be hidden from the catalog"
 
 
+def test_missing_webview2_runtime_has_an_explanation():
+    print("[clean-install] A PC without the WebView2 Runtime gets a Russian explanation and the download page...")
+    main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "WebView2RuntimeNotFoundException" in main_cs and "developer.microsoft.com/microsoft-edge/webview2" in main_cs
+
+
 def test_giveaways_without_node_explains_what_is_missing():
     print("[clean-install] Giveaways on a PC without Node.js: a clear message instead of a crash...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -2577,6 +2583,7 @@ if __name__ == "__main__":
         test_cover_keeper_replaces_broken_and_missing_covers,
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
+        test_missing_webview2_runtime_has_an_explanation,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
