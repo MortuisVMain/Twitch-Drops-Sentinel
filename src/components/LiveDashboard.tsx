@@ -304,16 +304,45 @@ const state = getCampaignState(match, trophies, smartGameMatch);
     return map;
   }, [allGames]);
 
-  const endingSoonGame = useMemo(() => {
-    let best: { name: string; timeLeft: string; hours: number } | null = null;
-    for (const queued of priorityList) {
+  const [dismissedRadar, setDismissedRadar] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('sentinel_radar_dismissed');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось прочитать скрытые баннеры', err);
+      return [];
+    }
+  });
+  const dismissRadar = (key: string) => {
+    playClick();
+    const next = [...dismissedRadar.filter((k) => k !== key), key].slice(-50);
+    setDismissedRadar(next);
+    try {
+      localStorage.setItem('sentinel_radar_dismissed', JSON.stringify(next));
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить скрытый баннер', err);
+    }
+  };
+  const RADAR_QUEUE_DEPTH = 10;
+
+const endingSoonGame = useMemo(() => {
+    // Only for a campaign that is closing, still has drops to claim, has a linked account and
+    // belongs to the first games of the queue or already has progress
+    let best: { name: string; timeLeft: string; hours: number; key: string } | null = null;
+    for (let idx = 0; idx < priorityList.length; idx++) {
+      const queued = priorityList[idx];
       const match = allGames.find((g) => safeLower(g.name) === safeLower(queued) || smartGameMatch(g.name, queued));
-      if (!match || match.is_finished || (match.progress_percent !== undefined && match.progress_percent >= 100)) continue;
+      if (!match) continue;
+      const state = getCampaignState(match, trophies, smartGameMatch);
+      if (state.kind !== 'running') continue;
+      const hasProgress = (match.progress_percent ?? 0) > 0 || (match.claimed_drops ?? 0) > 0;
+      if (idx >= RADAR_QUEUE_DEPTH && !hasProgress) continue;
       const info = endingSoonByGame.get(safeLower(match.name));
-      if (info && (!best || info.hours < best.hours)) best = { name: match.name, ...info };
+      if (info && (!best || info.hours < best.hours)) best = { name: match.name, ...info, key: `${match.name}|${match.drops_end_at}` };
     }
     return best;
-  }, [priorityList, allGames, endingSoonByGame]);
+  }, [priorityList, allGames, endingSoonByGame, trophies]);
 
   // Manual focus candidates: closing soon first, then live campaigns, finished, the rest
   const overrideAll = useMemo(() => {
@@ -527,7 +556,7 @@ const state = getCampaignState(match, trophies, smartGameMatch);
       )}
 
       {/* 3. ENDING SOON RADAR */}
-      {endingSoonGame && (
+      {endingSoonGame && !dismissedRadar.includes(endingSoonGame.key) && (
         <div className="ending-soon-radar mb-2.5" id="endingRadar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
             <span className="led-dot amber" />
@@ -536,6 +565,7 @@ const state = getCampaignState(match, trophies, smartGameMatch);
               Кампания <strong style={{ color: 'var(--text-primary)' }}>{endingSoonGame.name}</strong> закрывается через <strong className="tabular" style={{ color: 'var(--led-amber)' }}>{endingSoonGame.timeLeft}</strong>.
             </span>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <button
             className="tactile-btn active-amber"
             style={{ height: '24px', fontSize: '10px' }}
@@ -546,6 +576,16 @@ const state = getCampaignState(match, trophies, smartGameMatch);
           >
             ⚡ Переключить в фокус сейчас
           </button>
+          <button
+  className="tactile-btn"
+  style={{ height: '24px', width: '24px', padding: 0, fontSize: '12px' }}
+  onClick={() => dismissRadar(endingSoonGame.key)}
+  title="Скрыть это предупреждение"
+  aria-label="Скрыть предупреждение о сгорающей кампании"
+>
+  ✕
+</button>
+</div>
         </div>
       )}
 
