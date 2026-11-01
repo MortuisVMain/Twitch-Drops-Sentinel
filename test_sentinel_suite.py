@@ -1782,6 +1782,7 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
     data = json.loads(run.stdout)
     assert "Кампании есть" not in data["info"]["reason"], data
     assert data["info"]["workableNames"] == [], data
+    assert data["info"]["unlinked"] == [{"name": "World of Tanks", "count": 3, "url": "https://example.test/link"}], data["info"]["unlinked"]
     assert data["liveWorkable"] is True, "A linked campaign with progress below 100% must stay workable"
     assert data["unlinkedWorkable"] is False, "An unlinked account must not count as workable"
     shutil.rmtree(out_dir, ignore_errors=True)

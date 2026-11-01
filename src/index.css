@@ -1026,6 +1026,11 @@
   .idle-hero-title { font-family: 'Outfit', sans-serif; font-size: 20px; font-weight: 800; color: var(--text-primary); }
   .idle-hero-reason { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
   .idle-hero-extra { font-size: 11px; color: var(--led-mint); }
+  .idle-hero-link {
+    align-self: flex-start; padding: 2px 0; border: none; background: none; cursor: pointer; text-align: left;
+    font-size: 11px; font-weight: 700; color: var(--led-amber); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .idle-hero-link:disabled { cursor: default; text-decoration: none; opacity: 0.7; }
   .idle-hero-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 
   .radial-ring-box {

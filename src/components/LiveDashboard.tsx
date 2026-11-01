@@ -7,7 +7,7 @@ import {
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
-import { computeIdleInfo } from '../utils/idleInfo';
+import { computeIdleInfo, pluralRu, shortGameName } from '../utils/idleInfo';
 
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
@@ -663,6 +663,20 @@ const idleInfo = useMemo(
                 <h2 className="idle-hero-title" id="heroDropTitle">Ожидание кампаний</h2>
                 <div className="idle-hero-reason">{idleInfo.reason}</div>
                 {idleInfo.extra && <div className="idle-hero-extra tabular">{idleInfo.extra}</div>}
+                {idleInfo.unlinked.slice(0, 3).map((u) => (
+                  <button
+                    key={u.name}
+                    className="idle-hero-link"
+                    onClick={() => { playClick(); if (u.url) window.open(u.url, '_blank'); }}
+                    disabled={!u.url}
+                    title={u.url ? `Открыть страницу привязки аккаунта: ${u.url}` : 'Ссылка на привязку не передана'}
+                  >
+                    {shortGameName(u.name)}: {u.count} {pluralRu(u.count, 'дроп ждёт', 'дропа ждут', 'дропов ждут')} — привяжите аккаунт ↗
+                  </button>
+                ))}
+                {idleInfo.unlinked.length > 3 && (
+                  <div className="idle-hero-extra tabular">и ещё {idleInfo.unlinked.length - 3}</div>
+                )}
                 <div className="idle-hero-actions">
                   <button
                     className="tactile-btn active-mint"

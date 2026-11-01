@@ -11,10 +11,17 @@ export interface IdleInfoInput {
   smartMatch?: (a: string, b: string) => boolean;
 }
 
+export interface UnlinkedCampaign {
+  name: string;
+  count: number;
+  url: string | null;
+}
+
 export interface IdleInfo {
   reason: string;
   extra: string | null;
   workableNames: string[];
+  unlinked: UnlinkedCampaign[];
 }
 
 const lower = (v: unknown): string => (typeof v === 'string' ? v.toLowerCase().trim() : '');
@@ -93,5 +100,13 @@ export const computeIdleInfo = ({ priorityList, allGames, strictMode, now, smart
   } else if (outsideCount > 0) {
     extra = `Доступно вне очереди: ${outsideCount} ${pluralRu(outsideCount, 'кампания', 'кампании', 'кампаний')}`;
   }
-  return { reason, extra, workableNames: workable.map(({ name }) => name) };
+  // Queue games with a live campaign that cannot be farmed until the game account is linked
+  const unlinked: UnlinkedCampaign[] = queueGames
+    .filter(({ match }) => match && match.has_drops && match.is_active_now && match.is_account_connected === false && !isFinishedGame(match))
+    .map(({ name, match }) => {
+      const m = match as GameItem;
+      const left = m.total_drops !== undefined ? Math.max(0, m.total_drops - (m.claimed_drops || 0)) : m.rewards_count || 1;
+      return { name, count: left, url: m.account_link_url || null };
+    });
+  return { reason, extra, workableNames: workable.map(({ name }) => name), unlinked };
 };
