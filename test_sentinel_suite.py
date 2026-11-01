@@ -2132,6 +2132,44 @@ def test_shelf_facts_trophy_line_and_sync_age():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_queue_filter_only_with_campaigns():
+    print("[audit F-039] Dashboard queue: 'only with campaigns' hides empty rows, keeps the order, counts honestly...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "queue_view_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { queueView } from './campaignState.mjs';\n"
+        "const row = (name, kind) => ({ name, state: { kind, remaining: 0, linkUrl: null } });\n"
+        "const items = [row('A', 'running'), row('B', 'none'), row('C', 'link'), row('D', 'none'), row('E', 'done')];\n"
+        "const all = queueView(items, false);\n"
+        "const only = queueView(items, true);\n"
+        "const empty = queueView([row('X', 'none')], true);\n"
+        "console.log(JSON.stringify({\n"
+        "  allNames: all.visible.map(i => i.name), allTotal: all.total, allWith: all.withCampaign,\n"
+        "  onlyNames: only.visible.map(i => i.name), onlyTotal: only.total, onlyWith: only.withCampaign,\n"
+        "  emptyVisible: empty.visible.length, emptyTotal: empty.total, emptyWith: empty.withCampaign,\n"
+        "}));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["allNames"] == ["A", "B", "C", "D", "E"] and d["allTotal"] == 5 and d["allWith"] == 3, d
+    assert d["onlyNames"] == ["A", "C", "E"], d            # order untouched, rows without a campaign hidden
+    assert d["onlyTotal"] == 5 and d["onlyWith"] == 3, d    # the header counter does not depend on the filter
+    assert d["emptyVisible"] == 0 and d["emptyTotal"] == 1 and d["emptyWith"] == 0, d
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "sentinel_queue_only_campaigns" in dash and "(с кампаниями: {queueWithCampaignCount})" in dash
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2185,6 +2223,7 @@ if __name__ == "__main__":
     test_console_folds_sync_cycles_but_never_important_events()
     test_settings_modules_counter_matches_switches()
     test_shelf_facts_trophy_line_and_sync_age()
+    test_queue_filter_only_with_campaigns()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

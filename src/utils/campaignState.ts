@@ -80,3 +80,12 @@ export const campaignLabel = (s: CampaignState): string => {
       return 'нет кампании';
   }
 };
+
+// Queue filter "only with campaigns": the order never changes, rows without a campaign are just hidden
+export const queueView = <T extends { state: CampaignState }>(
+  items: T[],
+  onlyWithCampaign: boolean
+): { visible: T[]; total: number; withCampaign: number } => {
+  const withCampaign = items.filter((item) => item.state.kind !== 'none').length;
+  return { visible: onlyWithCampaign ? items.filter((item) => item.state.kind !== 'none') : items, total: items.length, withCampaign };
+};

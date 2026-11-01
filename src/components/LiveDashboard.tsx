@@ -9,7 +9,7 @@ import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
 import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { collapseLogs } from '../utils/consoleLog';
-import { campaignLabel, getCampaignState, type CampaignState } from '../utils/campaignState';
+import { campaignLabel, getCampaignState, queueView, type CampaignState } from '../utils/campaignState';
 
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
@@ -420,8 +420,30 @@ const filteredLogs = useMemo(() => {
       console.warn('LiveDashboard: не удалось сохранить состояние группы', err);
     }
   };
-  const activeQueue = queueCampaigns.filter((item) => item.state.kind !== 'done');
-  const finishedQueue = queueCampaigns.filter((item) => item.state.kind === 'done');
+  const [queueOnlyCampaigns, setQueueOnlyCampaigns] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sentinel_queue_only_campaigns') === '1';
+    } catch (err) {
+      console.warn('LiveDashboard: localStorage недоступен', err);
+      return false;
+    }
+  });
+  const toggleQueueOnlyCampaigns = () => {
+    playClick();
+    const next = !queueOnlyCampaigns;
+    setQueueOnlyCampaigns(next);
+    try {
+      localStorage.setItem('sentinel_queue_only_campaigns', next ? '1' : '0');
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить фильтр очереди', err);
+    }
+  };
+  const queueShown = queueView(queueCampaigns, queueOnlyCampaigns);
+  const activeQueue = queueShown.visible.filter((item) => item.state.kind !== 'done');
+  const finishedQueue = queueShown.visible.filter((item) => item.state.kind === 'done');
+  // the game that is farming right now has a campaign by definition
+  const queueTotalCount = queueShown.total + (activeGame ? 1 : 0);
+  const queueWithCampaignCount = queueShown.withCampaign + (activeGame ? 1 : 0);
 
   const renderQueueRow = (item: (typeof queueCampaigns)[number]) => (
                 <div
@@ -605,7 +627,7 @@ const filteredLogs = useMemo(() => {
         <section className="titanium-island dashboard-shelf-island" style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header">
             <span className="tag">
-              <span className="led-dot" /> <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueCampaigns.length + (activeGame ? 1 : 0)}</span></span>
+              <span className="led-dot" /> <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueTotalCount}</span> <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }} title="Сколько игр очереди сейчас имеют кампанию">(с кампаниями: {queueWithCampaignCount})</span></span>
             </span>
 <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
               {forcedGame ? (
@@ -625,6 +647,15 @@ const filteredLogs = useMemo(() => {
                   Выбрать игру для фарма ▾
                 </button>
               )}
+              <button
+                className={`tactile-btn ${queueOnlyCampaigns ? 'active-mint' : ''}`}
+                style={{ height: '22px', padding: '0 8px', fontSize: '9px' }}
+                onClick={toggleQueueOnlyCampaigns}
+                aria-pressed={queueOnlyCampaigns}
+                title="Скрыть игры очереди, у которых сейчас нет кампании. Порядок очереди не меняется."
+              >
+                С кампаниями
+              </button>
               <button
                 className="tactile-btn active-mint"
                 style={{ height: '22px', padding: '0 8px', fontSize: '9px' }}
@@ -682,9 +713,9 @@ const filteredLogs = useMemo(() => {
 
           {/* COMPACT QUEUE SCROLL CONTAINER */}
           <div className="queue-scroll" id="queueContainer" style={{ minHeight: 0, flex: 1, overflowY: 'auto' }}>
-            {queueCampaigns.length === 0 ? (
+            {queueShown.visible.length === 0 ? (
               <div className="text-center py-6 text-xs text-[var(--text-muted)]">
-                Очередь кампаний пуста
+                {queueCampaigns.length === 0 ? 'Очередь кампаний пуста' : 'Ни у одной игры очереди сейчас нет кампании'}
               </div>
             ) : (
               <>
