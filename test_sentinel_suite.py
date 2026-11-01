@@ -1326,7 +1326,7 @@ def test_shelf_removed_tab_and_startup_sync():
 
     # 3. Test campaigns_fetcher startup sync in background loop
     camp_fetcher_py = (SANDBOX / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
-    assert "await asyncio.to_thread(self.sync_active_drops, True)" in camp_fetcher_py, "campaigns_fetcher must trigger sync_active_drops on startup"
+    assert "await asyncio.to_thread(self.sync_active_drops, False, STARTUP_CACHE_MAX_AGE)" in camp_fetcher_py, "campaigns_fetcher must trigger sync_active_drops on startup"
 
     # 4. Test GameShelf.tsx removed tab, banners, disabled buttons, and restore button
     shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
