@@ -142,6 +142,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   };
   const [syncLabel, setSyncLabel] = useState<string>('↻ Синхронизировать Drops');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showListsMenu, setShowListsMenu] = useState<boolean>(false);
   const [sortMode, setSortMode] = useState<CampaignSortMode>(() => {
     try {
       const saved = localStorage.getItem('sentinel_campaign_sort');
@@ -171,6 +172,13 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       return null;
     }
   });
+
+  useEffect(() => {
+    if (!showListsMenu) return;
+    const close = () => setShowListsMenu(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [showListsMenu]);
 
   useEffect(() => {
     if (ignoredGames && ignoredGames.length > 0) {
@@ -472,19 +480,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           >
             💾 Установлено на ПК ({installedCount})
           </button>
-          <button 
-            className={`tactile-btn ${activeFilter === 'excluded' ? 'active-mint' : ''}`}
-            onClick={() => { playClick(); setActiveFilter('excluded'); }}
-          >
-            🚫 Исключения ({excludedList.length})
-          </button>
-          <button 
-            className={`tactile-btn ${activeFilter === 'removed' ? 'active-mint' : ''}`}
-            onClick={() => { playClick(); setActiveFilter('removed'); }}
-          >
-            🗑️ Удалённые ({removedCount})
-          </button>
-
           {activeFilter === 'all' && (
             <div className="campaign-sort" role="group" aria-label="Порядок кампаний">
               {(Object.keys(SORT_LABELS) as CampaignSortMode[]).map((mode) => (
@@ -536,6 +531,37 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 ✕
               </button>
             )}
+          </div>
+
+          <div style={{ position: 'relative', marginLeft: '2px' }} onClick={(e) => e.stopPropagation()}>
+            <button
+              className={`tactile-btn ${showListsMenu || activeFilter === 'excluded' || activeFilter === 'removed' ? 'active-mint' : ''}`}
+              onClick={() => { playClick(); setShowListsMenu((prev) => !prev); }}
+              title="Исключения и удалённые игры"
+              aria-haspopup="menu"
+              aria-expanded={showListsMenu}
+              aria-label="Исключения и удалённые игры"
+            >
+              {activeFilter === 'excluded' ? `🚫 Исключения (${excludedList.length})` : activeFilter === 'removed' ? `🗑️ Удалённые (${removedCount})` : '⋯'}
+            </button>
+            <div className={`more-menu ${showListsMenu ? 'open' : ''}`} role="menu" style={{ left: 0, right: 'auto' }}>
+              <button
+                className="more-item"
+                role="menuitem"
+                onClick={() => { playClick(); setShowListsMenu(false); setActiveFilter('excluded'); }}
+              >
+                <span>🚫 Исключения</span>
+                <span className="more-hint">{excludedList.length}</span>
+              </button>
+              <button
+                className="more-item"
+                role="menuitem"
+                onClick={() => { playClick(); setShowListsMenu(false); setActiveFilter('removed'); }}
+              >
+                <span>🗑️ Удалённые</span>
+                <span className="more-hint">{removedCount}</span>
+              </button>
+            </div>
           </div>
         </div>
 
