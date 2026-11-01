@@ -46,6 +46,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
   const [autostartError, setAutostartError] = useState<string | null>(null);
+  const [closeAction, setCloseAction] = useState<'ask' | 'tray' | 'exit' | null>(null);
 
   const [directories, setDirectories] = useState<string[]>([]);
 
@@ -86,6 +87,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     const handleWebviewMessage = (event: any) => {
       try {
         const data = event.data;
+        if (data && data.type === 'CLOSE_ACTION') {
+          setCloseAction(data.value === 'tray' || data.value === 'exit' ? data.value : 'ask');
+        }
         if (data && data.type === 'FOLDER_SELECTED' && !data.cancelled && data.path) {
           fetch('http://127.0.0.1:28492/api/game-directories/add', {
             method: 'POST',
@@ -116,6 +120,16 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       window.removeEventListener('message', handleWebviewMessage);
     };
   }, [onRescanGames]);
+
+  // The shell (MainForm.cs) owns the close-button behavior; ask it for the current value
+  useEffect(() => {
+    (window as any).chrome?.webview?.postMessage({ type: 'GET_CLOSE_ACTION' });
+  }, []);
+
+  const handleCloseActionChange = (value: 'ask' | 'tray' | 'exit') => {
+    playClick();
+    (window as any).chrome?.webview?.postMessage({ type: 'SET_CLOSE_ACTION', value });
+  };
 
   // Test countdown for Luna timer
   useEffect(() => {
@@ -416,6 +430,20 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }} title="Что делает крестик окна. Фарм продолжается, пока приложение не закрыто полностью">ПРИ ЗАКРЫТИИ ОКНА:</span>
+            {([['ask', 'Спрашивать'], ['tray', 'В трей'], ['exit', 'Выход']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                className={`tactile-btn ${closeAction === value ? 'active-amber' : ''}`}
+                disabled={closeAction === null}
+                onClick={() => handleCloseActionChange(value)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {/* Luna Cascade Box 1-to-1 with SPEC */}
