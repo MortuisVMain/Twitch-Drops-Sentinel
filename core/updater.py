@@ -192,7 +192,7 @@ class GitHubUpdater:
     def check_for_updates(self, force: bool = False) -> dict[str, Any]:
         now = time.time()
         # Cache for 6 hours unless force refresh requested
-        if not force and self._cached_result and (now - self.last_check_time) < 21600:
+        if not force and self._cached_result and (now - self.last_check_time) < 900:  # 15 min cache
             return self._cached_result
 
         live_current = get_live_local_version()

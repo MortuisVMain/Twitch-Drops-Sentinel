@@ -1697,8 +1697,13 @@ namespace TwitchDropsSentinel
 
                 if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); _trayIcon = null; }
 
-                        Application.Restart();
-
+                        string targetExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TwitchDropsSentinel.exe");
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = File.Exists(targetExe) ? targetExe : Application.ExecutablePath,
+                            UseShellExecute = true,
+                            WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
+                        });
                         Environment.Exit(0);
 
                     }));
