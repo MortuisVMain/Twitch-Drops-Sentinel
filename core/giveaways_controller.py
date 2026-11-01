@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -373,6 +374,13 @@ class GiveawaysOrchestrator:
                 valid_stores = ["epic", "gog", "steam", "fab", "unity"]
 
             if runner_file.is_file():
+                # Node.js is not bundled (the browser engine is installed on first use): say so instead of crashing
+                if shutil.which("node") is None or shutil.which("npm") is None:
+                    raise web.HTTPPreconditionFailed(
+                        text=json.dumps({"detail": "Для бесплатных раздач нужен Node.js 20 или новее (nodejs.org). "
+                                                   "Установите его и запустите сбор ещё раз."}, ensure_ascii=False),
+                        content_type="application/json",
+                    )
                 args = ["node", str(runner_file)]
             else:
                 args = ["cmd.exe", "/c", str(cmd_file)]

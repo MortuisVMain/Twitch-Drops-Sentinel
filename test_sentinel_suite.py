@@ -2489,6 +2489,32 @@ def test_cover_search_names_and_non_game_filter():
     assert "NON_GAME_NAMES.search(" in svc, "scanned utilities must be hidden from the catalog"
 
 
+def test_giveaways_without_node_explains_what_is_missing():
+    print("[clean-install] Giveaways on a PC without Node.js: a clear message instead of a crash...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import asyncio
+    import giveaways_controller as gc
+    from aiohttp import web
+    orch = gc.GiveawaysOrchestrator()
+
+    async def no_scheduler(force=False):
+        return {"state": "Ready"}
+
+    orch._query_scheduler = no_scheduler
+    original = gc.shutil.which
+    gc.shutil.which = lambda name, *a, **k: None
+    try:
+        try:
+            asyncio.run(orch.start_claim(["epic"], True))
+            raise AssertionError("start_claim must refuse to start without Node.js")
+        except web.HTTPPreconditionFailed as exc:
+            body = json.loads(exc.text)
+            assert "Node.js" in body["detail"] and "nodejs.org" in body["detail"], body
+    finally:
+        gc.shutil.which = original
+    assert orch._proc is None, "nothing may be left running after the refusal"
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2550,6 +2576,7 @@ if __name__ == "__main__":
         test_campaign_dates_line,
         test_cover_keeper_replaces_broken_and_missing_covers,
         test_cover_search_names_and_non_game_filter,
+        test_giveaways_without_node_explains_what_is_missing,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
