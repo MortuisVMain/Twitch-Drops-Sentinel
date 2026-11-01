@@ -1352,6 +1352,14 @@
     color: var(--led-rose); transition: all 0.2s ease;
   }
   .safety-guard-btn.armed { background: var(--led-rose); color: #fff; }
+  .danger-zone {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 22px; padding: 9px 16px; flex-shrink: 0;
+    border: 1px solid rgba(248,113,113,0.38); border-radius: 12px; background: rgba(248,113,113,0.05);
+  }
+  .danger-zone-title { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--led-rose); }
+  .danger-zone-item { display: flex; align-items: center; gap: 8px; min-height: 29px; }
+  .danger-zone-hint { font-size: 10px; color: var(--text-muted); }
+  .danger-zone-question { font-size: 11.5px; font-weight: 700; color: var(--text-primary); }
 
   .modal-backdrop { position: fixed; inset: 0; background: rgba(3, 4, 6, 0.78); backdrop-filter: blur(14px); z-index: 150; display: none; align-items: center; justify-content: center; padding: 20px; }
   .modal-backdrop.open { display: flex; }

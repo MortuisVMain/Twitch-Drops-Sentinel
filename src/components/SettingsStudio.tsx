@@ -37,8 +37,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
   const [scanLabel, setScanLabel] = useState<string>('↻ Пересканировать все диски');
   const [backupLabel, setBackupLabel] = useState<string>('📦 Бэкап профиля (.zip)');
-  const [armedButton, setArmedButton] = useState<'trophies' | 'logout' | null>(null);
-  const [armedCountdown, setArmedCountdown] = useState<number>(0);
+  const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | null>(null);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
   const [diagContent, setDiagContent] = useState<string>('');
   const [isLoadingDiag, setIsLoadingDiag] = useState<boolean>(false);
@@ -131,36 +130,16 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     return () => clearTimeout(timer);
   }, [testCountdown]);
 
-  // Armed safety buttons 5s auto-reset
-  useEffect(() => {
-    if (!armedButton) return;
-    if (armedCountdown <= 0) {
-      setArmedButton(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setArmedCountdown(prev => prev - 1);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [armedButton, armedCountdown]);
-
-  const handleArmSafety = (type: 'trophies' | 'logout') => {
+  const handleConfirmDanger = (type: 'trophies' | 'logout') => {
     playClick();
-    if (armedButton === type) {
-      // Execute confirmed action!
-      if (type === 'trophies') {
-        fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' }).catch(() => {});
-        alert('Журнал Trophies.md очищен!');
-      } else {
-        fetch('http://127.0.0.1:28492/api/logout', { method: 'POST' }).catch(() => {});
-        alert('Сессия сброшена! Перезапустите Sentinel.');
-      }
-      setArmedButton(null);
-      setArmedCountdown(0);
+    if (type === 'trophies') {
+      fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' }).catch(() => {});
+      alert('Журнал Trophies.md очищен!');
     } else {
-      setArmedButton(type);
-      setArmedCountdown(5);
+      fetch('http://127.0.0.1:28492/api/logout', { method: 'POST' }).catch(() => {});
+      alert('Сессия сброшена! Перезапустите Sentinel.');
     }
+    setPendingDanger(null);
   };
 
   const handleBackupProfile = async () => {
@@ -315,8 +294,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     navigator.clipboard.writeText(diagContent);
   };
   const handleClearInstalledGames = handleClearCache;
-  const handleClearTrophies = () => handleArmSafety('trophies');
-  const handleLogout = () => handleArmSafety('logout');
+  const handleClearTrophies = () => { playClick(); setPendingDanger('trophies'); };
+  const handleLogout = () => { playClick(); setPendingDanger('logout'); };
   const handlePowerModeChange = (mode: string) => onUpdateSettings({ auto_shutdown_mode: mode as any });
   const [showReportModal, setShowReportModal] = [showDiagModal, setShowDiagModal];
   const updateStageNames: Record<string, string> = {
@@ -475,14 +454,15 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 🔒 Блокировка
               </button>
             </div>
-            <button 
-              className="tactile-btn" 
+            <button
+              className="tactile-btn"
               onClick={() => {
                 playClick();
-                setTestCountdown(5);
+                setTestCountdown(testCountdown !== null ? null : 5);
               }}
+              title="Только отсчёт на экране: ПК не будет выключен, усыплён или заблокирован"
             >
-              {testCountdown !== null ? `⏱ Отмена (${testCountdown}c)` : '⏱ Тест таймера (5 сек)'}
+              {testCountdown !== null ? `⏱ Отмена (${testCountdown} с)` : '⏱ Проверить таймер (5 с, ПК не затронет)'}
             </button>
           </div>
         </div>
@@ -590,6 +570,39 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         </div>
       </div>
 
+      {/* Danger zone: destructive actions live apart from everyday buttons and always ask first */}
+      <div className="danger-zone" role="group" aria-label="Опасная зона">
+        <span className="danger-zone-title">⚠ Опасная зона</span>
+        <div className="danger-zone-item">
+          {pendingDanger === 'trophies' ? (
+            <>
+              <span className="danger-zone-question">Очистить трофеи? Журнал будет удалён.</span>
+              <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('trophies')}>Да, очистить</button>
+              <button className="tactile-btn" onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+            </>
+          ) : (
+            <>
+              <button className="safety-guard-btn" onClick={handleClearTrophies} title="Удалить журнал полученных наград Trophies.md">Очистить трофеи</button>
+              <span className="danger-zone-hint">Удаляет журнал полученных наград</span>
+            </>
+          )}
+        </div>
+        <div className="danger-zone-item">
+          {pendingDanger === 'logout' ? (
+            <>
+              <span className="danger-zone-question">Выйти из аккаунта Twitch?</span>
+              <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('logout')}>Да, выйти</button>
+              <button className="tactile-btn" onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+            </>
+          ) : (
+            <>
+              <button className="safety-guard-btn" onClick={handleLogout} title="Сбросить вход в Twitch и войти другим аккаунтом">Сменить аккаунт</button>
+              <span className="danger-zone-hint">Сбрасывает вход в Twitch</span>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Bottom Full-Width Account & Live Update Bar (Pinned to the bottom) */}
       <div 
         className="titanium-island" 
@@ -607,20 +620,6 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             
             <button className="tactile-btn" onClick={handleBackupProfile}>
               {backupLabel}
-            </button>
-
-            <button 
-              className={`safety-guard-btn ${armedButton === 'trophies' ? 'armed' : ''}`}
-              onClick={handleClearTrophies} title="Очистить журнал /api/trophies/clear"
-            >
-              {armedButton === 'trophies' ? `⚠ ПОДТВЕРДИТЬ (${armedCountdown}с)` : '🔒 ОЧИСТИТЬ ТРОФЕИ'}
-            </button>
-
-            <button 
-              className={`safety-guard-btn ${armedButton === 'logout' ? 'armed' : ''}`}
-              onClick={handleLogout} title="Сменить аккаунт"
-            >
-              {armedButton === 'logout' ? `⚠ ВЫЙТИ (${armedCountdown}с)` : '🔒 СМЕНИТЬ АККАУНТ'}
             </button>
           </div>
 
