@@ -997,6 +997,11 @@
 
   .queue-row .reorder-rocker { opacity: 0; transition: opacity 0.15s ease; }
   .queue-row:hover .reorder-rocker, .queue-row:focus-within .reorder-rocker { opacity: 1; }
+  .queue-link-caption {
+    padding: 0; border: none; background: none; cursor: pointer; font: inherit; color: var(--led-amber);
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .queue-link-caption:disabled { cursor: default; text-decoration: none; opacity: 0.7; }
   .queue-finished-toggle {
     display: flex; align-items: center; width: 100%; padding: 6px 10px; margin-top: 4px;
     border: 1px dashed var(--border-main); border-radius: 8px; background: transparent;

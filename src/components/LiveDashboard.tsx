@@ -8,6 +8,7 @@ import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLog
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
 import { computeIdleInfo, pluralRu, shortGameName } from '../utils/idleInfo';
+import { campaignLabel, getCampaignState, type CampaignState } from '../utils/campaignState';
 
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
@@ -225,6 +226,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     const list: Array<{
       name: string;
       drop: string;
+      state: CampaignState;
       art?: string;
       pct: number;
       cur?: number;
@@ -241,19 +243,15 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
         const match = allGames.find((g) => safeLower(g.name) === safeLower(gameName) || smartGameMatch(g.name, gameName));
         const art = resolveGameBoxArt(gameName, match?.box_art);
-        const isFinished = Boolean(
-          match?.is_finished ||
-          (match?.total_drops && match.claimed_drops && match.claimed_drops >= match.total_drops) ||
-          (match?.progress_percent !== undefined && match.progress_percent >= 100)
-        );
-        const dropTitle = isFinished
-          ? '🏆 Все награды получены'
-          : (match?.category || (match?.has_drops ? 'Активная кампания Drops' : 'В списке приоритета'));
-        const pct = isFinished ? 100 : (match?.progress_percent || 0);
+const state = getCampaignState(match, trophies, smartGameMatch);
+        // platform / disk goes to the row tooltip, the visible caption is the campaign state
+        const dropTitle = match?.category || (match?.is_installed ? 'Установлена' : 'В очереди');
+        const pct = state.kind === 'done' ? 100 : (match?.progress_percent || 0);
 
         list.push({
           name: gameName,
           drop: dropTitle,
+          state,
           art: art,
           pct: pct,
           has_drops: match?.has_drops ?? false,
@@ -275,6 +273,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
         list.push({
           name: g.name,
           drop: g.category || 'Дроп доступен',
+          state: getCampaignState(g, trophies, smartGameMatch),
           art: resolveGameBoxArt(g.name, g.box_art),
           pct: g.progress_percent || 0,
           has_drops: true,
@@ -284,7 +283,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     }
 
     return list;
-  }, [priorityList, allGames, activeGame]);
+  }, [priorityList, allGames, activeGame, trophies]);
 
   const sortedQueuedCampaigns = queueCampaigns;
   const allQueuedCampaignsLabel = `Все (${sortedQueuedCampaigns.length})`;
@@ -388,8 +387,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
       console.warn('LiveDashboard: не удалось сохранить состояние группы', err);
     }
   };
-  const activeQueue = queueCampaigns.filter((item) => item.pct < 100);
-  const finishedQueue = queueCampaigns.filter((item) => item.pct >= 100);
+  const activeQueue = queueCampaigns.filter((item) => item.state.kind !== 'done');
+  const finishedQueue = queueCampaigns.filter((item) => item.state.kind === 'done');
 
   const renderQueueRow = (item: (typeof queueCampaigns)[number]) => (
                 <div
@@ -399,7 +398,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                     playClick();
                     onForceFarm?.(item.name);
                   }}
-                  title={`Кликните для переключения фарма на ${item.name}`}
+                  title={`Кликните для переключения фарма на ${item.name} · ${item.drop}`}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
                     <img
@@ -421,14 +420,25 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                         )}
                       </div>
                       <div style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.drop}
+                                          {item.state.kind === 'link' ? (
+                          <button
+                            className="queue-link-caption"
+                            onClick={(e) => { e.stopPropagation(); playClick(); if (item.state.linkUrl) window.open(item.state.linkUrl, '_blank'); }}
+                            disabled={!item.state.linkUrl}
+                            title={item.state.linkUrl ? `Открыть страницу привязки: ${item.state.linkUrl}` : 'Ссылка на привязку не передана'}
+                          >
+                            {campaignLabel(item.state)} ↗
+                          </button>
+                        ) : (
+                          campaignLabel(item.state)
+                        )}
                       </div>
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
-                    <span className="tabular" style={{ fontSize: '10.5px', fontWeight: 700, color: item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
-                      {item.pct}%
+                    <span className="tabular" style={{ fontSize: '10.5px', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                      {item.state.kind === 'none' ? '—' : `${item.pct}%`}
                     </span>
 
                     {item.priorityIndex >= 0 && onReorderPriority && (
