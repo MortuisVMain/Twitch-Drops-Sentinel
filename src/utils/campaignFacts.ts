@@ -100,3 +100,29 @@ export const campaignFacts = (g: GameItem, opts: FactsOptions): CampaignFacts =>
     link: g.has_drops ? (opts.linked ? 'linked' : 'needs') : null,
   };
 };
+
+const formatStamp = (iso: string): string | null => {
+  const at = new Date(iso).getTime();
+  if (Number.isNaN(at)) return null;
+  // "1 нояб., 13:00" -> "1 нояб. 13:00", local time
+  return new Date(at)
+    .toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    .replace(', ', ' ');
+};
+
+export interface CampaignDates {
+  text: string; // "с 1 нояб. 13:00 · до 2 нояб. 12:29"
+  startedRecently: boolean; // began less than 24 hours ago: the start is highlighted as "new"
+}
+
+// null when the campaign has no usable dates
+export const campaignDatesLine = (startIso: string | undefined, endIso: string | undefined, now: number): CampaignDates | null => {
+  const start = startIso ? formatStamp(startIso) : null;
+  const end = endIso ? formatStamp(endIso) : null;
+  if (!start && !end) return null;
+  const startMs = startIso ? new Date(startIso).getTime() : NaN;
+  return {
+    text: [start ? `с ${start}` : null, end ? `до ${end}` : null].filter(Boolean).join(' · '),
+    startedRecently: !Number.isNaN(startMs) && startMs <= now && now - startMs < 24 * 3600 * 1000,
+  };
+};

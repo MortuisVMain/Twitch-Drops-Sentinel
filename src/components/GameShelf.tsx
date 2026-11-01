@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { agoLabel, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
+import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
@@ -492,6 +492,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     const isExcluded = excludedList.includes(game.name);
     const isRemoved = allRemovedLower.has(game.name.toLowerCase());
     const facts = campaignFacts(game, { trophies, linked: isGameLinked(game), now: nowTick });
+    const dates = campaignDatesLine(game.drops_start_at, game.drops_end_at, nowTick);
     const blocked = isExcluded || isRemoved;
 
     return (
@@ -507,6 +508,11 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
             {isExcluded ? '🚫 В исключениях' : isRemoved ? '🗑 В удалённых' : isForced ? '⚡ Принудительный фарм' : isInPriority ? `⭐ #${priorityIndex + 1} в очереди` : game.is_installed ? '💾 Установлено на ПК' : ' '}
           </div>
+          {dates && (
+            <div className={`campaign-dates ${dates.startedRecently ? 'fresh' : ''}`} title={facts.timeLeft ? `Осталось: ${facts.timeLeft}` : undefined}>
+              {dates.text}
+            </div>
+          )}
         </div>
         <span className={`campaign-fact ${facts.urgent ? 'warn' : ''}`} title="Сколько осталось до конца кампании">
           {facts.timeLeft ? `⏱ ${facts.timeLeft}` : '—'}
@@ -830,6 +836,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             const isLinked = isGameLinked(game);
             const needsLink = isDropActive && !isLinked;
             const facts = campaignFacts(game, { trophies, linked: isLinked, now: nowTick });
+            const dates = campaignDatesLine(game.drops_start_at, game.drops_end_at, nowTick);
 
             return (
               <div key={game.name} className="cartridge-card">
@@ -969,6 +976,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                           {facts.link === 'linked' ? '✓ привязан' : '⚠ нужна привязка'}
                         </span>
                       )}
+                    </div>
+                  )}
+                  {dates && (
+                    <div
+                      className={`campaign-dates ${dates.startedRecently ? 'fresh' : ''}`}
+                      title={`${dates.startedRecently ? 'Кампания началась меньше суток назад. ' : ''}${facts.timeLeft ? `Осталось: ${facts.timeLeft}` : ''}`.trim() || undefined}
+                    >
+                      {dates.text}
                     </div>
                   )}
                 </div>

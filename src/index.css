@@ -1001,6 +1001,8 @@
   .campaign-facts .ok, .campaign-fact.ok { color: var(--led-mint); }
   .campaign-facts .warn, .campaign-fact.warn { color: var(--led-amber); }
   .campaign-list { display: flex; flex-direction: column; gap: 6px; }
+  .campaign-dates { margin-top: 2px; font-size: 9.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .campaign-dates.fresh { color: var(--led-mint); }
   .campaign-row {
     display: grid; grid-template-columns: 36px minmax(0, 1fr) 96px 110px 138px auto; align-items: center; gap: 12px;
     padding: 6px 12px; background: var(--bg-island); border: 1px solid var(--border-main); border-radius: 10px;

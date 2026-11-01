@@ -2334,6 +2334,45 @@ def test_listed_but_unfarmable_campaign_never_reads_as_available():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_campaign_dates_line():
+    print("[round5] Campaign dates: 'с … · до …' in local time, start highlighted for a fresh campaign...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "campaign_dates_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignFacts.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { campaignDatesLine } from './campaignFacts.mjs';\n"
+        "const now = Date.parse('2026-11-01T16:00:00Z');\n"
+        "console.log(JSON.stringify({\n"
+        "  fresh: campaignDatesLine('2026-11-01T10:00:00.000Z', '2026-11-02T09:29:59.999Z', now),\n"
+        "  old: campaignDatesLine('2026-10-20T10:00:00.000Z', '2026-11-20T09:29:59.999Z', now),\n"
+        "  future: campaignDatesLine('2026-11-05T10:00:00.000Z', '2026-11-06T10:00:00.000Z', now),\n"
+        "  endOnly: campaignDatesLine(undefined, '2026-11-02T09:29:59.999Z', now),\n"
+        "  none: campaignDatesLine(undefined, undefined, now),\n"
+        "  garbage: campaignDatesLine('not a date', '???', now),\n"
+        "}));\n", encoding="utf-8")
+    env = dict(os.environ, TZ="UTC")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60, env=env)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["fresh"] == {"text": "с 1 нояб. 10:00 · до 2 нояб. 09:29", "startedRecently": True}, d["fresh"]
+    assert d["old"]["startedRecently"] is False and d["old"]["text"].startswith("с 20 окт."), d["old"]
+    assert d["future"]["startedRecently"] is False, "a campaign that has not started cannot be 'new'"
+    assert d["endOnly"]["text"] == "до 2 нояб. 09:29" and d["endOnly"]["startedRecently"] is False
+    assert d["none"] is None and d["garbage"] is None, "no dates, no line"
+    shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert shelf.count("campaignDatesLine(") == 2, "tiles and list rows must both show the dates"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2392,6 +2431,7 @@ if __name__ == "__main__":
         test_toast_gate_dedup_switch_and_priming,
         test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,
         test_listed_but_unfarmable_campaign_never_reads_as_available,
+        test_campaign_dates_line,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
