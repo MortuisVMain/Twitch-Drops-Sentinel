@@ -351,7 +351,8 @@ class SentinelSupervisor:
 
         if CONFIG_FILE.exists():
             try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                # utf-8-sig: Notepad and PowerShell save a BOM, which plain utf-8 refuses to parse
+                with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
                     default_settings.update(data)
             except Exception as e:

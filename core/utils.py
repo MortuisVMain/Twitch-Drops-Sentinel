@@ -236,14 +236,14 @@ def json_load(path: Path, defaults: _JSON_T, *, merge: bool = True) -> _JSON_T:
     # try new file first
     if new_path.exists():
         try:
-            with new_path.open('r', encoding="utf8") as file:
+            with new_path.open('r', encoding="utf-8-sig") as file:
                 combined = _remove_missing(json.load(file, object_hook=_deserialize))
         except json.JSONDecodeError:
             # remove invalid file
             new_path.unlink()
     # try the old file
     if combined is None and path.exists():
-        with path.open('r', encoding="utf8") as file:
+        with path.open('r', encoding="utf-8-sig") as file:
             combined = _remove_missing(json.load(file, object_hook=_deserialize))
     # handle defaults and merging
     if combined is None:

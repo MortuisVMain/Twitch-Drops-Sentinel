@@ -2564,6 +2564,21 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     shutil.rmtree(work, ignore_errors=True)
 
 
+def test_config_files_saved_with_a_bom_still_load():
+    print("[clean-install] A config.json edited in Notepad/PowerShell (UTF-8 with BOM) still loads...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from utils import json_load
+    work = SANDBOX / "bom_check"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    path = work / "settings.json"
+    path.write_bytes(b"\xef\xbb\xbf" + '{"language": "English"}'.encode("utf-8"))
+    assert json_load(path, {"language": "Русский"})["language"] == "English"
+    svc = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'open(CONFIG_FILE, "r", encoding="utf-8-sig")' in svc, "config.json must be read with utf-8-sig"
+    shutil.rmtree(work, ignore_errors=True)
+
+
 def test_missing_webview2_runtime_has_an_explanation():
     print("[clean-install] A PC without the WebView2 Runtime gets a Russian explanation and the download page...")
     main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -2659,6 +2674,7 @@ if __name__ == "__main__":
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
         test_missing_webview2_runtime_has_an_explanation,
+        test_config_files_saved_with_a_bom_still_load,
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
