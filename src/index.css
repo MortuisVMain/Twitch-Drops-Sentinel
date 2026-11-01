@@ -1645,3 +1645,5 @@
   .cover-exclude-btn .lbl { display: none; }
   .cover-exclude-btn:hover .lbl, .cover-exclude-btn:focus-visible .lbl { display: inline; }
   @container (min-width: 11rem) { .cover-exclude-btn .lbl { display: inline; } }
+  .override-pill-card { gap: 6px; }
+  .override-pill-card > div:first-child { min-width: 0; flex: 1 1 auto; }
