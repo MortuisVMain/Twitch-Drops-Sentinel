@@ -440,7 +440,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 </span>
               </div>
 
-              <div className="tabular" style={{ fontSize: '8.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div className="tabular" style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span className={`led-dot ${!isAuthed ? 'off' : ''}`}></span>
                 <span style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)' }}>
                   {isAuthed ? accountName : '⚠ Требуется вход'}
@@ -468,7 +468,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header" style={{ marginBottom: '8px', flexShrink: 0 }}>
             <span className="tag">
-              <span className="led-dot"></span> КОЛЛЕКЦИЯ ЗАБРАННЫХ ИГР И UE5-АССЕТОВ ({claimedItems.length} ТАЙТЛОВ)
+              <span className="led-dot"></span> <span title="Коллекция забранных игр и UE5-ассетов">КОЛЛЕКЦИЯ · {claimedItems.length}</span>
             </span>
           </div>
 
@@ -562,7 +562,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: 0, flexShrink: 0, flexWrap: 'wrap', rowGap: '4px' }}>
             <span className="tag">
-              <span className="led-dot"></span> TASK SCHEDULER: FreeGamesClaimerStudio
+              <span className="led-dot"></span> <span title="Планировщик задач Windows: FreeGamesClaimerStudio">ПЛАНИРОВЩИК</span>
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <button 

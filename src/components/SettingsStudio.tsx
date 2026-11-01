@@ -339,7 +339,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div>
             <div className="engraved-header">
               <span className="tag">
-                <span className="led-dot"></span> Управление модулями & Автоматизация (ВСЕ 10 СИСТЕМ SENTINEL)
+                <span className="led-dot"></span> <span title="Управление модулями и автоматизация (все 10 систем Sentinel)">МОДУЛИ</span>
               </span>
               <span className="version-chip">10 / 10 ПОД КОНТРОЛЕМ</span>
             </div>
@@ -581,7 +581,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div className="titanium-island" style={{ gap: '6px' }}>
             <div className="engraved-header" style={{ marginBottom: '2px' }}>
               <span className="tag">
-                <span className="led-dot"></span> СТРАТЕГИЯ ФАРМА (ЛОГИКА ПРИ ОТСУТСТВИИ СТРИМОВ)
+                <span className="led-dot"></span> <span title="Стратегия фарма: логика при отсутствии стримов">СТРАТЕГИЯ ФАРМА</span>
               </span>
             </div>
 
@@ -635,7 +635,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div className="titanium-island" style={{ gap: '8px', display: 'flex', flexDirection: 'column' }}>
             <div className="engraved-header" style={{ marginBottom: 0 }}>
               <span className="tag">
-                <span className="led-dot"></span> БИБЛИОТЕКИ И ПАПКИ С ИГРАМИ ({installedCount} НА ПК)
+                <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
               <button className="tactile-btn active-mint" style={{ height: '22px', fontSize: '9px' }} onClick={handleAddFolder}>
                 + Добавить папку

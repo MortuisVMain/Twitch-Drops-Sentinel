@@ -476,7 +476,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
         <section className="titanium-island dashboard-shelf-island" style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header">
             <span className="tag">
-              <span className="led-dot" /> ПОЛКА КАМПАНИЙ (<span id="queueCount">{queueCampaigns.length + (activeGame ? 1 : 0)}</span>)
+              <span className="led-dot" /> <span title="Очередь кампаний: игры из ТОПа в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueCampaigns.length + (activeGame ? 1 : 0)}</span></span>
             </span>
 <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
               {forcedGame ? (
@@ -523,8 +523,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             />
             {isSearchFocused && searchResults.length > 0 && (
               <div className="gql-autocomplete" id="gqlDropdown" style={{ display: 'flex' }}>
-                <div className="tabular" style={{ fontSize: '8.5px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', padding: '2px 6px' }}>
-                  <span>TWITCH GQL LIVE VERIFICATION</span>
+                <div className="tabular" style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', padding: '2px 6px' }}>
+                  <span>ПРОВЕРКА TWITCH</span>
                   <span>ENTER ➔ В ТОП</span>
                 </div>
                 {searchResults.map((item, idx) => (
@@ -638,7 +638,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           <section className="titanium-island" style={{ flexShrink: 0 }}>
             <div className="engraved-header">
               <span className="tag">
-                <span className="led-dot" /> ЦЕЛЕВАЯ НАГРАДА // АКТИВНЫЙ ХРОНОГРАФ
+                <span className="led-dot" /> <span title="Целевая награда и хронограф активного дропа">ТЕКУЩАЯ ЦЕЛЬ</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="version-chip">РЕЖИМ БЕЗ ВИДЕО</span>
@@ -693,7 +693,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                   <div className="tabular" style={{ fontSize: '19px', fontWeight: 800 }} id="heroPct">
                     {progressPct}%
                   </div>
-                  <div className="tabular" style={{ fontSize: '8px', color: 'var(--led-mint)', fontWeight: 700 }} id="heroEta">
+                  <div className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)', fontWeight: 700 }} id="heroEta">
                     ~{etaMinutes} МИН
                   </div>
                 </div>
@@ -706,7 +706,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                   <span className="tabular" style={{ fontSize: '9px', color: 'var(--text-muted)' }} id="heroMins">
                     ● {currentMinutes} ИЗ {requiredMinutes} МИН
                   </span>
-                  <span className="tabular" style={{ fontSize: '8.5px', color: 'var(--led-mint)' }}>
+                  <span className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)' }}>
                     ● СКОРОСТЬ 1x GQL
                   </span>
                 </div>
@@ -823,8 +823,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                   ))}
                 </div>
 
-                <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
-                  <span>SPADE-МАЯК: HEAD раз в 20 с</span>
+                <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
+                  <span title="Связь со стримом: SPADE HEAD каждые 20 с">SPADE: HEAD / 20 с</span>
                   <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
                 </div>
               </div>
@@ -863,7 +863,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           <section className="titanium-island middle-console-island" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <div className="engraved-header" style={{ marginBottom: '5px' }}>
               <span className="tag">
-                <span className="led-dot" /> 💻 ЖИВАЯ КОНСОЛЬ ОПЕРАЦИЙ & СОБЫТИЙ ДЕМОНА
+                <span className="led-dot" /> <span title="Живая консоль операций и событий демона">КОНСОЛЬ</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <button
@@ -946,7 +946,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
           <section id="overrideSection" className="titanium-island" style={{ flexShrink: 0 }}>
             <div className="engraved-header" style={{ marginBottom: '4px' }}>
               <span className="tag">
-                <span className="led-dot amber" /> ⚡ ФАРМ ВНЕ ОЧЕРЕДИ (РУЧНОЙ ФОКУС)
+                <span className="led-dot amber" /> <span title="Фарм вне очереди (ручной фокус)">ВНЕ ОЧЕРЕДИ</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <input
@@ -968,7 +968,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 {forcedGame && (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', padding: '0 7px', fontSize: '8.5px', color: 'var(--led-amber)' }}
+                    style={{ height: '22px', padding: '0 7px', fontSize: '10px', color: 'var(--led-amber)' }}
                     onClick={() => {
                       playClick();
                       onCancelForceFarm?.();
@@ -1011,7 +1011,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                         <div style={{ fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.name}
                         </div>
-                        <div className="tabular" style={{ fontSize: '8.5px', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                        <div className="tabular" style={{ fontSize: '10px', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : 'var(--text-muted)' }}>
                           {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
                         </div>
                       </div>

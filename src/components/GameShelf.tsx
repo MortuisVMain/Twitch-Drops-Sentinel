@@ -61,7 +61,7 @@ const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, box
         <span style={{ fontSize: '28px', fontWeight: 900, textShadow: '0 0 16px rgba(115, 187, 165, 0.35)' }}>
           {initials}
         </span>
-        <span style={{ fontSize: '8.5px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px' }}>
+        <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px' }}>
           NO POSTER
         </span>
       </div>
@@ -508,7 +508,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           <div className="engraved-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="tag" style={{ color: 'var(--led-amber)' }}>
-                🏆 КОЛЛЕКЦИОННАЯ 3D-ВИТРИНА ТРОФЕЕВ (TROPHIES.MD)
+                <span title="Коллекционная 3D-витрина трофеев (Trophies.md)">🏆 ТРОФЕИ</span>
               </span>
               <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                 🏆 Витрина 3D Трофеев • {claimedCount} игр с наградами
@@ -648,7 +648,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         maxWidth: 'calc(100% - 12px)',
                         padding: '2px 6px',
                         borderRadius: '5px',
-                        fontSize: '8px',
+                        fontSize: '10px',
                         fontWeight: 800,
                         fontFamily: "'JetBrains Mono', monospace",
                         background: 'rgba(6, 44, 28, 0.94)',
@@ -667,7 +667,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       }}
                       title="Аккаунт привязан к Twitch (нажмите, чтобы изменить статус)"
                     >
-                      <span style={{ fontSize: '8.5px' }}>✓</span>
+                      <span style={{ fontSize: '10px' }}>✓</span>
                       <span>Привязан</span>
                     </div>
                   )}
@@ -692,7 +692,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         style={{
                           padding: '2px 5px',
                           borderRadius: '5px 0 0 5px',
-                          fontSize: '8px',
+                          fontSize: '10px',
                           fontWeight: 800,
                           fontFamily: "'JetBrains Mono', monospace",
                           background: 'rgba(54, 30, 4, 0.94)',
@@ -721,7 +721,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         style={{
                           padding: '2px 5px',
                           borderRadius: '0 5px 5px 0',
-                          fontSize: '8px',
+                          fontSize: '10px',
                           fontWeight: 800,
                           fontFamily: "'JetBrains Mono', monospace",
                           background: 'rgba(58, 210, 159, 0.18)',
@@ -780,7 +780,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 5px', fontSize: '8.5px', fontWeight: 700 }}
+                          style={{ height: '18px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}
                           title="Повысить приоритет (переместить выше в очереди)"
                           disabled={priorityIndex === 0}
                           onClick={(e) => {
@@ -793,7 +793,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         </button>
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 5px', fontSize: '8.5px', fontWeight: 700 }}
+                          style={{ height: '18px', padding: '0 5px', fontSize: '10px', fontWeight: 700 }}
                           title="Понизить приоритет (переместить ниже в очереди)"
                           disabled={priorityIndex === priorityList.length - 1}
                           onClick={(e) => {
@@ -812,7 +812,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       {game.is_installed && (
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 4px', fontSize: '8px' }}
+                          style={{ height: '18px', padding: '0 4px', fontSize: '10px' }}
                           title="Удалить из списка установленных"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -825,7 +825,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       )}
                       <button
                         className="node-chip"
-                        style={{ height: '18px', padding: '0 4px', fontSize: '8px' }}
+                        style={{ height: '18px', padding: '0 4px', fontSize: '10px' }}
                         title="Скрыть / в исключения"
                         onClick={(e) => {
                           e.stopPropagation();

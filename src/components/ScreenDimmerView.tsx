@@ -547,7 +547,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="engraved-header" style={{ marginBottom: '2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span className="tag">
-              <span className="led-dot"></span> ПАМЯТЬ ОБОРУДОВАНИЯ & ПРОФИЛИ КАЛИБРОВКИ
+              <span className="led-dot"></span> <span title="Память оборудования и профили калибровки">ПРОФИЛИ ЯРКОСТИ</span>
             </span>
             <span style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
               Эталонная аппаратная яркость (Хоткей: <strong style={{ color: 'var(--accent-mint)' }}>Alt+Shift+Backspace</strong>)
@@ -622,7 +622,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   </div>
                   <span
                     style={{
-                      fontSize: '8.5px',
+                      fontSize: '10px',
                       fontFamily: 'var(--font-mono)',
                       padding: '1px 5px',
                       borderRadius: '3px',
@@ -648,7 +648,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   }}
                 >
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '8.5px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>
                       СОХРАНЕННАЯ БАЗОВАЯ ЯРКОСТЬ
                     </span>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
@@ -663,7 +663,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
 
                   {/* Status Comparison Pill */}
                   <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                    <span style={{ fontSize: '8.5px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                       Текущая: <strong style={{ color: 'var(--text-heading)' }}>{curBri}%</strong>
                     </span>
                     <span
@@ -744,7 +744,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               <span>☀️ Восстановить базу обоих мониторов</span>
               <span
                 style={{
-                  fontSize: '8.5px',
+                  fontSize: '10px',
                   fontFamily: 'var(--font-mono)',
                   padding: '1px 5px',
                   borderRadius: '3px',
@@ -772,7 +772,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="titanium-island" style={{ justifyContent: 'space-between' }}>
           <div className="engraved-header" style={{ marginBottom: '6px' }}>
             <span className="tag">
-              <span className="led-dot"></span> Физическое расположение дисплеев
+              <span className="led-dot"></span> <span title="Физическое расположение дисплеев">ДИСПЛЕИ</span>
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
@@ -859,7 +859,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     </div>
                     <span
                       style={{
-                        fontSize: '8.5px',
+                        fontSize: '10px',
                         fontFamily: 'var(--font-mono)',
                         padding: '1px 5px',
                         borderRadius: '3px',
@@ -925,7 +925,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       style={{
                         position: 'absolute',
                         bottom: '4px',
-                        fontSize: '8px',
+                        fontSize: '10px',
                         fontFamily: 'var(--font-mono)',
                         color: 'var(--text-secondary)',
                         background: 'rgba(0,0,0,0.6)',
@@ -968,7 +968,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="titanium-island" style={{ justifyContent: 'space-between' }}>
           <div className="engraved-header" style={{ marginBottom: '4px' }}>
             <span className="tag">
-              <span className="led-dot"></span> Общая яркость всех дисплеев (JOG-DIAL)
+              <span className="led-dot"></span> <span title="Общая яркость всех дисплеев (JOG-DIAL)">ОБЩАЯ ЯРКОСТЬ</span>
             </span>
             <span className="metric-badge" style={{ color: 'var(--accent-mint)', fontWeight: 700 }}>
               {monitors.length === 0 ? '—' : isBlackout ? '🌑 0%' : `☀️ ${masterBrightness}%`}
@@ -1071,7 +1071,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 >
                   {monitors.length === 0 ? '—' : isBlackout ? '0' : masterBrightness}
                 </span>
-                <span style={{ fontSize: '8px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                   % BRI
                 </span>
               </div>
@@ -1166,7 +1166,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <div key={mon.id || idx} className="titanium-island" style={{ gap: '8px' }}>
               <div className="engraved-header" style={{ marginBottom: 0 }}>
                 <span className="tag">
-                  <span className="led-dot"></span> СЛАЙДЕР: #{idx + 1} {mon.name.replace(/^[^\wА-Яа-я#]+/, '') || `Экран ${idx + 1}`}
+                  <span className="led-dot"></span> ДИСПЛЕЙ #{idx + 1} {mon.name.replace(/^[^\wА-Яа-я#]+/, '') || `Экран ${idx + 1}`}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
@@ -1213,7 +1213,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="titanium-island" style={{ justifyContent: 'space-between', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: '2px' }}>
             <span className="tag">
-              <span className="led-dot"></span> ТАЙМЕР СНА (SLEEP TIMER)
+              <span className="led-dot"></span> <span title="Таймер сна (Sleep Timer)">ТАЙМЕР СНА</span>
             </span>
             <span
               style={{
@@ -1256,9 +1256,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="titanium-island" style={{ justifyContent: 'space-between', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: '2px' }}>
             <span className="tag">
-              <span className="led-dot"></span> ЗАЩИТА СИСТЕМЫ & АУДИО
+              <span className="led-dot"></span> <span title="Защита системы и аудио">ЗАЩИТА И ЗВУК</span>
             </span>
-            <span className="metric-badge" style={{ fontSize: '8.5px', color: 'var(--accent-mint)' }}>
+            <span className="metric-badge" style={{ fontSize: '10px', color: 'var(--accent-mint)' }}>
               AWAYMODE ON
             </span>
           </div>
@@ -1280,7 +1280,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
                   🔇 Ночной Mute (CoreAudio)
                 </span>
-                <span style={{ fontSize: '8.5px', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                   Глушить звук в Blackout и возвращать при пробуждении
                 </span>
               </div>
@@ -1309,7 +1309,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
                   🛡️ Strict Shield
                 </span>
-                <span style={{ fontSize: '8.5px', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                   Защита от случайных кликов (выход по Esc / Alt+Backspace)
                 </span>
               </div>
@@ -1324,7 +1324,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="titanium-island" style={{ justifyContent: 'space-between', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: '2px' }}>
             <span className="tag">
-              <span className="led-dot"></span> СВЕРХТЕМНОТА (ULTRA-DARK)
+              <span className="led-dot"></span> <span title="Сверхтемнота (Ultra-Dark)">СВЕРХТЕМНОТА</span>
             </span>
             <button
               className={`tactile-btn ${ultraDarkActive ? 'active-mint' : ''}`}
@@ -1379,15 +1379,15 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="engraved-header" style={{ marginBottom: '2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span className="tag">
-              <span className="led-dot"></span> ЖУРНАЛ АППАРАТНОЙ ШИНЫ (DDC/CI & WMI TELEMETRY)
+              <span className="led-dot"></span> <span title="Журнал аппаратной шины (DDC/CI и WMI)">ЖУРНАЛ ЖЕЛЕЗА</span>
             </span>
-            <span style={{ fontSize: '8.5px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
               LIVE I2C BUS & ACPI DRIVER EVENTS
             </span>
           </div>
           <button
             className="tactile-btn"
-            style={{ height: '18px', fontSize: '8.5px', padding: '0 6px' }}
+            style={{ height: '18px', fontSize: '10px', padding: '0 6px' }}
             onClick={() => setBusLogs([])}
             title="Очистить журнал событий"
           >

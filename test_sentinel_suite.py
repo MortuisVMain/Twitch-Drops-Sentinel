@@ -877,7 +877,7 @@ def test_channel_points_clipboard_and_feature_toggles():
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     assert "COPY_TO_CLIPBOARD" in settings_tsx, "SettingsStudio must trigger C# COPY_TO_CLIPBOARD IPC"
     assert "/api/clipboard/copy" in settings_tsx, "SettingsStudio must trigger backend fallback clipboard"
-    assert "Управление модулями & Автоматизация" in settings_tsx, "SettingsStudio must render feature modules board"
+    assert "МОДУЛИ" in settings_tsx, "SettingsStudio must render feature modules board"
     assert "claim_channel_points" in settings_tsx, "SettingsStudio must have claim_channel_points switch"
     assert "auto_claim_drops" in settings_tsx, "SettingsStudio must have auto_claim_drops switch"
     assert "giveaways_enabled" in settings_tsx, "SettingsStudio must have giveaways_enabled switch"

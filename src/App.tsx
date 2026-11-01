@@ -1255,7 +1255,7 @@ export const App: React.FC = () => {
 
               {/* BLOCK 1: 6 COLOR THEMES */}
 
-              <div className="tabular" style={{ fontSize: '8.5px', color: 'var(--text-engraved)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
+              <div className="tabular" style={{ fontSize: '10px', color: 'var(--text-engraved)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
 
                 <span>1. ЦВЕТОВАЯ ПАЛИТРА (7 ТЕМ)</span>
 
@@ -1366,7 +1366,7 @@ export const App: React.FC = () => {
 
               {/* BLOCK 2: 3D VOLUME RELIEFS */}
 
-              <div className="tabular" style={{ fontSize: '8.5px', color: 'var(--led-amber)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
+              <div className="tabular" style={{ fontSize: '10px', color: 'var(--led-amber)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
 
                 <span>2. 3D ОБЪЕМНЫЕ ШЕЙДЕРЫ (NORMAL-MAPPED)</span>
 
@@ -1390,7 +1390,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Призмы (Магма)</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>6 нормалей + магма</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>6 нормалей + магма</div>
 
                   </div>
 
@@ -1412,7 +1412,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Призмы (Тема)</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Реактор цвета темы</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Реактор цвета темы</div>
 
                   </div>
 
@@ -1434,7 +1434,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Разломы Лавы</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Базальт + искры</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Базальт + искры</div>
 
                   </div>
 
@@ -1456,7 +1456,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Дамасская сталь</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Изолинии дамаска</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Изолинии дамаска</div>
 
                   </div>
 
@@ -1478,7 +1478,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Кованый Карбон</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Анизотропный блик</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Анизотропный блик</div>
 
                   </div>
 
@@ -1500,7 +1500,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Чипы и Шины</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Процессоры + импульсы</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Процессоры + импульсы</div>
 
                   </div>
                 </div>
@@ -1512,7 +1512,7 @@ export const App: React.FC = () => {
                   <span>🌿</span>
                   <div>
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>Apple Luna (Orbs)</div>
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Мягкие мятные сферы</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Мягкие мятные сферы</div>
                   </div>
                 </div>
 
@@ -1526,7 +1526,7 @@ export const App: React.FC = () => {
 
               {/* BLOCK 3: 2D FLAT PATTERNS */}
 
-              <div className="tabular" style={{ fontSize: '8.5px', color: 'var(--led-mint)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
+              <div className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
 
                 <span>3. КЛАССИЧЕСКИЕ 2D-ЗАДНИКИ (БЕЗ 3D-ОБЪЕМА)</span>
 
@@ -1550,7 +1550,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Соты (Классика)</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Тонкая векторная сетка</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Тонкая векторная сетка</div>
 
                   </div>
 
@@ -1572,7 +1572,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Контур Лавы</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Плоские линии разломов</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Плоские линии разломов</div>
 
                   </div>
 
@@ -1594,7 +1594,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Точки Linear</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Инженерная микро-сетка</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Инженерная микро-сетка</div>
 
                   </div>
 
@@ -1616,7 +1616,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Карбон</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Диагональный узор</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Диагональный узор</div>
 
                   </div>
 
@@ -1638,7 +1638,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>Жидкий Шелк (Orbs)</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Мягкое свечение сфер</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Мягкое свечение сфер</div>
 
                   </div>
 
@@ -1660,7 +1660,7 @@ export const App: React.FC = () => {
 
                     <div style={{ fontSize: '10px', fontWeight: 700 }}>Чистый Матовый</div>
 
-                    <div style={{ fontSize: '8px', color: 'var(--text-muted)' }}>Полностью без узора</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Полностью без узора</div>
 
                   </div>
 
@@ -1678,7 +1678,7 @@ export const App: React.FC = () => {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '2px 4px' }}>
 
-                <span className="tabular" style={{ fontSize: '8.5px', color: 'var(--text-engraved)' }}>ЯРКОСТЬ ЗАДНИКА:</span>
+                <span className="tabular" style={{ fontSize: '10px', color: 'var(--text-engraved)' }}>ЯРКОСТЬ ЗАДНИКА:</span>
 
                 <input 
 
@@ -1746,7 +1746,7 @@ export const App: React.FC = () => {
 
           <div className="master-rocker-wrap" title="Главный тумблер фонового демона">
 
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '8.5px', fontWeight: 700, color: 'var(--text-engraved)' }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '10px', fontWeight: 700, color: 'var(--text-engraved)' }}>
 
               FARM
 

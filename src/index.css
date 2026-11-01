@@ -563,7 +563,7 @@
   @media (max-width: 580px) {
     .pip-label-full { display: none !important; }
     .pip-label-short { display: inline !important; }
-    .pip-action-btn { font-size: 8px !important; gap: 2.5px !important; }
+    .pip-action-btn { font-size: 10px !important; gap: 2.5px !important; }
   }
 
   .autoclaim-armed-pill {
@@ -618,12 +618,12 @@
   .relief-chip-short { display: none; }
 
   .version-chip {
-    font-family: 'JetBrains Mono', monospace; font-size: 8.5px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
     color: var(--led-mint); background: rgba(58, 210, 159, 0.12);
     border: 1px solid var(--led-mint); padding: 1px 5px; border-radius: 4px; white-space: nowrap;
   }
   .brand-title p {
-    font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--text-engraved); letter-spacing: 0.08em;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-engraved); letter-spacing: 0.08em;
     white-space: nowrap; flex-shrink: 0; margin: 0; line-height: 1.1;
   }
 
@@ -660,7 +660,7 @@
   .tab-title-full { display: inline; }
   .tab-title-short { display: none; }
   .badge-num {
-    font-family: 'JetBrains Mono', monospace; font-size: 8.5px; background: var(--bg-well);
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; background: var(--bg-well);
     padding: 1px 4px; border-radius: 4px; color: var(--text-muted); border: 1px solid var(--border-subtle);
     white-space: nowrap;
   }
@@ -728,7 +728,7 @@
     .badge-short { display: inline !important; }
     .tactile-btn { padding: 0 6px !important; font-size: 9.5px !important; gap: 3px !important; }
     .tab-btn { padding: 0 6px !important; font-size: 10px !important; gap: 3px !important; }
-    .badge-num { font-size: 8px !important; padding: 1px 3.5px !important; }
+    .badge-num { font-size: 10px !important; padding: 1px 3.5px !important; }
     .brand-title p { display: none !important; }
     .header-actions { gap: 3px !important; }
     .master-rocker-wrap { padding: 2px 6px !important; gap: 4px !important; }
@@ -896,7 +896,7 @@
     padding-bottom: 5px; margin-bottom: 7px; border-bottom: 1px solid var(--border-subtle);
   }
   .engraved-header .tag {
-    font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
     letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-engraved);
     display: flex; align-items: center; gap: 6px; white-space: nowrap;
   }
@@ -1014,7 +1014,7 @@
 
   .streamer-viewfinder { padding: 7px 9px; display: flex; flex-direction: column; justify-content: space-between; gap: 5px; }
   .node-chip {
-    font-family: 'JetBrains Mono', monospace; font-size: 8px; padding: 2px 5px; border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 5px; border-radius: 4px;
     background: var(--bg-row); color: var(--text-secondary); cursor: pointer; border: 1px solid var(--border-subtle);
   }
   .node-chip.active { color: var(--led-mint); border-color: var(--led-mint); }
@@ -1087,7 +1087,7 @@
   }
   .log-entry-row:hover { background: rgba(255, 255, 255, 0.03); }
   .log-tag {
-    font-size: 8px;
+    font-size: 10px;
     font-weight: 800;
     padding: 1px 5px;
     border-radius: 3px;
@@ -1175,7 +1175,7 @@
   }
   .r-step {
     flex: 1; text-align: center; padding: 4px 1px; font-family: 'JetBrains Mono', monospace;
-    font-size: 8px; font-weight: 700; color: var(--text-muted); border-radius: 5px; cursor: pointer;
+    font-size: 10px; font-weight: 700; color: var(--text-muted); border-radius: 5px; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.2px;
     transition: all 0.15s ease;
   }
@@ -1200,7 +1200,7 @@
   .store-pod-header { display: flex; justify-content: space-between; align-items: center; }
   .store-pod-title { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .store-select-badge {
-    font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
     padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted);
   }
   .store-pod.selected .store-select-badge {
@@ -1253,7 +1253,7 @@
     display: flex; flex-direction: column; gap: 1.5px; flex: 1; min-width: 0;
   }
   .claimed-card-header-row {
-    display: flex; align-items: center; justify-content: space-between; font-size: 8px;
+    display: flex; align-items: center; justify-content: space-between; font-size: 10px;
     font-family: 'JetBrains Mono', monospace; gap: 4px;
   }
   .claimed-card-title {
