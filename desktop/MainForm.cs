@@ -1427,7 +1427,7 @@ namespace TwitchDropsSentinel
 
                     }
 
-                    catch { }
+                    catch (Exception ex) { LogDesktopError("открытие внешней ссылки", ex); }
 
                 };
 
@@ -1830,7 +1830,7 @@ namespace TwitchDropsSentinel
 
                     }
 
-                    catch { }
+                    catch (Exception ex) { LogDesktopError("открытие журнала трофеев", ex); }
 
                 }
 
@@ -2932,7 +2932,7 @@ namespace TwitchDropsSentinel
 
                             }
 
-                            catch { }
+                            catch (Exception ex) { LogDesktopError("восстановление положения окна", ex); }
 
                         }
 
@@ -3550,7 +3550,22 @@ namespace TwitchDropsSentinel
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { LogDesktopError("загрузка baseline яркости", ex); }
+        }
+
+        private static void LogDesktopError(string context, Exception ex)
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "desktop_errors.log");
+                var fi = new FileInfo(path);
+                if (fi.Exists && fi.Length > 1024 * 1024) File.Delete(path);
+                File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{context}] {ex.GetType().Name}: {ex.Message}{Environment.NewLine}", Encoding.UTF8);
+            }
+            catch (Exception logEx)
+            {
+                Debug.WriteLine($"LogDesktopError failed: {logEx.Message}");
+            }
         }
 
         public void SaveBaselineBrightness()
@@ -3568,7 +3583,7 @@ namespace TwitchDropsSentinel
                 string json = JsonSerializer.Serialize(_baselineBrightnessMap, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(Path.Combine(dataDir, "dimmer_baseline.json"), json);
             }
-            catch { }
+            catch (Exception ex) { LogDesktopError("сохранение baseline яркости", ex); }
             NotifyWebviewDimmerState();
         }
 
@@ -3887,7 +3902,7 @@ namespace TwitchDropsSentinel
 
                     }
 
-                    catch { }
+                    catch (Exception ex) { LogDesktopError("отправка сообщения в WebView", ex); }
 
                 }));
 
@@ -3943,7 +3958,7 @@ namespace TwitchDropsSentinel
 
                         {
 
-                            try { _wasMutedBeforeBlackout = AudioEndpointController.GetIsMuted(); AudioEndpointController.SetMute(true); } catch { }
+                            try { _wasMutedBeforeBlackout = AudioEndpointController.GetIsMuted(); AudioEndpointController.SetMute(true); } catch (Exception ex) { LogDesktopError("выключение звука при блэкауте", ex); }
 
                         }
 
@@ -3983,7 +3998,7 @@ namespace TwitchDropsSentinel
 
                         {
 
-                            try { AudioEndpointController.SetMute(false); } catch { }
+                            try { AudioEndpointController.SetMute(false); } catch (Exception ex) { LogDesktopError("возврат звука после блэкаута", ex); }
 
                         }
 
