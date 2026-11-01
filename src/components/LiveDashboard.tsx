@@ -269,7 +269,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
         if (list.length >= 5) break;
         list.push({
           name: g.name,
-          drop: g.category || 'Раздача доступна',
+          drop: g.category || 'Дроп доступен',
           art: resolveGameBoxArt(g.name, g.box_art),
           pct: g.progress_percent || 0,
           has_drops: true,
@@ -385,7 +385,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             <span className="led-dot amber" />
             <strong className="tabular" style={{ color: 'var(--led-amber)' }}>РАДАР СГОРАЮЩЕЙ КАМПАНИИ:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
-              Раздача <strong style={{ color: 'var(--text-primary)' }}>{endingSoonGame.name}</strong> закрывается через <strong className="tabular" style={{ color: 'var(--led-amber)' }}>{endingSoonGame.timeLeft}</strong>.
+              Кампания <strong style={{ color: 'var(--text-primary)' }}>{endingSoonGame.name}</strong> закрывается через <strong className="tabular" style={{ color: 'var(--led-amber)' }}>{endingSoonGame.timeLeft}</strong>.
             </span>
           </div>
           <button
@@ -447,7 +447,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px', fontFamily: "'JetBrains Mono', monospace", fontSize: '9px' }}>
                 <span style={{ color: 'var(--led-mint)', fontWeight: 800 }}>● АКТИВНЫЙ ФАРМ • Фарм активен • АВТОКЛЕЙМ GQL</span>
                 <span style={{ padding: '1px 6px', borderRadius: '4px', color: 'var(--led-mint)' }} id="miniHeroStreamer">
-                  📡 @{activeStreamer || 'поиск...'}
+                  📡 {activeStreamer ? `@${activeStreamer}` : 'ожидание стримера'}
                 </span>
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -629,7 +629,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 <span className="led-dot" /> ЦЕЛЕВАЯ НАГРАДА // АКТИВНЫЙ ХРОНОГРАФ
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="version-chip">STREAMLESS PROTOCOL</span>
+                <span className="version-chip">РЕЖИМ БЕЗ ВИДЕО</span>
               </div>
             </div>
 
@@ -753,7 +753,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px' }}>
                     <span className="led-dot" />
-                    <span id="streamerName">@{activeStreamer || 'поиск...'}</span>
+                    <span id="streamerName">{activeStreamer ? `@${activeStreamer}` : 'ожидание стримера'}</span>
                   </div>
                   <div style={{ display: 'flex', gap: '4px' }}>
                     {activeStreamer && (
@@ -786,7 +786,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                 </div>
 
                 <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
-                  <span>SPADE BEACON: 20s HEAD</span>
+                  <span>SPADE-МАЯК: HEAD раз в 20 с</span>
                   <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
                 </div>
               </div>
@@ -972,7 +972,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                           {g.name}
                         </div>
                         <div className="tabular" style={{ fontSize: '8.5px', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : 'var(--text-muted)' }}>
-                          {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : g.has_drops ? '● Активные Drops' : '○ Ожидание'}
+                          {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
                         </div>
                       </div>
                       <span
