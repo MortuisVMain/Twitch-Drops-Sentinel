@@ -885,6 +885,9 @@ class SentinelSupervisor:
             text = str(data.get("text", ""))
             if not text:
                 return web.json_response({"status": "error", "message": "Текст не передан"}, status=400)
+            if TEST_MODE:
+                # Sandboxed test service: validate the input but leave the user's clipboard alone.
+                return web.json_response({"status": "ok", "message": "Тестовый режим: буфер обмена не изменён"})
 
             def copy_to_windows_clipboard() -> bool:
                 # 1. Try native clip.exe (standard Windows utility)

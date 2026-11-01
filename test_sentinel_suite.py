@@ -45,6 +45,17 @@ LIVE_PROTECTED = [
 ]
 
 
+def _read_clipboard():
+    """Current Windows clipboard text, or None when it cannot be read."""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Clipboard -Raw"],
+            capture_output=True, timeout=15)
+        return out.stdout.decode("utf-8", errors="replace") if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
 def _sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
@@ -882,6 +893,7 @@ def test_channel_points_clipboard_and_feature_toggles():
         diag_text = res.read().decode("utf-8")
         assert "twitch drops sentinel" in diag_text.lower()
 
+    clipboard_before = _read_clipboard()
     req_clip = urllib.request.Request(
         BASE_URL + "/api/clipboard/copy",
         data=json.dumps({"text": diag_text[:300]}).encode("utf-8"),
@@ -891,6 +903,8 @@ def test_channel_points_clipboard_and_feature_toggles():
         assert res.status == 200
         d = json.loads(res.read().decode("utf-8"))
         assert d.get("status") == "ok"
+    if clipboard_before is not None:
+        assert _read_clipboard() == clipboard_before, "Test-mode /api/clipboard/copy must not touch the user's clipboard"
 
     # 6. Live test: Settings persistence through /api/settings and /api/state
     req_settings = urllib.request.Request(
