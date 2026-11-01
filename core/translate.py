@@ -225,10 +225,25 @@ class GUIMessages(TypedDict):
     help: GUIHelp
 
 
+class SentinelMessages(TypedDict):
+    sync_started: str
+    startup_sync: str
+    fetched_ok: str
+    fetch_failed: str
+    api_blocked: str
+    sync_complete: str
+    catalog_built: str
+    fetcher_refreshed: str
+    idle_standby: str
+    inventory_enriched: str
+    games_active: str
+
+
 class Translation(TypedDict):
     language_name: NotRequired[str]
     english_name: str
     status: StatusMessages
+    sentinel: SentinelMessages
     login: LoginMessages
     error: ErrorMessages
     gui: GUIMessages
@@ -244,6 +259,19 @@ default_translation: Translation = {
         "claimed_drop": "Claimed drop: {drop}",
         "no_channel": "No available channels to watch. Waiting for an ONLINE channel...",
         "no_campaign": "No active campaigns to mine drops for. Waiting for an active campaign...",
+    },
+    "sentinel": {
+        "sync_started": "Syncing active Twitch drops and game catalog...",
+        "startup_sync": "Executing initial startup sync for live Twitch Drops campaigns...",
+        "fetched_ok": "Successfully fetched {count} live campaigns from Twitch.",
+        "fetch_failed": "Failed to fetch live campaigns: {reason}",
+        "api_blocked": "Campaigns API unavailable; next request in {delay}s (failure #{count}).",
+        "sync_complete": "Sync complete: {active} active drops found across {total} total games.",
+        "catalog_built": "Built catalog with {games} games ({active} with active drops).",
+        "fetcher_refreshed": "Campaigns refreshed: {installed} installed games, catalog size: {catalog}",
+        "idle_standby": "Idle standby: refreshing inventory and checking newly live streamers...",
+        "inventory_enriched": "Enriched inventory with live campaigns: total {count} campaigns loaded.",
+        "games_active": "{count} games with active drops: {names}...",
     },
     "login": {
         "unexpected_content": (

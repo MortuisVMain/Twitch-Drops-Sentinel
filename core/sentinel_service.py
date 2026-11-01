@@ -150,6 +150,7 @@ import truststore
 truststore.inject_into_ssl()
 
 from gui_headless import STATE_BRIDGE, send_windows_toast
+from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
@@ -167,9 +168,9 @@ class LiveLogCaptureHandler(logging.Handler):
             msg = record.getMessage()
             if msg and not msg.startswith("GET /api/state"):
                 lvl = record.levelname
-                if "[WATCH]" in msg or "[WATCHING]" in msg or "Watching:" in msg or "Подключен к трансляции" in msg:
+                if "[WATCH]" in msg or "[WATCHING]" in msg or "Watching:" in msg or "Просмотр канала:" in msg or "Подключен к трансляции" in msg:
                     lvl = "WATCH"
-                elif "[CLAIM]" in msg or "Claimed drop" in msg or "Забран трофей" in msg:
+                elif "[CLAIM]" in msg or "Claimed drop" in msg or "Drop получено" in msg or "Забран трофей" in msg:
                     lvl = "CLAIM"
                 elif "[PROGRESS]" in msg or "Прогресс" in msg:
                     lvl = "PROGRESS"
@@ -1212,7 +1213,7 @@ class SentinelSupervisor:
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_sync(self, request: web.Request) -> web.Response:
-        logger.info("Syncing active Twitch drops and game catalog...")
+        logger.info(_("sentinel", "sync_started"))
         try:
             res = await asyncio.to_thread(CAMPAIGNS_FETCHER.sync_active_drops, True)
             CAMPAIGNS_FETCHER.refresh_installed_games()
@@ -1635,7 +1636,16 @@ class SentinelSupervisor:
                 break
             await asyncio.sleep(5)
 
+    def apply_engine_language(self) -> None:
+        """Engine and console messages follow config.json "language" (default: Russian, like the UI)."""
+        language = str(self.settings.get("language") or "Русский")
+        try:
+            _.set_language(language)
+        except ValueError:
+            logger.warning(f"Unknown language '{language}' in config.json, keeping {_.current}.")
+
     async def start(self):
+        self.apply_engine_language()
         runner = web.AppRunner(self.app, access_log=None)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", DEFAULT_SERVICE_PORT)

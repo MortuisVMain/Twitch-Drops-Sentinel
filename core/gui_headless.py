@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from translate import _
+
 logger = logging.getLogger("TwitchDrops.HeadlessGUI")
 
 # Shared state singleton accessible by HTTP / WebSocket API
@@ -415,7 +417,7 @@ class HeadlessGUIManager:
     def set_games(self, games):
         game_names = [getattr(g, "name", str(g)) for g in games]
         STATE_BRIDGE.games_with_drops = game_names
-        logger.info(f"[GAMES] {len(game_names)} games with active drops: {', '.join(game_names[:5])}...")
+        logger.info("[GAMES] " + _("sentinel", "games_active").format(count=len(game_names), names=", ".join(game_names[:5])))
 
     def clear_drop(self):
         STATE_BRIDGE.active_drop = None

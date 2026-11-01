@@ -1635,6 +1635,27 @@ def test_campaigns_fetcher_backoff_retry_after_and_fresh_cache():
         cf.urllib.request.urlopen = real_urlopen
 
 
+def test_console_messages_follow_configured_language():
+    print("[audit F-021] Console messages come from translate.py / lang/*.json, not hardcoded English...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from translate import _, default_translation
+
+    keys = set(default_translation["sentinel"])
+    ru = json.loads((SANDBOX / "core" / "lang" / "Русский.json").read_text(encoding="utf-8"))
+    assert set(ru["sentinel"]) == keys, "Russian lang file must cover every sentinel message key"
+    assert "онлайн" not in ru["status"]["goes_offline"], "goes_offline must not say online"
+    try:
+        _.set_language("Русский")
+        assert "Каталог" in _("sentinel", "catalog_built").format(games=1, active=1)
+        _.set_language("English")
+        assert _("sentinel", "catalog_built").format(games=1, active=1).startswith("Built catalog")
+    finally:
+        _.set_language("English")
+
+    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "apply_engine_language" in service_py
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1678,6 +1699,7 @@ if __name__ == "__main__":
     test_manual_farm_override_and_native_screendimmer_suite()
     test_update_check_failure_reports_running_version()
     test_campaigns_fetcher_backoff_retry_after_and_fresh_cache()
+    test_console_messages_follow_configured_language()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

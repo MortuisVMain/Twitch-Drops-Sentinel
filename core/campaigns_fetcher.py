@@ -45,6 +45,7 @@ def parse_retry_after(value: str | None) -> float | None:
         return None
 
 from utils import smart_game_match, clean_title
+from translate import _
 
 def is_campaign_active_now(c: dict[str, Any], now_dt: datetime | None = None) -> bool:
     """
@@ -174,7 +175,7 @@ class CampaignsFetcher:
         backoff = min(BACKOFF_MAX, BACKOFF_BASE * 2 ** (self._fail_count - 1)) * random.uniform(0.8, 1.2)
         delay = min(max(retry_after, backoff), RETRY_AFTER_MAX) if retry_after is not None else backoff
         self._blocked_until = time.time() + delay
-        logger.warning(f"Campaigns API unavailable; next request in {delay:.0f}s (failure #{self._fail_count}).")
+        logger.warning(_("sentinel", "api_blocked").format(delay=f"{delay:.0f}", count=self._fail_count))
 
     def fetch_sync(self, force: bool = False, max_age: float = CACHE_MAX_AGE) -> list[dict[str, Any]]:
         """Synchronously fetch active campaigns from the public Twitch drops API."""
@@ -202,13 +203,13 @@ class CampaignsFetcher:
                     self._save_cache(campaigns)
                     self._build_catalog()
                     self._fail_count = 0
-                    logger.info(f"Successfully fetched {len(campaigns)} live campaigns from Twitch.")
+                    logger.info(_("sentinel", "fetched_ok").format(count=len(campaigns)))
                     return campaigns
         except urllib.error.HTTPError as e:
-            logger.warning(f"Failed to fetch live campaigns from {API_URL}: HTTP {e.code}")
+            logger.warning(_("sentinel", "fetch_failed").format(reason=f"HTTP {e.code}"))
             self._register_failure(parse_retry_after(e.headers.get("Retry-After")) if e.headers else None)
         except Exception as e:
-            logger.warning(f"Failed to fetch live campaigns from {API_URL}: {e}")
+            logger.warning(_("sentinel", "fetch_failed").format(reason=e))
             self._register_failure(None)
         return self._cached_campaigns
 
@@ -221,7 +222,7 @@ class CampaignsFetcher:
         campaigns = self.fetch_sync(force=force, max_age=max_age)
         self._build_catalog()
         active_count = len([g for g in self._cached_catalog if g.get("has_drops")])
-        logger.info(f"Sync complete: {active_count} active drops found across {len(self._cached_catalog)} total games.")
+        logger.info(_("sentinel", "sync_complete").format(active=active_count, total=len(self._cached_catalog)))
         return {
             "active_drops_count": active_count,
             "total_campaigns": len(campaigns),
@@ -346,7 +347,7 @@ class CampaignsFetcher:
 
         catalog.sort(key=sort_key)
         self._cached_catalog = catalog
-        logger.info(f"Built catalog with {len(catalog)} games ({sum(1 for g in catalog if g.get('has_drops'))} with active drops).")
+        logger.info(_("sentinel", "catalog_built").format(games=len(catalog), active=sum(1 for g in catalog if g.get('has_drops'))))
 
     def find_active_campaign(self, query: str) -> dict[str, Any] | None:
         """Find active Twitch drop campaign matching a query string."""
@@ -551,7 +552,7 @@ class CampaignsFetcher:
         else:
             self._installed_games = self._load_installed_games()
         self._build_catalog()
-        logger.info(f"CampaignsFetcher refreshed: {len(self._installed_games)} installed games, catalog size: {len(self._cached_catalog)}")
+        logger.info(_("sentinel", "fetcher_refreshed").format(installed=len(self._installed_games), catalog=len(self._cached_catalog)))
         return self._installed_games
 
     def fetch_active_campaigns_and_cache(self) -> list[dict[str, Any]]:
@@ -572,7 +573,7 @@ class CampaignsFetcher:
     async def start_background_loop(self, interval_seconds: int = 900) -> None:
         """Periodic background refresh (default every 15 minutes) with immediate startup sync."""
         try:
-            logger.info("Executing initial startup sync for live Twitch Drops campaigns...")
+            logger.info(_("sentinel", "startup_sync"))
             await asyncio.to_thread(self.sync_active_drops, False, STARTUP_CACHE_MAX_AGE)
         except Exception as e:
             logger.warning(f"Initial startup drops sync encountered error: {e}")

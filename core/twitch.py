@@ -1054,7 +1054,7 @@ class Twitch:
                 with suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self._state_change.wait(), timeout=120.0)
                 if not self._state_change.is_set():
-                    logger.info("Idle standby: refreshing inventory and checking newly live streamers...")
+                    logger.info(_("sentinel", "idle_standby"))
                     self.change_state(State.INVENTORY_FETCH)
             else:
                 await self._state_change.wait()
@@ -2082,7 +2082,7 @@ class Twitch:
                     elif "channels" not in reward_copy["allow"] or reward_copy["allow"]["channels"] is None:
                         reward_copy["allow"]["channels"] = []
                     inventory_data[cid] = reward_copy
-            logger.info(f"Enriched inventory with live campaigns: total {len(inventory_data)} campaigns loaded.")
+            logger.info(_("sentinel", "inventory_enriched").format(count=len(inventory_data)))
         except Exception as e:
             logger.warning(f"Error enriching inventory with CampaignsFetcher: {e}")
 
