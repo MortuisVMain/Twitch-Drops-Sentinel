@@ -16,7 +16,7 @@ from pathlib import Path
 from functools import wraps
 from contextlib import suppress
 from functools import cached_property
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections import abc, OrderedDict
 from typing import Any, Literal, Callable, Generic, Mapping, TypeVar, ParamSpec, cast
 
@@ -506,3 +506,20 @@ def trophies_show_completed(journal_text: str, game_name: str, campaign_name: st
         if ("забран" in line or "✅" in line) and game in line and campaign in line
     ]
     return all(any(str(drop).lower() in line for line in claimed_lines) for drop in drop_names)
+
+
+def campaign_farmability(camp, horizon: timedelta = timedelta(hours=1)) -> tuple:
+    """(farmable, reason) for a campaign the engine knows. The same test that decides wanted_games
+    (can_earn_within the next hour), plus a human reason when it fails, so the UI never has to guess."""
+    now = datetime.now(timezone.utc)
+    if camp.can_earn_within(now + horizon):
+        return True, ""
+    if camp.finished:
+        return False, "все награды уже получены"
+    if not camp._valid or camp.ends_at <= now:
+        return False, "кампания закончилась"
+    if camp.starts_at >= now + horizon:
+        return False, "кампания ещё не началась"
+    if not camp.eligible:
+        return False, "кампания требует привязки аккаунта игры или отключена в настройках"
+    return False, "ни один дроп нельзя заработать сейчас: все получены или не выполнены условия"

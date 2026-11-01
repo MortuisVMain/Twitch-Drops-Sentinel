@@ -66,11 +66,15 @@ export const computeIdleInfo = ({ priorityList, allGames, trophies = [], strictM
   const states = queueGames.map((q) => ({ ...q, state: getCampaignState(q.match, trophies, smartMatch) }));
   const workable = states.filter((q) => q.state.kind === 'running');
 
+  const blocked = states.find((q) => q.state.kind === 'none' && q.state.reason && q.match?.has_drops);
+
   let reason: string;
   if (priorityList.length === 0) {
     reason = 'Очередь пуста: добавьте игры, чтобы Sentinel мог их фармить';
   } else if (workable.length > 0) {
     reason = `Кампании есть (${workable.slice(0, 3).map((q) => shortGameName(q.name)).join(', ')}), ждём стримеров с дропами`;
+  } else if (blocked) {
+    reason = `${shortGameName(blocked.name)}: дропы недоступны — ${blocked.state.reason}`;
   } else {
     reason = `Ни для одной из ${priorityList.length} ${pluralRu(priorityList.length, 'игры', 'игр', 'игр')} очереди нет доступных кампаний`;
   }

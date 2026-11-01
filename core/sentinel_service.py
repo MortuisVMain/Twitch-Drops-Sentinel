@@ -154,7 +154,7 @@ from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
-from utils import json_load, json_save, smart_game_match, clean_title
+from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from game_scanner import GameScanner
@@ -674,6 +674,10 @@ class SentinelSupervisor:
                         g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
                     if hasattr(camp, "allowed_channels") and camp.allowed_channels:
                         g["allowed_channels"] = [ch.name for ch in camp.allowed_channels]
+                    try:
+                        g["farmable"], g["not_farmable_reason"] = campaign_farmability(camp)
+                    except Exception as exc:
+                        logger.warning("Could not judge farmability of %s: %s", g.get("name"), exc, exc_info=True)
                 else:
                     if (
                         is_user_linked or
@@ -682,6 +686,10 @@ class SentinelSupervisor:
                         g.get("is_finished") is True
                     ):
                         g["is_account_connected"] = True
+                    if inv_list and g.get("has_drops"):
+                        # the public catalog lists it, but the engine's inventory has no such campaign: it cannot be farmed
+                        g["farmable"] = False
+                        g["not_farmable_reason"] = "кампании нет в инвентаре Twitch"
 
             # Also synthesize any campaigns from inventory that have claimed drops or are finished, but not yet in catalog
             matched_cat_names = {g.get("name", "").strip().lower() for g in catalog_games}

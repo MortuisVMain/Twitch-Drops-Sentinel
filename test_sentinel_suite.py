@@ -2284,6 +2284,56 @@ def test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies():
     assert twitch_py.count("trophies_show_completed(") == 2 and "drops_claimed >= len(time_drops)" not in twitch_py
 
 
+def test_listed_but_unfarmable_campaign_never_reads_as_available():
+    print("[round5] A campaign the engine cannot farm is reported with a reason and never as 'Кампании есть'...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from utils import campaign_farmability
+    now = datetime.now(timezone.utc)
+    def camp(**kw):
+        base = dict(finished=False, _valid=True, ends_at=now + timedelta(days=1), starts_at=now - timedelta(hours=1),
+                    eligible=True, can_earn_within=lambda stamp: True)
+        base.update(kw)
+        return SimpleNamespace(**base)
+    assert campaign_farmability(camp()) == (True, "")
+    ok, why = campaign_farmability(camp(can_earn_within=lambda s: False))
+    assert ok is False and why, "a campaign cut by can_earn_within must come with a reason"
+    assert campaign_farmability(camp(can_earn_within=lambda s: False, finished=True))[1] == "\u0432\u0441\u0435 \u043d\u0430\u0433\u0440\u0430\u0434\u044b \u0443\u0436\u0435 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u044b"
+    assert campaign_farmability(camp(can_earn_within=lambda s: False, ends_at=now - timedelta(minutes=1)))[1].startswith("\u043a\u0430\u043c\u043f\u0430\u043d\u0438\u044f \u0437\u0430\u043a\u043e\u043d\u0447")
+    assert "\u043d\u0435 \u043d\u0430\u0447\u0430\u043b\u0430\u0441\u044c" in campaign_farmability(camp(can_earn_within=lambda s: False, starts_at=now + timedelta(hours=5)))[1]
+    assert "\u043f\u0440\u0438\u0432\u044f\u0437\u043a" in campaign_farmability(camp(can_earn_within=lambda s: False, eligible=False))[1]
+
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: front half skipped)")
+        return
+    out_dir = SANDBOX / "farmable_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "idleInfo.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'idleInfo.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { computeIdleInfo } from './idleInfo.mjs';\n"
+        "const now = 1793534400000;\n"
+        "const mk = (extra) => ({ id: 'a', name: 'Albion Online', is_installed: false, has_drops: true, is_active_now: true, rewards_count: 2, is_account_connected: true, drops_end_at: '2026-11-02T09:29:00Z', ...extra });\n"
+        "const run = (g) => computeIdleInfo({ priorityList: ['Albion Online'], allGames: [g], trophies: [], strictMode: true, now });\n"
+        "console.log(JSON.stringify({ plain: run(mk({})), cut: run(mk({ farmable: false, not_farmable_reason: 'campaign is not in the Twitch inventory' })), ok: run(mk({ farmable: true })) }));\n",
+        encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["plain"]["reason"].startswith("\u041a\u0430\u043c\u043f\u0430\u043d\u0438\u0438 \u0435\u0441\u0442\u044c"), d["plain"]["reason"]       # no verdict from the engine: the catalog is trusted
+    assert d["ok"]["reason"].startswith("\u041a\u0430\u043c\u043f\u0430\u043d\u0438\u0438 \u0435\u0441\u0442\u044c")
+    assert "\u041a\u0430\u043c\u043f\u0430\u043d\u0438\u0438 \u0435\u0441\u0442\u044c" not in d["cut"]["reason"], d["cut"]["reason"]
+    assert d["cut"]["reason"] == "Albion Online: \u0434\u0440\u043e\u043f\u044b \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u2014 campaign is not in the Twitch inventory", d["cut"]["reason"]
+    assert d["cut"]["workableNames"] == []
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2341,6 +2391,7 @@ if __name__ == "__main__":
         test_queue_filter_only_with_campaigns,
         test_toast_gate_dedup_switch_and_priming,
         test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,
+        test_listed_but_unfarmable_campaign_never_reads_as_available,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

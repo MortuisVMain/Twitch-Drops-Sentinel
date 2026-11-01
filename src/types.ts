@@ -61,6 +61,8 @@ export interface GameItem {
   claimed_drops?: number;
   total_drops?: number;
   allowed_channels?: string[];
+  farmable?: boolean; // the engine's own verdict: can this campaign be farmed now
+  not_farmable_reason?: string;
 }
 
 export interface TrophyItem {

@@ -9,6 +9,7 @@ export interface CampaignState {
   kind: CampaignKind;
   remaining: number; // drops still to claim (0 when unknown or done)
   linkUrl: string | null;
+  reason?: string; // why a campaign that exists cannot be farmed (reported by the engine)
 }
 
 const lower = (v: unknown): string => (typeof v === 'string' ? v.toLowerCase().trim() : '');
@@ -55,6 +56,8 @@ export const getCampaignState = (
   );
   const remaining = finished ? 0 : total ? Math.max(0, total - claimed) : 1;
   if (finished) return { kind: 'done', remaining: 0, linkUrl: null };
+  // the engine knows better than the catalog: a listed campaign it cannot farm is not "running"
+  if (g.farmable === false) return { kind: 'none', remaining: 0, linkUrl: null, reason: g.not_farmable_reason };
   if (g.is_account_connected === false) return { kind: 'link', remaining, linkUrl: g.account_link_url || null };
   return { kind: 'running', remaining, linkUrl: null };
 };
