@@ -1036,10 +1036,11 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('dashboard')}
+            title="Дашборд"
 
           >
 
-            <span>⊞ Дашборд</span>
+            <span className="tab-ico">⊞</span><span className="tab-label">Дашборд</span>
 
             <span className="badge-num">LIVE</span>
 
@@ -1050,10 +1051,11 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'shelf' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('shelf')}
+            title="Полка игр"
 
           >
 
-            <span>🎮 Полка Игр</span>
+            <span className="tab-ico">🎮</span><span className="tab-label">Полка Игр</span>
 
             <span className="badge-num" title="Игр, установленных на этом ПК">{sentinelState.installed_games.length}</span>
 
@@ -1068,7 +1070,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span>🎁 Раздачи</span>
+            <span className="tab-ico">🎁</span><span className="tab-label">Раздачи</span>
 
           </button>
 
@@ -1081,7 +1083,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span>🖥 Диммер</span>
+            <span className="tab-ico">🖥</span><span className="tab-label">Диммер</span>
 
 
           </button>
@@ -1095,7 +1097,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span>⚙ Настройки</span>
+            <span className="tab-ico">⚙</span><span className="tab-label">Настройки</span>
 
 
           </button>
@@ -1212,6 +1214,9 @@ export const App: React.FC = () => {
               <button className="more-item" role="menuitemcheckbox" aria-checked={isNightGuard} onClick={() => { playClick(); handleToggleNightGuard(); }}>
                 <span>🌙 Ночной режим</span>
                 <span className="more-check">{isNightGuard ? '✓' : ''}</span>
+              </button>
+              <button className="more-item more-item-help" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHelpModal(true); }}>
+                <span>💡 Справка и горячие клавиши</span>
               </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
                 <span>🎨 Тема</span>

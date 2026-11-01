@@ -232,7 +232,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
       onClick={onClose}
     >
       <div 
-        className="w-[min(920px,92vw)] bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[88vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
+        className="w-[min(920px,92vw)] bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -266,7 +266,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
         </div>
 
         {/* Categories Tab Navigation Strip - shrink-0 */}
-        <div className="py-2 px-6 bg-[#171d1c] border-b border-[#303a35] flex items-center gap-1.5 overflow-x-auto scrollbar-thin shrink-0">
+        <div className="py-2 px-6 bg-[#171d1c] border-b border-[#303a35] flex flex-wrap items-center gap-1.5 shrink-0">
           {(Object.keys(TAB_TIPS) as Array<Exclude<HelpCategory, 'hotkeys'>>).map((catKey) => {
             const cat = TAB_TIPS[catKey];
             const isCurrentActiveTab = activeTab === catKey;

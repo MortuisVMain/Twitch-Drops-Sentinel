@@ -479,9 +479,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div 
             id="lunaCascadeBox" 
             className="obsidian-well" 
-            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
               <button 
                 className={`tactile-btn ${settings.auto_shutdown_mode === 'sleep' || !settings.auto_shutdown_mode ? 'active-amber' : ''}`}
@@ -586,7 +586,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span className="tag">
                 <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
-              <button className="tactile-btn active-mint" style={{ height: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
+              <button className="tactile-btn active-mint" style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
                 + Добавить папку
               </button>
             </div>
@@ -599,7 +599,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                     <span style={{ color: 'var(--led-mint)', fontSize: 'var(--fs-xs)' }}>[НАСТРОЕН]</span>
                     <button
                       className="tactile-btn danger-hover"
-                      style={{ padding: '1px 6px', height: '18px', fontSize: 'var(--fs-xs)' }}
+                      style={{ padding: '1px 6px', minHeight: '18px', fontSize: 'var(--fs-xs)' }}
                       onClick={() => handleRemoveFolder(dir)}
                       title="Удалить папку"
                     >
@@ -663,13 +663,13 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       {/* Bottom Full-Width Account & Live Update Bar (Pinned to the bottom) */}
       <div 
         className="titanium-island" 
-        style={{ marginTop: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 16px', flexShrink: 0 }}
+        style={{ marginTop: 'auto', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 12px', padding: '10px 16px', flexShrink: 0 }}
       >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
+            <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, maxWidth: '100%' }}>
               <span className="led-dot"></span>
-              <div>
-                <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
+              <div style={{ minWidth: 0 }}>
+                <div className="clip-1" style={{ fontSize: 'var(--fs-xs)', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
                   Twitch: {username} <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{userId ? '' : '(аккаунт не подтверждён) '}• Mortuis_V_Studio</span>
                 </div>
               </div>
@@ -680,8 +680,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="obsidian-well" style={{ padding: '6px 12px', width: '240px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div className="obsidian-well" style={{ padding: '6px 12px', width: '15rem', maxWidth: '100%', minWidth: 0 }}>
               <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', marginBottom: '3px' }}>
                 <span id="updStageText" title={updateStage} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{updateStage}</span>
                 <strong style={{ color: 'var(--led-mint)' }} id="updPctText">{updatePct}%</strong>

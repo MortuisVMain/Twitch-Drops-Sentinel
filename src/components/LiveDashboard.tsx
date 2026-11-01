@@ -563,7 +563,7 @@ const filteredLogs = useMemo(() => {
           </div>
           <button
             className="tactile-btn active-amber"
-            style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
+            style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
             onClick={() => handleIgnoreDetectedProcess(hardware.detected_game!)}
             title="Это не игра (Игнорировать)"
           >
@@ -588,7 +588,7 @@ const filteredLogs = useMemo(() => {
             )}
             <button
               className={`tactile-btn ${codeCopy === 'copied' ? 'active-mint' : ''}`}
-              style={{ height: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
               onClick={handleCopyCode}
               title="Скопировать код в буфер обмена"
             >
@@ -600,7 +600,7 @@ const filteredLogs = useMemo(() => {
               target="_blank"
               rel="noreferrer"
               className="tactile-btn active-amber"
-              style={{ height: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
               title="Откроет twitch.tv/activate с уже подставленным кодом"
             >
               <span>Открыть twitch.tv/activate</span>
@@ -623,7 +623,7 @@ const filteredLogs = useMemo(() => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <button
             className="tactile-btn active-amber"
-            style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
+            style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
             onClick={() => {
               playClick();
               onForceFarm?.(endingSoonGame.name);
@@ -633,7 +633,7 @@ const filteredLogs = useMemo(() => {
           </button>
           <button
   className="tactile-btn"
-  style={{ height: '24px', width: '24px', padding: 0, fontSize: 'var(--fs-sm)' }}
+  style={{ minHeight: '24px', width: '24px', padding: 0, fontSize: 'var(--fs-sm)' }}
   onClick={() => dismissRadar(endingSoonGame.key)}
   title="Скрыть это предупреждение"
   aria-label="Скрыть предупреждение о сгорающей кампании"
@@ -664,7 +664,7 @@ const filteredLogs = useMemo(() => {
               ) : (
                 <button 
                   className="tactile-btn" 
-                  style={{ height: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                  style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => setShowFullCatalogModal(true)}
                   title="Фарм вне очереди"
                 >
@@ -673,7 +673,7 @@ const filteredLogs = useMemo(() => {
               )}
               <button
                 className={`tactile-btn ${queueOnlyCampaigns ? 'active-mint' : ''}`}
-                style={{ height: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={toggleQueueOnlyCampaigns}
                 aria-pressed={queueOnlyCampaigns}
                 title="Скрыть игры очереди, у которых сейчас нет кампании. Порядок очереди не меняется."
@@ -682,7 +682,7 @@ const filteredLogs = useMemo(() => {
               </button>
               <button
                 className="tactile-btn active-mint"
-                style={{ height: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   onUpdateSettings?.({ priority_mode: settings.priority_mode === 0 ? 1 : 0 });
@@ -798,7 +798,7 @@ const filteredLogs = useMemo(() => {
                 <div className="idle-hero-actions">
                   <button
                     className="tactile-btn active-mint"
-                    style={{ height: '28px' }}
+                    style={{ minHeight: '28px' }}
                     onClick={() => { playClick(); setShowFullCatalogModal(true); }}
                     title="Фарм вне очереди"
                   >
@@ -806,7 +806,7 @@ const filteredLogs = useMemo(() => {
                   </button>
                   <button
                     className="tactile-btn"
-                    style={{ height: '28px' }}
+                    style={{ minHeight: '28px' }}
                     onClick={scrollToOverride}
                     title="Перейти к блоку ручного фокуса"
                   >
@@ -846,7 +846,7 @@ const filteredLogs = useMemo(() => {
 
               {/* Middle Drop Info & Quick Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px 6px', flexWrap: 'wrap' }}>
                   <span className="version-chip">ЭТАП 2 ИЗ 3</span>
                   <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} id="heroMins">
                     ● {currentMinutes} ИЗ {requiredMinutes} МИН
@@ -868,9 +868,9 @@ const filteredLogs = useMemo(() => {
                 >
                   {activeTitle || 'Ожидание дропа...'}
                 </h2>
-                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }}>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
                   ИГРА: <strong style={{ color: 'var(--text-primary)' }} id="heroGameTitle">{activeGame || 'Не выбрана'}</strong> • СТАТУС:{' '}
-                  <strong className="tabular" style={{ color: 'var(--led-mint)' }}>
+                  <strong style={{ color: 'var(--led-mint)' }}>
                     {activeStreamer ? `@${activeStreamer} (LIVE)` : 'ПОИСК СТРИМЕРА'}
                   </strong>
                 </div>
@@ -882,7 +882,7 @@ const filteredLogs = useMemo(() => {
                   </div>
                   <button
                     className="tactile-btn"
-                    style={{ height: '28px' }}
+                    style={{ minHeight: '28px' }}
                     onClick={() => {
                       playClick();
                       onSwitchStreamer?.(false);
@@ -893,7 +893,7 @@ const filteredLogs = useMemo(() => {
                   </button>
                   <button
                     className="tactile-btn"
-                    style={{ height: '28px' }}
+                    style={{ minHeight: '28px' }}
                     onClick={() => {
                       playClick();
                       onSwitchStreamer?.(true);
@@ -906,7 +906,7 @@ const filteredLogs = useMemo(() => {
                     <>
                       <button
                         className="tactile-btn"
-                        style={{ height: '28px' }}
+                        style={{ minHeight: '28px' }}
                         onClick={() => {
                           playClick();
                           onBanStreamer(activeStreamer, true);
@@ -917,7 +917,7 @@ const filteredLogs = useMemo(() => {
                       </button>
                       <button
                         className="tactile-btn danger-hover"
-                        style={{ height: '28px' }}
+                        style={{ minHeight: '28px' }}
                         onClick={() => {
                           playClick();
                           onBanStreamer(activeStreamer, false);
@@ -933,10 +933,10 @@ const filteredLogs = useMemo(() => {
 
               {/* Right: Streamer Viewfinder */}
               <div className="obsidian-well streamer-viewfinder">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span className="led-dot" />
-                    <span id="streamerName">{activeStreamer ? `@${activeStreamer}` : 'ожидание стримера'}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
+                    <span className="led-dot" style={{ flexShrink: 0 }} />
+                    <span className="clip-1" title={activeStreamer ? `@${activeStreamer}` : undefined} id="streamerName">{activeStreamer ? `@${activeStreamer}` : 'ожидание стримера'}</span>
                   </div>
                   <div style={{ display: 'flex', gap: '4px' }}>
                     {activeStreamer && (
@@ -957,7 +957,8 @@ const filteredLogs = useMemo(() => {
                   {(availableChannels || []).slice(0, 3).map((ch, idx) => (
                     <span
                       key={idx}
-                      className={`node-chip ${ch.current ? 'active' : ''}`}
+                      className={`node-chip clip-1 ${ch.current ? 'active' : ''}`}
+                      title={ch.display_name || ch.name}
                       onClick={() => {
                         playClick();
                         onSwitchStreamer?.(false);
@@ -968,7 +969,7 @@ const filteredLogs = useMemo(() => {
                   ))}
                 </div>
 
-                <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
+                <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2px 8px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
                   <span title="Связь со стримом: SPADE HEAD каждые 20 с">Сигнал просмотра: каждые 20 с</span>
                   <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
                 </div>
@@ -1077,7 +1078,8 @@ const filteredLogs = useMemo(() => {
                         className="tabular font-bold"
                         style={{
                           color: isClaim ? 'var(--led-amber)' : isWatch ? 'var(--led-mint)' : isError ? 'var(--led-rose)' : 'var(--led-cyan)',
-                          minWidth: '45px',
+                          flexShrink: 0,
+                          minWidth: '3em',
                         }}
                       >
                         [{cat}]
@@ -1127,7 +1129,7 @@ const filteredLogs = useMemo(() => {
                 {forcedGame && (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
+                    style={{ minHeight: '22px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
                     onClick={() => {
                       playClick();
                       onCancelForceFarm?.();
@@ -1245,7 +1247,7 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <button
                   className="tactile-btn active-amber"
-                  style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+                  style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                   onClick={() => {
                     playClick();
                     onCancelForceFarm?.();
@@ -1279,21 +1281,21 @@ const filteredLogs = useMemo(() => {
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   className={`tactile-btn ${catalogModalTab === 'ALL' ? 'active-mint' : ''}`}
-                  style={{ height: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('ALL'); }}
                 >
                   Все ({activeTwitchDropsGames.length})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'TOP' ? 'active-mint' : ''}`}
-                  style={{ height: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
                 >
                   ⭐ Очередь ({topPriorityCount})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
-                  style={{ height: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('INSTALLED'); }}
                 >
                   💾 На ПК ({installedActiveCount})
@@ -1356,7 +1358,7 @@ const filteredLogs = useMemo(() => {
                       <div className="flex items-center gap-1.5 shrink-0 ml-3">
                         <button
                           className={`tactile-btn ${isTop ? 'active-amber' : ''}`}
-                          style={{ height: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+                          style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                           onClick={() => {
                             playClick();
                             if (isTop) {
@@ -1371,7 +1373,7 @@ const filteredLogs = useMemo(() => {
                         </button>
                         <button 
                           className={`tactile-btn ${isForced ? 'active-amber' : 'active-mint'}`}
-                          style={{ height: '24px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                          style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                           onClick={() => {
                             playClick();
                             if (isForced) {

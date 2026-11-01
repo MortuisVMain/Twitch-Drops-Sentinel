@@ -528,14 +528,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         </span>
         <div className="campaign-row-actions">
           {blocked ? (
-            <button className="tactile-btn" style={{ height: '24px', fontSize: 'var(--fs-xs)' }} onClick={() => { playClick(); handleRestoreGame(game.name); }}>
+            <button className="tactile-btn" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={() => { playClick(); handleRestoreGame(game.name); }}>
               ↩ Восстановить
             </button>
           ) : (
             <>
               <button
                 className={`tactile-btn ${isForced ? 'active-amber' : ''}`}
-                style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   if (isForced) {
@@ -550,7 +550,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               </button>
               <button
                 className={`tactile-btn ${isInPriority ? 'active-mint' : ''}`}
-                style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   if (isInPriority) onRemoveFromPriority(game.name);
@@ -562,7 +562,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               </button>
               <button
                 className="tactile-btn"
-                style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => { playClick(); onAddToExcluded(game.name); }}
                 title="Скрыть игру / в исключения"
               >
@@ -737,14 +737,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               {activeFilter !== 'claimed' && (
                 <button
                   className="tactile-btn"
-                  style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
+                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => { playClick(); toggleTrophyVault(); }}
                   title="Свернуть или развернуть блок трофеев"
                 >
                   {showTrophyVault ? '▲ Свернуть' : '▼ Развернуть'}
                 </button>
               )}
-              <button className="tactile-btn" style={{ height: '24px', fontSize: 'var(--fs-xs)' }} onClick={handleOpenTrophies}>
+              <button className="tactile-btn" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={handleOpenTrophies}>
                 📄 Открыть Trophies.md
               </button>
             </div>
@@ -992,7 +992,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 {isExcluded ? (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
+                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1004,7 +1004,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 ) : isRemoved ? (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
+                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1019,7 +1019,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
+                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Повысить приоритет (переместить выше в очереди)"
                           disabled={priorityIndex === 0}
                           onClick={(e) => {
@@ -1032,7 +1032,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         </button>
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
+                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Понизить приоритет (переместить ниже в очереди)"
                           disabled={priorityIndex === priorityList.length - 1}
                           onClick={(e) => {
@@ -1051,7 +1051,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       {game.is_installed && (
                         <button
                           className="node-chip"
-                          style={{ height: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
+                          style={{ minHeight: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
                           title="Удалить из списка установленных"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1064,7 +1064,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       )}
                       <button
                         className="node-chip"
-                        style={{ height: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
+                        style={{ minHeight: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
                         title="Скрыть / в исключения"
                         onClick={(e) => {
                           e.stopPropagation();

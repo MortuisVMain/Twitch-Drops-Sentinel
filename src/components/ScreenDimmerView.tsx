@@ -555,13 +555,14 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         height: '100%',
         minHeight: 0,
         overflowY: 'auto',
+        overflowX: 'hidden',
         padding: '2px 0 14px 0',
       }}
     >
       {/* =========================================================================
          MONITORS (one card per monitor) + COMMON BRIGHTNESS
          ========================================================================= */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: '10px', alignItems: 'start' }}>
+      <div className="dimmer-top-grid" style={{ display: 'grid', gap: '10px', alignItems: 'start' }}>
         <div className="titanium-island" style={{ gap: '10px', padding: '12px 14px' }}>
           <div className="engraved-header" style={{ marginBottom: '2px' }}>
             <span className="tag">
@@ -570,7 +571,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 className={`tactile-btn ${isLinked ? 'active-mint' : ''}`}
-                style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+                style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                 onClick={() => {
                   playClick();
                   setIsLinked(!isLinked);
@@ -582,7 +583,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               </button>
               <button
                 className="tactile-btn"
-                style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+                style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                 onClick={handleScanHardware}
                 title="Перечитать реальную яркость мониторов"
               >
@@ -597,7 +598,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: monitors.length > 1 ? `repeat(${Math.min(monitors.length, 3)}, minmax(0, 1fr))` : '1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr))',
               gap: '10px',
             }}
           >
@@ -691,7 +692,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                     <button
                       className="tactile-btn"
-                      style={{ flex: '1 1 auto', height: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
+                      style={{ flex: '1 1 auto', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
                       onClick={() => handleSaveSingleBaseline(idx)}
                       title={`Запомнить текущие ${mon.current_brightness}% как базовую яркость этого монитора`}
                     >
@@ -699,7 +700,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     </button>
                     <button
                       className="tactile-btn active-mint"
-                      style={{ flex: '1 1 auto', height: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
+                      style={{ flex: '1 1 auto', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
                       onClick={() => handleRestoreSingleBaseline(idx)}
                       title={`Вернуть этот монитор к базовой яркости (${baseBri}%)`}
                     >
@@ -707,7 +708,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     </button>
                     <button
                       className={`tactile-btn ${isSoloThis ? 'active-rose' : ''}`}
-                      style={{ flex: '1 1 100%', height: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
+                      style={{ flex: '1 1 100%', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
                       onClick={() => handleToggleSoloBlackout(idx)}
                       title={isSoloThis ? 'Включить этот монитор обратно' : 'Погасить только этот монитор, остальные не трогать'}
                     >
@@ -722,7 +723,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
               className="tactile-btn"
-              style={{ height: '28px', fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '0 12px' }}
+              style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '0 12px' }}
               onClick={handleSaveBaseline}
               title="Зафиксировать текущую яркость ВСЕХ мониторов как базовую"
             >
@@ -730,7 +731,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
             <button
               className="tactile-btn active-mint"
-              style={{ height: '28px', fontSize: 'var(--fs-xs)', fontWeight: 800, padding: '0 12px', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 0 12px rgba(58, 210, 159, 0.25)' }}
+              style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', fontWeight: 800, padding: '0 12px', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 0 12px rgba(58, 210, 159, 0.25)' }}
               onClick={handleRestoreBaseline}
               title="Вернуть базовую яркость всех мониторов"
             >
@@ -758,19 +759,22 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-around',
+              flexWrap: 'wrap',
+              gap: '10px',
               padding: '6px 0',
             }}
           >
             <div
               ref={dialRef}
+              data-overflow-ok
               onPointerDown={handleDialPointerDown}
               onPointerMove={handleDialPointerMove}
               onPointerUp={handleDialPointerUp}
               onPointerCancel={handleDialPointerUp}
               onWheel={handleJogWheel}
               style={{
-                width: '105px',
-                height: '105px',
+                width: '6.5625rem',
+                height: '6.5625rem',
                 borderRadius: '50%',
                 background: 'radial-gradient(circle, #25332e 0%, #151e1b 70%, #0d1311 100%)',
                 border: '3px solid #30413a',
@@ -824,8 +828,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
 
               <div
                 style={{
-                  width: '62px',
-                  height: '62px',
+                  width: '3.875rem',
+                  height: '3.875rem',
                   borderRadius: '50%',
                   background: '#17221e',
                   border: '2px solid #23312c',
@@ -883,7 +887,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Сценарии:</span>
             <button
               className="tactile-btn"
-              style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+              style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={() => handleApplyScenario(85, 75, '☀️ День')}
               title="Внешние: 85%, ноутбук: 75%"
             >
@@ -891,7 +895,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
             <button
               className="tactile-btn"
-              style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+              style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={() => handleApplyScenario(45, 40, '🌆 Вечер')}
               title="Внешние: 45%, ноутбук: 40%"
             >
@@ -899,7 +903,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
             <button
               className="tactile-btn"
-              style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+              style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={() => handleApplyScenario(15, 10, '🌑 Ночь')}
               title="Внешние: 15%, ноутбук: 10%"
             >
@@ -947,7 +951,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       {/* =========================================================================
          TIER 4: SLEEP TIMER + OLED PROTECTION + ULTRA-DARK MODE
          ========================================================================= */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.25fr', gap: '10px' }}>
+      <div className="dimmer-bottom-grid" style={{ display: 'grid', gap: '10px' }}>
         {/* Sleep Timer Island */}
         <div className="titanium-island" style={{ justifyContent: 'space-between', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: '2px' }}>
@@ -1027,7 +1031,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               </div>
               <button
                 className={`tactile-btn ${muteAudioOnBlackout ? 'active-mint' : ''}`}
-                style={{ height: '20px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
+                style={{ minHeight: '20px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
                 onClick={handleToggleMuteAudio}
               >
                 {muteAudioOnBlackout ? '✓ ВКЛ' : 'ВЫКЛ'}
@@ -1069,7 +1073,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </span>
             <button
               className={`tactile-btn ${ultraDarkActive ? 'active-mint' : ''}`}
-              style={{ height: '20px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+              style={{ minHeight: '20px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={handleToggleUltraDark}
               title="Включить затемнение сильнее, чем позволяет подсветка монитора"
             >
@@ -1125,7 +1129,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           </div>
           <button
             className="tactile-btn"
-            style={{ height: '18px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
+            style={{ minHeight: '18px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
             onClick={() => setBusLogs([])}
             title="Очистить журнал событий"
           >
