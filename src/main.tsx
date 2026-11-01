@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { installTranslator } from './i18n';
 import './index.css';
 
 interface RootErrorBoundaryState {
@@ -65,6 +66,8 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
     return this.props.children;
   }
 }
+
+installTranslator();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

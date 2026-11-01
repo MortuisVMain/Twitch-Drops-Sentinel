@@ -809,6 +809,8 @@ class SentinelSupervisor:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             self.settings.update(data)
             self.save_settings()
+            if "language" in data:
+                self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
             mode_val = self.settings.get("priority_mode", 0)
             mode_label = "Приоритет + любые активные" if mode_val == 1 else ("Только приоритетные" if mode_val == 0 else "Редкие дропы")

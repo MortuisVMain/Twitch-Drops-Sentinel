@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
+import { getLang, setLang, type Lang } from '../i18n';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 
@@ -440,6 +441,19 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 className={`tactile-btn ${closeAction === value ? 'active-amber' : ''}`}
                 disabled={closeAction === null}
                 onClick={() => handleCloseActionChange(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>ЯЗЫК ИНТЕРФЕЙСА:</span>
+            {([['ru', 'Русский'], ['en', 'English']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                className={`tactile-btn ${getLang() === value ? 'active-amber' : ''}`}
+                onClick={() => { playClick(); if (getLang() !== value) void setLang(value as Lang); }}
               >
                 {label}
               </button>

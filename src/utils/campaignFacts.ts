@@ -1,3 +1,4 @@
+import { uiLocale } from '../i18n';
 import type { GameItem, TrophyItem } from '../types';
 import { dropsWord, getCampaignState, type NameMatcher } from './campaignState';
 
@@ -19,7 +20,7 @@ const trophyTime = (t: TrophyItem): number => {
 };
 
 const formatWhen = (at: number): string =>
-  new Date(at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  new Date(at).toLocaleString(uiLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 // "Трофеи · 26 игр · последний: <дроп>, <время>" for the collapsed trophy block
 export const lastTrophyLine = (trophies: TrophyItem[], games: number): string => {
@@ -106,7 +107,7 @@ const formatStamp = (iso: string): string | null => {
   if (Number.isNaN(at)) return null;
   // "1 нояб., 13:00" -> "1 нояб. 13:00", local time
   return new Date(at)
-    .toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    .toLocaleString(uiLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
     .replace(', ', ' ');
 };
 

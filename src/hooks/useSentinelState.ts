@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { followBackendLanguage } from '../i18n';
 import { FullSentinelState, SentinelSettings, TrophyItem } from '../types';
 
 const INITIAL_STATE: FullSentinelState = {
@@ -89,6 +90,7 @@ export function useSentinelState(
                   };
                 }
               }
+              followBackendLanguage(data.settings?.language);
               return {
                 ...prev,
                 ...data,
