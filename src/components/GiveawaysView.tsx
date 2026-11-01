@@ -1,3 +1,4 @@
+import { uiLocale } from '../i18n';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StoreId,
@@ -65,14 +66,14 @@ function formatClaimDate(rawDate?: string, tsMs?: number): string {
   if (tsMs && tsMs > 0) {
     const d = new Date(tsMs);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+      return d.toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short' });
     }
   }
   if (rawDate) {
     if (!rawDate.includes('T') && !rawDate.includes('-')) return rawDate;
     const d = new Date(rawDate);
     if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+      return d.toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short' });
     }
   }
   return 'Недавно';
@@ -244,7 +245,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   const handleCopyLogs = () => {
     playClick();
     const textToCopy = logs.length > 0 
-      ? logs.map(l => (l.ts ? `[${new Date(l.ts).toLocaleTimeString('ru-RU')}] ` : '') + (l.line || (l as any).message || '')).join('\n')
+      ? logs.map(l => (l.ts ? `[${new Date(l.ts).toLocaleTimeString(uiLocale())}] ` : '') + (l.line || (l as any).message || '')).join('\n')
       : logs.map((log) => log.line).join('\n');
     navigator.clipboard.writeText(textToCopy);
     setCopiedLogs(true);
@@ -352,7 +353,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       try {
         const d = new Date(l.ts);
         if (!isNaN(d.getTime())) {
-          timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          timeStr = d.toLocaleTimeString(uiLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         }
       } catch {}
     }

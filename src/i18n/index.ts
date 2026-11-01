@@ -22,7 +22,7 @@ export function getLang(): Lang {
   return currentLang;
 }
 
-const SEGMENT_SEPARATORS = [' · ', ' — ', ', '];
+const SEGMENT_SEPARATORS = [' · ', ' • ', ' — ', ', ', ','];
 
 function translateCore(core: string, depth: number): string {
   const exact = EN[core];

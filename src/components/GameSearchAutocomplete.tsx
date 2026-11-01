@@ -1,3 +1,4 @@
+import { uiLocale } from '../i18n';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Search, X, Plus, Check, Flame, HardDrive, Sparkles, 
@@ -319,7 +320,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
 
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span className="text-[9px] font-semibold text-[var(--accent)] flex items-center gap-0.5">
-                                <ShieldCheck className="w-2.5 h-2.5" /> 100% Фарм {game.drops_end_at ? `до ${new Date(game.drops_end_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}` : ''}
+                                <ShieldCheck className="w-2.5 h-2.5" /> 100% Фарм {game.drops_end_at ? `до ${new Date(game.drops_end_at).toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short' })}` : ''}
                               </span>
                               {game.rewards_count && (
                                 <span className="text-[9px] text-[var(--muted)] bg-[var(--surface)] border border-[var(--line)] px-1 rounded tabular-nums">
