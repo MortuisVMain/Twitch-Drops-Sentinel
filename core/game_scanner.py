@@ -95,7 +95,8 @@ NON_GAME_NAMES = re.compile(
     r"filezilla|torrent|qbittorrent|utorrent|anydesk|teamviewer|virtualbox|"
     r"vmware|chrome|firefox|opera\s*gx|yandex\s*browser|ms\s*edge|thunderbird|cheat\s*engine|"
     r"game cheats manager|game save manager|ghostscript|inno setup|asus framework|"
-    r"rog live service|armoury crate|msi center|alienware|ccleaner|defraggler)\b",
+    r"rog live service|armoury crate|msi center|alienware|ccleaner|defraggler|"
+    r"playstation\W*accessories|redlauncher)\b",
     re.IGNORECASE,
 )
 

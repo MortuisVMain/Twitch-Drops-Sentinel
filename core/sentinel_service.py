@@ -157,7 +157,7 @@ from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
-from game_scanner import GameScanner
+from game_scanner import GameScanner, NON_GAME_NAMES
 from updater import UPDATER
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
@@ -607,7 +607,11 @@ class SentinelSupervisor:
         active_drop = STATE_BRIDGE.active_drop
 
         # Authentic Twitch Drops catalog + detected installed games
-        catalog_games = CAMPAIGNS_FETCHER.get_catalog()
+        # utilities that an older scan listed as installed games stay in the user's files but are not shown as games
+        catalog_games = [
+            g for g in CAMPAIGNS_FETCHER.get_catalog()
+            if g.get("has_drops") or not NON_GAME_NAMES.search(str(g.get("name", "")))
+        ]
         if self.twitch_client and hasattr(self.twitch_client, "inventory"):
             raw_inv = self.twitch_client.inventory
             inv_list = raw_inv if isinstance(raw_inv, list) else list(getattr(raw_inv, "campaigns", {}).values())
