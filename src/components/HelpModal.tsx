@@ -247,7 +247,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
               <h2 className="text-sm md:text-base font-bold text-white">
                 Справка и горячие клавиши
               </h2>
-              <p className="text-[length:var(--fs-xs)] text-[#8b9a94] mt-0.5">
+              <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5">
                 Практические советы, правила работы и быстрые сочетания клавиш
               </p>
             </div>
@@ -259,7 +259,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
               onClose();
             }}
             aria-label="Закрыть"
-            className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[#8b9a94] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
+            className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
           >
             <X size={16} />
           </button>
@@ -282,7 +282,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 select-none ${
                   isSelected
                     ? 'bg-[#368873]/25 text-[#73bba5] border border-[#73bba5]/40 shadow-sm'
-                    : 'text-[#8b9a94] hover:text-white hover:bg-white/[0.04] border border-transparent'
+                    : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
                 }`}
               >
                 <span>{cat.icon}</span>
@@ -302,7 +302,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
             className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 select-none ${
               selectedCategory === 'hotkeys'
                 ? 'bg-[#368873]/25 text-[#73bba5] border border-[#73bba5]/40 shadow-sm'
-                : 'text-[#8b9a94] hover:text-white hover:bg-white/[0.04] border border-transparent'
+                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
             }`}
           >
             <Keyboard size={15} />
@@ -315,7 +315,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           {selectedCategory !== 'hotkeys' ? (
             <>
               <div className="flex items-center justify-between pb-0.5">
-                <span className="text-[length:var(--fs-xs)] font-bold text-[#8b9a94] uppercase tracking-[0.04em] tabular">
+                <span className="text-[length:var(--fs-xs)] font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] tabular">
                   {TAB_TIPS[selectedCategory].title}
                 </span>
                 {activeTab === selectedCategory && (
@@ -347,7 +347,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                         </span>
                       )}
                     </div>
-                    <p className="text-[length:var(--fs-xs)] text-[#8b9a94] leading-relaxed pl-8">
+                    <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed pl-8">
                       {tip.description}
                     </p>
                   </div>
@@ -357,7 +357,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           ) : (
             <>
               <div className="flex items-center justify-between pb-0.5">
-                <span className="text-[length:var(--fs-xs)] font-bold text-[#8b9a94] uppercase tracking-[0.04em] tabular">
+                <span className="text-[length:var(--fs-xs)] font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] tabular">
                   Быстрые клавиши и управление
                 </span>
               </div>
@@ -370,7 +370,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold text-white leading-snug break-words">{hk.label}</div>
-                      <div className="text-[length:var(--fs-xs)] text-[#8b9a94] mt-0.5 leading-snug break-words">{hk.desc}</div>
+                      <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 leading-snug break-words">{hk.desc}</div>
                     </div>
                     <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
                       {hk.key}
@@ -384,7 +384,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           {/* Bottom Security / Architecture Note - Compact */}
           <div className="mt-2 p-3 px-4 rounded-xl bg-gradient-to-r from-[#202725] to-[#1a2320] border border-[#368873]/30 flex items-start gap-2.5 shrink-0">
             <ShieldCheck size={16} className="text-[#73bba5] shrink-0 mt-0.5" />
-            <div className="text-[length:var(--fs-xs)] text-[#8b9a94] leading-relaxed">
+            <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed">
               <strong className="text-white inline mr-1">Принцип автономности и безопасности Sentinel:</strong>
               Все пароли, сессии и авторизационные токены хранятся исключительно в локальных файлах на вашем компьютере. Никаких внешних серверов, аналитики или облачных баз данных.
             </div>
@@ -393,7 +393,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
 
         {/* Modal Footer - shrink-0 ensures it is ALWAYS 100% visible */}
         <div className="py-3 px-6 border-t border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
-          <div className="text-[length:var(--fs-xs)] text-[#8b9a94] flex items-center gap-1.5">
+          <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] flex items-center gap-1.5">
             <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[length:var(--fs-xs)] tabular text-white">Esc</kbd>
             <span>для закрытия</span>
           </div>

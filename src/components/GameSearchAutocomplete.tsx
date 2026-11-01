@@ -251,7 +251,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
               {query.trim() ? `Поиск «${query.trim()}» с проверкой Twitch:` : 'Популярные игры и активные Drops:'}
             </span>
-            <span className="text-[length:var(--fs-xs)] text-[var(--muted)]/60 tabular">Enter — выбрать · Esc — закрыть</span>
+            <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)] tabular">Enter — выбрать · Esc — закрыть</span>
           </div>
 
           {/* Suggestions List */}

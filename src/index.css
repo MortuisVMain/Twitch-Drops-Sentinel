@@ -30,9 +30,9 @@
     --led-rose: #F87171;
 
     --text-primary: #F3F5F8;
-    --text-secondary: #9CA3B0;
-    --text-muted: #747B89;
-    --text-engraved: #778090;
+    --text-secondary: #B4BAC5;
+    --text-muted: #9AA1AE;
+    --text-engraved: #9AA1AE;
     --cta-text: #04120C;
 
     --shadow-chassis: 0 24px 60px -8px rgba(0,0,0,0.95), 0 0 110px -10px var(--ambient-glow-color), 0 0 0 1px var(--border-main);
@@ -59,9 +59,9 @@
     --led-mint: #73BBA5;
     --led-amber: #E5A93C;
     --text-primary: #E9EEEC;
-    --text-secondary: #A1AFA8;
-    --text-muted: #76847D;
-    --text-engraved: #828F88;
+    --text-secondary: #B4C1BA;
+    --text-muted: #9AA7A0;
+    --text-engraved: #9AA7A0;
     --ambient-glow-color: rgba(115, 187, 165, 0.25);
   }
 
@@ -83,7 +83,7 @@
     --led-cyan: #818CF8;
     --text-primary: #F8FAFC;
     --text-secondary: #C7D2FE;
-    --text-muted: #6366F1;
+    --text-muted: #9A9DF7;
     --text-engraved: #A5B4FC;
     --ambient-glow-color: rgba(139, 92, 246, 0.3);
   }
@@ -108,7 +108,7 @@
     --led-rose: #FF003C;
     --text-primary: #FFFDF0;
     --text-secondary: #00F0FF;
-    --text-muted: #8371A4;
+    --text-muted: #A494C0;
     --text-engraved: #FCEE0A;
     --cta-text: #050408;
     --ambient-glow-color: rgba(252, 238, 10, 0.25);
@@ -163,9 +163,9 @@
     --led-cyan: #38BDF8;
     --led-rose: #F87171;
     --text-primary: #F7F2ED;
-    --text-secondary: #B8ABA0;
-    --text-muted: #867A71;
-    --text-engraved: #9C8B7E;
+    --text-secondary: #C8BCB1;
+    --text-muted: #A89E96;
+    --text-engraved: #AA9A8D;
     --cta-text: #120904;
     --ambient-glow-color: rgba(255, 69, 0, 0.28);
   }
@@ -201,9 +201,9 @@
     --led-cyan: #73bba5;
     --led-rose: #f43f5e;
     --text-primary: #e9eeec;
-    --text-secondary: #a1afa8;
-    --text-muted: #828f88;
-    --text-engraved: #828f88;
+    --text-secondary: #B8C4BD;
+    --text-muted: #A0ACA5;
+    --text-engraved: #A0ACA5;
     --cta-text: #171d1c;
     --ambient-glow-color: rgba(115, 187, 165, 0.22);
   }

@@ -2305,11 +2305,11 @@ export const App: React.FC = () => {
                   type="text" 
                   placeholder="Поиск по играм, стримам и действиям... (Esc)" 
                   autoFocus 
-                  className="w-full bg-transparent border-none outline-none text-xs md:text-sm text-[#e9eeec] placeholder-[#828f88] font-medium"
+                  className="w-full bg-transparent border-none outline-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
                 />
-                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[length:var(--fs-xs)] tabular text-[#8b9a94] shrink-0 select-none">
+                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[length:var(--fs-xs)] tabular text-[var(--text-muted)] shrink-0 select-none">
                   ESC
                 </kbd>
               </div>
@@ -2317,7 +2317,7 @@ export const App: React.FC = () => {
               <div className="p-2 overflow-y-auto space-y-2 scrollbar-thin flex-1 min-h-0">
                 {navActions.length > 0 && (
                   <div>
-                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#828f88] uppercase tracking-[0.04em] px-2 py-0.5">
+                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] px-2 py-0.5">
                       Навигация
                     </div>
                     <div className="space-y-0.5">
@@ -2348,7 +2348,7 @@ export const App: React.FC = () => {
 
                 {quickActions.length > 0 && (
                   <div>
-                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#828f88] uppercase tracking-[0.04em] px-2 py-0.5 pt-1">
+                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] px-2 py-0.5 pt-1">
                       Действия
                     </div>
                     <div className="space-y-0.5">
@@ -2369,7 +2369,7 @@ export const App: React.FC = () => {
                             </span>
                           </div>
                           {item.key && (
-                            <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
+                            <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[var(--text-muted)] shrink-0">
                               {item.key}
                             </span>
                           )}
@@ -2383,7 +2383,7 @@ export const App: React.FC = () => {
                   <div>
                     <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] uppercase tracking-[0.04em] px-2 py-0.5 pt-1 flex items-center justify-between">
                       <span>Игры в каталоге</span>
-                      <span className="text-[length:var(--fs-xs)] text-[#828f88]">Фокус ↵</span>
+                      <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">Фокус ↵</span>
                     </div>
                     <div className="space-y-0.5">
                       {matchingGames.map(game => (
@@ -2414,14 +2414,14 @@ export const App: React.FC = () => {
                 )}
 
                 {totalResults === 0 && (
-                  <div className="p-6 text-center text-[#828f88] space-y-1">
+                  <div className="p-6 text-center text-[var(--text-muted)] space-y-1">
                     <p className="text-xs font-semibold text-white">Ничего не найдено по запросу «{cmdSearch}»</p>
                     <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или номер вкладки (1–5).</p>
                   </div>
                 )}
               </div>
 
-              <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[length:var(--fs-xs)] text-[#828f88] shrink-0 select-none">
+              <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] shrink-0 select-none">
                 <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
               </div>
             </div>
