@@ -1654,7 +1654,7 @@ class SentinelSupervisor:
                     settings.priority_mode = PriorityMode(self.settings.get("priority_mode", 0))
                 settings.save(force=True)
                 self.twitch_client = Twitch(settings)
-                STATE_BRIDGE.add_log("INFO", f"Twitch Engine активирован. В очереди приоритета: {len(settings.priority)} игр.")
+                STATE_BRIDGE.add_log("INFO", _("sentinel", "engine_activated").format(count=len(settings.priority)))
                 await self.twitch_client.run()
             except asyncio.CancelledError:
                 break

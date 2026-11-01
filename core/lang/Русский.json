@@ -31,7 +31,10 @@
         "games_active": "Игр с активными дропами: {count}: {names}...",
         "queue_no_campaigns_strict": "Ни одна игра из очереди ({count}) сейчас не имеет доступных кампаний. Ожидание запуска кампаний.",
         "queue_no_campaigns": "Ни одна игра из очереди ({count}) сейчас не имеет доступных кампаний. Временно фармим любые доступные кампании.",
-        "queue_waiting_status": "Ожидание кампаний: игр в очереди {count}"
+        "queue_waiting_status": "Ожидание кампаний: игр в очереди {count}",
+        "engine_activated": "Twitch Engine активирован. Игр в очереди: {count}.",
+        "login_required_status": "🔑 Требуется вход в Twitch: введите код {code} в браузере",
+        "login_code_log": "🔑 КОД АВТОРИЗАЦИИ TWITCH: {code} — откройте {uri} и подтвердите вход!"
     },
     "login": {
         "chrome": {

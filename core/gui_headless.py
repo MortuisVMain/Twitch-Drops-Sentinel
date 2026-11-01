@@ -311,8 +311,8 @@ class HeadlessLoginForm:
         logger.info(f"[LOGIN] OAuth Device Code needed: {code} at {uri}")
         STATE_BRIDGE.oauth_code = str(code)
         STATE_BRIDGE.oauth_uri = str(uri)
-        STATE_BRIDGE.status_text = f"🔑 Требуется вход в Twitch: введите код {code} в браузере"
-        STATE_BRIDGE.add_log("AUTH", f"🔑 КОД АВТОРИЗАЦИИ TWITCH: {code} — откройте {uri} и подтвердите вход!")
+        STATE_BRIDGE.status_text = _("sentinel", "login_required_status").format(code=code)
+        STATE_BRIDGE.add_log("AUTH", _("sentinel", "login_code_log").format(code=code, uri=uri))
         send_windows_toast("Twitch Drops Sentinel — Авторизация", f"Код авторизации: {code}\nОткройте Twitch в браузере для подтверждения")
         try:
             import webbrowser

@@ -248,6 +248,9 @@ class SentinelMessages(TypedDict):
     queue_no_campaigns_strict: str
     queue_no_campaigns: str
     queue_waiting_status: str
+    engine_activated: str
+    login_required_status: str
+    login_code_log: str
 
 
 class Translation(TypedDict):
@@ -294,6 +297,9 @@ default_translation: Translation = {
         "queue_no_campaigns_strict": "No game in the queue ({count}) has an available campaign right now. Waiting for campaigns to start.",
         "queue_no_campaigns": "No game in the queue ({count}) has an available campaign right now. Temporarily farming any available campaigns.",
         "queue_waiting_status": "Waiting for campaigns: {count} games in the queue",
+        "engine_activated": "Twitch engine activated. Games in the queue: {count}.",
+        "login_required_status": "🔑 Twitch login required: enter the code {code} in the browser",
+        "login_code_log": "🔑 TWITCH LOGIN CODE: {code}. Open {uri} and confirm the sign-in!",
     },
     "login": {
         "unexpected_content": (
