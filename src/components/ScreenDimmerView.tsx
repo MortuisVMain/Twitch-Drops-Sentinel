@@ -24,6 +24,25 @@ const SLEEP_TIMER_PRESETS = [
   { mins: 120, label: '120м' },
 ];
 
+// Raw names look like "Laptop_Internal" or "\\.\DISPLAY1": show a human name, keep the raw one for the tooltip
+const monitorLabel = (mon: DisplayMonitor, idx: number): string => {
+  const clean = String(mon.name || '').replace(/^[^\wА-Яа-я#]+/, '').trim();
+  if (!clean || /^laptop[_ ]?internal/i.test(clean)) {
+    return mon.is_laptop_internal ? 'Встроенный дисплей' : `Экран ${idx + 1}`;
+  }
+  return clean;
+};
+
+const connectionInfo = (mon: DisplayMonitor): { short: string; hint: string } => {
+  if (mon.is_laptop_internal) {
+    return { short: 'ACPI', hint: 'Встроенный экран ноутбука: яркость задаётся через ACPI/WMI' };
+  }
+  if (mon.supports_control) {
+    return { short: 'DDC/CI', hint: 'Внешний монитор: яркость задаётся командой по кабелю (DDC/CI, VCP 0x10)' };
+  }
+  return { short: 'GDI', hint: 'Монитор не принимает команды яркости: используется программное затемнение' };
+};
+
 interface BusLogEntry {
   id: string;
   time: string;
@@ -262,7 +281,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
 
     if (isDirectHardware) {
       dispatchMasterHardwareThrottled(clamped, true);
-      addBusLog(`Мастер-яркость установлена на ${clamped}% (Связка: ${isLinked ? 'ВКЛ' : 'ВЫКЛ'})`, 'info');
+      addBusLog(`Общая яркость: ${clamped}% (синхронно: ${isLinked ? 'да' : 'нет'})`, 'info');
     } else {
       dispatchMasterHardwareThrottled(clamped, false);
     }
@@ -290,7 +309,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       is_linked: false,
       monitor_index: idx,
     });
-    addBusLog(`Яркость дисплея #${idx + 1} (${targetMon?.name || monId}): ${clamped}%`, 'info');
+    addBusLog(`Яркость экрана #${idx + 1} (${targetMon ? monitorLabel(targetMon, idx) : monId}): ${clamped}%`, 'info');
   };
 
   const handleToggleSoloBlackout = (idx: number) => {
@@ -304,7 +323,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         soloIndex: null,
         solo_index: null,
       });
-      addBusLog(`Solo Blackout снят для дисплея #${idx + 1}`, 'info');
+      addBusLog(`Экран #${idx + 1} снова включён`, 'info');
       if (showToast) showToast(`Дисплей #${idx + 1} активирован (${masterBrightness}%)`);
     } else {
       setSoloScreenIdx(idx);
@@ -315,8 +334,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         soloIndex: idx,
         solo_index: idx,
       });
-      addBusLog(`Solo Blackout активирован для дисплея #${idx + 1}`, 'warn');
-      if (showToast) showToast(`🌑 Solo Blackout для Дисплея #${idx + 1}`);
+      addBusLog(`Экран #${idx + 1} затемнён отдельно от остальных`, 'warn');
+      if (showToast) showToast(`🌑 Затемнён только экран #${idx + 1}`);
     }
   };
 
@@ -334,8 +353,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     });
 
     if (nextState) {
-      addBusLog('🌑 Ночной Blackout (0%) активирован. ПК продолжает фармить (AwayMode ON).', 'warn');
-      if (showToast) showToast('🌑 Ночной Blackout активирован! ПК не спит (AwayMode)');
+      addBusLog('🌑 Ночной блэкаут (0%) включён. ПК не засыпает и продолжает фарм.', 'warn');
+      if (showToast) showToast('🌑 Ночной блэкаут включён: ПК не спит и продолжает фарм');
     } else {
       handleMasterChange(masterBrightness > 0 ? masterBrightness : 75);
       addBusLog(`☀️ Экраны пробуждены (${masterBrightness || 75}%).`, 'success');
@@ -356,7 +375,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       return copy;
     });
     sendDimmerCommand('SAVE_BASELINE');
-    addBusLog(`💾 База для дисплея #${idx + 1} (${mon.name}): ${cur}%`, 'success');
+    addBusLog(`💾 База для экрана #${idx + 1} (${monitorLabel(mon, idx)}): ${cur}%`, 'success');
     if (showToast) showToast(`💾 База #${idx + 1} сохранена: ${cur}%`);
   };
 
@@ -366,7 +385,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     if (!mon) return;
     const target = mon.baseline_brightness ?? mon.current_brightness;
     handleSingleMonitorChange(idx, target);
-    addBusLog(`☀️ Восстановлена база дисплея #${idx + 1}: ${target}%`, 'success');
+    addBusLog(`☀️ Экран #${idx + 1} возвращён к базе: ${target}%`, 'success');
     if (showToast) showToast(`☀️ Дисплей #${idx + 1} возвращен к базе ${target}%`);
   };
 
@@ -435,7 +454,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     playClick();
     sendDimmerCommand('SAVE_BASELINE');
     setMonitors(prev => prev.map(m => ({ ...m, baseline_brightness: m.current_brightness })));
-    const summary = monitors.map((m, i) => `#${i + 1} (${m.name.replace(/^[^\wА-Яа-я#]+/, '')}): ${m.current_brightness}%`).join(' • ');
+    const summary = monitors.map((m, i) => `#${i + 1} (${monitorLabel(m, i)}): ${m.current_brightness}%`).join(' • ');
     addBusLog(`💾 Базовый профиль сохранен: ${summary}`, 'success');
     if (showToast) showToast(`💾 Базовая яркость сохранена! (${summary})`);
   };
@@ -454,14 +473,14 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     const avg = targets.length > 0 ? Math.round(targets.reduce((a, b) => a + b, 0) / targets.length) : 75;
     setMasterBrightness(avg);
     const summary = monitors.map((m, i) => `#${i + 1}: ${m.baseline_brightness ?? m.current_brightness}%`).join(' • ');
-    addBusLog(`☀️ Восстановлена базовая яркость: ${summary} (Мастер: ${avg}%, Хоткей Alt+Shift+Backspace)`, 'success');
+    addBusLog(`☀️ Восстановлена базовая яркость: ${summary} (общая: ${avg}%)`, 'success');
     if (showToast) showToast(`☀️ Базовая яркость восстановлена! (${summary})`);
   };
 
   const handleScanHardware = () => {
     playClick();
     sendDimmerCommand('SCAN_MONITORS');
-    addBusLog('🔄 Опрос физических шин DDC/CI (VCP 0x10) и WMI ACPI...', 'info');
+    addBusLog('🔄 Опрашиваю мониторы: читаю их реальную яркость...', 'info');
     if (showToast) showToast('🔄 Опрос физических дисплеев выполнен');
   };
 
@@ -480,7 +499,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       });
       return { ...m, current_brightness: val };
     }));
-    addBusLog(`Сценарий "${title}" применен: Внешний ${extBri}%, Ноутбук ${laptopBri}%`, 'info');
+    addBusLog(`Сценарий "${title}" применён: внешний ${extBri}%, ноутбук ${laptopBri}%`, 'info');
     if (showToast) showToast(`Сценарий: ${title}`);
   };
 
@@ -499,9 +518,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     const next = !muteAudioOnBlackout;
     setMuteAudioOnBlackout(next);
     sendDimmerCommand('SET_MUTE_ON_BLACKOUT', { enabled: next });
-    addBusLog(`Ночной CoreAudio Mute: ${next ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`, next ? 'warn' : 'info');
+    addBusLog(`Отключение звука при затемнении: ${next ? 'включено' : 'выключено'}`, next ? 'warn' : 'info');
     if (showToast) {
-      showToast(next ? '🔇 Ночной Mute CoreAudio включен' : '🔊 Ночной Mute выключен');
+      showToast(next ? '🔇 Звук будет выключаться при затемнении' : '🔊 Звук при затемнении не выключается');
     }
   };
 
@@ -510,7 +529,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     const next = !ultraDarkActive;
     setUltraDarkActive(next);
     sendDimmerCommand('SET_ULTRA_DARK', { enabled: next, tint: ultraDarkTint });
-    addBusLog(`Сверхтемнота (Ultra-Dark WS_EX_TRANSPARENT): ${next ? `АКТИВНА (${ultraDarkTint}%)` : 'ВЫКЛЮЧЕНА'}`, next ? 'success' : 'info');
+    addBusLog(`Сверхтемнота: ${next ? `включена (${ultraDarkTint}%)` : 'выключена'}`, next ? 'success' : 'info');
     if (showToast) {
       showToast(next ? `🌌 Сверхтемнота активирована (${ultraDarkTint}%)` : 'Сверхтемнота отключена');
     }
@@ -540,239 +559,13 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       }}
     >
       {/* =========================================================================
-         TIER 1 (ВЕРХ СТРАНИЦЫ): ПАМЯТЬ ОБОРУДОВАНИЯ & ПРОФИЛИ КАЛИБРОВКИ
+         MONITORS (one card per monitor) + COMMON BRIGHTNESS
          ========================================================================= */}
-      <div className="titanium-island" style={{ gap: '10px', padding: '12px 14px' }}>
-        {/* Header Row */}
-        <div className="engraved-header" style={{ marginBottom: '2px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: '10px', alignItems: 'start' }}>
+        <div className="titanium-island" style={{ gap: '10px', padding: '12px 14px' }}>
+          <div className="engraved-header" style={{ marginBottom: '2px' }}>
             <span className="tag">
-              <span className="led-dot"></span> <span title="Память оборудования и профили калибровки">ПРОФИЛИ ЯРКОСТИ</span>
-            </span>
-            <span style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-              Эталонная аппаратная яркость (Хоткей: <strong style={{ color: 'var(--accent-mint)' }}>Alt+Shift+Backspace</strong>)
-            </span>
-          </div>
-
-          {/* Quick Scenarios */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-              Сценарии:
-            </span>
-            <button
-              className="tactile-btn"
-              style={{ height: '22px', fontSize: '9px', padding: '0 8px' }}
-              onClick={() => handleApplyScenario(85, 75, '☀️ День')}
-              title="Внешний: 85%, Ноутбук: 75%"
-            >
-              ☀️ День
-            </button>
-            <button
-              className="tactile-btn"
-              style={{ height: '22px', fontSize: '9px', padding: '0 8px' }}
-              onClick={() => handleApplyScenario(45, 40, '🌆 Вечер')}
-              title="Внешний: 45%, Ноутбук: 40%"
-            >
-              🌆 Вечер
-            </button>
-            <button
-              className="tactile-btn"
-              style={{ height: '22px', fontSize: '9px', padding: '0 8px' }}
-              onClick={() => handleApplyScenario(15, 10, '🌑 Ночь')}
-              title="Внешний: 15%, Ноутбук: 10%"
-            >
-              🌑 Ночь
-            </button>
-          </div>
-        </div>
-
-        {/* Per-Monitor Saved Baseline Cards Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: monitors.length > 1 ? `repeat(${Math.min(monitors.length, 2)}, 1fr)` : '1fr', gap: '10px' }}>
-          {monitors.length === 0 && (
-            <div className="obsidian-well" role="status" style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
-              Ожидание данных о дисплеях от локального сервиса.
-            </div>
-          )}
-          {monitors.map((mon, idx) => {
-            const baseBri = mon.baseline_brightness ?? mon.current_brightness;
-            const curBri = mon.current_brightness;
-            const diff = curBri - baseBri;
-            const isMatch = diff === 0;
-
-            return (
-              <div
-                key={mon.id || idx}
-                style={{
-                  background: 'rgba(0,0,0,0.3)',
-                  border: '1px solid var(--border-main)',
-                  borderRadius: '6px',
-                  padding: '10px 12px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                }}
-              >
-                {/* Top: Icon + Name + Bus */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontSize: '13px' }}>{mon.is_laptop_internal ? '💻' : '🖥'}</span>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-heading)' }}>
-                      #{idx + 1} {mon.is_laptop_internal ? 'Встроенный дисплей' : 'Внешний монитор'}
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      fontFamily: 'var(--font-mono)',
-                      padding: '1px 5px',
-                      borderRadius: '3px',
-                      background: mon.is_laptop_internal ? 'rgba(58, 210, 159, 0.12)' : 'rgba(74, 158, 255, 0.12)',
-                      color: mon.is_laptop_internal ? 'var(--accent-mint)' : '#60a5fa',
-                      border: `1px solid ${mon.is_laptop_internal ? 'rgba(58, 210, 159, 0.25)' : 'rgba(74, 158, 255, 0.25)'}`,
-                    }}
-                  >
-                    {mon.is_laptop_internal ? 'WMI ACPI' : 'DDC/CI VCP'}
-                  </span>
-                </div>
-
-                {/* Middle: Big Prominent Numerical Readout */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    background: 'rgba(23, 34, 30, 0.65)',
-                    border: '1px solid #23312c',
-                    borderRadius: '5px',
-                    padding: '8px 10px',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>
-                      СОХРАНЕННАЯ БАЗОВАЯ ЯРКОСТЬ
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                      <span style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--accent-mint)', lineHeight: 1 }}>
-                        {baseBri}
-                      </span>
-                      <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                        %
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Status Comparison Pill */}
-                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      Текущая: <strong style={{ color: 'var(--text-heading)' }}>{curBri}%</strong>
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '9px',
-                        fontFamily: 'var(--font-mono)',
-                        color: isMatch ? 'var(--accent-mint)' : (diff > 0 ? '#60a5fa' : '#f59e0b'),
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                      }}
-                    >
-                      {isMatch ? '● Соответствует базе' : (diff > 0 ? `▲ на +${diff}% выше базы` : `▼ на ${diff}% ниже базы`)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    className="tactile-btn"
-                    style={{ flex: 1, height: '24px', fontSize: '9.5px', padding: '0 6px' }}
-                    onClick={() => handleSaveSingleBaseline(idx)}
-                    title={`Запомнить текущие ${curBri}% как базовую яркость для дисплея #${idx + 1}`}
-                  >
-                    💾 Запомнить {curBri}%
-                  </button>
-                  <button
-                    className="tactile-btn active-mint"
-                    style={{ flex: 1, height: '24px', fontSize: '9.5px', padding: '0 6px' }}
-                    onClick={() => handleRestoreSingleBaseline(idx)}
-                    title={`Вернуть дисплей #${idx + 1} к базовой яркости (${baseBri}%)`}
-                  >
-                    ☀️ Вернуть к {baseBri}%
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Global Row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '2px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              className="tactile-btn"
-              style={{
-                height: '30px',
-                fontSize: '10.5px',
-                fontWeight: 700,
-                padding: '0 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                border: '1px solid var(--border-main)',
-              }}
-              onClick={handleSaveBaseline}
-              title="Зафиксировать текущие уровни ВСЕХ мониторов как эталонную базовую яркость"
-            >
-              <span>💾 Запомнить оба монитора как базу</span>
-            </button>
-
-            <button
-              className="tactile-btn active-mint"
-              style={{
-                height: '30px',
-                fontSize: '10.5px',
-                fontWeight: 800,
-                padding: '0 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                boxShadow: '0 0 12px rgba(58, 210, 159, 0.25)',
-              }}
-              onClick={handleRestoreBaseline}
-              title="Восстановить базовую яркость всех мониторов (Хоткей: Alt + Shift + Backspace)"
-            >
-              <span>☀️ Восстановить базу обоих мониторов</span>
-              <span
-                style={{
-                  fontSize: '10px',
-                  fontFamily: 'var(--font-mono)',
-                  padding: '1px 5px',
-                  borderRadius: '3px',
-                  background: 'rgba(0,0,0,0.4)',
-                  color: '#ffffff',
-                }}
-              >
-                Alt+Shift+Backspace
-              </span>
-            </button>
-          </div>
-
-          <span style={{ fontSize: '9.5px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-            Глобальный хоткей <strong style={{ color: 'var(--accent-mint)' }}>Alt+Shift+Backspace</strong> восстанавливает базу из любых игр и программ.
-          </span>
-        </div>
-      </div>
-
-
-      {/* =========================================================================
-         TIER 1: PHYSICAL MONITORS MATRIX + JOG-DIAL ISLAND
-         ========================================================================= */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: '10px', minHeight: '260px' }}>
-        {/* Physical Monitors Matrix Display */}
-        <div className="titanium-island" style={{ justifyContent: 'space-between' }}>
-          <div className="engraved-header" style={{ marginBottom: '6px' }}>
-            <span className="tag">
-              <span className="led-dot"></span> <span title="Физическое расположение дисплеев">ДИСПЛЕИ</span>
+              <span className="led-dot"></span> <span title="Физическое расположение дисплеев. Яркость и база хранятся для каждого монитора отдельно.">МОНИТОРЫ</span>
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
@@ -781,9 +574,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 onClick={() => {
                   playClick();
                   setIsLinked(!isLinked);
-                  if (showToast) showToast(isLinked ? 'Связка экранов отключена' : '🔗 Все экраны синхронизированы');
+                  if (showToast) showToast(isLinked ? 'Мониторы регулируются раздельно' : '🔗 Все мониторы меняются вместе');
                 }}
-                title="Синхронизировать яркость всех подключенных мониторов"
+                title="Синхронно: общая яркость меняет все мониторы сразу. Раздельно: каждый монитор настраивается сам."
               >
                 {isLinked ? '🔗 Синхронно' : '🔓 Раздельно'}
               </button>
@@ -791,36 +584,36 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 className="tactile-btn"
                 style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
                 onClick={handleScanHardware}
-                title="Перечитать реальные значения яркости из DDC/CI и WMI"
+                title="Перечитать реальную яркость мониторов"
               >
                 🔄 Опрос
               </button>
               <span className="metric-badge" style={{ fontSize: '9px', padding: '2px 6px' }}>
-                {monitors.length ? `${monitors.length} ${monitors.length === 1 ? 'МОНИТОР' : 'МОНИТОРА'}` : 'ДИСПЛЕИ НЕ ОПРЕДЕЛЕНЫ'}
+                {monitors.length ? `${monitors.length} ${monitors.length === 1 ? 'монитор' : monitors.length < 5 ? 'монитора' : 'мониторов'}` : 'мониторы не найдены'}
               </span>
             </div>
           </div>
 
-          {/* Dynamic Monitor Frames Grid (External + Laptop) */}
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: monitors.length > 1 ? `repeat(${Math.min(monitors.length, 3)}, 1fr)` : '1fr',
+              gridTemplateColumns: monitors.length > 1 ? `repeat(${Math.min(monitors.length, 3)}, minmax(0, 1fr))` : '1fr',
               gap: '10px',
-              flex: 1,
-              alignItems: 'center',
             }}
           >
             {monitors.length === 0 && (
               <div className="obsidian-well" role="status" style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
-                Список дисплеев появится после подключения к локальному сервису.
+                Список мониторов появится после подключения к локальному сервису.
               </div>
             )}
             {monitors.map((mon, idx) => {
               const isSoloThis = soloScreenIdx === idx;
-              const effectiveBri = isBlackout || isSoloThis ? 0 : mon.current_brightness;
-              const controlLabel = mon.is_laptop_internal ? 'WMI' : (mon.supports_control ? 'DDC/CI' : 'GDI');
+              const locked = isBlackout || isSoloThis;
+              const displayBri = locked ? 0 : mon.current_brightness;
               const baseBri = mon.baseline_brightness ?? mon.current_brightness;
+              const diff = mon.current_brightness - baseBri;
+              const label = monitorLabel(mon, idx);
+              const conn = connectionInfo(mon);
 
               return (
                 <div
@@ -829,153 +622,137 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    alignItems: 'center',
-                    padding: '12px 10px',
+                    gap: '8px',
+                    padding: '10px 12px',
                     borderRadius: '10px',
                     border: isSoloThis ? '1px solid var(--led-rose)' : '1px solid var(--border-subtle)',
                     background: 'rgba(15, 20, 18, 0.6)',
-                    position: 'relative',
+                    minWidth: 0,
                   }}
                 >
-                  {/* Monitor Name Header */}
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden' }}>
-                      <span style={{ fontSize: '13px' }}>{mon.is_laptop_internal ? '💻' : '🖥️'}</span>
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          color: 'var(--text-heading)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          maxWidth: '125px',
-                        }}
-                        title={mon.name}
-                      >
-                        {mon.name.replace(/^[^\wА-Яа-я#]+/, '')}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0 }} title={`${mon.name}${mon.device_name ? ` • ${mon.device_name}` : ''}`}>
+                      <span style={{ fontSize: '13px', lineHeight: 1.3 }}>{mon.is_laptop_internal ? '💻' : '🖥️'}</span>
+                      <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>
+                        #{idx + 1} {label}
                       </span>
                     </div>
                     <span
+                      title={conn.hint}
                       style={{
-                        fontSize: '10px',
+                        flexShrink: 0,
+                        fontSize: '9px',
                         fontFamily: 'var(--font-mono)',
                         padding: '1px 5px',
                         borderRadius: '3px',
-                        background: 'rgba(58, 210, 159, 0.1)',
-                        color: 'var(--accent-mint)',
-                        border: '1px solid rgba(58, 210, 159, 0.25)',
-                      }}
-                    >
-                      {controlLabel}
-                    </span>
-                  </div>
-
-                  {/* Physical Display Bezel Preview */}
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '75px',
-                      borderRadius: '6px',
-                      border: '2px solid #222b27',
-                      background: isBlackout || isSoloThis
-                        ? '#000000'
-                        : `linear-gradient(135deg, rgba(20, 35, 28, 0.95) 0%, rgba(10, 18, 14, 0.95) 100%)`,
-                      boxShadow: isBlackout || isSoloThis
-                        ? 'inset 0 0 10px rgba(0,0,0,0.9)'
-                        : `inset 0 0 15px rgba(58, 210, 159, ${(effectiveBri / 100) * 0.35})`,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      transition: 'all 0.25s ease-out',
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2 }}>
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '20px',
-                          fontWeight: 800,
-                          color: isBlackout || isSoloThis ? 'var(--text-muted)' : 'var(--accent-mint)',
-                          lineHeight: 1,
-                        }}
-                      >
-                        {effectiveBri}%
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '7.5px',
-                          color: isSoloThis ? '#ff5252' : (effectiveBri === 0 ? 'var(--text-muted)' : 'var(--accent-mint)'),
-                          marginTop: '3px',
-                          fontWeight: 700,
-                          letterSpacing: '0.08em',
-                          fontFamily: 'var(--font-mono)',
-                        }}
-                      >
-                        {isSoloThis ? 'SOLO BLACKOUT' : (effectiveBri === 0 ? 'BLACKOUT' : (mon.is_laptop_internal ? 'WMI ACPI' : 'HARDWARE DDC'))}
-                      </span>
-                    </div>
-
-                    {/* Baseline Pill inside preview */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        bottom: '4px',
-                        fontSize: '10px',
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--text-secondary)',
-                        background: 'rgba(0,0,0,0.6)',
-                        padding: '1px 5px',
-                        borderRadius: '3px',
+                        background: 'rgba(255,255,255,0.05)',
+                        color: 'var(--text-muted)',
                         border: '1px solid var(--border-subtle)',
                       }}
-                      title="Сохраненная рабочая базовая яркость"
                     >
-                      Базовая: <strong style={{ color: 'var(--accent-mint)' }}>{baseBri}%</strong>
-                    </div>
+                      {conn.short}
+                    </span>
                   </div>
 
-                  {/* Monitor Actions Footer */}
-                  <div style={{ width: '100%', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                      {mon.device_name || `DISPLAY${idx + 1}`}
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
+                    <span
+                      title="Текущая яркость монитора"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '22px', fontWeight: 800, lineHeight: 1, color: locked ? 'var(--text-muted)' : 'var(--accent-mint)' }}
+                    >
+                      {displayBri}%
                     </span>
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textAlign: 'right' }}>
+                      база <strong style={{ color: 'var(--text-heading)' }}>{baseBri}%</strong>
+                      {!locked && diff !== 0 && (
+                        <span style={{ color: diff > 0 ? '#60a5fa' : '#f59e0b' }}> ({diff > 0 ? `+${diff}` : diff})</span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🌑</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={displayBri}
+                      disabled={locked}
+                      aria-label={`Яркость: ${label}`}
+                      onChange={e => handleSingleMonitorChange(idx, Number(e.target.value))}
+                      style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent-mint)', cursor: locked ? 'not-allowed' : 'pointer' }}
+                    />
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>☀️</span>
+                  </div>
+
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>
+                    {isSoloThis ? '● Затемнён отдельно' : isLinked ? '🔗 Синхронно с общей' : '🔓 Независимо'}
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                    <button
+                      className="tactile-btn"
+                      style={{ flex: '1 1 auto', height: '24px', fontSize: '9.5px', padding: '0 7px' }}
+                      onClick={() => handleSaveSingleBaseline(idx)}
+                      title={`Запомнить текущие ${mon.current_brightness}% как базовую яркость этого монитора`}
+                    >
+                      💾 Запомнить как базу
+                    </button>
+                    <button
+                      className="tactile-btn active-mint"
+                      style={{ flex: '1 1 auto', height: '24px', fontSize: '9.5px', padding: '0 7px' }}
+                      onClick={() => handleRestoreSingleBaseline(idx)}
+                      title={`Вернуть этот монитор к базовой яркости (${baseBri}%)`}
+                    >
+                      ☀️ Вернуть к базе
+                    </button>
                     <button
                       className={`tactile-btn ${isSoloThis ? 'active-rose' : ''}`}
-                      style={{
-                        height: '20px',
-                        fontSize: '9px',
-                        padding: '0 6px',
-                        color: isSoloThis ? '#ff5252' : undefined,
-                      }}
+                      style={{ flex: '1 1 100%', height: '24px', fontSize: '9.5px', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
                       onClick={() => handleToggleSoloBlackout(idx)}
-                      title={`Погасить только дисплей #${idx + 1}`}
+                      title={isSoloThis ? 'Включить этот монитор обратно' : 'Погасить только этот монитор, остальные не трогать'}
                     >
-                      {isSoloThis ? '● Погашен' : 'Solo Blackout'}
+                      {isSoloThis ? '● Затемнён — включить' : '🌑 Затемнить только этот'}
                     </button>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              className="tactile-btn"
+              style={{ height: '28px', fontSize: '10.5px', fontWeight: 700, padding: '0 12px' }}
+              onClick={handleSaveBaseline}
+              title="Зафиксировать текущую яркость ВСЕХ мониторов как базовую"
+            >
+              💾 Запомнить все как базу
+            </button>
+            <button
+              className="tactile-btn active-mint"
+              style={{ height: '28px', fontSize: '10.5px', fontWeight: 800, padding: '0 12px', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 0 12px rgba(58, 210, 159, 0.25)' }}
+              onClick={handleRestoreBaseline}
+              title="Вернуть базовую яркость всех мониторов"
+            >
+              <span>☀️ Вернуть базу всем</span>
+              <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,0,0,0.4)', color: '#ffffff' }}>
+                Alt+Shift+Backspace
+              </span>
+            </button>
+          </div>
         </div>
 
-        {/* Master Jog-Dial & Presets Island */}
+        {/* Common brightness: dial, presets, scenarios, blackout */}
         <div className="titanium-island" style={{ justifyContent: 'space-between' }}>
           <div className="engraved-header" style={{ marginBottom: '4px' }}>
             <span className="tag">
-              <span className="led-dot"></span> <span title="Общая яркость всех дисплеев (JOG-DIAL)">ОБЩАЯ ЯРКОСТЬ</span>
+              <span className="led-dot"></span> <span title="Общая яркость всех дисплеев (диск)">ОБЩАЯ ЯРКОСТЬ</span>
             </span>
             <span className="metric-badge" style={{ color: 'var(--accent-mint)', fontWeight: 700 }}>
               {monitors.length === 0 ? '—' : isBlackout ? '🌑 0%' : `☀️ ${masterBrightness}%`}
             </span>
           </div>
 
-          {/* Mechanical Jog Dial Wheel */}
           <div
             style={{
               display: 'flex',
@@ -1007,8 +784,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 cursor: isDraggingDial ? 'grabbing' : 'grab',
                 userSelect: 'none',
                 touchAction: 'none',
+                flexShrink: 0,
               }}
-              title="Зажмите ЛКМ и вращайте колесо по кругу, или крутите колесико мыши (±5%)"
+              title="Зажмите левую кнопку мыши и вращайте диск, или крутите колесо мыши (±5%)"
             >
               <div
                 style={{
@@ -1019,7 +797,6 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 }}
               />
 
-              {/* Rotary Indicator Knob (270° Potentiometer Sweep) */}
               <div
                 style={{
                   width: '100%',
@@ -1045,7 +822,6 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 />
               </div>
 
-              {/* Central Metallic Core */}
               <div
                 style={{
                   width: '62px',
@@ -1072,12 +848,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   {monitors.length === 0 ? '—' : isBlackout ? '0' : masterBrightness}
                 </span>
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  % BRI
+                  %
                 </span>
               </div>
             </div>
 
-            {/* Quick 5 Presets Stack */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '95px' }}>
               {BRIGHTNESS_PRESETS.map(p => (
                 <button
@@ -1104,7 +879,34 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </div>
           </div>
 
-          {/* Master Blackout CTA Button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Сценарии:</span>
+            <button
+              className="tactile-btn"
+              style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+              onClick={() => handleApplyScenario(85, 75, '☀️ День')}
+              title="Внешние: 85%, ноутбук: 75%"
+            >
+              ☀️ День
+            </button>
+            <button
+              className="tactile-btn"
+              style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+              onClick={() => handleApplyScenario(45, 40, '🌆 Вечер')}
+              title="Внешние: 45%, ноутбук: 40%"
+            >
+              🌆 Вечер
+            </button>
+            <button
+              className="tactile-btn"
+              style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+              onClick={() => handleApplyScenario(15, 10, '🌑 Ночь')}
+              title="Внешние: 15%, ноутбук: 10%"
+            >
+              🌑 Ночь
+            </button>
+          </div>
+
           <button
             className={`tactile-btn ${isBlackout ? 'active-rose' : ''}`}
             style={{
@@ -1123,9 +925,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               boxShadow: isBlackout ? '0 0 14px rgba(255, 82, 82, 0.25)' : 'none',
             }}
             onClick={handleTriggerBlackout}
-            title="Мгновенное погружение всех экранов в 100% темноту (Alt + Backspace). ПК продолжает работать на полной мощности."
+            title="Мгновенно погасить все экраны до 0%. ПК продолжает работать на полной мощности."
           >
-            <span>{isBlackout ? '☀️ ПРОБУДИТЬ ЭКРАНЫ' : '🌑 НОЧНОЙ BLACKOUT (0%)'}</span>
+            <span>{isBlackout ? '☀️ ПРОБУДИТЬ ЭКРАНЫ' : '🌑 НОЧНОЙ БЛЭКАУТ (0%)'}</span>
             <span
               style={{
                 fontSize: '9px',
@@ -1140,69 +942,6 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </span>
           </button>
         </div>
-      </div>
-
-      {/* =========================================================================
-         TIER 3: PER-MONITOR PRECISION HARDWARE SLIDERS
-         ========================================================================= */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: monitors.length > 1 ? `repeat(${Math.min(monitors.length, 3)}, 1fr)` : '1fr',
-          gap: '10px',
-        }}
-      >
-        {monitors.length === 0 && (
-          <div className="obsidian-well" role="status" style={{ gridColumn: '1 / -1', padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
-            Индивидуальные настройки яркости будут доступны после обнаружения дисплеев.
-          </div>
-        )}
-        {monitors.map((mon, idx) => {
-          const isSoloThis = soloScreenIdx === idx;
-          const displayBri = isBlackout || isSoloThis ? 0 : mon.current_brightness;
-          const baseBri = mon.baseline_brightness ?? mon.current_brightness;
-
-          return (
-            <div key={mon.id || idx} className="titanium-island" style={{ gap: '8px' }}>
-              <div className="engraved-header" style={{ marginBottom: 0 }}>
-                <span className="tag">
-                  <span className="led-dot"></span> ДИСПЛЕЙ #{idx + 1} {mon.name.replace(/^[^\wА-Яа-я#]+/, '') || `Экран ${idx + 1}`}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                    База: {baseBri}%
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, color: 'var(--accent-mint)' }}>
-                    {displayBri}%
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🌑</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={displayBri}
-                  disabled={isBlackout || isSoloThis}
-                  onChange={e => handleSingleMonitorChange(idx, Number(e.target.value))}
-                  style={{
-                    flex: 1,
-                    accentColor: 'var(--accent-mint)',
-                    cursor: (isBlackout || isSoloThis) ? 'not-allowed' : 'pointer',
-                  }}
-                />
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>☀️</span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                <span>{mon.is_laptop_internal ? 'WMI ACPI Protocol' : 'DDC/CI VCP 0x10'}</span>
-                <span>{isLinked ? '🔗 Связан с Мастером' : '🔓 Независимый'}</span>
-              </div>
-            </div>
-          );
-        })}
       </div>
 
       {/* =========================================================================
@@ -1228,7 +967,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           </div>
 
           <p style={{ fontSize: '9.5px', color: 'var(--text-secondary)', margin: '2px 0 6px 0', lineHeight: 1.4 }}>
-            Автоматический вход в ночной Blackout через заданное время. Компьютер не прерывает фарм и закачки.
+            Через заданное время экраны сами погаснут (ночной блэкаут). Компьютер не засыпает: фарм и закачки продолжаются.
           </p>
 
           {/* Timer Preset Chips */}
@@ -1258,9 +997,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <span className="tag">
               <span className="led-dot"></span> <span title="Защита системы и аудио">ЗАЩИТА И ЗВУК</span>
             </span>
-            <span className="metric-badge" style={{ fontSize: '10px', color: 'var(--accent-mint)' }}>
-              AWAYMODE ON
-            </span>
+            {isBlackout && (
+              <span className="metric-badge" style={{ fontSize: '10px', color: 'var(--accent-mint)' }} title="Пока экраны погашены, ПК не уходит в сон и продолжает фарм">
+                ПК не засыпает
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1278,10 +1019,10 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
-                  🔇 Ночное отключение звука
+                  🔇 Выключать звук при затемнении
                 </span>
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                  Глушить звук в Blackout и возвращать при пробуждении
+                  Звук возвращается, когда экраны просыпаются
                 </span>
               </div>
               <button
@@ -1310,7 +1051,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   🛡️ Защита от случайных кликов
                 </span>
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                  Защита от случайных кликов (выход по Esc / Alt+Backspace)
+                  Блэкаут снимается только по Esc или Alt+Backspace
                 </span>
               </div>
               <span style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--accent-mint)' }}>
@@ -1324,20 +1065,20 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="titanium-island" style={{ justifyContent: 'space-between', gap: '8px' }}>
           <div className="engraved-header" style={{ marginBottom: '2px' }}>
             <span className="tag">
-              <span className="led-dot"></span> <span title="Сверхтемнота (Ultra-Dark)">СВЕРХТЕМНОТА</span>
+              <span className="led-dot"></span> <span title="Сверхтемнота: затемнение ниже предела монитора">СВЕРХТЕМНОТА</span>
             </span>
             <button
               className={`tactile-btn ${ultraDarkActive ? 'active-mint' : ''}`}
               style={{ height: '20px', fontSize: '9px', padding: '0 8px' }}
               onClick={handleToggleUltraDark}
-              title="Активировать кликабельный сквозной фильтр затемнения ниже аппаратного предела монитора"
+              title="Включить затемнение сильнее, чем позволяет подсветка монитора"
             >
               {ultraDarkActive ? '● АКТИВЕН' : '○ ВКЛЮЧИТЬ'}
             </button>
           </div>
 
           <p style={{ fontSize: '9.5px', color: 'var(--text-secondary)', margin: '2px 0', lineHeight: 1.35 }}>
-            Сквозной кликабельный оверлей (<code style={{ color: 'var(--accent-mint)' }}>WS_EX_TRANSPARENT</code>) для комфортной ночной работы без паразитной засветки матрицы.
+            Тёмный полупрозрачный слой поверх экрана: темнее, чем позволяет сам монитор. Клики проходят сквозь него, работать можно как обычно.
           </p>
 
           {/* UltraDark Tint Depth Slider */}
@@ -1368,8 +1109,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       <div
         className="titanium-island"
         style={{
-          flex: 1,
-          minHeight: '130px',
+          flex: busLogs.length > 0 ? 1 : '0 0 auto',
+          minHeight: busLogs.length > 0 ? '130px' : 0,
           display: 'flex',
           flexDirection: 'column',
           gap: '6px',
@@ -1379,10 +1120,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         <div className="engraved-header" style={{ marginBottom: '2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span className="tag">
-              <span className="led-dot"></span> <span title="Журнал аппаратной шины (DDC/CI и WMI)">ЖУРНАЛ ЖЕЛЕЗА</span>
-            </span>
-            <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-              LIVE I2C BUS & ACPI DRIVER EVENTS
+              <span className="led-dot"></span> <span title="Что диммер делал с мониторами: команды яркости, опросы, сценарии">Журнал диммера</span>
             </span>
           </div>
           <button
@@ -1400,8 +1138,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           ref={logContainerRef}
           className="obsidian-well"
           style={{
-            flex: 1,
-            minHeight: '80px',
+            flex: busLogs.length > 0 ? 1 : '0 0 auto',
+            minHeight: busLogs.length > 0 ? '80px' : 0,
             borderRadius: '6px',
             padding: '8px 10px',
             overflowY: 'auto',
@@ -1415,6 +1153,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             gap: '3px',
           }}
         >
+          {busLogs.length === 0 && (
+            <span style={{ color: 'var(--text-muted)' }}>Журнал пуст — записи появятся при первом действии</span>
+          )}
           {busLogs.map(log => (
             <div key={log.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontSize: '9px' }}>[{log.time}]</span>
@@ -1451,17 +1192,17 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span>⌨️ <strong style={{ color: 'var(--text-heading)' }}>Alt + Backspace:</strong> Blackout (0%)</span>
+          <span>⌨️ <strong style={{ color: 'var(--text-heading)' }}>Alt + Backspace:</strong> блэкаут (0%)</span>
           <span>•</span>
-          <span>⌨️ <strong style={{ color: 'var(--accent-mint)' }}>Alt + Shift + Backspace:</strong> Восстановить базовую</span>
+          <span>⌨️ <strong style={{ color: 'var(--accent-mint)' }}>Alt + Shift + Backspace:</strong> вернуть базовую яркость (работает и из игр)</span>
           <span>•</span>
-          <span><strong style={{ color: 'var(--text-heading)' }}>Esc:</strong> Выход из Blackout</span>
+          <span><strong style={{ color: 'var(--text-heading)' }}>Esc:</strong> выйти из блэкаута</span>
           <span>•</span>
-          <span>🖱️ <strong style={{ color: 'var(--text-heading)' }}>Колесо над диском:</strong> Регулировка ±5%</span>
+          <span>🖱️ <strong style={{ color: 'var(--text-heading)' }}>Колесо над диском:</strong> ±5%</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-mint)' }}>
           <span className="led-dot" style={{ width: '5px', height: '5px' }}></span>
-          <span title="DDC/CI, DXVA2 и WMI готовы">Диммер готов</span>
+          <span title="Подробности: управление идёт через DDC/CI, DXVA2 и WMI">{monitors.length > 0 ? 'Мониторы готовы' : 'Мониторы не найдены'}</span>
         </div>
       </div>
     </div>
