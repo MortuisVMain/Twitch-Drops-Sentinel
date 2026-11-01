@@ -487,7 +487,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div className="titanium-island" style={{ gap: '6px' }}>
             <div className="engraved-header" style={{ marginBottom: '2px' }}>
               <span className="tag">
-                <span className="led-dot"></span> <span title="Стратегия фарма: логика при отсутствии стримов">СТРАТЕГИЯ ФАРМА</span>
+                <span className="led-dot"></span> <span title="Что фармить, когда в очереди нечего собирать">СТРАТЕГИЯ ФАРМА</span>
               </span>
             </div>
 
@@ -499,10 +499,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
             >
               <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                🎯 01 // Только игры из приоритета (Строгий режим — Рекомендуется)
+                🎯 Только очередь (рекомендуется)
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Фармит исключительно игры из вашей очереди.
+                Фармит только игры из вашей очереди.
               </div>
             </div>
 
@@ -514,10 +514,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
             >
               <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                ⚡ 02 // Приоритет + Любые активные (Smartbox Fallback)
+                ⚡ Очередь, а если пусто — любые доступные
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Если стримеры из вашей очереди офлайн — временно собирает любые доступные дропы.
+                Если по очереди нечего фармить (нет кампаний или стримеры офлайн), временно берёт любые доступные дропы.
               </div>
             </div>
 
@@ -529,10 +529,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
             >
               <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
-                ⏳ 03 // Приоритет + Редкие сгорающие кампании
+                ⏳ Очередь, затем кампании, которые скоро закончатся
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Фармит вашу очередь, затем раздачи с наименьшим оставшимся временем.
+                Сначала ваша очередь, потом кампании с наименьшим оставшимся временем.
               </div>
             </div>
           </div>
