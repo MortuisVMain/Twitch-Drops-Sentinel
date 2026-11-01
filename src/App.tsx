@@ -290,6 +290,8 @@ export const App: React.FC = () => {
 
     handleManualRefresh,
 
+    lastSyncAt,
+
     handleOpenVaultFile,
 
     handleRescanGames,
@@ -2173,6 +2175,8 @@ export const App: React.FC = () => {
               onRescanGames={handleRescanGames}
 
               onManualRefresh={handleManualRefresh}
+
+              lastSyncAt={lastSyncAt}
 
               onShowToast={showToast}
 

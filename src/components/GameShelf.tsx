@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { lastTrophyLine } from '../utils/campaignFacts';
+import { agoLabel, lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
@@ -27,6 +27,7 @@ interface GameShelfProps {
   onOpenVaultFile?: () => void;
   onShowToast?: (msg: string) => void;
   onManualRefresh?: () => void;
+  lastSyncAt?: number | null;
 }
 
 const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, boxArt }) => {
@@ -114,6 +115,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   onRemoveFromExcluded,
   onReorderPriority,
   onManualRefresh,
+  lastSyncAt = null,
   onOpenVaultFile,
   onShowToast,
   onToggleUserLinked,
@@ -140,7 +142,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       console.warn('GameShelf: не удалось сохранить состояние блока трофеев', err);
     }
   };
-  const [syncLabel, setSyncLabel] = useState<string>('↻ Синхронизировать Drops');
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [syncLabel, setSyncLabel] = useState<string>('↻ Обновить');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showListsMenu, setShowListsMenu] = useState<boolean>(false);
   const [sortMode, setSortMode] = useState<CampaignSortMode>(() => {
@@ -172,6 +175,12 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       return null;
     }
   });
+
+  // keeps "обновлено N мин назад" fresh
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!showListsMenu) return;
@@ -218,8 +227,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       ((game as any).drops_count || 0) > 0
     );
 
-  const isSyncingDrops = syncLabel.includes('Синхронизация');
-  const isSyncSuccess = syncLabel.includes('ОБНОВЛЕНО');
+  const isSyncingDrops = syncLabel.includes('Обновляю');
+  const isSyncSuccess = syncLabel.includes('Обновлено');
 
   const activeFilter = filterMode;
   const setActiveFilter = (f: any) => setFilterMode(f);
@@ -276,7 +285,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
   const handleSyncClick = async () => {
     playClick();
-    setSyncLabel('↻ Синхронизация...');
+    setSyncLabel('↻ Обновляю...');
     let synced = true;
     try {
       if (onManualRefresh) {
@@ -286,9 +295,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       synced = false;
       console.error('GameShelf: синхронизация не удалась', err);
     }
-    setSyncLabel(synced ? `✓ ОБНОВЛЕНО (${games.length})` : '✗ ОШИБКА СИНХРОНИЗАЦИИ');
+    setSyncLabel(synced ? `✓ Обновлено (${games.length})` : '✗ Не удалось обновить');
     setTimeout(() => {
-      setSyncLabel('↻ Синхронизировать Drops');
+      setSyncLabel('↻ Обновить');
     }, 3000);
   };
 
@@ -565,9 +574,19 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           </div>
         </div>
 
-        <button className="chunky-cta" onClick={handleSyncClick}>
-          {syncLabel}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {agoLabel(lastSyncAt, nowTick) && (
+            <span
+              style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
+              title="Когда Sentinel в последний раз успешно запросил кампании у Twitch"
+            >
+              {agoLabel(lastSyncAt, nowTick)}
+            </span>
+          )}
+          <button className="chunky-cta" onClick={handleSyncClick} title="Заново запросить кампании у Twitch">
+            {syncLabel}
+          </button>
+        </div>
       </div>
 
       {/* Trophies: one line on the campaigns tab (expandable, remembered), always open on "Собрано" */}

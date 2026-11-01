@@ -37,3 +37,15 @@ export const lastTrophyLine = (trophies: TrophyItem[], games: number): string =>
   const name = latest.drop_name || latest.campaign || latest.game;
   return `${base} · последний: ${name}${Number.isNaN(latestAt) ? '' : `, ${formatWhen(latestAt)}`}`;
 };
+
+// "обновлено 5 мин назад": null when nothing has been synchronised yet
+export const agoLabel = (at: number | null, now: number): string | null => {
+  if (at === null) return null;
+  const sec = Math.max(0, Math.floor((now - at) / 1000));
+  if (sec < 60) return 'обновлено только что';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `обновлено ${min} мин назад`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `обновлено ${hours} ч назад`;
+  return `обновлено ${Math.floor(hours / 24)} д назад`;
+};

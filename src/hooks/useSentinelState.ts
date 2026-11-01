@@ -52,6 +52,8 @@ export function useSentinelState(
 ) {
   const [sentinelState, setSentinelState] = useState<FullSentinelState>(INITIAL_STATE);
   const [isScanning, setIsScanning] = useState(false);
+  // The service does not report when the catalog was last refreshed: remember the last sync it confirmed to us
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
   // Poll backend API
   useEffect(() => {
@@ -119,7 +121,10 @@ export function useSentinelState(
     fetchState();
     // On startup, execute initial live drops sync in background once
     fetch('http://127.0.0.1:28492/api/campaigns/sync', { method: 'POST' })
-      .then(() => fetchState())
+      .then((res) => {
+        if (isMounted && res.ok) setLastSyncAt(Date.now());
+        return fetchState();
+      })
       .catch(() => {});
 
     const interval = setInterval(fetchState, 3000);
@@ -397,6 +402,7 @@ export function useSentinelState(
             all_catalog_games: stateData.all_catalog_games || prev.all_catalog_games,
           }));
         }
+        setLastSyncAt(Date.now());
         showToast('✓ Данные Twitch Drops успешно обновлены');
       }
     } catch {
@@ -598,6 +604,7 @@ export function useSentinelState(
     handleUpdateSettings,
     handleClaimNow,
     handleManualRefresh,
+    lastSyncAt,
     handleOpenVaultFile,
     handleRescanGames,
     handleToggleDaemon,

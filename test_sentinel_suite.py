@@ -1313,7 +1313,7 @@ def test_twitch_drops_sync_and_active_filter():
     assert "isDropActiveNow" in shelf_tsx, "GameShelf must define isDropActiveNow"
     assert "isSyncingDrops" in shelf_tsx, "GameShelf must track isSyncingDrops"
     assert "isSyncSuccess" in shelf_tsx, "GameShelf must track isSyncSuccess"
-    assert "Синхронизировать Drops" in shelf_tsx, "GameShelf must have sync button"
+    assert "↻ Обновить" in shelf_tsx, "GameShelf must have the refresh button"
     assert "filterMode === 'drops'" in shelf_tsx and "isCampaignRunning(g)" in shelf_tsx, "Active campaigns tab must filter with isCampaignRunning"
 
     # 5. Test App.tsx passes onShowToast and onManualRefresh
