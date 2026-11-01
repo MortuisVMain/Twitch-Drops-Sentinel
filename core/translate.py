@@ -245,6 +245,9 @@ class SentinelMessages(TypedDict):
     scanner_started: str
     scanner_refreshed: str
     games_active: str
+    queue_no_campaigns_strict: str
+    queue_no_campaigns: str
+    queue_waiting_status: str
 
 
 class Translation(TypedDict):
@@ -288,6 +291,9 @@ default_translation: Translation = {
         "scanner_started": "Games Folder Auto-Scanner initialized (monitoring Steam, Epic, GOG, and custom directories).",
         "scanner_refreshed": "Auto-Scanner: Game libraries refreshed ({count} installed titles).",
         "games_active": "{count} games with active drops: {names}...",
+        "queue_no_campaigns_strict": "No game in the queue ({count}) has an available campaign right now. Waiting for campaigns to start.",
+        "queue_no_campaigns": "No game in the queue ({count}) has an available campaign right now. Temporarily farming any available campaigns.",
+        "queue_waiting_status": "Waiting for campaigns: {count} games in the queue",
     },
     "login": {
         "unexpected_content": (

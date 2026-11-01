@@ -795,12 +795,12 @@ class Twitch:
                 if priority:
                     has_priority_in_wanted = any(_fuzzy_priority(g.name) != MAX_INT for g in self.wanted_games)
                     if not has_priority_in_wanted:
-                        p_str = ", ".join(priority[:4])
+                        queue_size = len(priority)
                         if priority_only:
-                            logger.info(f"В строгом режиме: ни одна из игр в ТОПе ({p_str}) не имеет активных дропов на Twitch. Ожидание запуска кампаний.")
-                            self.gui.status.update(f"Ожидание дропов для {p_str}")
+                            logger.info(_("sentinel", "queue_no_campaigns_strict").format(count=queue_size))
+                            self.gui.status.update(_("sentinel", "queue_waiting_status").format(count=queue_size))
                         else:
-                            logger.info(f"Внимание: Игры из ТОПа ({p_str}) сейчас не имеют активных дропов на Twitch. Временно фармим доступные кампании.")
+                            logger.info(_("sentinel", "queue_no_campaigns").format(count=queue_size))
                 full_cleanup = True
                 self.restart_watching()
                 self.change_state(State.CHANNELS_CLEANUP)

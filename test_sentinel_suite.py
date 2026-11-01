@@ -1788,6 +1788,22 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_queue_wait_message_counts_the_whole_queue():
+    print("[audit F-033] Queue wait message must count the whole queue, not priority[:4]...")
+    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert 'priority[:4]' not in twitch_py, "twitch.py must not truncate the queue in the wait message"
+    for key in ("queue_no_campaigns_strict", "queue_no_campaigns", "queue_waiting_status"):
+        assert f'_("sentinel", "{key}")' in twitch_py, f"twitch.py must use the localized key {key}"
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from translate import _
+    try:
+        _.set_language("Русский")
+        text = _("sentinel", "queue_no_campaigns_strict").format(count=87)
+        assert "87" in text and "из очереди" in text, text
+    finally:
+        _.set_language("English")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -1835,6 +1851,7 @@ if __name__ == "__main__":
     test_giveaways_hung_node_process_hits_ceiling()
     test_shutdown_aborts_running_giveaways_process()
     test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns()
+    test_queue_wait_message_counts_the_whole_queue()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

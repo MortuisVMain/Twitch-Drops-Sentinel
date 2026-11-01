@@ -28,7 +28,10 @@
         "scan_saved": "Atomically saved {count} installed games to {file}",
         "scanner_started": "Games Folder Auto-Scanner initialized (monitoring Steam, Epic, GOG, and custom directories).",
         "scanner_refreshed": "Auto-Scanner: Game libraries refreshed ({count} installed titles).",
-        "games_active": "{count} games with active drops: {names}..."
+        "games_active": "{count} games with active drops: {names}...",
+        "queue_no_campaigns_strict": "No game in the queue ({count}) has an available campaign right now. Waiting for campaigns to start.",
+        "queue_no_campaigns": "No game in the queue ({count}) has an available campaign right now. Temporarily farming any available campaigns.",
+        "queue_waiting_status": "Waiting for campaigns: {count} games in the queue"
     },
     "login": {
         "unexpected_content": "Unexpected content type returned, usually due to being redirected. Do you need to login for internet access?",
