@@ -229,7 +229,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         setDirectories(prev => prev.filter(d => d.toLowerCase() !== folderPath.toLowerCase()));
         if (onRescanGames) onRescanGames();
       }
-    } catch {}
+    } catch (err) {
+      console.error(`SettingsStudio: не удалось удалить папку ${folderPath}`, err);
+    }
   };
 
   const handleClearCache = async () => {
@@ -237,7 +239,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     try {
       await fetch('http://127.0.0.1:28492/api/game-directories/clear-cache', { method: 'POST' });
       alert('Кэш распознавания игр очищен!');
-    } catch {}
+    } catch (err) {
+      console.error('SettingsStudio: не удалось очистить кэш распознавания', err);
+      alert('Не удалось очистить кэш: сервис недоступен');
+    }
   };
 
   const handleOpenDiag = async () => {

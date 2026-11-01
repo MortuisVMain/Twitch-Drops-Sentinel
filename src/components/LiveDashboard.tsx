@@ -99,7 +99,9 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ process: procName }),
       });
-    } catch {}
+    } catch (err) {
+      console.error(`LiveDashboard: не удалось игнорировать процесс ${procName}`, err);
+    }
   };
   const [shelfFilter, setShelfFilter] = useState('ALL');
   const [showFullCatalogModal, setShowFullCatalogModal] = useState(false);

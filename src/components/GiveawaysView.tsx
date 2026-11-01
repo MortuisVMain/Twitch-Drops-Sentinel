@@ -236,7 +236,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     try {
       await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}`, { method: 'POST' });
       fetchState(true);
-    } catch {}
+    } catch (err) {
+      console.error(`GiveawaysView: авторизация магазина ${storeId} не запущена`, err);
+    }
   };
 
   const handleCopyLogs = () => {
@@ -280,7 +282,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       if (res.ok) {
         fetchState(true);
       }
-    } catch {}
+    } catch (err) {
+      console.error('GiveawaysView: не удалось переключить планировщик раздач', err);
+    }
   };
 
   const handleToggleDay = async (dayKey: string) => {
