@@ -2013,7 +2013,7 @@ export const App: React.FC = () => {
 
             onClick={() => handleSwitchStreamer(false)}
 
-            title="Сменить текущий стрим / узел раздачи"
+            title="Сменить текущий стрим"
 
           >
 

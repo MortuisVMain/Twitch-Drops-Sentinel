@@ -529,7 +529,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                     <div>
                       <div style={{ fontSize: '11.5px', fontWeight: 700 }}>{item.canonical_name || item.name}</div>
                       <div className="tabular" style={{ fontSize: '9px', color: item.has_active_drops ? 'var(--led-mint)' : 'var(--text-muted)' }}>
-                        {item.has_active_drops ? '● Активные Twitch Drops доступны' : '○ Нет активных раздач'}
+                        {item.has_active_drops ? '● Активные Twitch Drops доступны' : '○ Нет активных дропов'}
                       </div>
                     </div>
                     <span className="version-chip">+ В ТОП</span>
@@ -914,7 +914,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <input
                   type="text"
-                  placeholder="Фильтр активных раздач..."
+                  placeholder="Фильтр активных кампаний..."
                   value={overrideFilter}
                   onChange={(e) => setOverrideFilter(e.target.value)}
                   style={{
@@ -946,7 +946,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             <div className="override-scroll-grid" id="overrideGrid" style={{ maxHeight: '115px', overflowY: 'auto', minHeight: 0 }}>
               {overrideGames.length === 0 ? (
                 <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
-                  Нет подходящих раздач для ручного переключения
+                  Нет подходящих кампаний для ручного переключения
                 </div>
               ) : (
                 overrideGames.map((g, idx) => {
@@ -1100,7 +1100,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
             <div className="obsidian-well p-2 flex-1 overflow-y-auto space-y-1.5 min-h-[260px]">
               {modalFilteredGames.length === 0 ? (
                 <div className="text-center py-12 text-[var(--text-muted)] text-xs space-y-1.5">
-                  <p>Игры с таким названием не найдены среди активных раздач.</p>
+                  <p>Игры с таким названием не найдены среди активных кампаний.</p>
                   <p className="text-[10px]">Попробуйте изменить поисковый запрос или переключить фильтр.</p>
                 </div>
               ) : (
@@ -1188,7 +1188,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
             {/* Modal Footer */}
             <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)] shrink-0">
-              <span>Показано: {modalFilteredGames.length} из {activeTwitchDropsGames.length} активных раздач</span>
+              <span>Показано: {modalFilteredGames.length} из {activeTwitchDropsGames.length} активных кампаний</span>
               <span className="text-[9px] text-[var(--text-secondary)]">
                 Фокус переключает бота на выбранную игру вне очереди
               </span>
