@@ -2579,6 +2579,53 @@ def test_config_files_saved_with_a_bom_still_load():
     shutil.rmtree(work, ignore_errors=True)
 
 
+def test_login_code_copy_and_activate_link():
+    print("[login] Copy button: service first, browser clipboard second, an honest false when both fail; activate link carries the code...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "login_code_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "loginCode.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'loginCode.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { copyText, activateUrl } from './loginCode.mjs';\n"
+        "const calls = [];\n"
+        "const okFetch = async (url, init) => { calls.push(['fetch', JSON.parse(init.body).text]); return { ok: true, json: async () => ({ status: 'ok' }) }; };\n"
+        "const badFetch = async () => { throw new Error('offline'); };\n"
+        "const clip = { writeText: async (t) => { calls.push(['clip', t]); } };\n"
+        "const badClip = { writeText: async () => { throw new Error('denied'); } };\n"
+        "const out = {\n"
+        "  viaService: await copyText('ABCD1234', okFetch, clip),\n"
+        "  callsService: calls.slice(),\n"
+        "  fallback: await copyText('WXYZ9876', badFetch, clip),\n"
+        "  callsAll: calls.slice(),\n"
+        "  bothFail: await copyText('NOPE', badFetch, badClip),\n"
+        "  noClipboard: await copyText('NOPE', badFetch, undefined),\n"
+        "  link: activateUrl('https://www.twitch.tv/activate', 'ABCD1234'),\n"
+        "  linkAlready: activateUrl('https://www.twitch.tv/activate?device-code=ABCD1234', 'ABCD1234'),\n"
+        "  linkNoUri: activateUrl(null, 'AB CD'),\n"
+        "};\n"
+        "console.log(JSON.stringify(out));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["viaService"] is True and d["callsService"] == [["fetch", "ABCD1234"]], d
+    assert d["fallback"] is True and ["clip", "WXYZ9876"] in d["callsAll"], d
+    assert d["bothFail"] is False and d["noClipboard"] is False, "a failed copy must be reported, not swallowed"
+    assert d["link"] == "https://www.twitch.tv/activate?device-code=ABCD1234"
+    assert d["linkAlready"] == "https://www.twitch.tv/activate?device-code=ABCD1234"
+    assert d["linkNoUri"] == "https://www.twitch.tv/activate?device-code=AB%20CD"
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "Скопировано ✓" in dash and "Не удалось скопировать, выделите код вручную" in dash and "userSelect: 'all'" in dash
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 def test_missing_webview2_runtime_has_an_explanation():
     print("[clean-install] A PC without the WebView2 Runtime gets a Russian explanation and the download page...")
     main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -2674,6 +2721,7 @@ if __name__ == "__main__":
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
         test_missing_webview2_runtime_has_an_explanation,
+        test_login_code_copy_and_activate_link,
         test_config_files_saved_with_a_bom_still_load,
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
     ]

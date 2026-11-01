@@ -9,6 +9,7 @@ import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
 import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { collapseLogs } from '../utils/consoleLog';
+import { activateUrl, copyText } from '../utils/loginCode';
 import { campaignLabel, getCampaignState, queueView, type CampaignState } from '../utils/campaignState';
 
 export interface LiveDashboardProps {
@@ -95,6 +96,14 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const { playClick } = useTactileAudio();
   const [logFilter, setLogFilter] = useState<'ALL' | 'WATCH' | 'CLAIM' | 'CORE'>('ALL');
   const [expandedSync, setExpandedSync] = useState<string[]>([]);
+  const [codeCopy, setCodeCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const handleCopyCode = async () => {
+    if (!oauthCode) return;
+    playClick();
+    const ok = await copyText(oauthCode);
+    setCodeCopy(ok ? 'copied' : 'failed');
+    setTimeout(() => setCodeCopy('idle'), ok ? 2000 : 5000);
+  };
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const handleIgnoreDetectedProcess = async (procName: string) => {
@@ -570,19 +579,34 @@ const filteredLogs = useMemo(() => {
             <KeyRound className="w-4 h-4 text-amber-400 animate-pulse" />
             <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ТРЕБУЕТСЯ АВТОРИЗАЦИЯ TWITCH:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
-              Код привязки устройства: <strong className="tabular" style={{ color: '#fff', fontSize: '13px' }}>{oauthCode}</strong>
+              Код привязки устройства: <strong className="tabular" style={{ color: '#fff', fontSize: '13px', userSelect: 'all', cursor: 'text' }}>{oauthCode}</strong>
             </span>
           </div>
-          <a
-            href={oauthUri || 'https://www.twitch.tv/activate'}
-            target="_blank"
-            rel="noreferrer"
-            className="tactile-btn active-amber"
-            style={{ height: '24px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-          >
-            <span>Ввести код на Twitch</span>
-            <ExternalLink className="w-3 h-3" />
-          </a>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {codeCopy === 'failed' && (
+              <span role="alert" style={{ fontSize: '10px', color: 'var(--led-rose)' }}>Не удалось скопировать, выделите код вручную</span>
+            )}
+            <button
+              className={`tactile-btn ${codeCopy === 'copied' ? 'active-mint' : ''}`}
+              style={{ height: '24px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              onClick={handleCopyCode}
+              title="Скопировать код в буфер обмена"
+            >
+              {codeCopy === 'copied' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              <span>{codeCopy === 'copied' ? 'Скопировано ✓' : 'Копировать'}</span>
+            </button>
+            <a
+              href={activateUrl(oauthUri, oauthCode)}
+              target="_blank"
+              rel="noreferrer"
+              className="tactile-btn active-amber"
+              style={{ height: '24px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              title="Откроет twitch.tv/activate с уже подставленным кодом"
+            >
+              <span>Открыть twitch.tv/activate</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
         </div>
       )}
 
