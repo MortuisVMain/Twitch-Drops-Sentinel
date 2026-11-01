@@ -477,7 +477,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           <button 
             className={`tactile-btn ${activeFilter === 'claimed' ? 'active-amber' : ''}`}
             onClick={() => { playClick(); setActiveFilter('claimed'); setShowTrophyVault(true); }}
-            title="Показать игры с полученными наградами и 3D-витрину трофеев"
+            title="Показать игры с полученными наградами и блок трофеев"
           >
             🏆 Собрано ({claimedCount})
           </button>
@@ -568,7 +568,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 <span title="Коллекционная 3D-витрина трофеев (Trophies.md)">🏆 ТРОФЕИ</span>
               </span>
               <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                🏆 Витрина 3D Трофеев • {claimedCount} игр с наградами
+                🏆 Трофеи • {claimedCount} игр с наградами
               </span>
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
@@ -576,9 +576,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 className="tactile-btn" 
                 style={{ height: '24px', fontSize: '9.5px' }} 
                 onClick={() => setShowTrophyVault(prev => !prev)}
-                title="Свернуть или развернуть 3D витрину"
+                title="Свернуть или развернуть блок трофеев"
               >
-                {showTrophyVault ? '▲ Свернуть 3D' : '▼ 🏆 Витрина 3D Трофеев'}
+                {showTrophyVault ? '▲ Свернуть' : '▼ 🏆 Трофеи'}
               </button>
               <button className="tactile-btn" style={{ height: '24px' }} onClick={handleOpenTrophies}>
                 📄 Открыть Trophies.md
@@ -601,7 +601,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     {dropTitle}
                   </div>
                   <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
-                    ★ ЗАБРАНО АВТОМАТИЧЕСКИ
+                    ★ Получено автоматически
                   </div>
                 </div>
               );
