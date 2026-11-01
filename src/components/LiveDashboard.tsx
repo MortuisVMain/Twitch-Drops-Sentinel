@@ -625,11 +625,11 @@ const filteredLogs = useMemo(() => {
 
         {/* LEFT COLUMN: ACTIVE CAMPAIGNS SHELF (420px) */}
         <section className="titanium-island dashboard-shelf-island" style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
-          <div className="engraved-header">
+          <div className="engraved-header" style={{ flexWrap: 'wrap', rowGap: '4px' }}>
             <span className="tag">
               <span className="led-dot" /> <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueTotalCount}</span> <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }} title="Сколько игр очереди сейчас имеют кампанию">(с кампаниями: {queueWithCampaignCount})</span></span>
             </span>
-<div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+<div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {forcedGame ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: '9.5px', color: 'var(--led-amber)', fontWeight: 700 }}>
                   <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>

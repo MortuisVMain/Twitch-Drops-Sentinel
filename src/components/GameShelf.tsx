@@ -572,7 +572,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   return (
     <div id="view-shelf" className="view-tab" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {/* Top Filter Bar 1-to-1 with SPEC */}
-      <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px' }}>
+      <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', position: 'relative', zIndex: 20 }}>
         <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button 
             className={`tactile-btn ${activeFilter === 'all' ? 'active-mint' : ''}`}

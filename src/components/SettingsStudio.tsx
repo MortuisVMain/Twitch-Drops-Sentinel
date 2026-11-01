@@ -425,7 +425,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>РЕЖИМ ПИТАНИЯ LUNA:</span>
+              <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
               <button 
                 className={`tactile-btn ${settings.auto_shutdown_mode === 'sleep' || !settings.auto_shutdown_mode ? 'active-amber' : ''}`}
                 onClick={() => {

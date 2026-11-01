@@ -28,7 +28,7 @@ const STORES: StoreMeta[] = [
   { id: 'epic', name: 'Epic Games', tag: 'EPIC GAMES', badge: 'забрано', icon: '⚡', color: '#3AD29F', bg: 'rgba(58, 210, 159, 0.1)' },
   { id: 'gog', name: 'GOG.com', tag: 'GOG.COM', badge: 'забрано', icon: '🕹️', color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.1)' },
   { id: 'steam', name: 'Steam', tag: 'STEAM', badge: 'забрано', icon: '🎮', color: '#60A5FA', bg: 'rgba(96, 165, 250, 0.1)' },
-  { id: 'fab', name: 'Fab (Unreal Engine 5)', tag: 'FAB', badge: 'забрано', icon: '🔷', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
+  { id: 'fab', name: 'Fab', tag: 'FAB', badge: 'забрано', icon: '🔷', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
   { id: 'unity', name: 'Unity Store', tag: 'UNITY STORE', badge: 'забрано', icon: '📦', color: '#F472B6', bg: 'rgba(244, 114, 182, 0.1)' },
   { id: 'prime', name: 'Prime Gaming', tag: 'PRIME GAMING', badge: 'забрано', icon: '👑', color: '#FBBF24', bg: 'rgba(251, 191, 36, 0.1)' },
   { id: 'itch', name: 'Itch.io', tag: 'ITCH.IO', badge: 'забрано', icon: '👾', color: '#FB7185', bg: 'rgba(251, 113, 133, 0.1)' },
@@ -414,7 +414,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           const storeData = data?.stores ? (data.stores as any)[store.id] : null;
           const count = storeData?.claimedCount ?? 0;
           const isAuthed = Boolean(storeData?.account);
-          const accountName = storeData?.account || '';
+          const rawAccount: string = storeData?.account || '';
+          const accountName = rawAccount === rawAccount.toUpperCase() ? rawAccount.toLowerCase() : rawAccount;
 
           return (
             <div 
@@ -542,7 +543,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
                     <div className="claimed-card-body">
                       <div className="claimed-card-header-row">
-                        <span style={{ color: storeMeta.color, fontWeight: 700 }} title={storeMeta.name}>
+                        <span style={{ color: storeMeta.color, fontWeight: 700 }} title={storeMeta.id === 'fab' ? 'Fab (магазин Unreal Engine 5)' : storeMeta.name}>
                           {storeMeta.tag}
                         </span>
                         <span style={{ color: 'var(--text-muted)' }}>
