@@ -743,6 +743,15 @@
     .header-actions { gap: 2.5px !important; }
   }
 
+  /* 150% DPI on the minimum window (1180 physical px = ~787 CSS px): keep the window buttons on screen */
+  @media (max-width: 960px) {
+    .brand-title { display: none !important; }
+    .header-drag-zone { min-width: 0 !important; padding: 0 !important; }
+    .drag-grip-indicator { display: none !important; }
+    .tab-btn { padding: 0 4px !important; font-size: 9px !important; gap: 2px !important; }
+    .tactile-btn { padding: 0 4px !important; }
+  }
+
   .tactile-btn {
     height: 31px; padding: 0 9px; background: var(--bg-btn);
     border: 1px solid var(--border-main); border-radius: 8px; box-shadow: var(--shadow-btn);
