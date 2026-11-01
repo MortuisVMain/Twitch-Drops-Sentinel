@@ -374,7 +374,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               >
                 <div>
                   <div style={{ fontSize: '11.5px', fontWeight: 700 }}>2. Автоматический забор наград</div>
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Мгновенный клейм через GQL при 100%</div>
+                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Мгновенно забирает награду при 100%</div>
                 </div>
                 <div className={`cnc-switch ${settings.auto_claim_drops !== false ? 'on' : ''}`}>
                   <div className="knob"></div>

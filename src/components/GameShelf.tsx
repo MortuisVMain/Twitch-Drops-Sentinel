@@ -544,7 +544,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     {dropTitle}
                   </div>
                   <div className="tabular" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
-                    ★ AUTO-CLAIMED VIA GQL
+                    ★ ЗАБРАНО АВТОМАТИЧЕСКИ
                   </div>
                 </div>
               );

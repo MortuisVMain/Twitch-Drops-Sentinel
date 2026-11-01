@@ -1278,7 +1278,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
-                  🔇 Ночной Mute (CoreAudio)
+                  🔇 Ночное отключение звука
                 </span>
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                   Глушить звук в Blackout и возвращать при пробуждении
@@ -1307,7 +1307,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
-                  🛡️ Strict Shield
+                  🛡️ Защита от случайных кликов
                 </span>
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                   Защита от случайных кликов (выход по Esc / Alt+Backspace)
@@ -1457,11 +1457,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           <span>•</span>
           <span><strong style={{ color: 'var(--text-heading)' }}>Esc:</strong> Выход из Blackout</span>
           <span>•</span>
-          <span>🖱️ <strong style={{ color: 'var(--text-heading)' }}>Колесо над Jog:</strong> Регулировка ±5%</span>
+          <span>🖱️ <strong style={{ color: 'var(--text-heading)' }}>Колесо над диском:</strong> Регулировка ±5%</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-mint)' }}>
           <span className="led-dot" style={{ width: '5px', height: '5px' }}></span>
-          <span>DDC/CI DXVA2 & WMI READY</span>
+          <span title="DDC/CI, DXVA2 и WMI готовы">Диммер готов</span>
         </div>
       </div>
     </div>

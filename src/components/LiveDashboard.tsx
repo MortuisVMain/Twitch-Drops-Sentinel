@@ -518,7 +518,7 @@ const filteredLogs = useMemo(() => {
         <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
             <span className="led-dot amber" />
-            <strong className="tabular" style={{ color: 'var(--led-amber)' }}>HARDWARE GUARD:</strong>
+            <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ИГРОВАЯ ПАУЗА:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
               Обнаружен активный игровой процесс <strong style={{ color: 'var(--text-primary)' }}>{hardware.detected_game}</strong>. Фарм приостановлен для сбережения GPU.
             </span>
@@ -637,7 +637,7 @@ const filteredLogs = useMemo(() => {
             <input
               type="text"
               id="gqlSearchInput"
-              placeholder="Поиск с живой проверкой Twitch GQL..."
+              placeholder="Найти игру…"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               onFocus={() => setIsSearchFocused(true)}
@@ -710,7 +710,7 @@ const filteredLogs = useMemo(() => {
                 <span className="led-dot" /> <span title="Целевая награда и хронограф активного дропа">ТЕКУЩАЯ ЦЕЛЬ</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="version-chip">РЕЖИМ БЕЗ ВИДЕО</span>
+                <span className="version-chip" title="Смотрим без загрузки видео — экономит трафик и CPU">Без видео</span>
               </div>
             </div>
 
@@ -790,7 +790,7 @@ const filteredLogs = useMemo(() => {
                     ● {currentMinutes} ИЗ {requiredMinutes} МИН
                   </span>
                   <span className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)' }}>
-                    ● СКОРОСТЬ 1x GQL
+                    ● скорость 1x
                   </span>
                 </div>
                 <h2
@@ -816,7 +816,7 @@ const filteredLogs = useMemo(() => {
                 <div style={{ display: 'flex', gap: '5px', marginTop: '2px', flexWrap: 'wrap', alignItems: 'center' }}>
                   <div className="autoclaim-armed-pill">
                     <span className="led-dot" />
-                    <span>АВТОКЛЕЙМ GQL: АКТИВЕН</span>
+                    <span>АВТОЗАБОР НАГРАД: ВКЛ</span>
                   </div>
                   <button
                     className="tactile-btn"
@@ -907,7 +907,7 @@ const filteredLogs = useMemo(() => {
                 </div>
 
                 <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
-                  <span title="Связь со стримом: SPADE HEAD каждые 20 с">SPADE: HEAD / 20 с</span>
+                  <span title="Связь со стримом: SPADE HEAD каждые 20 с">Сигнал просмотра: каждые 20 с</span>
                   <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
                 </div>
               </div>
@@ -996,7 +996,7 @@ const filteredLogs = useMemo(() => {
                 </div>
               ) : (
                 filteredLogs.map(({ log, count }, i) => {
-                  const cat = (log.level || log.category || 'GQL').toUpperCase();
+                  const cat = (log.level || log.category || 'INFO').toUpperCase();
                   const isClaim = cat.includes('CLAIM') || cat.includes('DROP');
                   const isWatch = cat.includes('WATCH') || cat.includes('STREAM');
                   const isError = cat.includes('ERR') || cat.includes('WARN');

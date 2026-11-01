@@ -384,7 +384,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: '14.5px', fontWeight: 800 }}>
-            Синдикат Бесплатных Раздач & Ассетов (Patchright Engine)
+            Бесплатные раздачи и ассеты
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
             Авто-клейм 100% бесплатных игр в 7 магазинах • Префлайт GOG/Steam &lt;450 мс
@@ -395,7 +395,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             className={`tactile-btn ${headless ? 'active-mint' : ''}`}
             onClick={handleToggleHeadless}
           >
-            👁 Stealth Headless: {headless ? 'ВКЛ' : 'ВЫКЛ'}
+            👁 Скрытый режим браузера: {headless ? 'ВКЛ' : 'ВЫКЛ'}
           </button>
           <button 
             className={`chunky-cta ${isClaiming ? 'amber' : ''}`}

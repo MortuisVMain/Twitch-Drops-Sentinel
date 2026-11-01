@@ -1018,7 +1018,6 @@ export const App: React.FC = () => {
 
             </h1>
 
-            <p className="pip-hide">AUTONOMOUS TWITCH HARVESTER & HARDWARE CONSOLE</p>
 
           </div>
 
@@ -2273,7 +2272,7 @@ export const App: React.FC = () => {
         ].filter(item => !query || item.title.toLowerCase().includes(query) || item.key === query);
 
         const quickActions = [
-          { id: 'switch-streamer', key: 'GQL Switch', icon: '↻', title: 'Сменить узел стримера', action: () => handleSwitchStreamer(false) },
+          { id: 'switch-streamer', key: 'Стример', icon: '↻', title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
           { id: 'refresh-twitch', key: 'F5', icon: '⟳', title: 'Принудительная синхронизация с Twitch', action: () => handleManualRefresh() },
           { id: 'toggle-daemon', key: 'Space', icon: '⏯', title: sentinelState.hardware.is_paused ? 'Запустить сбор дропов' : 'Приостановить сбор дропов', action: () => handleToggleDaemon() },
           { id: 'toggle-pip', key: 'Ctrl+M', icon: '📐', title: isPipMode ? 'Вернуться из мини-окна (PIP)' : 'Мини-окно (PIP)', action: () => handleTogglePipMode() },
