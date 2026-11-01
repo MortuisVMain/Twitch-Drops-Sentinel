@@ -54,7 +54,7 @@
     --led-amber: #E5A93C;
     --text-primary: #E9EEEC;
     --text-secondary: #A1AFA8;
-    --text-muted: #6C7A73;
+    --text-muted: #76847D;
     --text-engraved: #828F88;
     --ambient-glow-color: rgba(115, 187, 165, 0.25);
   }
@@ -102,7 +102,7 @@
     --led-rose: #FF003C;
     --text-primary: #FFFDF0;
     --text-secondary: #00F0FF;
-    --text-muted: #7E6C9F;
+    --text-muted: #8371A4;
     --text-engraved: #FCEE0A;
     --cta-text: #050408;
     --ambient-glow-color: rgba(252, 238, 10, 0.25);
