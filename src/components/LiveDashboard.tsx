@@ -686,7 +686,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
                   }}
                   id="heroDropTitle"
                 >
-                  {activeTitle || 'Ожидание раздачи...'}
+                  {activeTitle || 'Ожидание дропа...'}
                 </h2>
                 <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
                   ИГРА: <strong style={{ color: 'var(--text-primary)' }} id="heroGameTitle">{activeGame || 'Не выбрана'}</strong> • СТАТУС:{' '}
