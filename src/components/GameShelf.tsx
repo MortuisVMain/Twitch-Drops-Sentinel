@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { agoLabel, lastTrophyLine } from '../utils/campaignFacts';
+import { agoLabel, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
@@ -146,6 +146,22 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const [syncLabel, setSyncLabel] = useState<string>('↻ Обновить');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showListsMenu, setShowListsMenu] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'tiles' | 'list'>(() => {
+    try {
+      return localStorage.getItem('sentinel_shelf_view') === 'list' ? 'list' : 'tiles';
+    } catch (err) {
+      console.warn('GameShelf: localStorage недоступен', err);
+      return 'tiles';
+    }
+  });
+  const changeViewMode = (mode: 'tiles' | 'list') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('sentinel_shelf_view', mode);
+    } catch (err) {
+      console.warn('GameShelf: не удалось сохранить вид полки', err);
+    }
+  };
   const [sortMode, setSortMode] = useState<CampaignSortMode>(() => {
     try {
       const saved = localStorage.getItem('sentinel_campaign_sort');
@@ -303,6 +319,16 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
   const handleSyncDrops = () => handleSyncClick();
 
+  // Linked = Twitch says so, the user marked it, or a drop was already received for it
+  const isGameLinked = (game: GameItem): boolean =>
+    Boolean(
+      game.is_account_connected === true ||
+      (userLinkedGames && userLinkedGames.some(k => isTitleMatch(k, game.name))) ||
+      (game.claimed_drops || 0) > 0 ||
+      game.is_finished ||
+      trophies.some(t => isTitleMatch(t.game, game.name))
+    );
+
   const handleOpenTrophies = () => {
     playClick();
     if ((window as any).chrome?.webview) {
@@ -459,6 +485,90 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
   const displayTrophies = useMemo(() => trophies.slice(0, 9), [trophies]);
 
+  const renderListRow = (game: GameItem) => {
+    const isForced = forcedGame === game.name;
+    const priorityIndex = priorityList.indexOf(game.name);
+    const isInPriority = priorityIndex !== -1;
+    const isExcluded = excludedList.includes(game.name);
+    const isRemoved = allRemovedLower.has(game.name.toLowerCase());
+    const facts = campaignFacts(game, { trophies, linked: isGameLinked(game), now: nowTick });
+    const blocked = isExcluded || isRemoved;
+
+    return (
+      <div key={game.name} className="campaign-row">
+        <div className="row-cover">
+          <CartridgeCover name={game.name} boxArt={game.box_art} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '13px', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={game.name}>
+            {activeFilter === 'all' && isNewCampaign(game, seenAtOpen) && <span className="new-campaign-chip" title="Кампания появилась после вашего прошлого визита">НОВАЯ</span>}
+            {game.name}
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            {isExcluded ? '🚫 В исключениях' : isRemoved ? '🗑 В удалённых' : isForced ? '⚡ Принудительный фарм' : isInPriority ? `⭐ #${priorityIndex + 1} в очереди` : game.is_installed ? '💾 Установлено на ПК' : ' '}
+          </div>
+        </div>
+        <span className={`campaign-fact ${facts.urgent ? 'warn' : ''}`} title="Сколько осталось до конца кампании">
+          {facts.timeLeft ? `⏱ ${facts.timeLeft}` : '—'}
+        </span>
+        <span className="campaign-fact" title="Сколько дропов осталось получить">
+          {facts.drops ? `🎁 ${facts.drops}` : '—'}
+        </span>
+        <span
+          className={`campaign-fact ${facts.link === 'linked' ? 'ok' : facts.link === 'needs' ? 'warn' : ''}`}
+          title={facts.link === 'linked' ? 'Аккаунт Twitch привязан к игре' : facts.link === 'needs' ? 'Нужно привязать аккаунт игры' : ''}
+        >
+          {facts.link === 'linked' ? '✓ привязан' : facts.link === 'needs' ? '⚠ нужна привязка' : '—'}
+        </span>
+        <div className="campaign-row-actions">
+          {blocked ? (
+            <button className="tactile-btn" style={{ height: '24px', fontSize: '10px' }} onClick={() => { playClick(); handleRestoreGame(game.name); }}>
+              ↩ Восстановить
+            </button>
+          ) : (
+            <>
+              <button
+                className={`tactile-btn ${isForced ? 'active-amber' : ''}`}
+                style={{ height: '24px', fontSize: '10px' }}
+                onClick={() => {
+                  playClick();
+                  if (isForced) {
+                    if (onCancelForceFarm) onCancelForceFarm();
+                  } else if (onForceFarm) {
+                    onForceFarm(game.name);
+                  }
+                }}
+                title={isForced ? 'Отменить принудительный фарм' : 'Фармить эту игру прямо сейчас, вне очереди'}
+              >
+                {isForced ? '⚡ Отменить' : '⚡ Сейчас'}
+              </button>
+              <button
+                className={`tactile-btn ${isInPriority ? 'active-mint' : ''}`}
+                style={{ height: '24px', fontSize: '10px' }}
+                onClick={() => {
+                  playClick();
+                  if (isInPriority) onRemoveFromPriority(game.name);
+                  else onAddToPriority(game.name);
+                }}
+                title={isInPriority ? 'Убрать из очереди' : 'Добавить в очередь'}
+              >
+                ⭐
+              </button>
+              <button
+                className="tactile-btn"
+                style={{ height: '24px', fontSize: '10px' }}
+                onClick={() => { playClick(); onAddToExcluded(game.name); }}
+                title="Скрыть игру / в исключения"
+              >
+                🚫
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div id="view-shelf" className="view-tab" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {/* Top Filter Bar 1-to-1 with SPEC */}
@@ -503,6 +613,19 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               ))}
             </div>
           )}
+          <div className="campaign-sort" role="group" aria-label="Вид полки">
+            {(['tiles', 'list'] as const).map((mode) => (
+              <button
+                key={mode}
+                className={`node-chip ${viewMode === mode ? 'active' : ''}`}
+                onClick={() => { playClick(); changeViewMode(mode); }}
+                aria-pressed={viewMode === mode}
+                title={mode === 'tiles' ? 'Карточки с обложками' : 'Компактный список: время, дропы, привязка'}
+              >
+                {mode === 'tiles' ? 'Плитки' : 'Список'}
+              </button>
+            ))}
+          </div>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <input
               type="text"
@@ -647,7 +770,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       )}
 
       {/* Cartridges Grid (.cartridges-grid) 1-to-1 with SPEC */}
-      <div className="cartridges-grid">
+      <div className={viewMode === 'list' && filteredGames.length > 0 ? 'campaign-list' : 'cartridges-grid'}>
         {filteredGames.length === 0 ? (
           <div 
             className="titanium-island" 
@@ -668,6 +791,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   : 'Попробуйте сбросить поисковый запрос или выбрать другой фильтр.'}
             </div>
           </div>
+        ) : viewMode === 'list' ? (
+          filteredGames.map(renderListRow)
         ) : (
           filteredGames.map((game) => {
             const isForced = forcedGame === game.name;
@@ -702,14 +827,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             }
 
             const isDropActive = isDropActiveNow(game);
-            const isLinked = Boolean(
-              game.is_account_connected === true ||
-              (userLinkedGames && userLinkedGames.some(k => isTitleMatch(k, game.name))) ||
-              (game.claimed_drops || 0) > 0 ||
-              game.is_finished ||
-              trophies.some(t => isTitleMatch(t.game, game.name))
-            );
+            const isLinked = isGameLinked(game);
             const needsLink = isDropActive && !isLinked;
+            const facts = campaignFacts(game, { trophies, linked: isLinked, now: nowTick });
 
             return (
               <div key={game.name} className="cartridge-card">
@@ -840,6 +960,17 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   <div className="tabular" style={{ fontSize: '9.5px', color: subtitleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {subtitle}
                   </div>
+                  {(facts.timeLeft || facts.drops || facts.link) && (
+                    <div className="campaign-facts">
+                      {facts.timeLeft && <span className={facts.urgent ? 'warn' : ''} title="Сколько осталось до конца кампании">⏱ {facts.timeLeft}</span>}
+                      {facts.drops && <span title="Сколько дропов осталось получить">🎁 {facts.drops}</span>}
+                      {facts.link && (
+                        <span className={facts.link === 'linked' ? 'ok' : 'warn'} title={facts.link === 'linked' ? 'Аккаунт Twitch привязан к игре' : 'Нужно привязать аккаунт игры'}>
+                          {facts.link === 'linked' ? '✓ привязан' : '⚠ нужна привязка'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Direct Action Controls: Exclude, Remove, Restore & Priority Reorder */}

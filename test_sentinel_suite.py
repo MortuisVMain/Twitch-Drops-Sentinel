@@ -2063,6 +2063,75 @@ def test_settings_modules_counter_matches_switches():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_shelf_facts_trophy_line_and_sync_age():
+    print("[audit F-038] Shelf: time/drops/link facts, one-line trophy summary, 'updated N min ago'...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "campaign_facts_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignFacts.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    now = 1793534400000  # 2026-11-01T12:00:00Z
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { timeLeftLabel, campaignFacts, lastTrophyLine, agoLabel, gamesWord } from './campaignFacts.mjs';\n"
+        f"const now = {now};\n"
+        "const g = (o) => ({ id: 'x', name: 'Alpha', is_installed: false, has_drops: true, is_active_now: true, total_drops: 4, claimed_drops: 1, ...o });\n"
+        "const iso = (ms) => new Date(now + ms).toISOString();\n"
+        "const H = 3600 * 1000, D = 24 * H;\n"
+        "const trophies = [\n"
+        "  { id: '1', date: '2026-10-30 09:00', game: 'Alpha', drop_name: 'Old Hat', campaign: 'c', status: 'CLAIMED' },\n"
+        "  { id: '2', date: '2026-11-01 10:21', game: 'Beta', drop_name: 'New Cape', campaign: 'c', status: 'CLAIMED' },\n"
+        "  { id: '3', date: '2026-10-31 18:00', game: 'Gamma', drop_name: 'Middle', campaign: 'c', status: 'CLAIMED' },\n"
+        "];\n"
+        "const out = {\n"
+        "  t12d: timeLeftLabel(iso(12 * D + 3 * H), now),\n"
+        "  t2d5h: timeLeftLabel(iso(2 * D + 5 * H + 1000), now),\n"
+        "  t7h: timeLeftLabel(iso(7 * H + 1000), now),\n"
+        "  t35m: timeLeftLabel(iso(35 * 60000 + 1000), now),\n"
+        "  over: timeLeftLabel(iso(-1000), now),\n"
+        "  noEnd: timeLeftLabel(undefined, now),\n"
+        "  running: campaignFacts(g({ drops_end_at: iso(5 * H) }), { trophies: [], linked: true, now }),\n"
+        "  needsLink: campaignFacts(g({ drops_end_at: iso(3 * D) }), { trophies: [], linked: false, now }),\n"
+        "  unknownTotal: campaignFacts(g({ total_drops: undefined, claimed_drops: undefined, drops_end_at: iso(3 * D) }), { trophies: [], linked: true, now }),\n"
+        "  noCampaign: campaignFacts(g({ has_drops: false }), { trophies: [], linked: true, now }),\n"
+        "  line: lastTrophyLine(trophies, 26),\n"
+        "  lineEmpty: lastTrophyLine([], 0),\n"
+        "  agoNull: agoLabel(null, now),\n"
+        "  agoNow: agoLabel(now - 20000, now),\n"
+        "  ago5: agoLabel(now - 5 * 60000 - 1000, now),\n"
+        "  ago3h: agoLabel(now - 3 * H, now),\n"
+        "  words: [1, 2, 5, 11, 21, 26].map(gamesWord),\n"
+        "};\n"
+        "console.log(JSON.stringify(out));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert (d["t12d"], d["t2d5h"], d["t7h"], d["t35m"]) == ("12 д", "2 д 5 ч", "7 ч", "35 мин"), d
+    assert d["over"] == "закончилась" and d["noEnd"] is None, d
+    r = d["running"]
+    assert r["timeLeft"] == "5 ч" and r["urgent"] is True and r["drops"] == "3 дропа" and r["link"] == "linked", r
+    n = d["needsLink"]
+    assert n["link"] == "needs" and n["urgent"] is False and n["timeLeft"] == "3 д", n
+    assert d["unknownTotal"]["drops"] == "есть дропы", d["unknownTotal"]      # no invented drop count
+    assert d["noCampaign"]["link"] is None and d["noCampaign"]["drops"] is None, d["noCampaign"]
+    assert d["line"].startswith("Трофеи · 26 игр · последний: New Cape, "), d["line"]   # latest by time, not by file order
+    assert d["lineEmpty"] == "Трофеи · пока нет наград", d["lineEmpty"]
+    assert d["agoNull"] is None and d["agoNow"] == "обновлено только что", d
+    assert d["ago5"] == "обновлено 5 мин назад" and d["ago3h"] == "обновлено 3 ч назад", d
+    assert d["words"] == ["игра", "игры", "игр", "игр", "игра", "игр"], d["words"]
+    shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "campaignFacts(game," in shelf and shelf.count("campaignFacts(") >= 2, "tiles and list rows must use the shared facts"
+    assert "sentinel_shelf_view" in shelf and "sentinel_trophy_vault_open" in shelf, "view mode and trophy state must be remembered"
+    assert "Исключения (${excludedList.length})" in shelf and "role=\"menu\"" in shelf, "service lists live in the menu"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2115,6 +2184,7 @@ if __name__ == "__main__":
     test_active_campaigns_tab_sorting_and_new_marker()
     test_console_folds_sync_cycles_but_never_important_events()
     test_settings_modules_counter_matches_switches()
+    test_shelf_facts_trophy_line_and_sync_age()
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)

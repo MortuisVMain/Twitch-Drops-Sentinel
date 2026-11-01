@@ -1,4 +1,5 @@
-import type { TrophyItem } from '../types';
+import type { GameItem, TrophyItem } from '../types';
+import { dropsWord, getCampaignState, type NameMatcher } from './campaignState';
 
 // Small pure helpers behind the shelf: the one-line trophy summary and (below) the three facts
 // shown on every campaign. Only types are imported so esbuild can bundle it for the test gates.
@@ -48,4 +49,54 @@ export const agoLabel = (at: number | null, now: number): string | null => {
   const hours = Math.floor(min / 60);
   if (hours < 24) return `обновлено ${hours} ч назад`;
   return `обновлено ${Math.floor(hours / 24)} д назад`;
+};
+
+// "12 д", "2 д 5 ч", "7 ч", "35 мин"; null when the campaign has no end date
+export const timeLeftLabel = (endIso: string | undefined, now: number): string | null => {
+  if (!endIso) return null;
+  const end = new Date(endIso).getTime();
+  if (Number.isNaN(end)) return null;
+  const ms = end - now;
+  if (ms <= 0) return 'закончилась';
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `${Math.max(1, min)} мин`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `${hours} ч`;
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  return days < 3 && restHours > 0 ? `${days} д ${restHours} ч` : `${days} д`;
+};
+
+export interface CampaignFacts {
+  timeLeft: string | null; // until the campaign ends
+  urgent: boolean; // less than a day left
+  drops: string | null; // "3 дропа" / "всё получено" / "есть дропы"
+  link: 'linked' | 'needs' | null;
+}
+
+export interface FactsOptions {
+  trophies: TrophyItem[];
+  linked: boolean; // the caller's answer, so the fact always matches the badge on the card
+  now: number;
+  smartMatch?: NameMatcher;
+}
+
+export const campaignFacts = (g: GameItem, opts: FactsOptions): CampaignFacts => {
+  const end = g.drops_end_at ? new Date(g.drops_end_at).getTime() : NaN;
+  const state = getCampaignState(g, opts.trophies, opts.smartMatch);
+  let drops: string | null = null;
+  if (state.kind === 'done') {
+    drops = 'всё получено';
+  } else if (state.kind === 'running' || state.kind === 'link') {
+    const total = g.total_drops ?? g.rewards_count;
+    drops = total ? `${state.remaining} ${dropsWord(state.remaining)}` : 'есть дропы';
+  } else if (g.has_drops) {
+    drops = 'есть дропы';
+  }
+  return {
+    timeLeft: timeLeftLabel(g.drops_end_at, opts.now),
+    urgent: !Number.isNaN(end) && end > opts.now && end - opts.now < 24 * 3600 * 1000,
+    drops,
+    link: g.has_drops ? (opts.linked ? 'linked' : 'needs') : null,
+  };
 };

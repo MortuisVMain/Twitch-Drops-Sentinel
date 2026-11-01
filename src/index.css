@@ -999,6 +999,19 @@
   .queue-row:hover .reorder-rocker, .queue-row:focus-within .reorder-rocker { opacity: 1; }
   .campaign-sort { display: inline-flex; gap: 4px; margin-left: 6px; }
   .cartridge-card { position: relative; }
+  .campaign-facts { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; font-size: 10px; color: var(--text-secondary); }
+  .campaign-facts .ok, .campaign-fact.ok { color: var(--led-mint); }
+  .campaign-facts .warn, .campaign-fact.warn { color: var(--led-amber); }
+  .campaign-list { display: flex; flex-direction: column; gap: 6px; }
+  .campaign-row {
+    display: grid; grid-template-columns: 36px minmax(0, 1fr) 96px 110px 138px auto; align-items: center; gap: 12px;
+    padding: 6px 12px; background: var(--bg-island); border: 1px solid var(--border-main); border-radius: 10px;
+  }
+  .campaign-row:hover { border-color: rgba(255, 255, 255, 0.24); }
+  .campaign-row .row-cover { width: 36px; height: 48px; border-radius: 6px; overflow: hidden; background: var(--bg-well); }
+  .campaign-row .new-campaign-chip { position: static; display: inline-block; margin-right: 6px; vertical-align: middle; }
+  .campaign-fact { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+  .campaign-row-actions { display: flex; gap: 5px; justify-content: flex-end; }
   .new-campaign-chip {
     position: absolute; top: 8px; left: 8px; z-index: 3; padding: 1px 7px; border-radius: 5px;
     font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
