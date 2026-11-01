@@ -152,7 +152,7 @@ truststore.inject_into_ssl()
 from gui_headless import STATE_BRIDGE, send_windows_toast
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
-from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT
+from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
 from utils import json_load, json_save, smart_game_match, clean_title
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
@@ -1643,14 +1643,16 @@ class SentinelSupervisor:
         logger.info(f"Twitch Drops Sentinel API running on http://127.0.0.1:{DEFAULT_SERVICE_PORT}")
 
         # Concurrently run hardware guard, luna, twitch client, and game rescan loop
-        await asyncio.gather(
+        loops = [
             self.hardware_guard_loop(),
             self.luna_autoshutdown_loop(),
-            self.run_twitch_engine(),
             self.games_folder_rescan_loop(),
-            CAMPAIGNS_FETCHER.start_background_loop(),
-            return_exceptions=True,
-        )
+        ]
+        if TEST_MODE:
+            logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
+        else:
+            loops += [self.run_twitch_engine(), CAMPAIGNS_FETCHER.start_background_loop()]
+        await asyncio.gather(*loops, return_exceptions=True)
 
 if __name__ == "__main__":
     try:

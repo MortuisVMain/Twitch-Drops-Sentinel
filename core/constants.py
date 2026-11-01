@@ -22,7 +22,10 @@ if TYPE_CHECKING:
 # True if we're running from a built EXE (or a Linux AppImage), False inside a dev build
 IS_APPIMAGE = "APPIMAGE" in os.environ and os.path.exists(os.environ["APPIMAGE"])
 IS_PACKAGED = hasattr(sys, "_MEIPASS") or IS_APPIMAGE
-DEFAULT_SERVICE_PORT: int = 28492
+# SENTINEL_SERVICE_PORT lets the test suite run a sandboxed service next to the user's live one.
+DEFAULT_SERVICE_PORT: int = int(os.environ.get("SENTINEL_SERVICE_PORT", "28492"))
+# SENTINEL_TEST_MODE=1 keeps the API up but never starts the Twitch engine or campaign fetcher.
+TEST_MODE: bool = os.environ.get("SENTINEL_TEST_MODE") == "1"
 # logging special levels
 CALL: int = logging.INFO - 1
 logging.addLevelName(CALL, "CALL")
