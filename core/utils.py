@@ -491,3 +491,18 @@ def smart_game_match(candidate: str, target: str) -> bool:
     if re.search(r"\b" + re.escape(t_norm) + r"\b", c_norm) or re.search(r"\b" + re.escape(c_norm) + r"\b", t_norm):
         return True
     return False
+
+
+def trophies_show_completed(journal_text: str, game_name: str, campaign_name: str, drop_names: list) -> bool:
+    """True when every drop of this very campaign is journaled as claimed.
+
+    Drop names repeat from one campaign step to the next ("Dragonfire 9 - #6/7" and "#7/7" give the same
+    chests), so the campaign name has to be on the same journal line, not just the game and the drop name."""
+    game, campaign = game_name.lower(), campaign_name.lower()
+    if not drop_names or not campaign:
+        return False
+    claimed_lines = [
+        line for line in journal_text.lower().splitlines()
+        if ("забран" in line or "✅" in line) and game in line and campaign in line
+    ]
+    return all(any(str(drop).lower() in line for line in claimed_lines) for drop in drop_names)

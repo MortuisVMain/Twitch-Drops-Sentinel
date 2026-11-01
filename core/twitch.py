@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 
 import re
 
-from utils import smart_game_match, clean_title
+from utils import smart_game_match, clean_title, trophies_show_completed
 _clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
@@ -1939,14 +1939,8 @@ class Twitch:
                             if not t_path.exists():
                                 t_path = Path(__file__).resolve().parent / "Trophies.md"
                             if t_path.exists():
-                                t_text = t_path.read_text(encoding="utf-8").lower()
-                                g_low = game_name.lower()
-                                drops_claimed = 0
-                                for d in time_drops:
-                                    d_name_low = str(d.get("name", "")).lower()
-                                    if any(("забран" in line or "✅" in line) and g_low in line and d_name_low in line for line in t_text.splitlines()):
-                                        drops_claimed += 1
-                                if drops_claimed >= len(time_drops):
+                                t_text = t_path.read_text(encoding="utf-8")
+                                if trophies_show_completed(t_text, game_name, str(c.get("name", "")), [d.get("name", "") for d in time_drops]):
                                     logger.info(f"Campaign '{c['name']}' for '{game_name}' is already completed in Trophies.md. Skipping.")
                                     continue
                         except Exception as exc:
@@ -2082,13 +2076,7 @@ class Twitch:
                     time_drops = reward.get("timeBasedDrops") or []
                     # Skip if fully claimed in Trophies.md
                     if gname and time_drops and t_text:
-                        g_low = gname.lower()
-                        drops_claimed = 0
-                        for d in time_drops:
-                            d_name_low = str(d.get("name", "")).lower()
-                            if any(("забран" in line or "✅" in line) and g_low in line and d_name_low in line for line in t_text.splitlines()):
-                                drops_claimed += 1
-                        if drops_claimed >= len(time_drops):
+                        if trophies_show_completed(t_text, gname, str(reward.get("name", "")), [d.get("name", "") for d in time_drops]):
                             continue
 
                     reward_copy = deepcopy(reward)

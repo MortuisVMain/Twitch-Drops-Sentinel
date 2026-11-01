@@ -2265,6 +2265,25 @@ def test_toast_gate_dedup_switch_and_priming():
     shutil.rmtree(work, ignore_errors=True)
 
 
+def test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies():
+    print("[round5] Albion: drop names repeat between campaign steps, so the journal check must match the campaign...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from utils import trophies_show_completed
+    journal = (
+        "| 2026-11-01 01:46 | **Albion Online** | Dragonfire Chest | Dragonfire 9 - #6/7 | \u2705 \u0417\u0430\u0431\u0440\u0430\u043d |\n"
+        "| 2026-11-01 02:46 | **Albion Online** | Noble Community Chest | Dragonfire 9 - #6/7 | \u2705 \u0417\u0430\u0431\u0440\u0430\u043d |\n"
+    )
+    drops = ["Dragonfire Chest", "Noble Community Chest"]
+    assert trophies_show_completed(journal, "Albion Online", "Dragonfire 9 - #6/7", drops) is True
+    # the very same chests in the next step are NOT received yet (this was the bug: the step was dropped from the inventory)
+    assert trophies_show_completed(journal, "Albion Online", "Dragonfire 9 - #7/7", drops) is False
+    assert trophies_show_completed(journal, "Albion Online", "Dragonfire 9 - #6/7", drops + ["Extra Chest"]) is False
+    assert trophies_show_completed(journal, "Albion Online", "", drops) is False
+    assert trophies_show_completed(journal, "Another Game", "Dragonfire 9 - #6/7", drops) is False
+    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert twitch_py.count("trophies_show_completed(") == 2 and "drops_claimed >= len(time_drops)" not in twitch_py
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2321,6 +2340,7 @@ if __name__ == "__main__":
         test_shelf_facts_trophy_line_and_sync_age,
         test_queue_filter_only_with_campaigns,
         test_toast_gate_dedup_switch_and_priming,
+        test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
