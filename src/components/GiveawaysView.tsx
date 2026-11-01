@@ -384,10 +384,10 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       {/* Top Header Island 1-to-1 with SPEC */}
       <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: '14.5px', fontWeight: 800 }}>
+          <div style={{ fontSize: 'var(--fs-md)', fontWeight: 800 }}>
             Бесплатные раздачи
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }}>
             Забираем бесплатные игры и ассеты в 7 магазинах
           </div>
         </div>
@@ -426,7 +426,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             >
               <div className="store-pod-header">
                 <div className="store-pod-title">
-                  <span style={{ fontSize: '13px' }}>{store.icon}</span>
+                  <span style={{ fontSize: 'var(--fs-sm)' }}>{store.icon}</span>
                   <strong>{store.name}</strong>
                 </div>
                 <span className={`store-select-badge ${isSelected ? 'active' : ''}`}>
@@ -435,15 +435,15 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               </div>
 
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                <span className="tabular" style={{ fontSize: '20px', fontWeight: 800, color: !isAuthed ? 'var(--text-muted)' : 'inherit' }}>
+                <span className="tabular" style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: !isAuthed ? 'var(--text-muted)' : 'inherit' }}>
                   {count}
                 </span>
-                <span className="tabular" style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                   {store.badge}
                 </span>
               </div>
 
-              <div style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
                 <span className={`led-dot ${!isAuthed ? 'off' : ''}`}></span>
                 <span
                   style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -454,7 +454,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 {isAuthed && (
                   <button
                     className="tactile-btn"
-                    style={{ height: '20px', width: '22px', padding: 0, fontSize: '11px', justifyContent: 'center', flexShrink: 0 }}
+                    style={{ height: '20px', width: '22px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleStoreAuth(store.id);
@@ -470,7 +470,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               {!isAuthed && (
                 <button
                   className="tactile-btn active-mint"
-                  style={{ height: '24px', fontSize: '9px', width: '100%', justifyContent: 'center' }}
+                  style={{ height: '24px', fontSize: 'var(--fs-xs)', width: '100%', justifyContent: 'center' }}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleStoreAuth(store.id);
@@ -573,7 +573,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 );
               })
             ) : (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '11px', gridColumn: '1 / -1' }}>
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', gridColumn: '1 / -1' }}>
                 Тайтлы не найдены по заданным критериям
               </div>
             )}
@@ -589,7 +589,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <button 
                 className={`tactile-btn ${copiedLogs ? 'active-mint' : ''}`} 
-                style={{ height: '22px', fontSize: '9px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                style={{ height: '22px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={handleCopyLogs}
                 title="Скопировать все логи терминала в буфер обмена"
               >
@@ -598,7 +598,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               </button>
               <button 
                 className={`tactile-btn ${isSchedulerActive ? 'active-mint' : ''}`} 
-                style={{ height: '22px', fontSize: '9px' }}
+                style={{ height: '22px', fontSize: 'var(--fs-xs)' }}
                 onClick={handleToggleScheduler}
                 title={isSchedulerActive ? 'Нажмите для приостановки планировщика' : 'Нажмите для включения планировщика'}
               >
@@ -639,7 +639,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               minHeight: logs.length > 0 ? '160px' : 0,
               padding: logs.length > 0 ? '9px' : '7px 10px',
               fontFamily: 'var(--font-ui)',
-              fontSize: '10px',
+              fontSize: 'var(--fs-xs)',
               color: 'var(--text-secondary)',
               lineHeight: 1.5,
               overflowY: 'auto'

@@ -37,14 +37,14 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
             maxWidth: '640px', backgroundColor: '#0E1218', border: '1px solid rgba(248, 113, 113, 0.4)',
             borderRadius: '16px', padding: '28px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)'
           }}>
-            <h2 style={{ color: '#F87171', fontSize: '18px', margin: '0 0 10px', fontWeight: 800 }}>
+            <h2 style={{ color: '#F87171', fontSize: 'var(--fs-lg)', margin: '0 0 10px', fontWeight: 800 }}>
               Twitch Drops Sentinel — Сбой Инициализации UI
             </h2>
-            <p style={{ color: '#9CA3B0', fontSize: '12px', margin: '0 0 16px', lineHeight: 1.5 }}>
+            <p style={{ color: '#9CA3B0', fontSize: 'var(--fs-sm)', margin: '0 0 16px', lineHeight: 1.5 }}>
               Интерфейс Sentinel перехватил ошибку в React-дереве:
             </p>
             <pre style={{
-              backgroundColor: '#050608', padding: '12px', borderRadius: '8px', fontSize: '11px',
+              backgroundColor: '#050608', padding: '12px', borderRadius: '8px', fontSize: 'var(--fs-xs)',
               fontFamily: "'Inter Variable', 'Segoe UI', sans-serif", color: '#FCA5A5', textAlign: 'left',
               overflowX: 'auto', maxHeight: '180px', border: '1px solid rgba(255,255,255,0.08)',
               whiteSpace: 'pre-wrap'
@@ -55,7 +55,7 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
               onClick={() => window.location.reload()}
               style={{
                 marginTop: '18px', padding: '9px 22px', backgroundColor: '#3AD29F', color: '#04120C',
-                border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '12px', cursor: 'pointer'
+                border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer'
               }}
             >
               Перезагрузить интерфейс

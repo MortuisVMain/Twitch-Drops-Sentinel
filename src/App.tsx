@@ -1244,7 +1244,7 @@ export const App: React.FC = () => {
 
               {/* BLOCK 1: 6 COLOR THEMES */}
 
-              <div className="tabular" style={{ fontSize: '10px', color: 'var(--text-engraved)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-engraved)', padding: '1px 4px', letterSpacing: '0.04em', display: 'flex', justifyContent: 'space-between' }}>
 
                 <span>1. ЦВЕТОВАЯ ПАЛИТРА (7 ТЕМ)</span>
 
@@ -1264,7 +1264,7 @@ export const App: React.FC = () => {
 
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#171A22 50%,#3AD29F 50%)' }}></div>
 
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Titanium</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Titanium</div>
 
                 </div>
 
@@ -1278,7 +1278,7 @@ export const App: React.FC = () => {
 
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#202725 50%,#73BBA5 50%)' }}></div>
 
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Luna Mint</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Luna Mint</div>
 
                 </div>
 
@@ -1292,7 +1292,7 @@ export const App: React.FC = () => {
 
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#6366F1,#10B981,#A855F7)' }}></div>
 
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Aurora</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Aurora</div>
 
                 </div>
 
@@ -1306,7 +1306,7 @@ export const App: React.FC = () => {
 
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#FCEE0A 50%,#00F0FF 50%)' }}></div>
 
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Cyberpunk</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Cyberpunk</div>
 
                 </div>
 
@@ -1320,7 +1320,7 @@ export const App: React.FC = () => {
 
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#F4F2EE 50%,#EA580C 50%)' }}></div>
 
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Daylight</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Daylight</div>
 
                 </div>
 
@@ -1334,7 +1334,7 @@ export const App: React.FC = () => {
 
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#2B1810 50%,#F97316 50%)' }}></div>
 
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Copper</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Copper</div>
                 </div>
 
                 <div 
@@ -1342,7 +1342,7 @@ export const App: React.FC = () => {
                   onClick={() => handleApplyTheme('apple-luna')}
                 >
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#171D1C 50%,#73BBA5 50%)' }}></div>
-                  <div style={{ fontSize: '10px', fontWeight: 700 }}>Apple Luna</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Apple Luna</div>
                 </div>
 
               </div>
@@ -1355,7 +1355,7 @@ export const App: React.FC = () => {
 
               {/* BLOCK 2: 3D VOLUME RELIEFS */}
 
-              <div className="tabular" style={{ fontSize: '10px', color: 'var(--led-amber)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', padding: '1px 4px', letterSpacing: '0.04em', display: 'flex', justifyContent: 'space-between' }}>
 
                 <span>2. 3D ОБЪЕМНЫЕ ШЕЙДЕРЫ (NORMAL-MAPPED)</span>
 
@@ -1377,9 +1377,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Призмы (Магма)</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>3D-Призмы (Магма)</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>6 нормалей + магма</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>6 нормалей + магма</div>
 
                   </div>
 
@@ -1399,9 +1399,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Призмы (Тема)</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>3D-Призмы (Тема)</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Реактор цвета темы</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Реактор цвета темы</div>
 
                   </div>
 
@@ -1421,9 +1421,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Разломы Лавы</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>3D-Разломы Лавы</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Базальт + искры</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Базальт + искры</div>
 
                   </div>
 
@@ -1443,9 +1443,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Дамасская сталь</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>3D-Дамасская сталь</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Изолинии дамаска</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Изолинии дамаска</div>
 
                   </div>
 
@@ -1465,9 +1465,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Кованый Карбон</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>3D-Кованый Карбон</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Анизотропный блик</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Анизотропный блик</div>
 
                   </div>
 
@@ -1487,9 +1487,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>3D-Чипы и Шины</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>3D-Чипы и Шины</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Процессоры + импульсы</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Процессоры + импульсы</div>
 
                   </div>
                 </div>
@@ -1500,8 +1500,8 @@ export const App: React.FC = () => {
                 >
                   <span>🌿</span>
                   <div>
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>Apple Luna (Orbs)</div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Мягкие мятные сферы</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Apple Luna (Orbs)</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Мягкие мятные сферы</div>
                   </div>
                 </div>
 
@@ -1515,7 +1515,7 @@ export const App: React.FC = () => {
 
               {/* BLOCK 3: 2D FLAT PATTERNS */}
 
-              <div className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)', padding: '1px 4px', letterSpacing: '0.1em', display: 'flex', justifyContent: 'space-between' }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)', padding: '1px 4px', letterSpacing: '0.04em', display: 'flex', justifyContent: 'space-between' }}>
 
                 <span>3. КЛАССИЧЕСКИЕ 2D-ЗАДНИКИ (БЕЗ 3D-ОБЪЕМА)</span>
 
@@ -1537,9 +1537,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Соты (Классика)</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>2D-Соты (Классика)</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Тонкая векторная сетка</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Тонкая векторная сетка</div>
 
                   </div>
 
@@ -1559,9 +1559,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Контур Лавы</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>2D-Контур Лавы</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Плоские линии разломов</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Плоские линии разломов</div>
 
                   </div>
 
@@ -1581,9 +1581,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Точки Linear</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>2D-Точки Linear</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Инженерная микро-сетка</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Инженерная микро-сетка</div>
 
                   </div>
 
@@ -1603,9 +1603,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>2D-Карбон</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>2D-Карбон</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Диагональный узор</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Диагональный узор</div>
 
                   </div>
 
@@ -1625,9 +1625,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>Жидкий Шелк (Orbs)</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Жидкий Шелк (Orbs)</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Мягкое свечение сфер</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Мягкое свечение сфер</div>
 
                   </div>
 
@@ -1647,9 +1647,9 @@ export const App: React.FC = () => {
 
                   <div>
 
-                    <div style={{ fontSize: '10px', fontWeight: 700 }}>Чистый Матовый</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Чистый Матовый</div>
 
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Полностью без узора</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Полностью без узора</div>
 
                   </div>
 
@@ -1667,7 +1667,7 @@ export const App: React.FC = () => {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '2px 4px' }}>
 
-                <span className="tabular" style={{ fontSize: '10px', color: 'var(--text-engraved)' }}>ЯРКОСТЬ ЗАДНИКА:</span>
+                <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-engraved)' }}>ЯРКОСТЬ ЗАДНИКА:</span>
 
                 <input 
 
@@ -1685,7 +1685,7 @@ export const App: React.FC = () => {
 
                 />
 
-                <span className="tabular" style={{ fontSize: '9px', fontWeight: 700, color: 'var(--led-mint)', width: '32px', textAlign: 'right' }}>
+                <span className="tabular" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--led-mint)', width: '32px', textAlign: 'right' }}>
 
                   {Math.round(reliefOpacity * 100)}%
 
@@ -1721,7 +1721,7 @@ export const App: React.FC = () => {
 
           <div className="master-rocker-wrap" title="Главный тумблер фонового демона">
 
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '10px', fontWeight: 700, color: 'var(--text-engraved)' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-engraved)' }}>
 
               FARM
 
@@ -1851,7 +1851,7 @@ export const App: React.FC = () => {
               />
             ) : null}
             <div className="pip-cover-fallback" style={{ display: activeGameBoxArt ? 'none' : 'flex' }}>
-              <span style={{ fontSize: '24px' }}>🎮</span>
+              <span style={{ fontSize: 'var(--fs-xl)' }}>🎮</span>
             </div>
             <div className="pip-cover-tag">
               <span className="pulse-dot"></span>
@@ -1891,13 +1891,13 @@ export const App: React.FC = () => {
 
             <div style={{ textAlign: 'center', zIndex: 2 }}>
 
-              <div className="tabular" style={{ fontSize: '15px', fontWeight: 800 }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-md)', fontWeight: 800 }}>
 
                 {Math.round(progressPct)}%
 
               </div>
 
-              <div className="tabular" style={{ fontSize: '7.5px', color: 'var(--led-mint)' }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
 
                 {activeDrop ? `~${Math.round(activeDrop.remaining_seconds / 60)}М` : 'ГОТОВ'}
 
@@ -1919,7 +1919,7 @@ export const App: React.FC = () => {
 
               </span>
 
-              <span className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
+              <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
 
                 📡 {sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}
 
@@ -2309,7 +2309,7 @@ export const App: React.FC = () => {
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
                 />
-                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[9.5px] tabular text-[#8b9a94] shrink-0 select-none">
+                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[length:var(--fs-xs)] tabular text-[#8b9a94] shrink-0 select-none">
                   ESC
                 </kbd>
               </div>
@@ -2317,7 +2317,7 @@ export const App: React.FC = () => {
               <div className="p-2 overflow-y-auto space-y-2 scrollbar-thin flex-1 min-h-0">
                 {navActions.length > 0 && (
                   <div>
-                    <div className="text-[9.5px] tabular font-bold text-[#828f88] uppercase tracking-wider px-2 py-0.5">
+                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#828f88] uppercase tracking-[0.04em] px-2 py-0.5">
                       Навигация
                     </div>
                     <div className="space-y-0.5">
@@ -2337,7 +2337,7 @@ export const App: React.FC = () => {
                               {item.title}
                             </span>
                           </div>
-                          <span className="text-[9.5px] tabular px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[#73bba5] font-bold shrink-0">
+                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[#73bba5] font-bold shrink-0">
                             {item.key}
                           </span>
                         </button>
@@ -2348,7 +2348,7 @@ export const App: React.FC = () => {
 
                 {quickActions.length > 0 && (
                   <div>
-                    <div className="text-[9.5px] tabular font-bold text-[#828f88] uppercase tracking-wider px-2 py-0.5 pt-1">
+                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#828f88] uppercase tracking-[0.04em] px-2 py-0.5 pt-1">
                       Действия
                     </div>
                     <div className="space-y-0.5">
@@ -2369,7 +2369,7 @@ export const App: React.FC = () => {
                             </span>
                           </div>
                           {item.key && (
-                            <span className="text-[9.5px] tabular px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
+                            <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[#828f88] shrink-0">
                               {item.key}
                             </span>
                           )}
@@ -2381,9 +2381,9 @@ export const App: React.FC = () => {
 
                 {matchingGames.length > 0 && (
                   <div>
-                    <div className="text-[9.5px] tabular font-bold text-[#73bba5] uppercase tracking-wider px-2 py-0.5 pt-1 flex items-center justify-between">
+                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] uppercase tracking-[0.04em] px-2 py-0.5 pt-1 flex items-center justify-between">
                       <span>Игры в каталоге</span>
-                      <span className="text-[9px] text-[#828f88]">Фокус ↵</span>
+                      <span className="text-[length:var(--fs-xs)] text-[#828f88]">Фокус ↵</span>
                     </div>
                     <div className="space-y-0.5">
                       {matchingGames.map(game => (
@@ -2404,7 +2404,7 @@ export const App: React.FC = () => {
                               {game.name}
                             </span>
                           </div>
-                          <span className="text-[9px] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold shrink-0">
+                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold shrink-0">
                             В ФОКУС ↵
                           </span>
                         </button>
@@ -2416,13 +2416,13 @@ export const App: React.FC = () => {
                 {totalResults === 0 && (
                   <div className="p-6 text-center text-[#828f88] space-y-1">
                     <p className="text-xs font-semibold text-white">Ничего не найдено по запросу «{cmdSearch}»</p>
-                    <p className="text-[10.5px]">Попробуйте ввести имя игры или номер вкладки (1–5).</p>
+                    <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или номер вкладки (1–5).</p>
                   </div>
                 )}
               </div>
 
-              <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[10.5px] text-[#828f88] shrink-0 select-none">
-                <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[9px]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[9px]">Esc</kbd> Закрыть</span>
+              <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[length:var(--fs-xs)] text-[#828f88] shrink-0 select-none">
+                <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
               </div>
             </div>
           </div>
@@ -2535,7 +2535,7 @@ export const App: React.FC = () => {
 
               <div className="space-y-1.5">
 
-                <div className="flex justify-between text-[11px] text-[var(--text-muted)]">
+                <div className="flex justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)]">
 
                   <span>{updateProgress.error_message || updateProgress.stage}</span>
                   <span className="tabular text-[var(--led-mint)]">{updateProgress.percent}%</span>

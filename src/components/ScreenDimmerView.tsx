@@ -570,7 +570,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 className={`tactile-btn ${isLinked ? 'active-mint' : ''}`}
-                style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+                style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                 onClick={() => {
                   playClick();
                   setIsLinked(!isLinked);
@@ -582,13 +582,13 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               </button>
               <button
                 className="tactile-btn"
-                style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+                style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                 onClick={handleScanHardware}
                 title="Перечитать реальную яркость мониторов"
               >
                 🔄 Опрос
               </button>
-              <span className="metric-badge" style={{ fontSize: '9px', padding: '2px 6px' }}>
+              <span className="metric-badge" style={{ fontSize: 'var(--fs-xs)', padding: '2px 6px' }}>
                 {monitors.length ? `${monitors.length} ${monitors.length === 1 ? 'монитор' : monitors.length < 5 ? 'монитора' : 'мониторов'}` : 'мониторы не найдены'}
               </span>
             </div>
@@ -602,7 +602,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             }}
           >
             {monitors.length === 0 && (
-              <div className="obsidian-well" role="status" style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
+              <div className="obsidian-well" role="status" style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
                 Список мониторов появится после подключения к локальному сервису.
               </div>
             )}
@@ -632,8 +632,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0 }} title={`${mon.name}${mon.device_name ? ` • ${mon.device_name}` : ''}`}>
-                      <span style={{ fontSize: '13px', lineHeight: 1.3 }}>{mon.is_laptop_internal ? '💻' : '🖥️'}</span>
-                      <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>
+                      <span style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.3 }}>{mon.is_laptop_internal ? '💻' : '🖥️'}</span>
+                      <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>
                         #{idx + 1} {label}
                       </span>
                     </div>
@@ -641,7 +641,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       title={conn.hint}
                       style={{
                         flexShrink: 0,
-                        fontSize: '9px',
+                        fontSize: 'var(--fs-xs)',
                         fontFamily: 'var(--font-ui)',
                         padding: '1px 5px',
                         borderRadius: '3px',
@@ -657,11 +657,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
                     <span
                       title="Текущая яркость монитора"
-                      style={{ fontFamily: 'var(--font-ui)', fontSize: '22px', fontWeight: 800, lineHeight: 1, color: locked ? 'var(--text-muted)' : 'var(--accent-mint)' }}
+                      style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--fs-xl)', fontWeight: 800, lineHeight: 1, color: locked ? 'var(--text-muted)' : 'var(--accent-mint)' }}
                     >
                       {displayBri}%
                     </span>
-                    <span style={{ fontSize: '10px', fontFamily: 'var(--font-ui)', color: 'var(--text-muted)', textAlign: 'right' }}>
+                    <span style={{ fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-ui)', color: 'var(--text-muted)', textAlign: 'right' }}>
                       база <strong style={{ color: 'var(--text-heading)' }}>{baseBri}%</strong>
                       {!locked && diff !== 0 && (
                         <span style={{ color: diff > 0 ? '#60a5fa' : '#f59e0b' }}> ({diff > 0 ? `+${diff}` : diff})</span>
@@ -670,7 +670,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🌑</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>🌑</span>
                     <input
                       type="range"
                       min="0"
@@ -681,17 +681,17 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       onChange={e => handleSingleMonitorChange(idx, Number(e.target.value))}
                       style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent-mint)', cursor: locked ? 'not-allowed' : 'pointer' }}
                     />
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>☀️</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>☀️</span>
                   </div>
 
-                  <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                     {isSoloThis ? '● Затемнён отдельно' : isLinked ? '🔗 Синхронно с общей' : '🔓 Независимо'}
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                     <button
                       className="tactile-btn"
-                      style={{ flex: '1 1 auto', height: '24px', fontSize: '9.5px', padding: '0 7px' }}
+                      style={{ flex: '1 1 auto', height: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
                       onClick={() => handleSaveSingleBaseline(idx)}
                       title={`Запомнить текущие ${mon.current_brightness}% как базовую яркость этого монитора`}
                     >
@@ -699,7 +699,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     </button>
                     <button
                       className="tactile-btn active-mint"
-                      style={{ flex: '1 1 auto', height: '24px', fontSize: '9.5px', padding: '0 7px' }}
+                      style={{ flex: '1 1 auto', height: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
                       onClick={() => handleRestoreSingleBaseline(idx)}
                       title={`Вернуть этот монитор к базовой яркости (${baseBri}%)`}
                     >
@@ -707,7 +707,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     </button>
                     <button
                       className={`tactile-btn ${isSoloThis ? 'active-rose' : ''}`}
-                      style={{ flex: '1 1 100%', height: '24px', fontSize: '9.5px', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
+                      style={{ flex: '1 1 100%', height: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
                       onClick={() => handleToggleSoloBlackout(idx)}
                       title={isSoloThis ? 'Включить этот монитор обратно' : 'Погасить только этот монитор, остальные не трогать'}
                     >
@@ -722,7 +722,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <button
               className="tactile-btn"
-              style={{ height: '28px', fontSize: '10.5px', fontWeight: 700, padding: '0 12px' }}
+              style={{ height: '28px', fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '0 12px' }}
               onClick={handleSaveBaseline}
               title="Зафиксировать текущую яркость ВСЕХ мониторов как базовую"
             >
@@ -730,12 +730,12 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
             <button
               className="tactile-btn active-mint"
-              style={{ height: '28px', fontSize: '10.5px', fontWeight: 800, padding: '0 12px', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 0 12px rgba(58, 210, 159, 0.25)' }}
+              style={{ height: '28px', fontSize: 'var(--fs-xs)', fontWeight: 800, padding: '0 12px', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 0 12px rgba(58, 210, 159, 0.25)' }}
               onClick={handleRestoreBaseline}
               title="Вернуть базовую яркость всех мониторов"
             >
               <span>☀️ Вернуть базу всем</span>
-              <span style={{ fontSize: '10px', fontFamily: 'var(--font-ui)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,0,0,0.4)', color: '#ffffff' }}>
+              <span style={{ fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-ui)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,0,0,0.4)', color: '#ffffff' }}>
                 Alt+Shift+Backspace
               </span>
             </button>
@@ -839,7 +839,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 <span
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: '18px',
+                    fontSize: 'var(--fs-lg)',
                     fontWeight: 800,
                     color: isBlackout ? 'var(--text-muted)' : 'var(--accent-mint)',
                     lineHeight: 1,
@@ -847,7 +847,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 >
                   {monitors.length === 0 ? '—' : isBlackout ? '0' : masterBrightness}
                 </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-ui)' }}>
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', fontFamily: 'var(--font-ui)' }}>
                   %
                 </span>
               </div>
@@ -860,7 +860,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   className={`tactile-btn ${(!isBlackout && masterBrightness === p.val) ? 'active-mint' : ''}`}
                   style={{
                     height: '21px',
-                    fontSize: '9.5px',
+                    fontSize: 'var(--fs-xs)',
                     justifyContent: 'flex-start',
                     padding: '0 8px',
                     fontFamily: 'var(--font-ui)',
@@ -880,10 +880,10 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Сценарии:</span>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Сценарии:</span>
             <button
               className="tactile-btn"
-              style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+              style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={() => handleApplyScenario(85, 75, '☀️ День')}
               title="Внешние: 85%, ноутбук: 75%"
             >
@@ -891,7 +891,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
             <button
               className="tactile-btn"
-              style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+              style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={() => handleApplyScenario(45, 40, '🌆 Вечер')}
               title="Внешние: 45%, ноутбук: 40%"
             >
@@ -899,7 +899,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
             <button
               className="tactile-btn"
-              style={{ height: '22px', fontSize: '9.5px', padding: '0 8px' }}
+              style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={() => handleApplyScenario(15, 10, '🌑 Ночь')}
               title="Внешние: 15%, ноутбук: 10%"
             >
@@ -912,9 +912,9 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             style={{
               width: '100%',
               height: '32px',
-              fontSize: '11px',
+              fontSize: 'var(--fs-xs)',
               fontWeight: 800,
-              letterSpacing: '0.08em',
+              letterSpacing: '0.04em',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -930,7 +930,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <span>{isBlackout ? '☀️ ПРОБУДИТЬ ЭКРАНЫ' : '🌑 НОЧНОЙ БЛЭКАУТ (0%)'}</span>
             <span
               style={{
-                fontSize: '9px',
+                fontSize: 'var(--fs-xs)',
                 fontFamily: 'var(--font-ui)',
                 padding: '2px 5px',
                 borderRadius: '3px',
@@ -956,7 +956,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </span>
             <span
               style={{
-                fontSize: '9px',
+                fontSize: 'var(--fs-xs)',
                 fontFamily: 'var(--font-ui)',
                 fontWeight: 700,
                 color: sleepTimerMinutes > 0 ? 'var(--accent-mint)' : 'var(--text-muted)',
@@ -966,7 +966,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </span>
           </div>
 
-          <p style={{ fontSize: '9.5px', color: 'var(--text-secondary)', margin: '2px 0 6px 0', lineHeight: 1.4 }}>
+          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', margin: '2px 0 6px 0', lineHeight: 1.4 }}>
             Через заданное время экраны сами погаснут (ночной блэкаут). Компьютер не засыпает: фарм и закачки продолжаются.
           </p>
 
@@ -978,7 +978,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 className={`tactile-btn ${sleepTimerMinutes === t.mins ? 'active-mint' : ''}`}
                 style={{
                   height: '24px',
-                  fontSize: '9.5px',
+                  fontSize: 'var(--fs-xs)',
                   padding: '0 8px',
                   fontFamily: 'var(--font-ui)',
                   fontWeight: 700,
@@ -998,7 +998,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               <span className="led-dot"></span> <span title="Защита системы и аудио">ЗАЩИТА И ЗВУК</span>
             </span>
             {isBlackout && (
-              <span className="metric-badge" style={{ fontSize: '10px', color: 'var(--accent-mint)' }} title="Пока экраны погашены, ПК не уходит в сон и продолжает фарм">
+              <span className="metric-badge" style={{ fontSize: 'var(--fs-xs)', color: 'var(--accent-mint)' }} title="Пока экраны погашены, ПК не уходит в сон и продолжает фарм">
                 ПК не засыпает
               </span>
             )}
@@ -1018,16 +1018,16 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
+                <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-heading)' }}>
                   🔇 Выключать звук при затемнении
                 </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                   Звук возвращается, когда экраны просыпаются
                 </span>
               </div>
               <button
                 className={`tactile-btn ${muteAudioOnBlackout ? 'active-mint' : ''}`}
-                style={{ height: '20px', fontSize: '9px', padding: '0 6px' }}
+                style={{ height: '20px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
                 onClick={handleToggleMuteAudio}
               >
                 {muteAudioOnBlackout ? '✓ ВКЛ' : 'ВЫКЛ'}
@@ -1047,14 +1047,14 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-heading)' }}>
+                <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-heading)' }}>
                   🛡️ Защита от случайных кликов
                 </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                   Блэкаут снимается только по Esc или Alt+Backspace
                 </span>
               </div>
-              <span style={{ fontSize: '9px', fontFamily: 'var(--font-ui)', color: 'var(--accent-mint)' }}>
+              <span style={{ fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-ui)', color: 'var(--accent-mint)' }}>
                 АКТИВЕН
               </span>
             </div>
@@ -1069,7 +1069,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </span>
             <button
               className={`tactile-btn ${ultraDarkActive ? 'active-mint' : ''}`}
-              style={{ height: '20px', fontSize: '9px', padding: '0 8px' }}
+              style={{ height: '20px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
               onClick={handleToggleUltraDark}
               title="Включить затемнение сильнее, чем позволяет подсветка монитора"
             >
@@ -1077,18 +1077,18 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             </button>
           </div>
 
-          <p style={{ fontSize: '9.5px', color: 'var(--text-secondary)', margin: '2px 0', lineHeight: 1.35 }}>
+          <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', margin: '2px 0', lineHeight: 1.35 }}>
             Тёмный полупрозрачный слой поверх экрана: темнее, чем позволяет сам монитор. Клики проходят сквозь него, работать можно как обычно.
           </p>
 
           {/* UltraDark Tint Depth Slider */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-ui)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', fontFamily: 'var(--font-ui)' }}>
               <span>Глубина тонирования:</span>
               <span style={{ color: 'var(--accent-mint)', fontWeight: 700 }}>{ultraDarkTint}%</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>10%</span>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>10%</span>
               <input
                 type="range"
                 min="10"
@@ -1097,7 +1097,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 onChange={e => handleUltraDarkTintChange(Number(e.target.value))}
                 style={{ flex: 1, accentColor: 'var(--accent-mint)', cursor: 'pointer' }}
               />
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>95%</span>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>95%</span>
             </div>
           </div>
         </div>
@@ -1125,7 +1125,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           </div>
           <button
             className="tactile-btn"
-            style={{ height: '18px', fontSize: '10px', padding: '0 6px' }}
+            style={{ height: '18px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
             onClick={() => setBusLogs([])}
             title="Очистить журнал событий"
           >
@@ -1144,7 +1144,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             padding: '8px 10px',
             overflowY: 'auto',
             fontFamily: 'var(--font-ui)',
-            fontSize: '9.5px',
+            fontSize: 'var(--fs-xs)',
             lineHeight: 1.45,
             background: 'rgba(10, 14, 12, 0.75)',
             border: '1px solid rgba(255,255,255,0.04)',
@@ -1158,7 +1158,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           )}
           {busLogs.map(log => (
             <div key={log.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-              <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontSize: '9px' }}>[{log.time}]</span>
+              <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontSize: 'var(--fs-xs)' }}>[{log.time}]</span>
               <span
                 style={{
                   color: log.type === 'success'
@@ -1185,7 +1185,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
           padding: '6px 14px',
           borderRadius: '8px',
           border: '1px solid var(--border-subtle)',
-          fontSize: '9.5px',
+          fontSize: 'var(--fs-xs)',
           color: 'var(--text-secondary)',
           fontFamily: 'var(--font-ui)',
           flexShrink: 0,

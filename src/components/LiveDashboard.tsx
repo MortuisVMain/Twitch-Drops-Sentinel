@@ -475,15 +475,15 @@ const filteredLogs = useMemo(() => {
                       }}
                     />
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {item.name}{' '}
                         {item.priorityIndex >= 0 && (
-                          <span className="tabular" style={{ fontSize: '9px', color: 'var(--led-mint)' }}>
+                          <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
                             #{item.priorityIndex + 1}
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {item.state.kind === 'link' ? (
                           <button
                             className="queue-link-caption"
@@ -501,7 +501,7 @@ const filteredLogs = useMemo(() => {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
-                    <span className="tabular" style={{ fontSize: '10.5px', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                    <span className="tabular" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
                       {item.state.kind === 'none' ? '—' : `${item.pct}%`}
                     </span>
 
@@ -554,7 +554,7 @@ const filteredLogs = useMemo(() => {
       {/* 1. HARDWARE GUARD AUTOPAUSE BANNER */}
       {hardware.detected_game && (
         <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
             <span className="led-dot amber" />
             <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ИГРОВАЯ ПАУЗА:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
@@ -563,7 +563,7 @@ const filteredLogs = useMemo(() => {
           </div>
           <button
             className="tactile-btn active-amber"
-            style={{ height: '24px', fontSize: '10px' }}
+            style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
             onClick={() => handleIgnoreDetectedProcess(hardware.detected_game!)}
             title="Это не игра (Игнорировать)"
           >
@@ -575,20 +575,20 @@ const filteredLogs = useMemo(() => {
       {/* 2. OAUTH DEVICE CODE BANNER */}
       {oauthCode && (
         <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
             <KeyRound className="w-4 h-4 text-amber-400 animate-pulse" />
             <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ТРЕБУЕТСЯ АВТОРИЗАЦИЯ TWITCH:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
-              Код привязки устройства: <strong className="tabular" style={{ color: '#fff', fontSize: '13px', userSelect: 'all', cursor: 'text' }}>{oauthCode}</strong>
+              Код привязки устройства: <strong className="tabular" style={{ color: '#fff', fontSize: 'var(--fs-sm)', userSelect: 'all', cursor: 'text' }}>{oauthCode}</strong>
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {codeCopy === 'failed' && (
-              <span role="alert" style={{ fontSize: '10px', color: 'var(--led-rose)' }}>Не удалось скопировать, выделите код вручную</span>
+              <span role="alert" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-rose)' }}>Не удалось скопировать, выделите код вручную</span>
             )}
             <button
               className={`tactile-btn ${codeCopy === 'copied' ? 'active-mint' : ''}`}
-              style={{ height: '24px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              style={{ height: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
               onClick={handleCopyCode}
               title="Скопировать код в буфер обмена"
             >
@@ -600,7 +600,7 @@ const filteredLogs = useMemo(() => {
               target="_blank"
               rel="noreferrer"
               className="tactile-btn active-amber"
-              style={{ height: '24px', fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              style={{ height: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
               title="Откроет twitch.tv/activate с уже подставленным кодом"
             >
               <span>Открыть twitch.tv/activate</span>
@@ -613,7 +613,7 @@ const filteredLogs = useMemo(() => {
       {/* 3. ENDING SOON RADAR */}
       {endingSoonGame && !dismissedRadar.includes(endingSoonGame.key) && (
         <div className="ending-soon-radar mb-2.5" id="endingRadar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
             <span className="led-dot amber" />
             <strong className="tabular" style={{ color: 'var(--led-amber)' }}>РАДАР СГОРАЮЩЕЙ КАМПАНИИ:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
@@ -623,7 +623,7 @@ const filteredLogs = useMemo(() => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <button
             className="tactile-btn active-amber"
-            style={{ height: '24px', fontSize: '10px' }}
+            style={{ height: '24px', fontSize: 'var(--fs-xs)' }}
             onClick={() => {
               playClick();
               onForceFarm?.(endingSoonGame.name);
@@ -633,7 +633,7 @@ const filteredLogs = useMemo(() => {
           </button>
           <button
   className="tactile-btn"
-  style={{ height: '24px', width: '24px', padding: 0, fontSize: '12px' }}
+  style={{ height: '24px', width: '24px', padding: 0, fontSize: 'var(--fs-sm)' }}
   onClick={() => dismissRadar(endingSoonGame.key)}
   title="Скрыть это предупреждение"
   aria-label="Скрыть предупреждение о сгорающей кампании"
@@ -655,16 +655,16 @@ const filteredLogs = useMemo(() => {
             </span>
 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {forcedGame ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: '9.5px', color: 'var(--led-amber)', fontWeight: 700 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', fontWeight: 700 }}>
                   <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
-                  <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: '9px' }}>
+                  <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)' }}>
                     Сбросить фокус / В авто
                   </button>
                 </div>
               ) : (
                 <button 
                   className="tactile-btn" 
-                  style={{ height: '22px', padding: '0 8px', fontSize: '9px' }}
+                  style={{ height: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => setShowFullCatalogModal(true)}
                   title="Фарм вне очереди"
                 >
@@ -673,7 +673,7 @@ const filteredLogs = useMemo(() => {
               )}
               <button
                 className={`tactile-btn ${queueOnlyCampaigns ? 'active-mint' : ''}`}
-                style={{ height: '22px', padding: '0 8px', fontSize: '9px' }}
+                style={{ height: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={toggleQueueOnlyCampaigns}
                 aria-pressed={queueOnlyCampaigns}
                 title="Скрыть игры очереди, у которых сейчас нет кампании. Порядок очереди не меняется."
@@ -682,7 +682,7 @@ const filteredLogs = useMemo(() => {
               </button>
               <button
                 className="tactile-btn active-mint"
-                style={{ height: '22px', padding: '0 8px', fontSize: '9px' }}
+                style={{ height: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   onUpdateSettings?.({ priority_mode: settings.priority_mode === 0 ? 1 : 0 });
@@ -695,7 +695,7 @@ const filteredLogs = useMemo(() => {
 
           {/* GQL SEARCH INPUT & DROPDOWN */}
           <div className="obsidian-well search-well relative">
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>🔍</span>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>🔍</span>
             <input
               type="text"
               id="gqlSearchInput"
@@ -707,7 +707,7 @@ const filteredLogs = useMemo(() => {
             />
             {isSearchFocused && searchResults.length > 0 && (
               <div className="gql-autocomplete" id="gqlDropdown" style={{ display: 'flex' }}>
-                <div className="tabular" style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', padding: '2px 6px' }}>
+                <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', padding: '2px 6px' }}>
                   <span>ПРОВЕРКА TWITCH</span>
                   <span>ENTER ➔ В ОЧЕРЕДЬ</span>
                 </div>
@@ -723,8 +723,8 @@ const filteredLogs = useMemo(() => {
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: '11.5px', fontWeight: 700 }}>{item.canonical_name || item.name}</div>
-                      <div className="tabular" style={{ fontSize: '9px', color: item.has_active_drops ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{item.canonical_name || item.name}</div>
+                      <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: item.has_active_drops ? 'var(--led-mint)' : 'var(--text-muted)' }}>
                         {item.has_active_drops ? '● Активные Twitch Drops доступны' : '○ Нет активных дропов'}
                       </div>
                     </div>
@@ -835,10 +835,10 @@ const filteredLogs = useMemo(() => {
                   />
                 </svg>
                 <div style={{ textAlign: 'center', zIndex: 2 }}>
-                  <div className="tabular" style={{ fontSize: '19px', fontWeight: 800 }} id="heroPct">
+                  <div className="tabular" style={{ fontSize: 'var(--fs-lg)', fontWeight: 800 }} id="heroPct">
                     {progressPct}%
                   </div>
-                  <div className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)', fontWeight: 700 }} id="heroEta">
+                  <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)', fontWeight: 700 }} id="heroEta">
                     ~{etaMinutes} МИН
                   </div>
                 </div>
@@ -848,17 +848,17 @@ const filteredLogs = useMemo(() => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span className="version-chip">ЭТАП 2 ИЗ 3</span>
-                  <span className="tabular" style={{ fontSize: '9px', color: 'var(--text-muted)' }} id="heroMins">
+                  <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} id="heroMins">
                     ● {currentMinutes} ИЗ {requiredMinutes} МИН
                   </span>
-                  <span className="tabular" style={{ fontSize: '10px', color: 'var(--led-mint)' }}>
+                  <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
                     ● скорость 1x
                   </span>
                 </div>
                 <h2
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: '18px',
+                    fontSize: 'var(--fs-lg)',
                     fontWeight: 800,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -868,7 +868,7 @@ const filteredLogs = useMemo(() => {
                 >
                   {activeTitle || 'Ожидание дропа...'}
                 </h2>
-                <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }}>
                   ИГРА: <strong style={{ color: 'var(--text-primary)' }} id="heroGameTitle">{activeGame || 'Не выбрана'}</strong> • СТАТУС:{' '}
                   <strong className="tabular" style={{ color: 'var(--led-mint)' }}>
                     {activeStreamer ? `@${activeStreamer} (LIVE)` : 'ПОИСК СТРИМЕРА'}
@@ -934,7 +934,7 @@ const filteredLogs = useMemo(() => {
               {/* Right: Streamer Viewfinder */}
               <div className="obsidian-well streamer-viewfinder">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px' }}>
                     <span className="led-dot" />
                     <span id="streamerName">{activeStreamer ? `@${activeStreamer}` : 'ожидание стримера'}</span>
                   </div>
@@ -968,7 +968,7 @@ const filteredLogs = useMemo(() => {
                   ))}
                 </div>
 
-                <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
+                <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
                   <span title="Связь со стримом: SPADE HEAD каждые 20 с">Сигнал просмотра: каждые 20 с</span>
                   <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
                 </div>
@@ -1119,7 +1119,7 @@ const filteredLogs = useMemo(() => {
                     borderRadius: '6px',
                     padding: '2px 8px',
                     color: 'var(--text-primary)',
-                    fontSize: '9.5px',
+                    fontSize: 'var(--fs-xs)',
                     outline: 'none',
                     width: '145px',
                   }}
@@ -1127,7 +1127,7 @@ const filteredLogs = useMemo(() => {
                 {forcedGame && (
                   <button
                     className="tactile-btn"
-                    style={{ height: '22px', padding: '0 7px', fontSize: '10px', color: 'var(--led-amber)' }}
+                    style={{ height: '22px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
                     onClick={() => {
                       playClick();
                       onCancelForceFarm?.();
@@ -1141,7 +1141,7 @@ const filteredLogs = useMemo(() => {
 
             <div className="override-scroll-grid" id="overrideGrid" style={{ maxHeight: 'none', overflow: 'visible' }}>
               {overrideGames.length === 0 ? (
-                <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '10px' }}>
+                <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
                   Нет подходящих кампаний для ручного переключения
                 </div>
               ) : (
@@ -1167,10 +1167,10 @@ const filteredLogs = useMemo(() => {
                       title={isForced ? 'Нажмите для отмены ручного режима' : isFinished ? `${g.name}: все награды уже получены (100%)` : `Переключить фарм на ${g.name}`}
                     >
                       <div>
-                        <div style={{ fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.name}
                         </div>
-                        <div className="tabular" style={{ fontSize: '10px', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}>
+                        <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}>
                           {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : endingSoonByGame.has(safeLower(g.name)) ? `⏳ сгорает через ${endingSoonByGame.get(safeLower(g.name))?.timeLeft}` : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
                         </div>
                       </div>
@@ -1217,10 +1217,10 @@ const filteredLogs = useMemo(() => {
               <div className="flex items-center gap-2.5">
                 <span className="led-dot amber" />
                 <div>
-                  <h3 className="text-sm font-bold tracking-wider text-[var(--text-primary)]">
+                  <h3 className="text-sm font-bold tracking-[0.04em] text-[var(--text-primary)]">
                     ⚡ ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam • Каталог игр Twitch & Steam
                   </h3>
-                  <div className="text-[10px] text-[var(--text-muted)]">
+                  <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
                     Все действующие кампании Twitch Drops ({activeTwitchDropsGames.length} игр в эфире)
                   </div>
                 </div>
@@ -1245,7 +1245,7 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <button
                   className="tactile-btn active-amber"
-                  style={{ height: '22px', fontSize: '10px', padding: '0 8px' }}
+                  style={{ height: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                   onClick={() => {
                     playClick();
                     onCancelForceFarm?.();
@@ -1279,21 +1279,21 @@ const filteredLogs = useMemo(() => {
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   className={`tactile-btn ${catalogModalTab === 'ALL' ? 'active-mint' : ''}`}
-                  style={{ height: '28px', fontSize: '10px', padding: '0 10px' }}
+                  style={{ height: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('ALL'); }}
                 >
                   Все ({activeTwitchDropsGames.length})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'TOP' ? 'active-mint' : ''}`}
-                  style={{ height: '28px', fontSize: '10px', padding: '0 10px' }}
+                  style={{ height: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
                 >
                   ⭐ Очередь ({topPriorityCount})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
-                  style={{ height: '28px', fontSize: '10px', padding: '0 10px' }}
+                  style={{ height: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('INSTALLED'); }}
                 >
                   💾 На ПК ({installedActiveCount})
@@ -1306,7 +1306,7 @@ const filteredLogs = useMemo(() => {
               {modalFilteredGames.length === 0 ? (
                 <div className="text-center py-12 text-[var(--text-muted)] text-xs space-y-1.5">
                   <p>Игры с таким названием не найдены среди активных кампаний.</p>
-                  <p className="text-[10px]">Попробуйте изменить поисковый запрос или переключить фильтр.</p>
+                  <p className="text-[length:var(--fs-xs)]">Попробуйте изменить поисковый запрос или переключить фильтр.</p>
                 </div>
               ) : (
                 modalFilteredGames.map((g) => {
@@ -1337,17 +1337,17 @@ const filteredLogs = useMemo(() => {
                               {g.name}
                             </span>
                             {isTop && (
-                              <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                              <span className="px-1.5 py-0.5 rounded text-[length:var(--fs-xs)] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
                                 ⭐ Очередь
                               </span>
                             )}
                             {g.is_installed && (
-                              <span className="px-1.5 py-0.5 rounded text-[8.5px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                              <span className="px-1.5 py-0.5 rounded text-[length:var(--fs-xs)] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
                                 💾 УСТАНОВЛЕНА
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">
+                          <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] truncate mt-0.5">
                             {g.category || 'Активная кампания Twitch Drops'}
                           </div>
                         </div>
@@ -1356,7 +1356,7 @@ const filteredLogs = useMemo(() => {
                       <div className="flex items-center gap-1.5 shrink-0 ml-3">
                         <button
                           className={`tactile-btn ${isTop ? 'active-amber' : ''}`}
-                          style={{ height: '24px', fontSize: '9.5px', padding: '0 8px' }}
+                          style={{ height: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                           onClick={() => {
                             playClick();
                             if (isTop) {
@@ -1371,7 +1371,7 @@ const filteredLogs = useMemo(() => {
                         </button>
                         <button 
                           className={`tactile-btn ${isForced ? 'active-amber' : 'active-mint'}`}
-                          style={{ height: '24px', fontSize: '9.5px', padding: '0 10px' }}
+                          style={{ height: '24px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                           onClick={() => {
                             playClick();
                             if (isForced) {
@@ -1392,9 +1392,9 @@ const filteredLogs = useMemo(() => {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)] shrink-0">
+            <div className="flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)] shrink-0">
               <span>Показано: {modalFilteredGames.length} из {forceCandidates.length} игр</span>
-              <span className="text-[9px] text-[var(--text-secondary)]">
+              <span className="text-[length:var(--fs-xs)] text-[var(--text-secondary)]">
                 Фокус переключает бота на выбранную игру вне очереди
               </span>
             </div>

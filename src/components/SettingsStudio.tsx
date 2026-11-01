@@ -417,8 +417,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               {moduleCards.map((m) => (
                 <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '11.5px', fontWeight: 700 }}>{m.title}</div>
-                    <div style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{m.hint}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{m.title}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{m.hint}</div>
                   </div>
                   <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
                     <div className="knob"></div>
@@ -426,7 +426,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 </div>
               ))}
               {autostartError && (
-                <div role="status" style={{ fontSize: '9px', color: 'var(--led-amber)' }}>
+                <div role="status" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}>
                   Автозапуск недоступен: {autostartError}
                 </div>
               )}
@@ -434,7 +434,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </div>
 
           <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }} title="Что делает крестик окна. Фарм продолжается, пока приложение не закрыто полностью">ПРИ ЗАКРЫТИИ ОКНА:</span>
+            <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} title="Что делает крестик окна. Фарм продолжается, пока приложение не закрыто полностью">ПРИ ЗАКРЫТИИ ОКНА:</span>
             {([['ask', 'Спрашивать'], ['tray', 'В трей'], ['exit', 'Выход']] as const).map(([value, label]) => (
               <button
                 key={value}
@@ -448,7 +448,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </div>
 
           <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>ЯЗЫК ИНТЕРФЕЙСА:</span>
+            <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ЯЗЫК ИНТЕРФЕЙСА:</span>
             {([['ru', 'Русский'], ['en', 'English']] as const).map(([value, label]) => (
               <button
                 key={value}
@@ -467,7 +467,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
+              <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
               <button 
                 className={`tactile-btn ${settings.auto_shutdown_mode === 'sleep' || !settings.auto_shutdown_mode ? 'active-amber' : ''}`}
                 onClick={() => {
@@ -526,10 +526,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onUpdateSettings({ priority_mode: 0 });
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                 🎯 Только очередь (рекомендуется)
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Фармит только игры из вашей очереди.
               </div>
             </div>
@@ -541,10 +541,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onUpdateSettings({ priority_mode: 1 });
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                 ⚡ Очередь, а если пусто — любые доступные
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Если по очереди нечего фармить (нет кампаний или стримеры офлайн), временно берёт любые доступные дропы.
               </div>
             </div>
@@ -556,10 +556,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 onUpdateSettings({ priority_mode: 2 });
               }}
             >
-              <div style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                 ⏳ Очередь, затем кампании, которые скоро закончатся
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Сначала ваша очередь, потом кампании с наименьшим оставшимся временем.
               </div>
             </div>
@@ -571,20 +571,20 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span className="tag">
                 <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
-              <button className="tactile-btn active-mint" style={{ height: '22px', fontSize: '9px' }} onClick={handleAddFolder}>
+              <button className="tactile-btn active-mint" style={{ height: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
                 + Добавить папку
               </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {directories.map((dir, idx) => (
-                <div key={idx} className="obsidian-well tabular" style={{ padding: '6px 10px', fontSize: '10.5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={idx} className="obsidian-well tabular" style={{ padding: '6px 10px', fontSize: 'var(--fs-xs)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '340px' }}>📁 {dir}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ color: 'var(--led-mint)', fontSize: '9.5px' }}>[НАСТРОЕН]</span>
+                    <span style={{ color: 'var(--led-mint)', fontSize: 'var(--fs-xs)' }}>[НАСТРОЕН]</span>
                     <button
                       className="tactile-btn danger-hover"
-                      style={{ padding: '1px 6px', height: '18px', fontSize: '9px' }}
+                      style={{ padding: '1px 6px', height: '18px', fontSize: 'var(--fs-xs)' }}
                       onClick={() => handleRemoveFolder(dir)}
                       title="Удалить папку"
                     >
@@ -595,7 +595,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               ))}
             </div>
 
-            <div className="obsidian-well tabular" style={{ padding: '7px 10px', fontSize: '9.5px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="obsidian-well tabular" style={{ padding: '7px 10px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>📁 Настроено папок: {directories.length}</span>
               <span>Обнаружено игр: {installedCount}</span>
             </div>
@@ -654,8 +654,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div className="obsidian-well" style={{ padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span className="led-dot"></span>
               <div>
-                <div style={{ fontSize: '11.5px', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
-                  Twitch: {username} <span className="tabular" style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>{userId ? '' : '(аккаунт не подтверждён) '}• Mortuis_V_Studio</span>
+                <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800 }} title={userId ? `ID аккаунта: ${userId}` : 'Аккаунт не подтверждён'}>
+                  Twitch: {username} <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{userId ? '' : '(аккаунт не подтверждён) '}• Mortuis_V_Studio</span>
                 </div>
               </div>
             </div>
@@ -667,7 +667,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div className="obsidian-well" style={{ padding: '6px 12px', width: '240px', minWidth: 0 }}>
-              <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px', marginBottom: '3px' }}>
+              <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', marginBottom: '3px' }}>
                 <span id="updStageText" title={updateStage} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{updateStage}</span>
                 <strong style={{ color: 'var(--led-mint)' }} id="updPctText">{updatePct}%</strong>
               </div>
@@ -700,7 +700,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
               <div className="flex items-center gap-2">
                 <span className="led-dot"></span>
-                <h3 className="text-sm font-bold tracking-wider uppercase text-[var(--text-primary)]">
+                <h3 className="text-sm font-bold tracking-[0.04em] uppercase text-[var(--text-primary)]">
                   🩺 ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ
                 </h3>
               </div>
@@ -721,7 +721,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div className="flex justify-between items-center pt-2">
-              <span className="text-[10px] text-[var(--text-muted)]">
+              <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
                 Все секретные токены и cookies очищены перед отображением
               </span>
               <button 
