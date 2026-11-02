@@ -1,0 +1,35 @@
+name: Bug report / Ошибка
+description: Something does not work as expected. / Что-то работает не так.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! You can write in English or Russian. / Спасибо! Можно писать по-английски или по-русски.
+        **Never paste `cookies.jar` or tokens.** / **Никогда не вставляйте `cookies.jar` и токены.**
+  - type: input
+    id: version
+    attributes:
+      label: Sentinel version / Версия
+      description: Shown in Settings. / Указана в Настройках.
+      placeholder: "3.5.1"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version / Версия Windows
+      placeholder: "Windows 11 24H2"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / Что произошло?
+      description: What you did, what you expected and what you got. / Что делали, что ожидали и что получили.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic report / Диагностический отчёт
+      description: Settings → Report → Copy report. Tokens are removed automatically. / Настройки → «Отчет» → «Скопировать отчет». Токены вырезаются автоматически.
+      render: text

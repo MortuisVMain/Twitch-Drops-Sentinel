@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue / Уязвимость
+    url: https://github.com/MortuisVMain/Twitch-Drops-Sentinel/security/advisories/new
+    about: Report privately, not in a public issue. / Сообщите приватно, а не в открытом issue.

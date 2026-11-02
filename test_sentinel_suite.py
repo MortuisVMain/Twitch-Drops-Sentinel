@@ -311,7 +311,7 @@ def test_core_service_api():
 
 def test_prd_compliance():
     print("[6/10] Testing PRD Acceptance Criteria...")
-    prd_path = WORKSPACE / "PRD_SENTINEL_V3.md"
+    prd_path = WORKSPACE / "docs" / "internal" / "PRD_SENTINEL_V3.md"
     assert prd_path.exists(), "PRD_SENTINEL_V3.md missing!"
     content = prd_path.read_text(encoding="utf-8")
     assert "Twitch Drops Sentinel" in content

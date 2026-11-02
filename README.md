@@ -1,148 +1,121 @@
-# 🛡️ Twitch Drops Sentinel v3.1
-
 <div align="center">
 
-<img src="assets/app_icon.png" width="128" height="128" alt="Twitch Drops Sentinel Logo" />
+<img src="assets/app_icon.png" width="96" height="96" alt="Twitch Drops Sentinel icon">
 
-### Автономный streamless-комбинат для фарма наград Twitch Drops с 0% нагрузки на GPU
-*Премиальная десктопная утилита в эстетике Apple Luna 2.0. Сделано с любовью в Mortuis_V_Studio.*
+# Twitch Drops Sentinel
 
-[![Latest Release](https://img.shields.io/github/v/release/MortuisVMain/Twitch-Drops-Sentinel?style=flat&color=368873)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest)
-[![Quality Gates](https://img.shields.io/badge/Quality%20Gates-24%2F24%20PASS-368873)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-202725?logo=windows&logoColor=73bba5)](https://microsoft.com/windows)
-[![Stack](https://img.shields.io/badge/Stack-.NET%2010%20%7C%20Python%203.12%20%7C%20React%2019-202725)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
-[![GPU Load](https://img.shields.io/badge/GPU%20Load-0%25%20Streamless-73bba5)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel)
-[![License](https://img.shields.io/badge/License-MIT-368873)](LICENSE)
+**Farm Twitch Drops in the background on Windows, without playing the video.**
 
-[📦 Скачать релиз v3.1.0](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest) • [⚡ Быстрый старт](#-быстрый-старт-за-1-минуту) • [📖 Инструкция](ИНСТРУКЦИЯ.md) • [🛠 Архитектура](#-архитектура-системы)
+**English** · [Русский](README.ru.md)
+
+[![Latest release](https://img.shields.io/github/v/release/MortuisVMain/Twitch-Drops-Sentinel?color=3AD29F&label=release)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/MortuisVMain/Twitch-Drops-Sentinel/total?color=3AD29F)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases)
+[![CI](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/actions/workflows/ci.yml)
+![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0D1016)
+[![License](https://img.shields.io/badge/license-MIT%20%2B%20AGPL%20module-0D1016)](#license)
+
+[**Download for Windows**](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest)
 
 </div>
 
----
+![Sentinel dashboard](docs/screenshots/en/dashboard.webp)
 
-## ⚡ О проекте
+Sentinel is a desktop app that collects Twitch Drops for you. Pick the games you care about, and it finds live channels with drops enabled, keeps your watch progress going and claims the rewards. No browser tab, no video stream: Twitch sees the same "minute watched" signals a player sends, so your GPU stays free for games and the traffic stays small.
 
-**Twitch Drops Sentinel** — это автономное настольное приложение для Windows, созданное для тихого автоматического фарма наград (Drops) на Twitch без необходимости держать открытым тяжелый веб-браузер.
+## Features
 
-В отличие от браузерного просмотра, Sentinel взаимодействует напрямую с **Twitch GraphQL & Spade Telemetry API** на протокольном уровне:
-* **0% нагрузки на GPU:** Видеопоток не скачивается и не декодируется. Видеокарта полностью свободна для тяжелых игр, стриминга или 3D-рендеринга.
-* **Экономия до 98% интернет-трафика:** Расход сети снижается с ~3.2 ГБ/час до скромных ~5 МБ/час (только зашифрованные heartbeat-сигналы присутствия).
-* **GitHub Auto-Updater (Обновления в 1 клик):** Встроенный модуль проверки обновлений и применения горячих патчей (1.4 МБ) прямо из интерфейса. Сессионные файлы (`cookies.jar`, `Trophies.md`, `config.json`) гарантированно сохраняются при любых апдейтах.
-* **2-колоночный Bento Grid:** Просторный и чистый интерфейс Apple Luna 2.0 без бутафорских карточек — только 100% реальные измеренные метрики системы.
-* **Hardware Guard (Автопауза при гейминге):** При запуске любой тяжелой игры Sentinel автоматически ставит опрос на паузу для 100% плавности фреймрейта и нулевого пинга, а после закрытия игры сам возобновляет сбор наград.
-* **Free Games Claimer (Хаб Бесплатных Раздач):** Мониторинг и автоматический сбор раздач бесплатных игр с 7 ключевых платформ (Epic Games, Steam, GOG, Prime Gaming, itch.io).
-* **Luna Auto-Shutdown:** Автоматическое выключение, переход в сон или блокировка компьютера после завершения всех запланированных дроп-кампаний (идеально для ночного фарма).
-* **Универсальный GameScanner:** Автоматическое обнаружение установленных игр пользователя со всех дисков (библиотеки Steam, Epic Games, GOG Galaxy и настраиваемые пользовательские папки).
+- **Drops without the video.** Sentinel never downloads or decodes the stream. It sends watch signals and checks the stream playlist, which is enough for drop progress.
+- **Priority queue.** Put games in the order you want. Three modes: your list only, your list first and then any other campaign, or rare and soon-ending drops first.
+- **Automatic claiming.** Rewards are claimed as soon as they are ready and land in your trophy log. Channel points bonus chests are collected on the way.
+- **Game Shelf.** All active campaigns with covers, rewards, deadlines and progress. Installed games from Steam, Epic Games and GOG Galaxy (and your own folders) are detected automatically.
+- **Stays out of your way.** Farming pauses while you play a heavy game or run on battery, and resumes afterwards. When everything is collected, Sentinel can put the PC to sleep or shut it down.
+- **Free games.** An optional claimer picks up weekly giveaways on Epic Games, GOG, Steam, Fab, Unity Asset Store, itch.io and Prime Gaming on a schedule.
+- **Screen dimmer.** Dim one or all monitors below the hardware minimum, with a blackout mode for night farming.
+- **Looks the way you like.** 11 themes, 29 backdrops (including 17 photoreal ones that recolor to the theme), English and Russian interface, text size from 70 to 130 %.
+- **Updates itself.** New versions install from GitHub Releases in one click; your login, settings and trophy log are kept.
 
----
+## Screenshots
 
-## 🏗️ Архитектура системы
+| Appearance: themes and backdrops | Game Shelf |
+|---|---|
+| ![Appearance panel](docs/screenshots/en/appearance.webp) | ![Game Shelf](docs/screenshots/en/shelf.webp) |
+| **Free games** | **Themes: Copper, Sakura Night, Paper, Graphite OLED** |
+| ![Free games](docs/screenshots/en/giveaways.webp) | ![Themes](docs/screenshots/en/themes.webp) |
 
-Комплекс построен по гибридной трёхконтурной архитектуре, объединяющей максимальную производительность рабочего стола и гибкость реверс-инжиниринга:
+## Install
 
-```mermaid
-flowchart TD
-    subgraph UI["1. Интерфейс (React 19 + TypeScript + Vite)"]
-        A1["Apple Luna 2.0 Design Tokens (OKLCH)"]
-        A2["Bento Grid (2 колонки, чистая телеметрия)"]
-        A3["Тактильный Web Audio (Apple Chime)"]
-    end
+1. Download `Twitch_Drops_Sentinel_v…_Public_Release.zip` from the [latest release](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest).
+2. Unzip it into any folder you can write to, for example `C:\Games\Sentinel`.
+3. Run `TwitchDropsSentinel.exe`.
+4. Sign in: Sentinel opens [twitch.tv/activate](https://www.twitch.tv/activate) with a one-time code. Confirm it in your browser; your password never goes through the app.
 
-    subgraph Host["2. Windows Native Host (C# .NET 10 + WebView2)"]
-        B1["Windows 11 DWM Тёмный Заголовок (DWMWA_CAPTION_COLOR)"]
-        B2["Win32 Job Object (Гарантия 0 процесс-сирот)"]
-        B3["Single-Instance Mutex & Системный Трей"]
-        B4["FolderBrowserDialog Bridge & WinRT Toasts"]
-    end
+**Requirements:** Windows 10 or 11 (64-bit) and the Microsoft Edge WebView2 Runtime, which Windows 11 already has (Sentinel offers the download if it is missing). Python is bundled. The free-games claimer additionally needs [Node.js](https://nodejs.org/); its browser engine installs itself on first use.
 
-    subgraph Engine["3. Streamless Core (Python 3.12 asyncio)"]
-        C1["Twitch Smartbox GQL & WebSocket Client"]
-        C2["HLS CDN Cadence Buffer (20s keepalive)"]
-        C3["Hardware Guard (psutil сенсоры батареи и 140+ игр)"]
-        C4["Free Games Orchestrator (Epic / Steam / GOG)"]
-        C5["GitHub Auto-Updater (SafeAuthRedirectHandler)"]
-    end
+> [!TIP]
+> To get drops for a game, your Twitch account usually has to be linked to the game's account. Sentinel marks such campaigns with "link your account".
 
-    UI <-->|Localhost REST & WebSockets| Engine
-    Host <-->|Process Lifecycle & Native Bridge| Engine
-    UI <-->|WebView2 Native Channel| Host
-```
+## FAQ
 
----
+<details>
+<summary><b>Windows SmartScreen says the app is unrecognized</b></summary>
 
-## 🎨 Дизайн и интерфейс (Apple Luna 2.0)
+The executable is not code-signed, so SmartScreen warns on first launch. Click **More info → Run anyway**. You can also check the source and build it yourself (see below).
+</details>
 
-Интерфейс построен по каноническому дизайн-контракту **Apple Luna 2.0**:
-* **Глубокая палитра Obsidian & Noble Mint:** `#171d1c` (фон), `#202725` (поверхность), `#303a35` (тонкие линии), `#73bba5` / `#368873` (мятный благородный акцент).
-* **Bento Grid:** адаптивная двухколоночная сетка карточек с живой телеметрией процессора, состояния батареи и сетевого пинга.
-* **Тактильный Web Audio:** процедурный звуковой движок обратной связи при переключении разделов и сигнал Apple Chime при зачислении каждого нового предмета (с тумблером моментального Mute в Topbar).
-* **Запоминание геометрии окна:** умное восстановление размеров и положения на экране (`data/window_state.json`).
+<details>
+<summary><b>Do I need to keep the stream or a browser open?</b></summary>
 
----
+No. Sentinel works on its own; you can minimize it to the tray. Closing the window asks whether to keep farming in the tray or quit.
+</details>
 
-## 🚀 Быстрый старт за 1 минуту
+<details>
+<summary><b>Where is my data stored?</b></summary>
 
-### Вариант 1: Запуск готового Portable-дистрибутива (Рекомендуется)
-1. Скачайте архив релиза **[`Twitch_Drops_Sentinel_v3.1_Public_Release.zip`](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest)**.
-2. Распакуйте в любую папку на диске (например, `C:\Games\Sentinel`).
-3. Запустите **`TwitchDropsSentinel.exe`**.
-4. При самом первом запуске откроется страница `https://www.twitch.tv/activate` — подтвердите одноразовый безопасный код OAuth Device Code.
-5. Готово! Sentinel сразу начнёт автономный фарм наград.
+Only on your PC, next to the executable: the session (`cookies.jar`), settings (`config.json`) and the trophy log (`Trophies.md`). Nothing is sent anywhere except Twitch itself (and the stores, if you use the free-games claimer). Diagnostic reports strip tokens before you copy them.
+</details>
 
-> [!NOTE]
-> Все зависимости и портативный Python уже встроены в архив. Никаких дополнительных установок или настроек среды не требуется.
+<details>
+<summary><b>Is this allowed by Twitch?</b></summary>
 
-### Вариант 2: Запуск из исходного кода
+Automated watching is a grey area of the Twitch Terms of Service. Sentinel signs in with Twitch's official device login and behaves like a normal viewer, but use it at your own risk.
+</details>
+
+<details>
+<summary><b>How do updates work?</b></summary>
+
+Sentinel checks GitHub Releases and offers a small patch archive. It swaps the files in place and restarts; your session, settings and trophies stay. You can always download the full archive from Releases instead.
+</details>
+
+## Build from source
+
 ```powershell
-# 1. Клонирование репозитория
 git clone https://github.com/MortuisVMain/Twitch-Drops-Sentinel.git
 cd Twitch-Drops-Sentinel
-
-# 2. Установка зависимостей интерфейса и сборка бандла
 npm ci
-npm run build
-
-# 3. Установка Python зависимостей
-pip install -r requirements.txt
-
-# 4. Сборка C# хоста и запуск
+npm run build                      # UI bundle -> dist/
+pip install -r requirements.txt    # Python service
 dotnet run --project desktop/TwitchDropsSentinel.csproj
 ```
 
----
+Tests: `python test_sentinel_suite.py`. CI runs the same suite on every push.
 
-## 🛡️ Безопасность и Приватность
+## How it works
 
-* **Пароли не требуются:** Авторизация построена на официальном протоколе **Twitch OAuth Device Authorization Grant**. Вы подтверждаете вход прямо в вашем обычном веб-браузере на серверах Twitch.
-* **Полная изоляция данных:** Файлы сессии (`cookies.jar`), журнал трофеев (`Trophies.md`) и конфигурация (`config.json`) хранятся исключительно локально на вашем ПК и добавлены в `.gitignore`. Они никогда не отправляются на сторонние серверы.
-* **Zero Telemetry Leak:** Все диагностические отчёты перед отправкой или копированием автоматически вырезают любые упоминания токенов авторизации (`oauth:[REDACTED]`).
-
----
-
-## 🧪 Тестирование и Надежность
-
-Проект сопровождается всеобъемлющим комплексом из **24 строгих шлюзов верификации** (`test_sentinel_suite.py`):
-```powershell
-python test_sentinel_suite.py
+```mermaid
+flowchart LR
+    UI["Interface<br/>React + TypeScript"] <-->|"local REST + WebSocket"| Core["Service<br/>Python 3.12 asyncio"]
+    Host["Desktop shell<br/>C# .NET + WebView2"] --- UI
+    Host -->|"starts and supervises"| Core
+    Core -->|"GraphQL, watch signals"| Twitch[(Twitch)]
+    Core -->|"optional"| Stores[("Game stores<br/>free-games claimer")]
 ```
 
-* **Шлюзы охватывают:**
-  - Целостность монолитного исполняемого файла и бандла `dist/index.html`.
-  - Отсутствие Mojibake и искажений кодировки CP1251 во всех Python-файлах и логах.
-  - Устойчивость парсинга кампаний (фильтрация истекших дропсов, защита от флаппинга стримеров).
-  - Датчики Hardware Guard и контроль автопаузы при гейминге.
-  - Точность сканера библиотек Steam, Epic Games и GOG Galaxy.
-  - Полный цикл работы GitHub Auto-Updater и горячих патчей.
+## Credits
 
----
+The Twitch farming core is based on [TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) by DevilXD (MIT). The free-games module is based on [free-games-claimer](https://github.com/vogler/free-games-claimer) by Ralf Vogler (AGPL-3.0). Details are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## 📄 Лицензия
+## License
 
-Распространяется под свободной лицензией **MIT License**. См. файл [LICENSE](LICENSE) для подробностей.  
-Разработано исключительно в исследовательских и образовательных целях.
+MIT, see [LICENSE](LICENSE). The `giveaways_engine/` directory is AGPL-3.0, see [giveaways_engine/LICENSE](giveaways_engine/LICENSE).
 
----
-
-<div align="center">
-<sub>Crafted with precision by Mortuis_V_Studio • 2026</sub>
-</div>
+Sentinel is not affiliated with or endorsed by Twitch, Amazon or any game store. All trademarks belong to their owners.

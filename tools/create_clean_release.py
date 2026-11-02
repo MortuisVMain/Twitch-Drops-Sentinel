@@ -137,8 +137,8 @@ def create_release():
     shutil.copy2(bat_src, RELEASE_DIR / "Запустить_Twitch_Drops_Sentinel.bat")
 
     # 9. User Guide & Documentation
-    if (WORKSPACE / "ИНСТРУКЦИЯ.md").exists():
-        shutil.copy2(WORKSPACE / "ИНСТРУКЦИЯ.md", RELEASE_DIR / "ИНСТРУКЦИЯ.md")
+    if (WORKSPACE / "docs" / "ИНСТРУКЦИЯ.md").exists():
+        shutil.copy2(WORKSPACE / "docs" / "ИНСТРУКЦИЯ.md", RELEASE_DIR / "ИНСТРУКЦИЯ.md")
     if (WORKSPACE / "README.md").exists():
         shutil.copy2(WORKSPACE / "README.md", RELEASE_DIR / "README.md")
 

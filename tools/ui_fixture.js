@@ -66,6 +66,20 @@
   ['epic', 'gog', 'steam', 'fab', 'unity', 'itch', 'prime'].forEach(function (id) {
     giveaways.stores[id] = { store: id, displayName: id, claimedCount: 3, existedCount: 1, lastClaimedAt: '2026-10-30', dbFileExists: true, account: 'acc@example.com' };
   });
+  // ?demo=1: tidy names for README screenshots (the default keeps long names on purpose to catch overflow)
+  if (q.get('demo') === '1') {
+    var NAMES = ['Warhammer 40,000: Space Marine 2', 'Hunt: Showdown 1896', 'Path of Exile 2', 'The Witcher 3', 'Black Desert',
+      'Battlefield 6', 'Stardew Valley', 'Terraria', 'Hades II', 'RimWorld', 'Dredge', 'Stellaris', 'The Division 2', 'EVE Online'];
+    games.forEach(function (g, i) { g.name = NAMES[i]; });
+    state.username = 'sentinel_demo'; state.status_text = 'Фарм: ' + NAMES[0]; state.watching_channel = 'demo_streamer';
+    state.available_channels.forEach(function (c, i) { c.name = ['demo_streamer', 'night_raider', 'arctic_fox_tv'][i]; c.game = NAMES[i]; });
+    Object.assign(state.active_drop, { name: 'Ultramarines Armour Set', game: NAMES[0], channel_name: 'demo_streamer' });
+    Object.assign(state.settings, { priority_games: NAMES.slice(0, 3), excluded_games: [NAMES[7]], user_linked_games: [NAMES[0]], game_directories: ['D:\Games'] });
+    state.trophies.forEach(function (t, i) { t.game = NAMES[i + 1]; t.drop_name = ['Weapon Charm', 'Banner Frame', 'Supply Crate', 'Emote'][i]; });
+    state.recent_logs = [{ time: '12:00:00', level: 'INFO', message: q.get('lang') === 'en' ? 'Farming started: ' + NAMES[0] + ' on demo_streamer' : 'Фарм начат: ' + NAMES[0] + ' на канале demo_streamer', category: 'farm' }];
+    giveaways.inventory.forEach(function (it, i) { it.title = ['Celeste', 'Hollow Knight', 'Into the Breach', 'Dredge', 'Tunic'][i]; it.account = 'demo@example.com'; });
+    dimmer.monitors.forEach(function (m, i) { m.name = ['Dell U2723QE', 'LG 27GP850', 'Built-in Display'][i]; });
+  }
   var routes = { '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
