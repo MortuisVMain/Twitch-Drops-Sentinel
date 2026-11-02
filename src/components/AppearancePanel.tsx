@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { PHOTO_BACKDROPS, photoBackdropUrl } from './PhotoBackdrop';
+import { PHOTO_BACKDROPS, PhotoPreview, photoBackdropUrl } from './PhotoBackdrop';
+import { ThemedThumb } from './ThemedThumb';
 
 interface ThemeDef { id: string; name: string; bg: string; acc: string; light?: boolean }
 
@@ -17,22 +18,35 @@ const THEMES: ThemeDef[] = [
   { id: 'paper', name: 'Paper', bg: '#EEF1F4', acc: '#2457D6', light: true },
 ];
 
-type Category = 'photo' | 'motion' | 'pattern';
+type Group = 'energy' | 'space' | 'materials' | 'landscape' | 'classic';
 
 interface BackdropDef {
   type: string;
   mode: string;
   name: string;
   hint: string;
-  cat: Category | 'none';
-  /** image url, or a 2D pattern id rendered live with the same CSS as the backdrop */
+  group: Group;
+  /** image url (photo thumbnails are recolored to the theme); without it, a 2D pattern drawn with the backdrop's CSS */
   thumb?: string;
   pattern?: string;
 }
 
+const PHOTO_GROUP: Record<string, Group> = {
+  lava0: 'energy', lavai: 'energy', caustics: 'energy', wave: 'energy', beams: 'energy', hex2: 'energy',
+  globe: 'space', radar: 'space', signal: 'space', drops: 'space',
+  metal2: 'materials', silk: 'materials', chrome: 'materials', glass: 'materials', hex1: 'materials', hexi: 'materials',
+  ridges: 'landscape',
+};
+
+const GROUPS: { id: Group; label: string }[] = [
+  { id: 'energy', label: 'Энергия и свет' },
+  { id: 'space', label: 'Космос и сигналы' },
+  { id: 'materials', label: 'Материалы' },
+  { id: 'landscape', label: 'Пейзаж' },
+];
+
 const BACKDROPS: BackdropDef[] = [
-  { type: 'smooth', mode: 'none', name: 'Без фона', hint: 'Ровная матовая поверхность', cat: 'none' },
-  ...PHOTO_BACKDROPS.map((p): BackdropDef => ({ type: 'photo', mode: p.id, name: p.name, hint: p.sub, cat: 'photo', thumb: photoBackdropUrl(p.id, true) })),
+  ...PHOTO_BACKDROPS.map((p): BackdropDef => ({ type: 'photo', mode: p.id, name: p.name, hint: p.sub, group: PHOTO_GROUP[p.id] ?? 'materials', thumb: photoBackdropUrl(p.id, true) })),
   ...([
     ['hex-theme', 'Соты в цвете темы', 'Призмы, швы светятся акцентом'],
     ['hex-magma', 'Соты с магмой', 'Призмы и раскалённые швы'],
@@ -41,27 +55,35 @@ const BACKDROPS: BackdropDef[] = [
     ['carbon-weave', 'Кованый карбон', 'Плетение с бликом'],
     ['pcb-3d', 'Чипы и шины', 'Плата с импульсами'],
     ['liquid-silk', 'Мягкие сферы', 'Плавающие пятна света'],
-  ] as const).map(([mode, name, hint]): BackdropDef => ({ type: '3d', mode, name, hint, cat: 'motion', thumb: `backdrops/proc/${mode}.webp` })),
+  ] as const).map(([mode, name, hint]): BackdropDef => ({ type: '3d', mode, name, hint, group: 'classic', thumb: `backdrops/proc/${mode}.webp` })),
   ...([
     ['2d-honeycomb', 'Контур сот', 'Тонкая сетка шестигранников'],
     ['2d-lava', 'Контур лавы', 'Линии разломов'],
     ['2d-dots', 'Точки', 'Ровная точечная сетка'],
     ['2d-carbon', 'Диагональ', 'Плоский узор карбона'],
-  ] as const).map(([type, name, hint]): BackdropDef => ({ type, mode: 'none', name, hint, cat: 'pattern', pattern: type })),
+  ] as const).map(([type, name, hint]): BackdropDef => ({ type, mode: 'none', name, hint, group: 'classic', pattern: type })),
 ];
 
-const FILTERS: { id: Category | 'all'; label: string }[] = [
-  { id: 'all', label: 'Все' },
-  { id: 'photo', label: 'Фото' },
-  { id: 'motion', label: 'Анимация' },
-  { id: 'pattern', label: 'Узоры' },
-];
+const CLASSIC_COUNT = BACKDROPS.filter(b => b.group === 'classic').length;
+const LAST_KEY = 'sentinel_last_backdrop';
+const DEFAULT_LAST = { type: 'photo', mode: 'hex2', name: 'Неоновые соты' };
 
 /** 'apple-luna' was merged into 'liquid-silk'; saved settings with the old id keep working and show as selected. */
 function isActive(b: BackdropDef, type: string, mode: string): boolean {
   if (b.type !== type) return false;
   if (b.type === '3d' || b.type === 'photo') return b.mode === mode || (b.mode === 'liquid-silk' && mode === 'apple-luna');
   return true;
+}
+
+/** The backdrop to return to when 'No backdrop' is switched off. */
+function readLast(): typeof DEFAULT_LAST {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_KEY) || 'null');
+    return v && typeof v.type === 'string' && typeof v.mode === 'string' && typeof v.name === 'string' ? v : DEFAULT_LAST;
+  } catch (err) {
+    console.warn('AppearancePanel: cannot read the last backdrop:', err);
+    return DEFAULT_LAST;
+  }
 }
 
 export interface AppearancePanelProps {
@@ -79,8 +101,38 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
   open, theme, backdropType, reliefMode, reliefOpacity, onTheme, onBackdrop, onOpacity,
 }) => {
   const [tab, setTab] = useState<'theme' | 'backdrop'>('theme');
-  const [filter, setFilter] = useState<Category | 'all'>('all');
-  const shown = BACKDROPS.filter(b => filter === 'all' || b.cat === filter || b.cat === 'none');
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [classicOpen, setClassicOpen] = useState(() => BACKDROPS.some(b => b.group === 'classic' && isActive(b, backdropType, reliefMode)));
+  const noBackdrop = backdropType === 'smooth';
+
+  const remember = (b: BackdropDef) => {
+    try { localStorage.setItem(LAST_KEY, JSON.stringify({ type: b.type, mode: b.mode, name: b.name })); }
+    catch (err) { console.warn('AppearancePanel: cannot save the last backdrop:', err); }
+  };
+  const pick = (b: BackdropDef) => { remember(b); onBackdrop(b.type, b.mode, b.name); };
+  const toggleNone = () => {
+    if (noBackdrop) { const last = readLast(); onBackdrop(last.type, last.mode, last.name); return; }
+    const current = BACKDROPS.find(b => isActive(b, backdropType, reliefMode));
+    if (current) remember(current);
+    onBackdrop('smooth', 'none', 'Без фона');
+  };
+
+  const card = (b: BackdropDef) => {
+    const active = !noBackdrop && isActive(b, backdropType, reliefMode);
+    const key = b.type + b.mode;
+    return (
+      <button key={key} type="button" title={b.hint} className={`ap-card ${active ? 'active' : ''}`} aria-pressed={active} onClick={() => pick(b)}
+        onMouseEnter={() => setHovered(key)} onMouseLeave={() => setHovered(h => (h === key ? null : h))}>
+        <span className="ap-thumb-wrap">
+          {b.type === 'photo' ? <ThemedThumb src={b.thumb!} themeId={theme} />
+            : b.thumb ? <img className="ap-thumb" src={b.thumb} alt="" loading="lazy" />
+            : <span className="ap-thumb" data-bd={b.pattern} />}
+          {b.type === 'photo' && hovered === key && <PhotoPreview photoId={b.mode} themeId={theme} />}
+        </span>
+        <span className="ap-name">{b.name}</span>
+      </button>
+    );
+  };
 
   const themeGroup = (label: string, light: boolean) => (
     <>
@@ -113,24 +165,25 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
         </div>
       ) : (
         <>
-          <div className="ap-chips">
-            {FILTERS.map(f => (
-              <button key={f.id} type="button" className={`ap-chip ${filter === f.id ? 'on' : ''}`} onClick={() => setFilter(f.id)} aria-pressed={filter === f.id}>{f.label}</button>
-            ))}
+          <div className="ap-toolbar">
+            <label className="ap-switch">
+              <input type="checkbox" checked={noBackdrop} onChange={toggleNone} />
+              <span>Без фона</span>
+            </label>
+            <span className="ap-hint">Наведите на фон, чтобы увидеть движение</span>
           </div>
-          <div className="ap-body">
-            <div className="ap-grid">
-              {shown.map(b => {
-                const active = isActive(b, backdropType, reliefMode);
-                return (
-                  <button key={b.type + b.mode} type="button" title={b.hint} className={`ap-card ${active ? 'active' : ''}`} aria-pressed={active} onClick={() => onBackdrop(b.type, b.mode, b.name)}>
-                    {b.thumb ? <img className="ap-thumb" src={b.thumb} alt="" loading="lazy" />
-                      : <span className="ap-thumb" data-bd={b.pattern} />}
-                    <span className="ap-name">{b.name}</span>
-                  </button>
-                );
-              })}
-            </div>
+          <div className={`ap-body ${noBackdrop ? 'dimmed' : ''}`}>
+            {GROUPS.map(g => (
+              <React.Fragment key={g.id}>
+                <div className="ap-label">{g.label}</div>
+                <div className="ap-grid">{BACKDROPS.filter(b => b.group === g.id).map(card)}</div>
+              </React.Fragment>
+            ))}
+            <button type="button" className="ap-more" aria-expanded={classicOpen} onClick={() => setClassicOpen(o => !o)}>
+              <span>Классические фоны · {CLASSIC_COUNT}</span>
+              <span aria-hidden="true">{classicOpen ? '▴' : '▾'}</span>
+            </button>
+            {classicOpen && <div className="ap-grid">{BACKDROPS.filter(b => b.group === 'classic').map(card)}</div>}
           </div>
           <label className="ap-foot">
             <span>Яркость фона</span>
