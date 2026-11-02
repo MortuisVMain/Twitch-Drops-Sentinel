@@ -27,3 +27,14 @@ has one palette, and Sentinel has many themes.
   animation frame.
 - Photos are much brighter than the procedural backdrops, so their opacity is the brightness slider times 0.8.
 - `tools/build_ui_harness.mjs` now copies `dist/` subfolders recursively (it used `copyFileSync` before).
+
+## Motion modes (v3.5.3)
+A still frame can only glow, so each backdrop now has its own motion mode (`mode` and `c` in `PHOTO_BACKDROPS`,
+uniforms `uMode`/`uC`): a light wave across hex seams, heat rings and embers from the lava core, satellites on inclined
+orbits around the globe, a rotating radar beam, an equalizer on the spectrum, rising bubbles, water ripple (UV
+displacement) on caustics, silk and chrome, flowing light along the wave, drifting fog between the ridges, pulses along
+the grid lines and a highlight running around the glass ring. Centres and sizes were measured on the 640 px thumbnails
+with a coordinate grid. White-hot cores count as emissive when their blurred surroundings are coloured, otherwise they
+never animate. Cost at 1080p on an RTX 5070 Ti: 0.11-0.22 ms per frame.
+Tune with a stand page that renders one backdrop at a given time and compare frames 1 s apart; thumbnails hide motion,
+judge on full-size frames.
