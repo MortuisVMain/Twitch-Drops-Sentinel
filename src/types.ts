@@ -94,7 +94,7 @@ export interface SentinelSettings {
   priority_mode?: number; // 0 = PRIORITY_ONLY, 1 = ENDING_SOONEST, 2 = LOW_AVBL_FIRST
   hardware_guard_enabled?: boolean;
   ignored_channels?: { name: string; until?: number; reason?: 'snooze2h' | 'permaban' }[];
-  ui_theme?: 'titanium' | 'luna-mint' | 'gradient' | 'cyberpunk' | 'light' | 'copper' | 'apple-luna';
+  ui_theme?: 'titanium' | 'luna-mint' | 'gradient' | 'cyberpunk' | 'light' | 'copper' | 'apple-luna' | 'midnight' | 'graphite' | 'paper' | 'sakura';
   ui_backdrop_type?: '3d' | '2d-honeycomb' | '2d-lava' | '2d-dots' | '2d-carbon' | 'smooth';
   ui_relief_mode?: 'hex-magma' | 'hex-theme' | 'tectonic-lava' | 'topo-damascus' | 'carbon-weave' | 'pcb-3d' | 'liquid-silk' | 'apple-luna' | 'none';
   ui_relief_opacity?: number;
