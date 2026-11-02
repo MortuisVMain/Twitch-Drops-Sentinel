@@ -2,6 +2,11 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.4] - 2026-11-02
+- Backdrop tab grouped by look (Energy and light, Space and signals, Materials, Landscape); older backdrops kept in a collapsed Classic section.
+- Photo thumbnails use the colors of the active theme; hovering a card plays the backdrop live.
+- "No backdrop" is a switch that returns to the previous backdrop.
+
 ## [3.5.3] - 2026-11-02
 - Photo backdrops are clearly animated now, each in its own way: a light wave over the hex seams, heat and sparks from the lava, satellites orbiting the globe, a rotating radar beam, a bouncing equalizer, rising bubbles, rippling water and silk, drifting fog between the mountains and more.
 
