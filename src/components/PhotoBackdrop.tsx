@@ -12,7 +12,7 @@ export interface PhotoBackdropDef {
 /** ComfyUI frames in `public/backdrops/<id>.webp` (2560 px) with 640 px thumbnails in `public/backdrops/s/`. */
 export const PHOTO_BACKDROPS: PhotoBackdropDef[] = [
   { id: 'hex2', name: 'Неоновые соты', sub: 'Призмы и неон в швах', fx: [1, .3, .6, 1], fq: [0, 1, .25, 0] },
-  { id: 'hex1', name: 'Соты в полумраке', sub: 'Плитки и мягкий отсвет', fx: [.7, .6, .6, 1], fq: [0, 1, 0, 0] },
+  { id: 'hex1', name: 'Тёмные соты', sub: 'Плитки и мягкий отсвет', fx: [.7, .6, .6, 1], fq: [0, 1, 0, 0] },
   { id: 'lava0', name: 'Лава', sub: 'Раскалённые трещины', fx: [1, .15, .5, 1], fq: [0, 1, .15, 0] },
   { id: 'metal2', name: 'Титан', sub: 'Шлифованный металл', fx: [0, .9, .4, 1], fq: [0, 1, 0, 0] },
   { id: 'globe', name: 'Глобус', sub: 'Земля из светящихся точек', fx: [.8, .2, .3, 1], fq: [0, 1, 1, 0] },
