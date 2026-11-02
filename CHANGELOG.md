@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes per release. Full notes, in Russian and (from v3.5.1 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
+Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [3.5.2] - 2026-11-02
 - Fixed game covers that stayed grey (for example Battlefield 6): Steam's placeholder images are now detected and skipped.
