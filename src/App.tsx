@@ -1254,7 +1254,7 @@ export const App: React.FC = () => {
 
               <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-engraved)', padding: '1px 4px', letterSpacing: '0.04em', display: 'flex', justifyContent: 'space-between' }}>
 
-                <span>1. ЦВЕТОВАЯ ПАЛИТРА (7 ТЕМ)</span>
+                <span>1. ЦВЕТОВАЯ ПАЛИТРА (11 ТЕМ)</span>
 
                 <span style={{ color: 'var(--led-mint)' }}>INSTANT SWITCH</span>
 
@@ -1351,6 +1351,38 @@ export const App: React.FC = () => {
                 >
                   <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#171D1C 50%,#73BBA5 50%)' }}></div>
                   <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Apple Luna</div>
+                </div>
+
+                <div
+                  className={`theme-option ${theme === 'midnight' ? 'active' : ''}`}
+                  onClick={() => handleApplyTheme('midnight')}
+                >
+                  <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#0F1626 50%,#7DB4FF 50%)' }}></div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Midnight</div>
+                </div>
+
+                <div
+                  className={`theme-option ${theme === 'graphite' ? 'active' : ''}`}
+                  onClick={() => handleApplyTheme('graphite')}
+                >
+                  <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#0E0E10 50%,#D8DDE3 50%)' }}></div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Graphite OLED</div>
+                </div>
+
+                <div
+                  className={`theme-option ${theme === 'paper' ? 'active' : ''}`}
+                  onClick={() => handleApplyTheme('paper')}
+                >
+                  <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#FCFDFE 50%,#2457D6 50%)' }}></div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Paper</div>
+                </div>
+
+                <div
+                  className={`theme-option ${theme === 'sakura' ? 'active' : ''}`}
+                  onClick={() => handleApplyTheme('sakura')}
+                >
+                  <div className="theme-swatch" style={{ background: 'linear-gradient(135deg,#1C1419 50%,#F4A7B9 50%)' }}></div>
+                  <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>Sakura Night</div>
                 </div>
 
               </div>

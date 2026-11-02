@@ -208,6 +208,126 @@
     --ambient-glow-color: rgba(115, 187, 165, 0.22);
   }
 
+  /* THEME 8: MIDNIGHT (deep navy, ice-blue accent, warm gold secondary) */
+  [data-theme="midnight"] {
+    --bg-body: #0A0F1C;
+    --bg-chassis-base: #0D1424;
+    --bg-island: radial-gradient(120% 100% at 50% 0%, rgba(125, 180, 255, 0.07) 0%, transparent 65%), rgba(15, 22, 38, 0.86);
+    --bg-well: rgba(7, 11, 21, 0.92);
+    --bg-row: rgba(13, 20, 35, 0.88);
+    --bg-row-hover: #19243D;
+    --bg-btn: linear-gradient(180deg, #1D2A45 0%, #121B2F 100%);
+    --bg-btn-hover: linear-gradient(180deg, #263659 0%, #17223B 100%);
+    --border-main: rgba(125, 180, 255, 0.24);
+    --border-subtle: rgba(180, 205, 255, 0.08);
+    --led-mint-core: #E6F1FF;
+    --led-mint: #7DB4FF;
+    --led-amber-core: #FFF6DC;
+    --led-amber: #F2C879;
+    --led-cyan: #5CC8F2;
+    --led-rose: #F87171;
+    --text-primary: #EAF0FA;
+    --text-secondary: #BAC6DB;
+    --text-muted: #9AA8C2;
+    --text-engraved: #9AA8C2;
+    --cta-text: #06101F;
+    --shadow-chassis: 0 24px 60px -8px rgba(2,5,14,0.95), 0 0 110px -10px var(--ambient-glow-color), 0 0 0 1px var(--border-main);
+    --shadow-island: 0 10px 28px rgba(2,5,14,0.85), 0 4px 10px rgba(2,5,14,0.75), inset 0 1px 0 0 rgba(200,220,255,0.12);
+    --shadow-well: inset 0 3px 7px 0 rgba(2,5,14,0.95), 0 1px 0 0 rgba(200,220,255,0.06);
+    --shadow-btn: 0 2px 5px rgba(2,5,14,0.75), inset 0 1px 0 rgba(200,220,255,0.16);
+    --ambient-glow-color: rgba(125, 180, 255, 0.22);
+  }
+
+  /* THEME 9: GRAPHITE OLED (true-black, silver accent, signal red secondary) */
+  [data-theme="graphite"] {
+    --bg-body: #050506;
+    --bg-chassis-base: #08080A;
+    --bg-island: radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.04) 0%, transparent 65%), rgba(14, 14, 16, 0.9);
+    --bg-well: rgba(2, 2, 3, 0.94);
+    --bg-row: rgba(11, 11, 13, 0.9);
+    --bg-row-hover: #19191C;
+    --bg-btn: linear-gradient(180deg, #1B1B1F 0%, #0F0F11 100%);
+    --bg-btn-hover: linear-gradient(180deg, #25252A 0%, #151518 100%);
+    --border-main: rgba(216, 221, 227, 0.16);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --led-mint-core: #FFFFFF;
+    --led-mint: #D8DDE3;
+    --led-amber-core: #FFE4E1;
+    --led-amber: #FF5A4E;
+    --led-cyan: #A9C4DB;
+    --led-rose: #FF6B6B;
+    --text-primary: #F2F3F5;
+    --text-secondary: #BFC2C8;
+    --text-muted: #9A9DA4;
+    --text-engraved: #9A9DA4;
+    --cta-text: #08080A;
+    --shadow-chassis: 0 24px 60px -8px rgba(0,0,0,1), 0 0 110px -10px var(--ambient-glow-color), 0 0 0 1px var(--border-main);
+    --shadow-island: 0 10px 28px rgba(0,0,0,0.9), 0 4px 10px rgba(0,0,0,0.8), inset 0 1px 0 0 rgba(255,255,255,0.1);
+    --shadow-well: inset 0 3px 7px 0 rgba(0,0,0,1), 0 1px 0 0 rgba(255,255,255,0.05);
+    --shadow-btn: 0 2px 5px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.14);
+    --ambient-glow-color: rgba(216, 221, 227, 0.1);
+  }
+
+  /* THEME 10: PAPER (cool light, cobalt accent, vermilion secondary) */
+  [data-theme="paper"] {
+    --bg-body: #EEF1F4;
+    --bg-chassis-base: #F4F6F9;
+    --bg-island: linear-gradient(180deg, rgba(255,255,255,0.7) 0%, transparent 100%), rgba(252, 253, 254, 0.96);
+    --bg-well: rgba(228, 233, 239, 0.95);
+    --bg-row: #F6F8FA;
+    --bg-row-hover: #E8EDF3;
+    --bg-btn: linear-gradient(180deg, #FFFFFF 0%, #EAEEF3 100%);
+    --bg-btn-hover: linear-gradient(180deg, #FFFFFF 0%, #DEE4EB 100%);
+    --border-main: rgba(16, 21, 28, 0.16);
+    --border-subtle: rgba(16, 21, 28, 0.08);
+    --led-mint-core: #3F74EA;
+    --led-mint: #2457D6;
+    --led-amber-core: #F26B50;
+    --led-amber: #E2553B;
+    --led-cyan: #0369A1;
+    --led-rose: #BE123C;
+    --text-primary: #10151C;
+    --text-secondary: #3F4856;
+    --text-muted: #4E5866;
+    --text-engraved: #4E5866;
+    --cta-text: #FFFFFF;
+    --shadow-chassis: 0 24px 60px rgba(16,21,28,0.16), 0 0 0 1px rgba(16,21,28,0.14), inset 0 2px 0 #FFFFFF;
+    --shadow-island: 0 6px 16px rgba(16,21,28,0.07), 0 2px 4px rgba(16,21,28,0.05), inset 0 1px 0 #FFFFFF;
+    --shadow-well: inset 0 2px 5px rgba(16,21,28,0.12), 0 1px 0 #FFFFFF;
+    --shadow-btn: 0 2px 4px rgba(16,21,28,0.1), inset 0 1px 0 #FFFFFF;
+    --ambient-glow-color: rgba(36, 87, 214, 0.12);
+  }
+
+  /* THEME 11: SAKURA NIGHT (plum-black, blossom pink accent, mint secondary) */
+  [data-theme="sakura"] {
+    --bg-body: #120D10;
+    --bg-chassis-base: #170F13;
+    --bg-island: radial-gradient(120% 100% at 50% 0%, rgba(244, 167, 185, 0.07) 0%, transparent 65%), rgba(28, 20, 25, 0.86);
+    --bg-well: rgba(10, 6, 8, 0.92);
+    --bg-row: rgba(24, 17, 21, 0.88);
+    --bg-row-hover: #2C1E25;
+    --bg-btn: linear-gradient(180deg, #33232B 0%, #1F151A 100%);
+    --bg-btn-hover: linear-gradient(180deg, #402C36 0%, #281B21 100%);
+    --border-main: rgba(244, 167, 185, 0.26);
+    --border-subtle: rgba(255, 225, 235, 0.07);
+    --led-mint-core: #FFE6EE;
+    --led-mint: #F4A7B9;
+    --led-amber-core: #E6FFF5;
+    --led-amber: #9EE6C9;
+    --led-cyan: #8EC9F0;
+    --led-rose: #F87171;
+    --text-primary: #F7EDF1;
+    --text-secondary: #CDB9C2;
+    --text-muted: #B39AA5;
+    --text-engraved: #B39AA5;
+    --cta-text: #1A0D12;
+    --shadow-chassis: 0 24px 60px -8px rgba(8,3,5,0.95), 0 0 110px -10px var(--ambient-glow-color), 0 0 0 1px var(--border-main);
+    --shadow-island: 0 10px 28px rgba(8,3,5,0.85), 0 4px 10px rgba(8,3,5,0.75), inset 0 1px 0 0 rgba(255,225,235,0.12);
+    --shadow-well: inset 0 3px 7px 0 rgba(8,3,5,0.95), 0 1px 0 0 rgba(255,225,235,0.06);
+    --shadow-btn: 0 2px 5px rgba(8,3,5,0.75), inset 0 1px 0 rgba(255,225,235,0.16);
+    --ambient-glow-color: rgba(244, 167, 185, 0.2);
+  }
+
   [data-theme="apple-luna"] body,
   body[data-theme="apple-luna"],
   .field-chassis[data-theme="apple-luna"] {
@@ -355,8 +475,12 @@
       radial-gradient(ellipse 90% 85% at 50% 50%, transparent 45%, rgba(4, 5, 7, 0.72) 100%);
   }
   [data-theme="light"] .chassis-optical-vignette {
-    background: 
+    background:
       radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 40%), transparent 0%, rgba(220, 216, 208, 0.45) 100%);
+  }
+  [data-theme="paper"] .chassis-optical-vignette {
+    background:
+      radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 40%), transparent 0%, rgba(214, 221, 230, 0.45) 100%);
   }
   [data-theme="apple-luna"] .chassis-optical-vignette {
     background: 

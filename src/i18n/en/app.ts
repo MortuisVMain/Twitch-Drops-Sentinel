@@ -127,7 +127,7 @@ export const APP: Record<string, string> = {
   '🌙 Ночной режим': '🌙 Night mode',
   '🎨 Тема': '🎨 Theme',
   'Звук интерфейса:': 'Interface sound:',
-  '1. ЦВЕТОВАЯ ПАЛИТРА (7 ТЕМ)': '1. COLOR PALETTE (7 THEMES)',
+  '1. ЦВЕТОВАЯ ПАЛИТРА (11 ТЕМ)': '1. COLOR PALETTE (11 THEMES)',
   '2. 3D ОБЪЕМНЫЕ ШЕЙДЕРЫ (NORMAL-MAPPED)': '2. 3D VOLUMETRIC SHADERS (NORMAL-MAPPED)',
   '6 нормалей + магма': '6 normals + magma',
   '3D-Призмы (Тема)': '3D Prisms (Theme)',

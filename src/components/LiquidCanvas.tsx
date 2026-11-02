@@ -192,16 +192,24 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       const isCyber = themeId === 'cyberpunk';
       const isAurora = themeId === 'gradient';
       const isDay = themeId === 'light';
+      const isPaper = themeId === 'paper';
       const isCopper = themeId === 'copper';
       const isAppleLuna = themeId === 'apple-luna';
+      const isMidnight = themeId === 'midnight';
+      const isGraphite = themeId === 'graphite';
+      const isSakura = themeId === 'sakura';
 
       const coreCol = useThemeColor
-        ? isCyber ? '#00F0FF' : isAurora ? '#A855F7' : isDay ? '#EA580C' : isCopper ? '#F97316' : isAppleLuna ? '#73BBA5' : '#3AD29F'
+        ? isCyber ? '#00F0FF' : isAurora ? '#A855F7' : isDay ? '#EA580C' : isCopper ? '#F97316' : isAppleLuna ? '#73BBA5'
+          : isMidnight ? '#7DB4FF' : isGraphite ? '#D8DDE3' : isPaper ? '#2457D6' : isSakura ? '#F4A7B9' : '#3AD29F'
         : '#FF7700';
       const midCol = useThemeColor
-        ? isCyber ? '#FF003C' : isAurora ? '#34D399' : isDay ? '#FDBA74' : isCopper ? '#C2410C' : isAppleLuna ? '#368873' : '#059669'
+        ? isCyber ? '#FF003C' : isAurora ? '#34D399' : isDay ? '#FDBA74' : isCopper ? '#C2410C' : isAppleLuna ? '#368873'
+          : isMidnight ? '#F2C879' : isGraphite ? '#FF5A4E' : isPaper ? '#E2553B' : isSakura ? '#9EE6C9' : '#059669'
         : '#E62E00';
-      const darkCol = useThemeColor ? (isDay ? '#F4F2EE' : isAppleLuna ? '#171D1C' : '#03120D') : '#1E0300';
+      const darkCol = useThemeColor
+        ? (isDay ? '#F4F2EE' : isPaper ? '#EEF1F4' : isAppleLuna ? '#171D1C' : isMidnight ? '#0A0F1C' : isGraphite ? '#050506' : isSakura ? '#120D10' : '#03120D')
+        : '#1E0300';
 
       ctx.fillStyle = darkCol;
       ctx.fillRect(0, 0, w, h);
