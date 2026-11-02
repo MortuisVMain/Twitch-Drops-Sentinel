@@ -38,3 +38,11 @@ with a coordinate grid. White-hot cores count as emissive when their blurred sur
 never animate. Cost at 1080p on an RTX 5070 Ti: 0.11-0.22 ms per frame.
 Tune with a stand page that renders one backdrop at a given time and compare frames 1 s apart; thumbnails hide motion,
 judge on full-size frames.
+
+## Light themes (v3.5.4)
+Dark frames recolored for a light page washed out for three reasons: shadows stayed within 20 % of the page color, every
+light effect (bloom, sweep, mouse) added white, and CSS opacity blended the canvas with the light page. Now the
+luminance is stretched into real shadows (`uBg*(.6 + .45*Ln)`), white-hot cores become the strongest accent ink, motion
+fades ink toward the page instead of brightening it, additive light is off, and `--photo-opacity` is 1 on light themes.
+Classic backdrops are drawn for dark pages, so on light themes they get a CSS filter: invert, hue-rotate 180, then
+brightness before contrast (the other order bleaches pale patterns away).

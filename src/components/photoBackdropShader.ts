@@ -22,11 +22,12 @@ vec3 tone(vec3 s, vec3 bgHue){
   float em = smoothstep(.05, .3, chroma(s));
   vec3 hot = mix(uAcc, mix(uAcc2, vec3(1.), .55), smoothstep(.55, 1., mx));
   vec3 dark = mix(uBg*.8 + L*mix(vec3(1.), bgHue, .45), hot*mx*1.15, em);
-  vec3 lite = mix(uBg*(.76 + .75*L), uAcc*mix(.75, 1., mx), em*smoothstep(.12, .55, mx));
+  float Ln = clamp(L*2.4, 0., 1.);
+  vec3 lite = mix(uBg*(.6 + .45*Ln), uAcc*mix(.95, .7, smoothstep(.5, 1., mx)), max(em*smoothstep(.1, .5, mx), smoothstep(.55, .85, L)));
   return mix(dark, lite, uLight);
 }
 // light added on dark themes, accent ink on light themes
-vec3 glow(vec3 c, vec3 col, float a){ return mix(c + col*a, mix(c, col*.85, clamp(a, 0., 1.)*.75), uLight); }
+vec3 glow(vec3 c, vec3 col, float a){ return mix(c + col*a, mix(c, col*.7, clamp(a, 0., 1.)*.8), uLight); }
 // rising bokeh bubbles in aspect-correct texture space
 float bubbles(vec2 p, float ta, float t, float size, float seed){
   float acc = 0.;
@@ -95,8 +96,8 @@ void main(){
     float sy = fract(tuv.y*.7 - t*(.08 + .1*hash(vec2(col, 3.))) + hash(vec2(col, 4.)));
     e = .35 + .6*spark;
   }
-  c += c*em*(e - 1.);
-  c += mix(blr, tone(blr, bgHue), uP.w)*smoothstep(.04, .25, chroma(blr))*.55*uP.x*(uMode == 10 ? 1. : clamp(e, .3, 2.))*(1. - uLight*.7);
+  c = mix(c + c*em*(e - 1.), mix(c, uBg*.92, em*(1. - clamp(e, 0., 1.))*.4), uLight);
+  c += mix(blr, tone(blr, bgHue), uP.w)*smoothstep(.04, .25, chroma(blr))*.55*uP.x*(uMode == 10 ? 1. : clamp(e, .3, 2.))*(1. - uLight);
 
   // overlays drawn on top of the frame
   if (uMode == 1) {
@@ -151,14 +152,15 @@ void main(){
   } else if (uMode == 14) {
     float fog = fbm(vec2(tuv.x*ta*1.3 - t*.09, tuv.y*4. + sin(tuv.x*3. + t*.2)*.4));
     float band = smoothstep(.1, .3, tuv.y)*smoothstep(.66, .4, tuv.y);
-    c = glow(c, mix(uAcc, vec3(.75), .55)*.32, smoothstep(.3, .8, fog)*band*1.2);
+    float mist = smoothstep(.3, .8, fog)*band;
+    c = mix(glow(c, mix(uAcc, vec3(.75), .55)*.32, mist*1.2), mix(c, uBg*1.04, mist*.75), uLight);
   }
 
   float sw = mod(t*(uQ.x > 0. ? uQ.x : .045), 1.8) - .4;
   float band = exp(-pow((uv.x*.8 + uv.y*.35 - sw)*7., 2.));
-  c += band*uP.y*pow(L, 1.3)*mix(vec3(1.), uAcc, .25)*1.1*(1. - uLight*.6);
+  c += band*uP.y*pow(L, 1.3)*mix(vec3(1.), uAcc, .25)*1.1*(1. - uLight*.9);
   float d = length((uv - m)*vec2(ca, 1.));
-  c += exp(-d*d*5.)*(pow(L, 1.2)*.4 + c*em*.7)*(1. - uLight*.6);
+  c += exp(-d*d*5.)*(pow(L, 1.2)*.4 + c*em*.7)*(1. - uLight*.9);
   vec2 q = uv - .5;
   c *= mix(1. - dot(q, q)*.9, 1., uLight*.7);
   c += (hash(gl_FragCoord.xy + fract(t*7.)) - .5)/255.;

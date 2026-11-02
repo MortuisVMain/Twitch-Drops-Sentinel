@@ -108,8 +108,6 @@ function disposeGpu(g: Gpu) {
 }
 
 const FRAME_MS = 33;
-/** Photos are far brighter than the procedural backdrops; scale the user's brightness slider so panels stay readable. */
-const PHOTO_OPACITY = .8;
 
 export interface RunOptions {
   imageUrl: string;
@@ -247,7 +245,7 @@ export const PhotoBackdrop: React.FC<PhotoBackdropProps> = ({ photoId, themeId, 
       ref={canvasRef}
       key={photoId}
       className="relief-canvas"
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1, opacity: opacity * PHOTO_OPACITY }}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1, opacity: `calc(var(--photo-opacity) * ${opacity})` }}
       aria-hidden="true"
     />
   );

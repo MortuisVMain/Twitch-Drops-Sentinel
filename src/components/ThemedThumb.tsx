@@ -25,12 +25,12 @@ function recolor(img: HTMLImageElement, c: ThemeColors): string {
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
     const L = .2126 * r + .7152 * g + .0722 * b, mx = Math.max(r, g, b), em = smooth(.05, .3, mx - Math.min(r, g, b));
-    const hs = smooth(.55, 1, mx), lightMix = em * smooth(.12, .55, mx);
+    const hs = smooth(.55, 1, mx), lightMix = Math.max(em * smooth(.1, .5, mx), smooth(.55, .85, L));
     for (let k = 0; k < 3; k++) {
       let o: number;
       if (c.light) {
-        const base = c.bg[k] * (.76 + .75 * L);
-        o = base + (c.acc[k] * (.75 + .25 * mx) - base) * lightMix;
+        const base = c.bg[k] * (.6 + .45 * Math.min(1, L * 2.4));
+        o = base + (c.acc[k] * (.95 - .25 * smooth(.5, 1, mx)) - base) * lightMix;
       } else {
         const hot = c.acc[k] + (c.acc2[k] + (1 - c.acc2[k]) * .55 - c.acc[k]) * hs;
         const base = c.bg[k] * .8 + L * (1 + (c.bg[k] / mb - 1) * .45);

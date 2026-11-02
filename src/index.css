@@ -468,6 +468,19 @@
       repeating-linear-gradient(-45deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 4px, rgba(0,0,0,0.4) 4px, rgba(0,0,0,0.4) 8px);
   }
 
+  /* Photos glow far brighter than the procedural backdrops on dark pages, so they get 0.8 of the brightness slider;
+     on a light page any transparency washes them out */
+  :root { --photo-opacity: .8; }
+  [data-theme="light"], [data-theme="paper"] { --photo-opacity: 1; }
+
+  /* Light themes: the procedural backdrops are drawn for dark pages; invert their luminance and keep the hue */
+  [data-theme="light"] #relief3DCanvas, [data-theme="paper"] #relief3DCanvas,
+  [data-theme="light"] .flat-2d-backdrop, [data-theme="paper"] .flat-2d-backdrop,
+  [data-theme="light"] .ap-thumb[data-bd], [data-theme="paper"] .ap-thumb[data-bd],
+  [data-theme="light"] img.ap-thumb[src*="/proc/"], [data-theme="paper"] img.ap-thumb[src*="/proc/"] {
+    filter: invert(1) hue-rotate(180deg) saturate(1.3) brightness(.78) contrast(1.5);
+  }
+
   /* SECRET #1: Optical Vignette & Depth Lens Overlay (Makes ANY backdrop look 10x more expensive!) */
   .chassis-optical-vignette {
     position: absolute;
