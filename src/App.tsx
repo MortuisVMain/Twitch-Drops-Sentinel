@@ -17,7 +17,7 @@ import { PhotoBackdrop } from './components/PhotoBackdrop';
 import { AppearancePanel } from './components/AppearancePanel';
 
 import { HelpModal } from './components/HelpModal';
-import { resolveGameBoxArt } from './utils/gameBoxArts';
+import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils/gameBoxArts';
 
 import { useTactileAudio } from './hooks/useTactileAudio';
 
@@ -170,6 +170,13 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 
 
 // Twitch Drops Sentinel • Author: Mortuis_V / Mortuis_V_Studio
+
+/** Hide the PiP cover and show its emoji fallback. */
+const hidePipCover = (img: HTMLImageElement) => {
+  img.style.display = 'none';
+  const fallback = img.parentElement?.querySelector('.pip-cover-fallback') as HTMLElement | null;
+  if (fallback) fallback.style.display = 'flex';
+};
 
 export const App: React.FC = () => {
 
@@ -1395,11 +1402,9 @@ export const App: React.FC = () => {
                 src={activeGameBoxArt} 
                 alt={activeDrop?.game || 'Game Cover'} 
                 className="pip-cover-img"
-                onError={(e) => {
-                  (e.currentTarget as HTMLElement).style.display = 'none';
-                  const fallback = e.currentTarget.parentElement?.querySelector('.pip-cover-fallback') as HTMLElement;
-                  if (fallback) fallback.style.display = 'flex';
-                }}
+                crossOrigin={isSteamArt(activeGameBoxArt) ? 'anonymous' : undefined}
+                onLoad={(e) => { if (isBlankCover(e.currentTarget) && !retryCover(e.currentTarget, activeDrop?.game || '')) hidePipCover(e.currentTarget); }}
+                onError={(e) => { if (!retryCover(e.currentTarget, activeDrop?.game || '')) hidePipCover(e.currentTarget); }}
               />
             ) : null}
             <div className="pip-cover-fallback" style={{ display: activeGameBoxArt ? 'none' : 'flex' }}>

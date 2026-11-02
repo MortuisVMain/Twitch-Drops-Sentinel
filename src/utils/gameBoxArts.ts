@@ -514,3 +514,39 @@ export function resolveGameBoxArt(
   const sources = resolveGameBoxArtSources(gameName, candidateUrls);
   return sources[0];
 }
+
+/** Steam serves a flat grey placeholder (HTTP 200) for art a game does not have at that path; CORS is open, so read the pixels. */
+export const isSteamArt = (url: string | undefined): boolean => !!url && url.includes('steamstatic.com/');
+
+export function isBlankCover(img: HTMLImageElement): boolean {
+  if (!isSteamArt(img.currentSrc || img.src) || !img.naturalWidth) return false;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 8; c.height = 8;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(img, 0, 0, 8, 8);
+    const d = ctx.getImageData(0, 0, 8, 8).data;
+    let lo = 255, hi = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = (d[i] * 2126 + d[i + 1] * 7152 + d[i + 2] * 722) / 10000;
+      if (l < lo) lo = l;
+      if (l > hi) hi = l;
+    }
+    return hi - lo < 12;
+  } catch (err) {
+    console.warn('Cover check skipped (canvas not readable):', err);
+    return false;
+  }
+}
+
+/** For single-<img> covers: move to the game's next candidate URL; false when none is left. */
+export function retryCover(img: HTMLImageElement, gameName: string): boolean {
+  const list = resolveGameBoxArtSources(gameName, img.getAttribute('src'));
+  const next = img.dataset.coverIdx ? Number(img.dataset.coverIdx) + 1 : list.indexOf(img.getAttribute('src') || '') + 1;
+  if (next <= 0 || next >= list.length) return false;
+  img.dataset.coverIdx = String(next);
+  if (isSteamArt(list[next])) img.crossOrigin = 'anonymous'; else img.removeAttribute('crossorigin');
+  img.src = list[next];
+  return true;
+}

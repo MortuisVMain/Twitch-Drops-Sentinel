@@ -3,7 +3,7 @@ import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../u
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
-import { resolveGameBoxArtSources } from '../utils/gameBoxArts';
+import { resolveGameBoxArtSources, isBlankCover, isSteamArt } from '../utils/gameBoxArts';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface GameShelfProps {
@@ -41,6 +41,10 @@ const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, box
   }, [sources]);
 
   const currentSrc = sources[currentIdx];
+  const nextSource = () => {
+    if (currentIdx + 1 < sources.length) setCurrentIdx(prev => prev + 1);
+    else setFailed(true);
+  };
 
   if (!currentSrc || failed) {
     const initials = name.slice(0, 2).toUpperCase();
@@ -77,13 +81,9 @@ const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, box
       alt={name}
       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
       loading="lazy"
-      onError={() => {
-        if (currentIdx + 1 < sources.length) {
-          setCurrentIdx(prev => prev + 1);
-        } else {
-          setFailed(true);
-        }
-      }}
+      crossOrigin={isSteamArt(currentSrc) ? 'anonymous' : undefined}
+      onLoad={(e) => { if (isBlankCover(e.currentTarget)) nextSource(); }}
+      onError={nextSource}
     />
   );
 };

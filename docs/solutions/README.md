@@ -56,3 +56,4 @@
 | **053** | [Campaign Visible But Not Farmed](./053-campaign-visible-but-not-farmed.md) | Twitch Core Engine / Farmable Verdict & Reason / Campaign Card Status Unification |
 | **054** | [NTFS Rename Application.Restart Trap & Update Cache](./054-ntfs-rename-application-restart-trap-and-update-cache.md) | Desktop App & Auto-Updater / Application.Restart .old Exe Swap / 15-Min Cache / Single-Instance Mutex |
 | **058** | [ComfyUI Photo Backdrops Recoloured per Theme](./058-comfyui-photo-backdrops.md) | UI Backdrops / WebGL2 Shader / Theme Recolor / GPU Context Lifecycle / public/ Assets via Virtual Host |
+| **059** | [Steam Grey Placeholder Covers](./059-steam-grey-placeholder-covers.md) | Box Art / Steam CDN Placeholder (HTTP 200) / Canvas Blank Check / CORS crossOrigin |

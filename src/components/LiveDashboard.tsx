@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
-import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch } from '../utils/gameBoxArts';
+import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { collapseLogs } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
@@ -470,9 +470,9 @@ const filteredLogs = useMemo(() => {
                       src={item.art}
                       alt={item.name}
                       style={{ width: '34px', height: '34px', borderRadius: '6px' }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
+                      crossOrigin={isSteamArt(item.art) ? 'anonymous' : undefined}
+                      onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, item.name)) img.style.display = 'none'; }}
+                      onError={(e) => { const img = e.currentTarget; if (!retryCover(img, item.name)) img.style.display = 'none'; }}
                     />
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1329,9 +1329,9 @@ const filteredLogs = useMemo(() => {
                           src={boxArtUrl}
                           alt={g.name}
                           className="w-9 h-12 object-cover rounded-md border border-white/10 shrink-0 bg-[var(--bg-chassis)]"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
+                          crossOrigin={isSteamArt(boxArtUrl) ? 'anonymous' : undefined}
+                          onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, g.name)) img.style.display = 'none'; }}
+                          onError={(e) => { const img = e.currentTarget; if (!retryCover(img, g.name)) img.style.display = 'none'; }}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
