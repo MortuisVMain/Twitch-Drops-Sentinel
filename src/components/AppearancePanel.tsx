@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PHOTO_BACKDROPS, PhotoPreview, photoBackdropUrl } from './PhotoBackdrop';
+import { PHOTO_BACKDROPS, PhotoPreview } from './PhotoBackdrop';
 import { ThemedThumb } from './ThemedThumb';
 
 interface ThemeDef { id: string; name: string; bg: string; acc: string; light?: boolean }
@@ -26,7 +26,7 @@ interface BackdropDef {
   name: string;
   hint: string;
   group: Group;
-  /** image url (photo thumbnails are recolored to the theme); without it, a 2D pattern drawn with the backdrop's CSS */
+  /** image url for procedural backdrops; without it, a 2D pattern drawn with the backdrop's CSS (photos: ThemedThumb) */
   thumb?: string;
   pattern?: string;
 }
@@ -46,7 +46,7 @@ const GROUPS: { id: Group; label: string }[] = [
 ];
 
 const BACKDROPS: BackdropDef[] = [
-  ...PHOTO_BACKDROPS.map((p): BackdropDef => ({ type: 'photo', mode: p.id, name: p.name, hint: p.sub, group: PHOTO_GROUP[p.id] ?? 'materials', thumb: photoBackdropUrl(p.id, true) })),
+  ...PHOTO_BACKDROPS.map((p): BackdropDef => ({ type: 'photo', mode: p.id, name: p.name, hint: p.sub, group: PHOTO_GROUP[p.id] ?? 'materials' })),
   ...([
     ['hex-theme', 'Соты в цвете темы', 'Призмы, швы светятся акцентом'],
     ['hex-magma', 'Соты с магмой', 'Призмы и раскалённые швы'],
@@ -124,7 +124,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
       <button key={key} type="button" title={b.hint} className={`ap-card ${active ? 'active' : ''}`} aria-pressed={active} onClick={() => pick(b)}
         onMouseEnter={() => setHovered(key)} onMouseLeave={() => setHovered(h => (h === key ? null : h))}>
         <span className="ap-thumb-wrap">
-          {b.type === 'photo' ? <ThemedThumb src={b.thumb!} themeId={theme} />
+          {b.type === 'photo' ? <ThemedThumb id={b.mode} themeId={theme} />
             : b.thumb ? <img className="ap-thumb" src={b.thumb} alt="" loading="lazy" />
             : <span className="ap-thumb" data-bd={b.pattern} />}
           {b.type === 'photo' && hovered === key && <PhotoPreview photoId={b.mode} themeId={theme} />}

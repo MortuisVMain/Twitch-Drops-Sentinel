@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { readThemeColors, type ThemeColors } from './PhotoBackdrop';
+import { photoBackdropUrl, readThemeColors, type ThemeColors } from './PhotoBackdrop';
 
 /** Recolored thumbnails per source and theme, so switching tabs or themes back does not recompute them. */
 const cache = new Map<string, string>();
@@ -25,12 +25,12 @@ function recolor(img: HTMLImageElement, c: ThemeColors): string {
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
     const L = .2126 * r + .7152 * g + .0722 * b, mx = Math.max(r, g, b), em = smooth(.05, .3, mx - Math.min(r, g, b));
-    const hs = smooth(.55, 1, mx), lightMix = Math.max(em * smooth(.1, .5, mx), smooth(.55, .85, L));
+    const hs = smooth(.55, 1, mx), pale = smooth(.6, .98, L) * .35;
     for (let k = 0; k < 3; k++) {
       let o: number;
       if (c.light) {
-        const base = c.bg[k] * (.6 + .45 * Math.min(1, L * 2.4));
-        o = base + (c.acc[k] * (.95 - .25 * smooth(.5, 1, mx)) - base) * lightMix;
+        const base = c.bg[k] * Math.min(1.1, Math.pow(L / .86, 1.6));
+        o = base + (c.acc[k] + (c.bg[k] - c.acc[k]) * pale - base) * em;
       } else {
         const hot = c.acc[k] + (c.acc2[k] + (1 - c.acc2[k]) * .55 - c.acc[k]) * hs;
         const base = c.bg[k] * .8 + L * (1 + (c.bg[k] / mb - 1) * .45);
@@ -43,8 +43,8 @@ function recolor(img: HTMLImageElement, c: ThemeColors): string {
   return canvas.toDataURL('image/webp', .85);
 }
 
-/** Thumbnail of a photo backdrop in the colors of the active theme. */
-export const ThemedThumb: React.FC<{ src: string; themeId: string }> = ({ src, themeId }) => {
+/** Thumbnail of a photo backdrop in the colors of the active theme (light themes start from the light frame set). */
+export const ThemedThumb: React.FC<{ id: string; themeId: string }> = ({ id, themeId }) => {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,6 +52,7 @@ export const ThemedThumb: React.FC<{ src: string; themeId: string }> = ({ src, t
     // App sets data-theme on <html> after child effects run, so read the tokens a frame later
     const raf = requestAnimationFrame(() => {
       const c = readThemeColors();
+      const src = photoBackdropUrl(id, true, c.light === 1);
       const key = `${src}|${c.bg}|${c.acc}|${c.acc2}|${c.light}`;
       const hit = cache.get(key);
       if (hit) { setUrl(hit); return; }
@@ -71,7 +72,7 @@ export const ThemedThumb: React.FC<{ src: string; themeId: string }> = ({ src, t
       img.src = src;
     });
     return () => { alive = false; cancelAnimationFrame(raf); };
-  }, [src, themeId]);
+  }, [id, themeId]);
 
-  return <img className="ap-thumb" src={url || src} alt="" />;
+  return url ? <img className="ap-thumb" src={url} alt="" /> : <span className="ap-thumb" />;
 };

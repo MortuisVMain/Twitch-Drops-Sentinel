@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { VERT, FRAG } from './photoBackdropShader';
 
 /** fx: [glow, sweep, drift, recolor]; fq: [sweep speed, parallax, sparkle, unused]; mode + c pick the motion in FRAG. */
@@ -12,7 +12,7 @@ export interface PhotoBackdropDef {
   c: [number, number, number, number];
 }
 
-/** ComfyUI frames in `public/backdrops/<id>.webp` (2560 px) with 640 px thumbnails in `public/backdrops/s/`. */
+/** ComfyUI frames in `public/backdrops/<id>.webp` (2560 px) with 640 px thumbnails in `s/`; light themes use the set in `light/`. */
 export const PHOTO_BACKDROPS: PhotoBackdropDef[] = [
   { id: 'hex2', name: 'Неоновые соты', sub: 'Призмы и неон в швах', fx: [1, 0.3, 0.5, 1], fq: [0.08, 1, 0.25, 0], mode: 1, c: [0, 0, 0, 0] },
   { id: 'hex1', name: 'Тёмные соты', sub: 'Плитки и мягкий отсвет', fx: [0.45, 0.7, 0.5, 1], fq: [0.14, 1, 0, 0], mode: 1, c: [0, 0, 0, 0] },
@@ -33,7 +33,7 @@ export const PHOTO_BACKDROPS: PhotoBackdropDef[] = [
   { id: 'chrome', name: 'Ртуть', sub: 'Хромовые сферы', fx: [0.6, 1, 0.5, 1], fq: [0.2, 1.2, 0.3, 0], mode: 13, c: [0, 0, 0, 0] },
 ];
 
-export const photoBackdropUrl = (id: string, thumb = false) => `backdrops/${thumb ? 's/' : ''}${id}.webp`;
+export const photoBackdropUrl = (id: string, thumb = false, light = false) => `backdrops/${light ? 'light/' : ''}${thumb ? 's/' : ''}${id}.webp`;
 
 
 
@@ -214,11 +214,16 @@ export function runPhotoBackdrop(canvas: HTMLCanvasElement, def: PhotoBackdropDe
 /** Theme tokens for the shader. Child effects run before App sets data-theme on <html>, so they are read a frame later. */
 export function useThemeColors(themeId: string, dirtyRef: { current: boolean }) {
   const colorsRef = useRef<ThemeColors | null>(null);
+  const [light, setLight] = useState<boolean | null>(null);
   useEffect(() => {
-    const id = requestAnimationFrame(() => { colorsRef.current = readThemeColors(); dirtyRef.current = true; });
+    const id = requestAnimationFrame(() => {
+      colorsRef.current = readThemeColors();
+      dirtyRef.current = true;
+      setLight(colorsRef.current.light === 1);
+    });
     return () => cancelAnimationFrame(id);
   }, [themeId, dirtyRef]);
-  return colorsRef;
+  return { colorsRef, light };
 }
 
 export interface PhotoBackdropProps {
@@ -231,19 +236,19 @@ export interface PhotoBackdropProps {
 export const PhotoBackdrop: React.FC<PhotoBackdropProps> = ({ photoId, themeId, opacity }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dirtyRef = useRef(true);
-  const colorsRef = useThemeColors(themeId, dirtyRef);
+  const { colorsRef, light } = useThemeColors(themeId, dirtyRef);
 
   useEffect(() => {
     const def = PHOTO_BACKDROPS.find(p => p.id === photoId);
-    if (!def || !canvasRef.current) return;
-    return runPhotoBackdrop(canvasRef.current, def, colorsRef, dirtyRef, { imageUrl: photoBackdropUrl(def.id), trackMouse: true, maxDpr: 1.5 });
-  }, [photoId, colorsRef]);
+    if (!def || !canvasRef.current || light === null) return;
+    return runPhotoBackdrop(canvasRef.current, def, colorsRef, dirtyRef, { imageUrl: photoBackdropUrl(def.id, false, light), trackMouse: true, maxDpr: 1.5 });
+  }, [photoId, light, colorsRef]);
 
   if (!photoId) return null;
   return (
     <canvas
       ref={canvasRef}
-      key={photoId}
+      key={`${photoId}-${light}`}
       className="relief-canvas"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1, opacity: `calc(var(--photo-opacity) * ${opacity})` }}
       aria-hidden="true"
@@ -255,13 +260,13 @@ export const PhotoBackdrop: React.FC<PhotoBackdropProps> = ({ photoId, themeId, 
 export const PhotoPreview: React.FC<{ photoId: string; themeId: string }> = ({ photoId, themeId }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dirtyRef = useRef(true);
-  const colorsRef = useThemeColors(themeId, dirtyRef);
+  const { colorsRef, light } = useThemeColors(themeId, dirtyRef);
 
   useEffect(() => {
     const def = PHOTO_BACKDROPS.find(p => p.id === photoId);
-    if (!def || !canvasRef.current) return;
-    return runPhotoBackdrop(canvasRef.current, def, colorsRef, dirtyRef, { imageUrl: photoBackdropUrl(def.id, true), trackMouse: false, maxDpr: 1 });
-  }, [photoId, colorsRef]);
+    if (!def || !canvasRef.current || light === null) return;
+    return runPhotoBackdrop(canvasRef.current, def, colorsRef, dirtyRef, { imageUrl: photoBackdropUrl(def.id, true, light), trackMouse: false, maxDpr: 1 });
+  }, [photoId, light, colorsRef]);
 
-  return <canvas ref={canvasRef} className="ap-live" aria-hidden="true" />;
+  return <canvas key={String(light)} ref={canvasRef} className="ap-live" aria-hidden="true" />;
 };

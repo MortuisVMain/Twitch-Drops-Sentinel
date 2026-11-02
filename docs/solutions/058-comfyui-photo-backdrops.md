@@ -40,9 +40,12 @@ Tune with a stand page that renders one backdrop at a given time and compare fra
 judge on full-size frames.
 
 ## Light themes (v3.5.4)
-Dark frames recolored for a light page washed out for three reasons: shadows stayed within 20 % of the page color, every
-light effect (bloom, sweep, mouse) added white, and CSS opacity blended the canvas with the light page. Now the
-luminance is stretched into real shadows (`uBg*(.6 + .45*Ln)`), white-hot cores become the strongest accent ink, motion
-fades ink toward the page instead of brightening it, additive light is off, and `--photo-opacity` is 1 on light themes.
+Recoloring dark frames for a light page always looked washed out, however the curve was tuned: the frames have no light
+tones to keep. Light themes now load their own set from `public/backdrops/light/` (`photoBackdropUrl(id, thumb, light)`;
+the theme is detected by background luminance, the canvas and its GL context are recreated on the switch). The frames are
+made in ComfyUI: invert luminance of the dark frame and keep the color channels (same composition, so motion centres
+still fit), then img2img with a high-key prompt at denoise 0.5 or 0.7. In the shader, neutrals follow the page color with
+deeper shadows and colored parts become accent ink. Motion fades ink toward the page, additive light is nearly off,
+`--photo-opacity` is 1, and the page veil over the backdrop is thinned to 12 %.
 Classic backdrops are drawn for dark pages, so on light themes they get a CSS filter: invert, hue-rotate 180, then
 brightness before contrast (the other order bleaches pale patterns away).

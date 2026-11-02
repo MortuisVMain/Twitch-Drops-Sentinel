@@ -22,8 +22,7 @@ vec3 tone(vec3 s, vec3 bgHue){
   float em = smoothstep(.05, .3, chroma(s));
   vec3 hot = mix(uAcc, mix(uAcc2, vec3(1.), .55), smoothstep(.55, 1., mx));
   vec3 dark = mix(uBg*.8 + L*mix(vec3(1.), bgHue, .45), hot*mx*1.15, em);
-  float Ln = clamp(L*2.4, 0., 1.);
-  vec3 lite = mix(uBg*(.6 + .45*Ln), uAcc*mix(.95, .7, smoothstep(.5, 1., mx)), max(em*smoothstep(.1, .5, mx), smoothstep(.55, .85, L)));
+  vec3 lite = mix(uBg*clamp(pow(L/.86, 1.6), 0., 1.1), mix(uAcc, uBg, smoothstep(.6, .98, L)*.35), em);
   return mix(dark, lite, uLight);
 }
 // light added on dark themes, accent ink on light themes
@@ -60,7 +59,8 @@ void main(){
   vec3 src = texture(uTex, tuv).rgb, blr = textureLod(uTex, tuv, 5.).rgb;
   vec3 bgHue = uBg/max(max(uBg.r, max(uBg.g, uBg.b)), 1e-3);
   float L = dot(src, vec3(.2126, .7152, .0722));
-  float em = max(smoothstep(.05, .3, chroma(src)), smoothstep(.08, .25, chroma(blr))*smoothstep(.45, .9, L));
+  float em = smoothstep(.05, .3, chroma(src));
+  em = mix(max(em, smoothstep(.08, .25, chroma(blr))*smoothstep(.45, .9, L)), em, uLight);
   vec3 c = mix(src, tone(src, bgHue), uP.w);
   vec3 hotC = mix(uAcc, mix(uAcc2, vec3(1.), .5), .5);
 
@@ -124,7 +124,7 @@ void main(){
     float term = smoothstep(.35, 0., abs(p.x - sin(t*.18)*.9))*on;
     float rim = exp(-pow((sqrt(r2) - 1.)/.02, 2.))*(.6 + .4*sin(t*1.3));
     c = glow(c, hotC, orbits*.9 + rim*.18);
-    c = glow(c, uAcc, term*L*1.2);
+    c = glow(c, uAcc, term*L*mix(1.2, .15, uLight));
   } else if (uMode == 8) {
     c = glow(c, mix(uAcc, uAcc2, .3), bubbles(tuv, ta, t, .03, 0.)*.45);
   } else if (uMode == 9) {

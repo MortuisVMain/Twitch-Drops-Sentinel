@@ -6,7 +6,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 - Backdrop tab grouped by look (Energy and light, Space and signals, Materials, Landscape); older backdrops kept in a collapsed Classic section.
 - Photo thumbnails use the colors of the active theme; hovering a card plays the backdrop live.
 - "No backdrop" is a switch that returns to the previous backdrop.
-- Backdrops no longer look washed out in the light themes (Daylight, Paper): photo backdrops are a relief with accent-colored ink, classic ones are inverted to dark lines on a light page.
+- Light themes (Daylight, Paper) get their own set of 17 photo backdrops made in ComfyUI as light photographs (ceramic, marble, satin, glass), instead of recolored dark frames that looked washed out. Classic backdrops draw dark lines on a light page.
 
 ## [3.5.3] - 2026-11-02
 - Photo backdrops are clearly animated now, each in its own way: a light wave over the hex seams, heat and sparks from the lava, satellites orbiting the globe, a rotating radar beam, a bouncing equalizer, rising bubbles, rippling water and silk, drifting fog between the mountains and more.
