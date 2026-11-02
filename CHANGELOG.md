@@ -2,6 +2,10 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.1 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.2] - 2026-11-02
+- Fixed game covers that stayed grey (for example Battlefield 6): Steam's placeholder images are now detected and skipped.
+- Removed the leftover "v7.0" from the title shown while no drop is active.
+
 ## [3.5.1] - 2026-11-02
 - New appearance panel with **Theme** and **Backdrop** tabs: themes grouped into dark and light with real swatches, every backdrop as a preview card, filters (All, Photo, Animated, Patterns) and a brightness slider that is always visible.
 - "Apple Luna (Orbs)" and "Liquid Silk" merged into "Soft Orbs"; saved settings keep working.
