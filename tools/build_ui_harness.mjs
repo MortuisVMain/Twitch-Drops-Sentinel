@@ -15,5 +15,5 @@ const html = read('dist/index.html');
 const inject = `<script>${read('tools/ui_fixture.js')}</script><script>${read('tools/check_overflow.js')}</script>`;
 fs.mkdirSync(out, { recursive: true });
 fs.writeFileSync(path.join(out, 'index.html'), html.replace('<head>', '<head>' + inject));
-for (const f of fs.readdirSync(path.join(root, 'dist'))) if (f !== 'index.html') fs.copyFileSync(path.join(root, 'dist', f), path.join(out, f));
+for (const f of fs.readdirSync(path.join(root, 'dist'))) if (f !== 'index.html') fs.cpSync(path.join(root, 'dist', f), path.join(out, f), { recursive: true });
 console.log('harness written to ' + out);

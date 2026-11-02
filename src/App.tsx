@@ -13,6 +13,7 @@ import { SettingsStudio } from './components/SettingsStudio';
 import { ScreenDimmerView } from './components/ScreenDimmerView';
 
 import { LiquidCanvas } from './components/LiquidCanvas';
+import { PhotoBackdrop, PHOTO_BACKDROPS, photoBackdropUrl } from './components/PhotoBackdrop';
 
 import { HelpModal } from './components/HelpModal';
 import { resolveGameBoxArt } from './utils/gameBoxArts';
@@ -946,6 +947,8 @@ export const App: React.FC = () => {
 
       />
 
+      <PhotoBackdrop photoId={backdropType === 'photo' ? reliefMode : null} themeId={theme} opacity={reliefOpacity} />
+
 
 
       {/* LAYER 1B: 2D CLASSIC FLAT VECTOR PATTERNS */}
@@ -1667,6 +1670,29 @@ export const App: React.FC = () => {
               <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '2px 0' }}></div>
 
 
+
+              {/* BLOCK 3B: COMFYUI PHOTO BACKDROPS */}
+              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', padding: '1px 4px', letterSpacing: '0.04em', display: 'flex', justifyContent: 'space-between' }}>
+                <span>4. ФОТО-ЗАДНИКИ COMFYUI</span>
+                <span>WEBGL</span>
+              </div>
+              <div className="dropdown-section-grid">
+                {PHOTO_BACKDROPS.map(p => (
+                  <div
+                    key={p.id}
+                    className={`relief-option ${backdropType === 'photo' && reliefMode === p.id ? 'active' : ''}`}
+                    onClick={() => handleApplyBackdrop('photo', p.id, p.name)}
+                  >
+                    <img src={photoBackdropUrl(p.id, true)} alt="" loading="lazy" width={44} height={25} style={{ borderRadius: 4, objectFit: 'cover', flexShrink: 0, filter: 'brightness(1.8)' }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{p.name}</div>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{p.sub}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '2px 0' }}></div>
 
               {/* BLOCK 4: INTENSITY SLIDER */}
 
