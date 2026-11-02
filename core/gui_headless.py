@@ -258,7 +258,10 @@ class HeadlessInventory:
         self.drops.clear()
 
     def update_drop(self, drop):
-        self.add_drop(drop)
+        # Fires for every drop of a campaign when minutes change: only the drop on screen may refresh the counter
+        current = STATE_BRIDGE.active_drop
+        if current and current["id"] == drop.id:
+            self.add_drop(drop)
 
     def add_drop(self, drop):
         name = getattr(drop, "name", "Награда Twitch")
@@ -424,7 +427,11 @@ class HeadlessGUIManager:
         self.progress.stop_timer()
 
     def display_drop(self, drop, countdown=True, subone=False):
-        self.inv.update_drop(drop)
+        # Twitch's session can still name a claimed drop of another campaign: it must not replace the one being farmed
+        current = STATE_BRIDGE.active_drop
+        if drop.is_claimed and not (current and current["id"] == drop.id):
+            return
+        self.inv.add_drop(drop)
         self.progress.display(drop, countdown=countdown, subone=subone)
 
     def grab_attention(self, sound=False):

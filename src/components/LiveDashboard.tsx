@@ -206,6 +206,13 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const activeTitle = getDropName(activeDrop);
   const activeStreamer = getChannelName(activeDrop, watchingChannel);
 
+  const activeGameArt = useMemo(() => {
+    if (!activeGame) return undefined;
+    const match = safeAllGames.find((g) => safeLower(g.name) === safeLower(activeGame))
+      || safeAllGames.find((g) => smartGameMatch(g.name, activeGame));
+    return resolveGameBoxArt(activeGame, match?.box_art);
+  }, [activeGame, safeAllGames]);
+
   // Progress metrics
   const progressPct = Math.min(100, Math.max(0, activeDrop?.progress_percent || 0));
   const currentMinutes = activeDrop?.current_minutes || 0;
@@ -817,6 +824,23 @@ const filteredLogs = useMemo(() => {
             ) : (
             <>
             <div className="chrono-hero-grid">
+              {/* The game being farmed: the first thing to read in the hero */}
+              <div className="hero-game-card" id="heroGameCard" title={activeGame || undefined}>
+                <div className="hero-game-cover">
+                  {activeGameArt && (
+                    <img
+                      key={activeGame}
+                      src={activeGameArt}
+                      alt=""
+                      crossOrigin={isSteamArt(activeGameArt) ? 'anonymous' : undefined}
+                      onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, activeGame)) img.style.display = 'none'; }}
+                      onError={(e) => { const img = e.currentTarget; if (!retryCover(img, activeGame)) img.style.display = 'none'; }}
+                    />
+                  )}
+                </div>
+                <div className="hero-game-name clip-2">{activeGame || 'Не выбрана'}</div>
+              </div>
+
               {/* 98px Radial Speedometer Dial */}
               <div className="radial-ring-box">
                 <svg className="radial-svg" viewBox="0 0 98 98">

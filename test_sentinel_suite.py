@@ -2674,6 +2674,79 @@ def test_english_ui_covers_every_russian_string():
     print("      " + result.stdout.strip().splitlines()[-1] + " [OK]")
 
 
+def test_claimed_drop_never_replaces_the_drop_being_farmed():
+    print("[Dashboard] A drop that is not being farmed cannot take over the progress counter...")
+    import sys
+    core_dir = SANDBOX / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    from gui_headless import STATE_BRIDGE
+    from inventory import DropsCampaign
+    from settings import Settings
+    from twitch import Twitch
+
+    class Args:
+        tray = False
+        log = False
+        dump = False
+        logging_level = 20
+        debug_ws = 0
+        debug_gql = 0
+
+    t = Twitch(Settings(Args()))
+
+    def campaign(camp_id, drops):
+        return DropsCampaign(t, {
+            "id": camp_id, "name": camp_id, "status": "ACTIVE", "self": {"isAccountConnected": True},
+            "game": {"id": 1, "displayName": "Hunt: Showdown 1896"},
+            "startAt": "2026-01-01T00:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+            "timeBasedDrops": drops,
+        }, {})
+
+    def drop(drop_id, name, required, current, claimed=False):
+        return {
+            "id": drop_id, "name": name, "requiredMinutesWatched": required,
+            "startAt": "2026-01-01T00:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+            "benefitEdges": [{"benefit": {"id": drop_id + "_b", "name": name, "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}],
+            "self": {"currentMinutesWatched": current, "isClaimed": claimed},
+        }
+
+    saved = STATE_BRIDGE.active_drop
+    try:
+        # The live case: Supply Crate is at 80/120 while another campaign of the game holds a claimed Hunt White
+        crates = campaign("crates", [drop("crate", "Supply Crate", 120, 80), drop("spare", "Spare Key", 240, 80)])
+        whites = campaign("whites", [drop("white", "Hunt White", 15, 15, claimed=True)])
+        crate = crates.timed_drops["crate"]
+        white = whites.timed_drops["white"]
+
+        crate.display()
+        assert STATE_BRIDGE.active_drop["progress_percent"] == 67
+
+        # Twitch's CurrentDrop session and websocket can still name the claimed drop
+        white.display()
+        assert STATE_BRIDGE.active_drop["id"] == "crate", f"claimed drop took over: {STATE_BRIDGE.active_drop}"
+        white.update_minutes(3)
+        assert STATE_BRIDGE.active_drop["id"] == "crate", f"finished campaign took over: {STATE_BRIDGE.active_drop}"
+
+        # Progress of the whole campaign shows the drop being farmed, not the last one of the list
+        crates.timed_drops["spare"]._on_state_changed()
+        assert STATE_BRIDGE.active_drop["id"] == "crate", f"sibling drop took over: {STATE_BRIDGE.active_drop}"
+        crate.update_minutes(90)
+        assert STATE_BRIDGE.active_drop["id"] == "crate"
+        assert STATE_BRIDGE.active_drop["current_minutes"] == 90, "a refresh of the shown drop must still reach the UI"
+        assert STATE_BRIDGE.active_drop["progress_percent"] == 75
+
+        # The drop being farmed still reaches 100% and shows as claimed when it finishes
+        crate.is_claimed = True
+        crate.real_current_minutes = crate.required_minutes
+        crate.display()
+        assert STATE_BRIDGE.active_drop["id"] == "crate" and STATE_BRIDGE.active_drop["is_claimed"] is True
+        assert STATE_BRIDGE.active_drop["progress_percent"] == 100
+    finally:
+        STATE_BRIDGE.active_drop = saved
+    print("      Counter follows only the drop being farmed: ALL PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -2741,6 +2814,7 @@ if __name__ == "__main__":
         test_config_files_saved_with_a_bom_still_load,
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
         test_english_ui_covers_every_russian_string,
+        test_claimed_drop_never_replaces_the_drop_being_farmed,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
