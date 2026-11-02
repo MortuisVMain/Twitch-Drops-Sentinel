@@ -788,10 +788,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.4", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.4") == (3, 5, 4)
+    assert __version__ == "3.5.5", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.5") == (3, 5, 5)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.4") > parse_version("3.5.3")
+    assert parse_version("v3.5.5") > parse_version("3.5.4")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -2536,11 +2536,11 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
 
     patch = work / "patch.zip"
     with zipfile.ZipFile(patch, "w") as zf:
-        zf.writestr("Twitch Drops Sentinel v3.5.4/core/version.py", '__version__ = "3.5.4"\n')
-        zf.writestr("Twitch Drops Sentinel v3.5.4/core/new_module.py", "X = 1\n")
+        zf.writestr("Twitch Drops Sentinel v3.5.5/core/version.py", '__version__ = "3.5.4"\n')
+        zf.writestr("Twitch Drops Sentinel v3.5.5/core/new_module.py", "X = 1\n")
         for rel in user_files:
-            zf.writestr(f"Twitch Drops Sentinel v3.5.4/{rel}", "OVERWRITTEN-BY-PATCH")
-        zf.writestr("Twitch Drops Sentinel v3.5.4/../../evil.txt", "traversal")
+            zf.writestr(f"Twitch Drops Sentinel v3.5.5/{rel}", "OVERWRITTEN-BY-PATCH")
+        zf.writestr("Twitch Drops Sentinel v3.5.5/../../evil.txt", "traversal")
     url, server = _serve_zip_once(patch)
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install

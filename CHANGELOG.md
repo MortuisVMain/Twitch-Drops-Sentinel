@@ -2,6 +2,11 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.5] - 2026-11-02
+- Fixed the progress counter jumping to 100% and back when a drop from another campaign was claimed in the background. The counter now stays strictly on the drop being actively farmed.
+- Added a game card with cover art and game name to the left of the progress counter on the Live Dashboard, making the actively farmed game immediately recognizable.
+- Guaranteed clean executable restart after NTFS rotation during hot-patch updates.
+
 ## [3.5.4] - 2026-11-02
 - Backdrop tab grouped by look (Energy and light, Space and signals, Materials, Landscape); older backdrops kept in a collapsed Classic section.
 - Photo thumbnails use the colors of the active theme; hovering a card plays the backdrop live.
