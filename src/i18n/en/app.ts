@@ -114,7 +114,7 @@ export const APP: Record<string, string> = {
   'Ожидание дропа': 'Waiting for a drop',
   'ГОТОВ': 'READY',
   'ожидание стримера': 'waiting for a streamer',
-  'Twitch Drops Sentinel v7.0: Автономный фарм активен': 'Twitch Drops Sentinel v7.0: autonomous farming active',
+  'Twitch Drops Sentinel: фарм активен': 'Twitch Drops Sentinel: farming',
   'Открепить окно от верхнего слоя': 'Unpin the window from the top layer',
   'Закрепить поверх всех окон': 'Keep on top of all windows',
   'ЗАКРЕПЛЕНО': 'PINNED',

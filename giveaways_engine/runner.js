@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Twitch Drops Sentinel v3.3.1 — Integrated Giveaways Engine Runner
+ * Twitch Drops Sentinel — giveaways engine runner
  * Author: Mortuis_V / Mortuis_V_Studio
  *
  * Sequentially executes store giveaway claims with real-time streaming,

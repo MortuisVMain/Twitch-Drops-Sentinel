@@ -1,6 +1,6 @@
 """
 Free Games Claimer Orchestrator & Bridge Controller
-Twitch Drops Sentinel v3 — Giveaways Integration Module
+Twitch Drops Sentinel — giveaways integration
 Architected by Argon Reasoning Engine & Mortuis_V_Studio
 """
 

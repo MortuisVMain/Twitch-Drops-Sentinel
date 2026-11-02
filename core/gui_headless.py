@@ -353,7 +353,7 @@ class HeadlessGUIManager:
     """
     Headless GUI Manager for Twitch Drops Sentinel.
     Implements the exact interface required by TwitchDrops core without opening Tkinter.
-    Provides live telemetry to the Apple Liquid Glass React 19 UI.
+    Provides live telemetry to the React UI.
     """
     def __init__(self, twitch: Any):
         self._twitch = twitch

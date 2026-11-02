@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel v3.1 — Automated Portable Runtime Setup
+Twitch Drops Sentinel — portable Python runtime setup
 Mortuis_V_Studio
 
 Ensures portable_runtime/python is present for packaging standalone releases.

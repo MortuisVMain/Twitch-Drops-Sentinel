@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel v3.0 [Apple Liquid Glass Edition]
+Twitch Drops Sentinel — local service for the desktop app
 Mortuis_V / Mortuis_V_Studio
 
 Core Microservice & Asynchronous Engine:

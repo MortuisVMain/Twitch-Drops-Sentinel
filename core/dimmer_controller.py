@@ -1,5 +1,5 @@
 """
-ScreenDimmer Bridge Controller for Twitch Drops Sentinel v3
+ScreenDimmer Bridge Controller for Twitch Drops Sentinel
 Integrates multi-monitor brightness, DDC/CI & WMI display controls,
 sleep timers and Blackout mode with system keep-awake (AwayMode).
 Mortuis_V_Studio & Argon Architecture

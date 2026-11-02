@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel v3 — GitHub Auto-Updater Module
+Twitch Drops Sentinel — GitHub auto-updater
 Mortuis_V_Studio
 
 Handles:

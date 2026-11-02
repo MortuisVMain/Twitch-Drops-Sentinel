@@ -1,5 +1,7 @@
 """
-Twitch Drops Sentinel v3.1 — GitHub Release Publisher & Asset Uploader
+Twitch Drops Sentinel — GitHub release publisher and asset uploader.
+
+Usage: python tools/publish_github_release.py <release-notes.md>
 Mortuis_V_Studio
 """
 
@@ -24,29 +26,10 @@ FULL_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip
 PATCH_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
 
 TAG_NAME = f"v{__version__}"
-RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__} — Auto-Updater Live Progress & Network Resiliency"
-RELEASE_NOTES = f"""## 🛡️ Twitch Drops Sentinel v{__version__}
-
-### ⚡ Что нового в v{__version__}:
-- **Индикатор прогресса и надежность автообновления (Live Progress Engine):**
-  - Чанковый потоковый загрузчик архивов (блоки по 64 КБ) с постоянным контролем активности соединения.
-  - Расчет скорости загрузки в реальном времени (`МБ/с`), переданных мегабайт и точных процентов.
-  - Защита от зависаний и обрывов: безопасная обработка потоков без заголовка Content-Length и авто-очистка временных файлов при сбое сети.
-  - Полноценная потокобезопасность (`threading.Lock`) фонового процесса загрузчика.
-- **Интерфейс обновления Apple Luna 2.0:**
-  - Живой прогресс-бар в модальном окне обновления и в карточке Настроек: отображает стадии `Загрузка с серверов GitHub CDN...` и `Распаковка файлов и хот-патча...`.
-  - Прямая ссылка-фоллбэк `«Медленный интернет? Скачать архив напрямую с GitHub (.zip) ↗»` для мгновенной ручной распаковки при троттлинге провайдера.
-  - Новый REST API эндпоинт `GET /api/updates/status` для внешних интеграций.
-- **Надежность и верификация:**
-  - Все **36 верификационных тестов** в `test_sentinel_suite.py` успешно пройдены (Exit Code 0).
-  - Свежий бандл `dist/index.html` (618 KB) и обновленный C# .NET 10 нативный хост `TwitchDropsSentinel.exe`.
-
-### 📦 Файлы релиза:
-1. `Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip` — Полная автономная сборка с embedded Python 3.12, Chromium и всеми модулями.
-2. `Twitch_Drops_Sentinel_Patch_v{__version__}.zip` — Легковесный хот-патч для встроенного Auto-Updater прямо из интерфейса программы.
-
-*Crafted with precision by Mortuis_V_Studio (2026).*
-"""
+RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__}"
+if len(sys.argv) != 2:
+    raise SystemExit("usage: python tools/publish_github_release.py <release-notes.md>")
+RELEASE_NOTES = Path(sys.argv[1]).read_text(encoding="utf-8")
 
 def get_token() -> str:
     # 1. Check environment variables

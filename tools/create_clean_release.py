@@ -1,10 +1,9 @@
 """
-Twitch Drops Sentinel v3.1 — Clean Multi-User & Public Release Builder
-Mortuis_V_Studio
+Twitch Drops Sentinel — release archive builder
 
-Builds 100% clean, standalone distributions ready for friends, Discord, or GitHub Releases:
-1. Full Public Release ZIP (Twitch_Drops_Sentinel_v3.1_Public_Release.zip)
-2. Hot-Patch Update ZIP (Twitch_Drops_Sentinel_Patch_v3.1.zip) for GitHub Auto-Updater
+Builds clean, standalone distributions without personal data:
+1. Full release ZIP (Twitch_Drops_Sentinel_v<version>_Public_Release.zip)
+2. Hot-patch ZIP (Twitch_Drops_Sentinel_Patch_v<version>.zip) for the built-in updater
 """
 
 import os

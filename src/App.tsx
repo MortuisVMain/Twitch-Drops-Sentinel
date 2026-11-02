@@ -169,7 +169,7 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 
 
 
-// Twitch Drops Sentinel v7.0 • Author: Mortuis_V / Mortuis_V_Studio
+// Twitch Drops Sentinel • Author: Mortuis_V / Mortuis_V_Studio
 
 export const App: React.FC = () => {
 
@@ -1485,7 +1485,7 @@ export const App: React.FC = () => {
 
               <span className="pip-marquee-text scrolling">
 
-                {activeDrop?.name || 'Twitch Drops Sentinel v7.0: Автономный фарм активен'}
+                {activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}
 
               </span>
 

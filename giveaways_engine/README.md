@@ -1,7 +1,7 @@
 # Twitch Drops Sentinel — Giveaways Subsystem
 
-Встроенный подмодуль автоматического сбора бесплатных игр и раздач для **Twitch Drops Sentinel v3.3.1**.
-Разработано: **Mortuis_V_Studio**.
+Встроенный модуль автоматического сбора бесплатных игр и раздач для **Twitch Drops Sentinel**.
+Основан на [free-games-claimer](https://github.com/vogler/free-games-claimer) (Ralf Vogler) и распространяется по лицензии AGPL-3.0, см. [LICENSE](LICENSE).
 
 ## Поддерживаемые магазины:
 - **Epic Games** (Еженедельные раздачи игр)
