@@ -23,7 +23,7 @@
     };
   });
   var state = {
-    version: '3.5.5', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.5.6', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
@@ -81,7 +81,7 @@
     giveaways.inventory.forEach(function (it, i) { it.title = ['Celeste', 'Hollow Knight', 'Into the Breach', 'Dredge', 'Tunic'][i]; it.account = 'demo@example.com'; });
     dimmer.monitors.forEach(function (m, i) { m.name = ['Dell U2723QE', 'LG 27GP850', 'Built-in Display'][i]; });
   }
-  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.5', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.5', remote_version: '3.5.5', error: null };
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.6', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.6', remote_version: '3.5.6', error: null };
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
