@@ -5397,6 +5397,46 @@ var launchContext = async (cfg2, options) => {
   return context2;
 };
 
+// src/checkout.js
+var CURRENCY = "[$\u20AC\xA3\xA5\u20BD]";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`);
+var ANY_AMOUNT = new RegExp(AMOUNT, "g");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`);
+var TOTAL_LINE = /^(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/i;
+var isZero = (amount) => !/[1-9]/.test(amount);
+var orderTotalState = (text) => {
+  const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let state = "unknown";
+  let unreadable = false;
+  for (const [i, line] of lines.entries()) {
+    const match = TOTAL_LINE.exec(line);
+    if (!match) continue;
+    const amount = match[2] || lines[i + 1] || "";
+    if (WHOLE_AMOUNT.test(amount)) {
+      if (!isZero(amount)) return "paid";
+      state = "free";
+    } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
+      unreadable = true;
+    }
+  }
+  return unreadable ? "unknown" : state;
+};
+var hasPaidAmount = (text) => (String(text).match(ANY_AMOUNT) || []).some((amount) => !isZero(amount));
+var readPageText = (page2) => page2.evaluate(() => document.body.innerText).catch((err) => {
+  console.warn(`Cannot read the checkout page: ${err.message}`);
+  return "";
+});
+var waitForFreeOrder = async (page2) => {
+  let zeroChecks = 0;
+  for (let i = 0; i < 20 && zeroChecks < 3; i++) {
+    zeroChecks = orderTotalState(await readPageText(page2)) === "free" ? zeroChecks + 1 : 0;
+    if (zeroChecks < 3) await page2.waitForTimeout(1e3);
+  }
+  return zeroChecks === 3;
+};
+
 // unity.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "unity", ...a);
 console.log(datetime(), "started checking Unity Asset Store");
@@ -5545,28 +5585,15 @@ try {
           await page.waitForTimeout(3e3);
           const addressForm = page.locator("#org_address_form");
           if (await addressForm.isVisible().catch(() => false)) {
-            console.log("    Completing required billing address fields...");
-            const regionSelect = page.locator('select[name="sta[region]"]');
-            if (await regionSelect.count() > 0) {
-              await regionSelect.selectOption({ index: 1 }).catch(() => {
-              });
+            const missing = [];
+            for (const field of ["firstName", "lastName", "email", "phoneNumber", "streetAddress", "postalCode", "locality"]) {
+              const input = page.locator(`input[name="sta[${field}]"]`);
+              if (await input.count() > 0 && !await input.inputValue().catch(() => "")) missing.push(field);
             }
-            const setField = async (selector, val) => {
-              const el = page.locator(selector);
-              if (await el.count() > 0 && !await el.inputValue().catch(() => "")) {
-                await el.fill(val).catch(() => {
-                });
-              }
-            };
-            const defaultName = typeof user === "string" && user.split("@")[0] || "User";
-            await setField('input[name="sta[firstName]"]', defaultName);
-            await setField('input[name="sta[lastName]"]', "Claimer");
-            await setField('input[name="sta[email]"]', typeof user === "string" && user.includes("@") ? user : `${defaultName}@example.com`);
-            await setField('input[name="sta[companyName]"]', "Studio");
-            await setField('input[name="sta[phoneNumber]"]', "1234567890");
-            await setField('input[name="sta[streetAddress]"]', "Main Street 1");
-            await setField('input[name="sta[postalCode]"]', "10001");
-            await setField('input[name="sta[locality]"]', "City");
+            if (missing.length) {
+              console.log("[SENTINEL] Unity \u043F\u0440\u043E\u0441\u0438\u0442 \u043F\u043B\u0430\u0442\u0451\u0436\u043D\u044B\u0435 \u0434\u0430\u043D\u043D\u044B\u0435. \u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u0438\u0445 \u043E\u0434\u0438\u043D \u0440\u0430\u0437 \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u0437\u0430\u043A\u0430\u0437\u0430 \u0432 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435, \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0438\u0445 \u043D\u0435 \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442.");
+              throw new Error(`Unity needs billing details from the user: ${missing.join(", ")}`);
+            }
             const vatNoLabel = page.locator('label[for="vatRegisteredNo"]');
             if (await vatNoLabel.isVisible().catch(() => false)) {
               await vatNoLabel.click().catch(() => {
@@ -5587,16 +5614,12 @@ try {
             }
           }
           console.log("    Verifying cart total is strictly $0.00 / 0.00...");
-          const isZeroPrice = await page.waitForFunction(() => {
-            const text = document.body.innerText;
-            return /(?:Total|Итого|Сумма)[\s\S]{0,40}?(?:[$€£¥₽]\s*0(?:[.,]00)?|0(?:[.,]00)?\s*[$€£¥₽])/i.test(text);
-          }, { timeout: 15e3 }).catch(() => false);
-          if (!isZeroPrice) {
-            throw new Error("Safety guard tripped: Cart total is not $0.00. Aborting checkout to prevent accidental charges.");
+          if (!await waitForFreeOrder(page)) {
+            throw new Error("Safety guard tripped: Cart total is not a clear 0. Aborting checkout to prevent accidental charges.");
           }
           console.log("    Accepting purchase terms...");
           await page.evaluate(() => {
-            const terms = document.querySelectorAll('#order_terms, input[name="term"], input[type="checkbox"]');
+            const terms = document.querySelectorAll('#order_terms, input[name="term"]');
             terms.forEach((cb) => {
               cb.checked = true;
               cb.dispatchEvent(new Event("change", { bubbles: true }));
@@ -5618,6 +5641,10 @@ try {
           });
           if (!await payBtn.isVisible()) {
             throw new Error("Checkout confirmation button not visible");
+          }
+          const buttonText = await payBtn.innerText().catch(() => "");
+          if (orderTotalState(await readPageText(page)) !== "free" || hasPaidAmount(buttonText)) {
+            throw new Error(`Safety guard tripped right before the order (button: "${buttonText}"). Aborting checkout to prevent accidental charges.`);
           }
           console.log("    Submitting final order...");
           await payBtn.click();

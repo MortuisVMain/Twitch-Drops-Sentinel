@@ -2689,6 +2689,59 @@ def _run_store_login(script, page_code, extra_env=None, seed=None):
     return res, (json.loads(sessions.read_text(encoding="utf-8")) if sessions.is_file() else {})
 
 
+def test_unity_orders_only_at_a_clear_zero_total():
+    """The order button may be pressed only when the page clearly says the order is free."""
+    source = (WORKSPACE / "giveaways_engine" / "unity.js").read_text(encoding="utf-8")
+    bundle = (WORKSPACE / "giveaways_engine" / "dist" / "unity.mjs").read_text(encoding="utf-8")
+    for code in (source, bundle):
+        assert "Main Street 1" not in code and "1234567890" not in code, "made-up billing data must never reach an account"
+        assert 'input[type="checkbox"]' not in code, "ticking every checkbox on the page also accepts what the user never saw"
+    assert "waitForFreeOrder" in bundle, "dist/unity.mjs is what ships: rebuild it"
+
+    script = """
+const { orderTotalState, hasPaidAmount, waitForFreeOrder } = await import(process.argv[1]);
+const states = {};
+for (const text of JSON.parse(process.argv[2])) states[text] = orderTotalState(text);
+const paid = {};
+for (const text of JSON.parse(process.argv[3])) paid[text] = hasPaidAmount(text);
+const fakePage = (texts) => { let i = 0; return {
+  evaluate: async () => texts[Math.min(i++, texts.length - 1)], waitForTimeout: async () => {} }; };
+const waits = {
+  stable: await waitForFreeOrder(fakePage(['Total $49.00', 'Total $0.00'])),
+  flicker: await waitForFreeOrder(fakePage(['Total $0.00', 'Total $49.00'])),
+  blank: await waitForFreeOrder(fakePage([''])),
+};
+console.log(JSON.stringify({ states, paid, waits }));
+"""
+    module = (WORKSPACE / "giveaways_engine" / "src" / "checkout.js").as_uri()
+    free = ["Total $0.00", "Итого 0,00 ₽", "Total\n$0.00", "Total: 0.00 USD", "Total (incl. VAT) €0,00",
+            "Subtotal $49.00\nDiscount -$49.00\nTotal $0.00", "Итого\n0 ₽", "Total tax $0.00\nTotal $0.00"]
+    paid_totals = ["Total $49.00", "Итого 1000,00 ₽", "Total 10 €", "Total 49,90 €", "Total $0.50", "Сумма 4900 ₽",
+                   "Subtotal $49.00\nTax $0.00\nTotal $49.00", "Total\n$49.00", "Total 1 000,00 ₽", "Total USD 5.00",
+                   "Total $0.00\nTotal due $49.00"]
+    unknown = ["", "Your cart", "Subtotal $0.00", "Total Free", "Total", "Total tax $0.00", "Discount $0.00", "Total $0.00 or so"]
+    buttons_paid = ["Pay $49.00", "Оплатить 1000 ₽", "Pay now 0,50 €"]
+    buttons_free = ["Pay now", "Заплатить немедленно", "Pay $0.00", "Complete order"]
+    res = subprocess.run(
+        ["node", "--input-type=module", "-e", script, module, json.dumps(free + paid_totals + unknown),
+         json.dumps(buttons_paid + buttons_free)],
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    assert res.returncode == 0, f"node failed:\n{res.stderr[-800:]}"
+    out = json.loads(res.stdout)
+    for text in free:
+        assert out["states"][text] == "free", f"{text!r} is a free order, got {out['states'][text]}"
+    for text in paid_totals:
+        assert out["states"][text] == "paid", f"{text!r} would charge money, got {out['states'][text]}"
+    for text in unknown:
+        assert out["states"][text] == "unknown", f"{text!r} says nothing about the total, got {out['states'][text]}"
+    for text in buttons_paid:
+        assert out["paid"][text] is True, f"button {text!r} names a price"
+    for text in buttons_free:
+        assert out["paid"][text] is False, f"button {text!r} names no price"
+    assert out["waits"] == {"stable": True, "flicker": False, "blank": False}, f"zero must hold on the page: {out['waits']}"
+
+
 def test_store_login_finishes_without_a_terminal():
     print("[friend-report] Store login: no terminal prompts, the browser login is noticed and remembered...")
     if shutil.which("node") is None:
@@ -3060,6 +3113,7 @@ if __name__ == "__main__":
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
         test_store_login_finishes_without_a_terminal,
+        test_unity_orders_only_at_a_clear_zero_total,
         test_login_state_follows_the_latest_attempt,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_missing_webview2_runtime_has_an_explanation,

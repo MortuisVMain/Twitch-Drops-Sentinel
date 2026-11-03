@@ -35,3 +35,12 @@ After changing engine sources, rebuild `giveaways_engine/dist`: `runner.js` pref
 
 ## Not verified
 A real login to each store: it needs real accounts. Prime's `waitForURL(.../claims/home?signedIn=true)` and Epic's exact redirect are the likeliest to break next. For Unity, only the signed-out answer was seen; that a signed-in user gets another `id` from the same request, and that the login returns in the same tab, are assumptions. If they are wrong, the login is reported as failed, not falsely as done.
+
+## Unity checkout: the zero check let paid orders through
+Fixing the login made this path reachable for scheduled runs, so it matters more than it did. The old regex looked for a
+total label, then up to 40 of any characters, then `$0` or `0 $`. It passed `Итого 1000,00 ₽` (the end of the number), `Total $0.50`
+(no boundary after the zero) and `Subtotal $49.00 Tax $0.00 Total $49.00` (the tax line). `giveaways_engine/src/checkout.js` now
+reads whole lines: a price is zero when it has no digit but 0, one price above zero means paid, and a page that does not say
+means no order. Zero must hold for three checks while the coupon applies and is read again right before the click. The script
+no longer fills in made-up billing details or ticks every checkbox on the page. Page wording was not checked on a real order:
+a label the code does not know stops the order instead of charging, so the failure to expect is a missed claim.

@@ -4,6 +4,7 @@
 import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
+import { hasPaidAmount, orderTotalState, readPageText, waitForFreeOrder } from './src/checkout.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'unity', ...a);
 
@@ -195,29 +196,18 @@ try {
           }
           await page.waitForTimeout(3000);
 
-          // Fill address fields defensively if required by Unity for new accounts
+          // Billing details are the user's own: an account without them is reported, never filled with made-up ones
           const addressForm = page.locator('#org_address_form');
           if (await addressForm.isVisible().catch(() => false)) {
-            console.log('    Completing required billing address fields...');
-            const regionSelect = page.locator('select[name="sta[region]"]');
-            if (await regionSelect.count() > 0) {
-              await regionSelect.selectOption({ index: 1 }).catch(() => {});
+            const missing = [];
+            for (const field of ['firstName', 'lastName', 'email', 'phoneNumber', 'streetAddress', 'postalCode', 'locality']) {
+              const input = page.locator(`input[name="sta[${field}]"]`);
+              if (await input.count() > 0 && !(await input.inputValue().catch(() => ''))) missing.push(field);
             }
-            const setField = async (selector, val) => {
-              const el = page.locator(selector);
-              if (await el.count() > 0 && !(await el.inputValue().catch(() => ''))) {
-                await el.fill(val).catch(() => {});
-              }
-            };
-            const defaultName = (typeof user === 'string' && user.split('@')[0]) || 'User';
-            await setField('input[name="sta[firstName]"]', defaultName);
-            await setField('input[name="sta[lastName]"]', 'Claimer');
-            await setField('input[name="sta[email]"]', (typeof user === 'string' && user.includes('@')) ? user : `${defaultName}@example.com`);
-            await setField('input[name="sta[companyName]"]', 'Studio');
-            await setField('input[name="sta[phoneNumber]"]', '1234567890');
-            await setField('input[name="sta[streetAddress]"]', 'Main Street 1');
-            await setField('input[name="sta[postalCode]"]', '10001');
-            await setField('input[name="sta[locality]"]', 'City');
+            if (missing.length) {
+              console.log('[SENTINEL] Unity просит платёжные данные. Заполните их один раз на странице заказа в браузере, приложение их не подставляет.');
+              throw new Error(`Unity needs billing details from the user: ${missing.join(', ')}`);
+            }
 
             const vatNoLabel = page.locator('label[for="vatRegisteredNo"]');
             if (await vatNoLabel.isVisible().catch(() => false)) {
@@ -242,19 +232,14 @@ try {
 
           // CRITICAL SAFETY GUARD: Verify total is strictly 0 before touching confirm buttons
           console.log('    Verifying cart total is strictly $0.00 / 0.00...');
-          const isZeroPrice = await page.waitForFunction(() => {
-            const text = document.body.innerText;
-            return /(?:Total|Итого|Сумма)[\s\S]{0,40}?(?:[$€£¥₽]\s*0(?:[.,]00)?|0(?:[.,]00)?\s*[$€£¥₽])/i.test(text);
-          }, { timeout: 15000 }).catch(() => false);
-
-          if (!isZeroPrice) {
-            throw new Error('Safety guard tripped: Cart total is not $0.00. Aborting checkout to prevent accidental charges.');
+          if (!await waitForFreeOrder(page)) {
+            throw new Error('Safety guard tripped: Cart total is not a clear 0. Aborting checkout to prevent accidental charges.');
           }
 
           // Accept agreement checkbox on order
           console.log('    Accepting purchase terms...');
           await page.evaluate(() => {
-            const terms = document.querySelectorAll('#order_terms, input[name="term"], input[type="checkbox"]');
+            const terms = document.querySelectorAll('#order_terms, input[name="term"]');
             terms.forEach(cb => {
               cb.checked = true;
               cb.dispatchEvent(new Event('change', { bubbles: true }));
@@ -278,6 +263,12 @@ try {
           await payBtn.scrollIntoViewIfNeeded().catch(() => {});
           if (!(await payBtn.isVisible())) {
             throw new Error('Checkout confirmation button not visible');
+          }
+
+          // The last look: nothing may have changed since the check above, and the button must not name a price
+          const buttonText = await payBtn.innerText().catch(() => '');
+          if (orderTotalState(await readPageText(page)) !== 'free' || hasPaidAmount(buttonText)) {
+            throw new Error(`Safety guard tripped right before the order (button: "${buttonText}"). Aborting checkout to prevent accidental charges.`);
           }
 
           console.log('    Submitting final order...');
