@@ -4055,6 +4055,14 @@ def test_engine_install_button_does_not_start_a_claim():
     print("      Engine install: ALL PASS [OK]")
 
 
+def test_built_page_embeds_its_font():
+    print("[build] dist/index.html carries Inter inside itself...")
+    page = (WORKSPACE / "dist" / "index.html").read_text(encoding="utf-8")
+    assert "url(@fontsource" not in page, "the font is left as an unresolved import: build without a node_modules junction"
+    assert "url(data:font/woff2;base64," in page, "the page must embed its font, users may be offline"
+    print("      Embedded font: ALL PASS [OK]")
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -4522,6 +4530,7 @@ if __name__ == "__main__":
         test_switch_account_forgets_only_that_store,
         test_giveaways_readiness_says_what_is_left,
         test_engine_install_button_does_not_start_a_claim,
+        test_built_page_embeds_its_font,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,
         test_scheduler_query_that_hangs_is_killed_and_reaped,
