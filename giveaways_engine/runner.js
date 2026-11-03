@@ -7,7 +7,7 @@
  * graceful error recovery, and zero external shell batch dependencies.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
@@ -113,8 +113,24 @@ function runStore(storeKey, headless) {
   });
 }
 
+// A scheduled run has nobody to press "Claim", so the first one on a fresh install sets up the browser engine itself
+function ensureBrowserEngine() {
+  if (fs.existsSync(path.join(__dirname, 'node_modules', 'patchright'))) return true;
+  console.log('[SENTINEL] Установка браузерного движка раздач...');
+  for (const command of ['npm install', 'npx patchright install chromium']) {
+    const { status } = spawnSync(command, { cwd: __dirname, shell: true, stdio: 'inherit', windowsHide: true, timeout: 900000 });
+    if (status !== 0) {
+      console.error(`[SENTINEL] ✕ Команда "${command}" завершилась с кодом ${status}.`);
+      return false;
+    }
+  }
+  return true;
+}
+
 async function main() {
   const { headless, stores } = parseArgs();
+
+  if (!ensureBrowserEngine()) process.exit(1);
 
   console.log('============================================================');
   console.log('  TWITCH DROPS SENTINEL — МОДУЛЬ РАЗДАЧ ИГР (GIVEAWAYS)');

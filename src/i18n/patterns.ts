@@ -100,6 +100,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Вы вошли как (.+)$/, 'Signed in as $1'],
   [/^Сменить аккаунт (.+)$/, 'Switch $1 account'],
   [/^Магазин: (.+)$/, 'Store: $1'],
+  [/^Модуль раздач не найден по пути (.+)$/, 'Giveaways module not found at $1'],
   [/^● Активен \((.+)\)$/, '● Active ($1)'],
   [/^(.+) \(((?:Активен|Отключен) — .+)\)$/, '$1 ($2)'],
   // ScreenDimmerView

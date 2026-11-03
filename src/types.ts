@@ -161,6 +161,8 @@ export interface StoreTelemetry {
 export interface SchedulerTelemetry {
   taskName: string;
   exists: boolean;
+  // The Windows scheduler did not answer: `exists: false` then says nothing about the task
+  queryFailed?: boolean;
   state: 'Ready' | 'Running' | 'Disabled' | 'Unknown';
   lastRunTime: string | null;
   nextRunTime: string | null;

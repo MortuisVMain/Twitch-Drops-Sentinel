@@ -252,7 +252,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     setTimeout(() => setCopiedLogs(false), 2000);
   };
 
-  const isSchedulerActive = data?.scheduler?.state !== 'Disabled';
+  const isSchedulerActive = data?.scheduler?.exists === true && data.scheduler.state !== 'Disabled';
+  const isSchedulerUnknown = data?.scheduler?.queryFailed === true;
+  const isSchedulerMissing = data?.scheduler?.exists === false && !isSchedulerUnknown;
   const activeDays: string[] = useMemo(() => {
     if (data?.scheduler?.activeDays && data.scheduler.activeDays.length > 0) {
       return data.scheduler.activeDays;
@@ -272,43 +274,42 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     }
   }, [activeDays]);
 
-  const handleToggleScheduler = async () => {
-    playClick();
+  const postSchedulerChange = async (endpoint: string, body: object) => {
+    setActionError(null);
     try {
-      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/toggle-scheduler', {
+      const res = await fetch(`http://127.0.0.1:28492/api/v1/giveaways/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enable: !isSchedulerActive }),
+        body: JSON.stringify(body),
       });
-      if (res.ok) {
-        fetchState(true);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        setActionError(errJson.detail || 'Не удалось изменить расписание автосбора');
       }
+      // Also after a refusal: brings the optimistically changed day chips back to the real state
+      fetchState(true);
     } catch (err) {
-      console.error('GiveawaysView: не удалось переключить планировщик раздач', err);
+      console.error(`GiveawaysView: запрос ${endpoint} не выполнен`, err);
+      setActionError('Ошибка сети при изменении расписания автосбора');
     }
+  };
+
+  const handleToggleScheduler = async () => {
+    playClick();
+    await postSchedulerChange('toggle-scheduler', { enable: !isSchedulerActive });
   };
 
   const handleToggleDay = async (dayKey: string) => {
     playClick();
-    const isPresent = selectedDays.includes(dayKey);
+    // No task yet means no active days: the chips are unlit, so the first click selects just that day
+    const currentDays = isSchedulerMissing ? [] : selectedDays;
+    const isPresent = currentDays.includes(dayKey);
     const nextDays = isPresent
-      ? selectedDays.filter(d => d !== dayKey)
-      : [...selectedDays, dayKey];
+      ? currentDays.filter(d => d !== dayKey)
+      : [...currentDays, dayKey];
     const orderedDays = WEEK_DAYS.map(d => d.key).filter(k => nextDays.includes(k));
     setSelectedDays(orderedDays);
-
-    try {
-      const res = await fetch('http://127.0.0.1:28492/api/v1/giveaways/scheduler-days', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: orderedDays }),
-      });
-      if (res.ok) {
-        fetchState(true);
-      }
-    } catch (err) {
-      console.error('Failed to update scheduler days', err);
-    }
+    await postSchedulerChange('scheduler-days', { days: orderedDays });
   };
 
   const activeDayLabels = useMemo(() => {
@@ -316,6 +317,17 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     if (selectedDays.length === 7) return 'Ежедневно';
     return selectedDays.map(d => DAY_SHORT_MAP[d] || d).join(',');
   }, [selectedDays]);
+
+  const schedulerButtonLabel = isSchedulerUnknown
+    ? '⚠ Планировщик не отвечает'
+    : isSchedulerMissing
+      ? '○ Автосбор не настроен'
+      : isSchedulerActive ? `● Активен (${activeDayLabels})` : '○ Приостановлен';
+  const schedulerButtonTitle = isSchedulerUnknown
+    ? 'Не удалось получить состояние задания. Нажмите, чтобы попробовать ещё раз'
+    : isSchedulerMissing
+      ? 'Задание ещё не создано в Планировщике Windows. Нажмите, чтобы создать его'
+      : isSchedulerActive ? 'Нажмите для приостановки планировщика' : 'Нажмите для включения планировщика';
 
   // Claimed items: Priority to real backend inventory (26+ items)
   const claimedItems: ClaimedGameItem[] = useMemo(() => {
@@ -600,9 +612,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 className={`tactile-btn ${isSchedulerActive ? 'active-mint' : ''}`} 
                 style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }}
                 onClick={handleToggleScheduler}
-                title={isSchedulerActive ? 'Нажмите для приостановки планировщика' : 'Нажмите для включения планировщика'}
+                title={schedulerButtonTitle}
               >
-                {isSchedulerActive ? `● Активен (${activeDayLabels})` : '○ Приостановлен'}
+                {schedulerButtonLabel}
               </button>
             </div>
           </div>
@@ -615,7 +627,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             </span>
             <div className="scheduler-days-chips">
               {WEEK_DAYS.map(d => {
-                const isActive = selectedDays.includes(d.key);
+                const isActive = !isSchedulerMissing && selectedDays.includes(d.key);
                 return (
                   <button
                     key={d.key}
@@ -629,6 +641,17 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               })}
             </div>
           </div>
+
+          {isSchedulerMissing && (
+            <div style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              Автосбор по расписанию не запускается: задание ещё не создано. Выберите дни или нажмите кнопку выше.
+            </div>
+          )}
+          {actionError && (
+            <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+              ⚠ {actionError}
+            </div>
+          )}
 
           <div
             ref={terminalRef}
