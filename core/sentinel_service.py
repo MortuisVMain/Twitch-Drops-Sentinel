@@ -1706,7 +1706,7 @@ class SentinelSupervisor:
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
         else:
-            loops += [self.run_twitch_engine(), CAMPAIGNS_FETCHER.start_background_loop(), self.cover_keeper_loop()]
+            loops += [self.run_twitch_engine(), CAMPAIGNS_FETCHER.start_background_loop(), self.cover_keeper_loop(), self.giveaways.repair_task_paths()]
         await asyncio.gather(*loops, return_exceptions=True)
 
 if __name__ == "__main__":

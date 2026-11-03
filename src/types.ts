@@ -163,6 +163,10 @@ export interface SchedulerTelemetry {
   exists: boolean;
   // The Windows scheduler did not answer: `exists: false` then says nothing about the task
   queryFailed?: boolean;
+  // The service could not bring the task in line with this install at startup
+  repairError?: string | null;
+  lastRunFailed?: boolean;
+  logFile?: string;
   state: 'Ready' | 'Running' | 'Disabled' | 'Unknown';
   lastRunTime: string | null;
   nextRunTime: string | null;

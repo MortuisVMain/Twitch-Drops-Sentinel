@@ -49,6 +49,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Ошибка сети при изменении расписания автосбора': 'Network error while changing the auto-claim schedule',
   // Backend refusals shown as is
   'Для автосбора раздач нужен Node.js 20 или новее (nodejs.org). Установите его и включите автосбор ещё раз.': 'Auto-claim needs Node.js 20 or newer (nodejs.org). Install it and turn auto-claim on again.',
+  'Не удалось проверить задание автосбора. Подробности в журнале приложения.': 'Could not check the auto-claim task. See the application log for details.',
   'Для бесплатных раздач нужен Node.js 20 или новее (nodejs.org). Установите его и запустите сбор ещё раз.': 'Free giveaways need Node.js 20 or newer (nodejs.org). Install it and start the claim again.',
   'Планировщик Windows не ответил вовремя. Попробуйте ещё раз.': 'Windows Task Scheduler did not respond in time. Please try again.',
   'Планировщик Windows не ответил. Попробуйте ещё раз.': 'Windows Task Scheduler did not respond. Please try again.',

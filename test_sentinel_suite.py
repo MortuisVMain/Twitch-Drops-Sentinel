@@ -2689,7 +2689,11 @@ class _FakeTaskScheduler:
             self.reaped = True
             return self.returncode
 
-    def __init__(self, exists=False, fail_writes=False, query_broken=False, hang_writes=False):
+    def __init__(self, exists=False, fail_writes=False, query_broken=False, hang_writes=False, action=None,
+                 node_version=b"v24.1.0\n", last_result=None):
+        self.action = action or {}
+        self.node_version = node_version
+        self.last_result = last_result
         self.exists = exists
         self.fail_writes = fail_writes
         self.query_broken = query_broken
@@ -2699,11 +2703,13 @@ class _FakeTaskScheduler:
 
     async def __call__(self, *args, **kwargs):
         script = args[-1]
+        if script == "--version":
+            return self._Proc(self.node_version, 0)
         if "ConvertTo-Json" in script:
             if self.query_broken:
                 return self._Proc(b"", 1)
             info = {"exists": self.exists, "state": "Ready" if self.exists else "Unknown", "lastRun": None,
-                    "nextRun": None, "lastResult": None, "daysOfWeek": 37 if self.exists else None}
+                    "nextRun": None, "lastResult": self.last_result, "daysOfWeek": 37 if self.exists else None, **self.action}
             return self._Proc(json.dumps(info).encode(), 0)
         self.writes.append(script)
         if self.hang_writes:
@@ -2838,6 +2844,193 @@ def test_scheduler_task_is_created_on_a_clean_install():
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "data?.scheduler?.state !== 'Disabled'" not in view, "a missing task must not read as active"
     assert "isSchedulerMissing" in view and "{actionError" in view, "the missing task and scheduler errors must be shown"
+
+
+def test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install():
+    print("[clean-install] Giveaways scheduler: Node.js below 20 is refused, a moved install re-points the task...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    from aiohttp import web
+
+    node = r"C:\Program Files\nodejs\node.exe"
+    original_exec, original_which = gc.asyncio.create_subprocess_exec, gc.shutil.which
+    original_log = gc.SCHEDULED_LOG
+    original_fgc_path = os.environ.pop("FGC_PATH", None)
+    gc.shutil.which = lambda name, *a, **k: node
+
+    def run(fake, action):
+        gc.asyncio.create_subprocess_exec = fake
+        return asyncio.run(action(gc.GiveawaysOrchestrator()))
+
+    try:
+        # Node.js below 20: refused with an explanation, nothing is created
+        fake = _FakeTaskScheduler(node_version=b"v18.20.4\n")
+        try:
+            run(fake, lambda o: o.toggle_scheduler(enable=True))
+            raise AssertionError("the task must not be created with an old Node.js")
+        except web.HTTPPreconditionFailed as exc:
+            detail = json.loads(exc.text)["detail"]
+            assert "Node.js" in detail and "18" in detail and "20" in detail, detail
+        assert not fake.writes, fake.writes
+
+        # The task runs in scheduled mode: the engine reads the store choice and writes the log itself
+        fake = _FakeTaskScheduler()
+        run(fake, lambda o: o.toggle_scheduler(enable=True))
+        script = fake.writes[-1]
+        assert "--scheduled" in script and "--claim" not in script, script
+        assert "config.json" in script and "giveaways_scheduled.log" in script, script
+
+        arguments, work_dir = gc._task_action(node)
+        current = {"execute": "conhost.exe", "arguments": arguments, "workingDirectory": work_dir}
+        stale = {**current, "arguments": arguments.replace(str(gc.resolve_fgc_root()), r"D:\old folder\giveaways_engine")}
+
+        async def repair_then_state(o):
+            await o.repair_task_paths()
+            return await o._query_scheduler(force=True)
+
+        # Moved install: only the action changes, the trigger with the chosen days stays
+        fake = _FakeTaskScheduler(exists=True, action=stale)
+        state = run(fake, repair_then_state)
+        assert len(fake.writes) == 1 and "Set-ScheduledTask" in fake.writes[0] and "-Action" in fake.writes[0], fake.writes
+        assert "-Trigger" not in fake.writes[0] and "New-ScheduledTaskTrigger" not in fake.writes[0], fake.writes[0]
+        assert not state["repairError"], state
+
+        # Same paths, whatever the letter case PATHEXT produced: no write at all
+        fake = _FakeTaskScheduler(exists=True, action={**current, "arguments": arguments.replace("node.exe", "node.EXE")})
+        run(fake, repair_then_state)
+        assert not fake.writes, fake.writes
+
+        # No task: the check creates nothing
+        fake = _FakeTaskScheduler()
+        run(fake, repair_then_state)
+        assert not fake.writes, fake.writes
+
+        # A task the user set up with an own launcher is not ours to re-point
+        fake = _FakeTaskScheduler(exists=True, action={"execute": r"C:\Scripts\Launcher.bat", "arguments": "", "workingDirectory": ""})
+        state = run(fake, repair_then_state)
+        assert not fake.writes and not state["repairError"], (fake.writes, state)
+
+        # A failed repair does not raise, and the state says so
+        fake = _FakeTaskScheduler(exists=True, action=stale, fail_writes=True)
+        state = run(fake, repair_then_state)
+        assert state["exists"] and state["repairError"], state
+
+        # An unreachable scheduler does not raise either
+        run(_FakeTaskScheduler(query_broken=True), repair_then_state)
+
+        # Node.js gone after the task was created: reported, nothing written
+        gc.shutil.which = lambda name, *a, **k: None
+        fake = _FakeTaskScheduler(exists=True, action=current)
+        state = run(fake, repair_then_state)
+        assert "Node.js" in state["repairError"] and not fake.writes, state
+        gc.shutil.which = lambda name, *a, **k: node
+
+        # A failed scheduled run is reported; "never ran" and "still running" are not failures
+        for code, failed in ((1, True), (0, False), (None, False), (267011, False), (267009, False)):
+            state = run(_FakeTaskScheduler(exists=True, last_result=code), lambda o: o._query_scheduler(force=True))
+            assert state["lastRunFailed"] is failed, (code, state)
+        assert state["logFile"].endswith("giveaways_scheduled.log"), state
+
+        # conhost does not pass the exit code on, so for our task the scheduler reports 0: the run log tells
+        run_log = Path(tempfile.mkdtemp(prefix="sentinel_runlog_")) / "giveaways_scheduled.log"
+        gc.SCHEDULED_LOG = run_log
+        for text, failed in (("[SENTINEL] start\n[SENTINEL] \u2715 cannot read config\n", True),
+                             ("[SENTINEL] \u2715 GOG failed\nmore\n[SENTINEL] done\n", False),
+                             (None, False)):
+            run_log.unlink(missing_ok=True)
+            if text is not None:
+                run_log.write_text(text, encoding="utf-8")
+            state = run(_FakeTaskScheduler(exists=True, last_result=0), lambda o: o._query_scheduler(force=True))
+            assert state["lastRunFailed"] is failed, (text, state)
+    finally:
+        gc.SCHEDULED_LOG = original_log
+        gc.asyncio.create_subprocess_exec, gc.shutil.which = original_exec, original_which
+        if original_fgc_path is not None:
+            os.environ["FGC_PATH"] = original_fgc_path
+
+    service = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "self.giveaways.repair_task_paths()" in service, "the service must check the task paths when it starts"
+    assert service.index("if TEST_MODE:\n            logger.info(\"SENTINEL_TEST_MODE") < service.index("self.giveaways.repair_task_paths()"), \
+        "the check must stay out of the test daemon: its sandbox path must never reach a real task"
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "giveaways_selected_stores: selectedStores" in view, "the store choice must reach config.json, a scheduled run reads it there"
+    assert "repairError" in view and "lastRunFailed" in view, "scheduler problems must be shown"
+
+
+def test_scheduled_run_collects_selected_stores_and_writes_a_log():
+    print("[clean-install] Giveaways runner: a scheduled run follows the store choice and leaves a UTF-8 log...")
+    node = shutil.which("node")
+    if not node:
+        print("      SKIP: Node.js is missing, the runner cannot be started")
+        return
+    engine = Path(tempfile.mkdtemp(prefix="sentinel_sched_")) / "движок с пробелом"
+    try:
+        (engine / "dist").mkdir(parents=True)
+        (engine / "node_modules" / "patchright").mkdir(parents=True)
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
+        scripts = {"epic": "epic-games", "gog": "gog", "steam": "steam", "fab": "fab", "unity": "unity", "itch": "itch"}
+        for store, name in scripts.items():
+            (engine / "dist" / f"{name}.mjs").write_text(f"console.log('STORE {store} раздача');", encoding="utf-8")
+        config, log = engine / "config.json", engine / "giveaways_scheduled.log"
+
+        def run_scheduled(*node_args):
+            result = subprocess.run([node, *node_args, "runner.js", "--scheduled", "--config", str(config), "--log", str(log)],
+                                    cwd=str(engine), capture_output=True, text=True, encoding="utf-8", timeout=60)
+            return result.returncode, log.read_text(encoding="utf-8")
+
+        def stores_in(text):
+            return sorted(store for store in scripts if f"STORE {store} раздача" in text)
+
+        # Only the selected stores run, the children's output and Cyrillic land in the log as UTF-8
+        config.write_text(json.dumps({"giveaways_selected_stores": ["epic", "itch"]}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == ["epic", "itch"], (code, text)
+        assert "Запуск по расписанию" in text, text
+
+        # Every run starts the file over, so it cannot grow without limit
+        config.write_text(json.dumps({"giveaways_selected_stores": ["gog"]}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == ["gog"], (code, text)
+
+        # A config saved with a BOM still counts, an unknown store is skipped and named
+        config.write_bytes(b"\xef\xbb\xbf" + json.dumps({"giveaways_selected_stores": ["steam", "nope"]}).encode())
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == ["steam"] and "nope" in text, (code, text)
+
+        # All stores off: nothing runs and the log says why
+        config.write_text(json.dumps({"giveaways_selected_stores": []}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == [] and "не выбран" in text, (code, text)
+
+        # The giveaways module switched off in the settings: nothing runs either
+        config.write_text(json.dumps({"giveaways_enabled": False, "giveaways_selected_stores": ["epic"]}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == [] and "отключ" in text, (code, text)
+
+        # No choice saved yet: the defaults the interface shows
+        defaults = ["epic", "fab", "gog", "steam", "unity"]
+        config.write_text(json.dumps({"language": "ru"}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == defaults, (code, text)
+        config.unlink()
+        code, text = run_scheduled()
+        assert code == 0 and stores_in(text) == defaults, (code, text)
+
+        # A damaged config: a store the user turned off must not run on a guess, the run fails visibly
+        for damaged in ('{"giveaways_selected_stores": ["epic"', '{"giveaways_selected_stores": "epic"}', "null"):
+            config.write_text(damaged, encoding="utf-8")
+            code, text = run_scheduled()
+            assert code != 0 and stores_in(text) == [] and "config.json" in text, (damaged, code, text)
+
+        # Node.js below 20: the log explains it, the exit code shows it
+        config.write_text(json.dumps({"giveaways_selected_stores": ["epic"]}), encoding="utf-8")
+        old_node = engine / "old_node.cjs"
+        old_node.write_text("Object.defineProperty(process, 'versions', { value: { ...process.versions, node: '18.20.4' } });", encoding="utf-8")
+        code, text = run_scheduled("-r", str(old_node))
+        assert code != 0 and stores_in(text) == [] and "Node.js" in text and "18.20.4" in text, (code, text)
+    finally:
+        shutil.rmtree(engine.parent, ignore_errors=True)
 
 
 def test_engine_installs_itself_for_a_scheduled_run():
@@ -3024,6 +3217,8 @@ if __name__ == "__main__":
         test_giveaways_without_node_explains_what_is_missing,
         test_scheduler_task_is_created_on_a_clean_install,
         test_engine_installs_itself_for_a_scheduled_run,
+        test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install,
+        test_scheduled_run_collects_selected_stores_and_writes_a_log,
         test_missing_webview2_runtime_has_an_explanation,
         test_login_code_copy_and_activate_link,
         test_config_files_saved_with_a_bom_still_load,
@@ -3052,7 +3247,7 @@ if __name__ == "__main__":
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
-    print("  ALL 39 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print("  ALL 41 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

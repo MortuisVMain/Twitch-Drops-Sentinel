@@ -179,6 +179,17 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     }
   }, [logs]);
 
+  // A scheduled run reads the choice from config.json, so it must not stay in this WebView's localStorage alone
+  useEffect(() => {
+    if (!settings) return;
+    const saved = settings.giveaways_selected_stores;
+    if (saved && localStorage.getItem('sentinel_giveaways_selected_stores') === null) {
+      setSelectedStores(saved);
+    } else if (JSON.stringify(saved) !== JSON.stringify(selectedStores)) {
+      onUpdateSettings?.({ giveaways_selected_stores: selectedStores });
+    }
+  }, [settings?.giveaways_selected_stores, selectedStores]);
+
   const handleToggleStore = (storeId: StoreId) => {
     playClick();
     setSelectedStores(prev => {
@@ -645,6 +656,16 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           {isSchedulerMissing && (
             <div style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>
               Автосбор по расписанию не запускается: задание ещё не создано. Выберите дни или нажмите кнопку выше.
+            </div>
+          )}
+          {data?.scheduler?.repairError && (
+            <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+              ⚠ {data.scheduler.repairError}
+            </div>
+          )}
+          {data?.scheduler?.lastRunFailed && (
+            <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+              {`⚠ Последний запуск по расписанию завершился с ошибкой. Лог: ${data.scheduler.logFile}`}
             </div>
           )}
           {actionError && (
