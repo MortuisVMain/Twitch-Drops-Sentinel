@@ -30,9 +30,6 @@ def resolve_fgc_root() -> Path:
     if LOCAL_FGC.is_dir() and (LOCAL_FGC / "ClaimGames.cmd").is_file():
         return LOCAL_FGC
     return LOCAL_FGC
-    if DEV_FGC.is_dir() and (DEV_FGC / "ClaimGames.cmd").is_file():
-        return DEV_FGC
-    return LOCAL_FGC
 
 CONFIG_FILE = PROJECT_DIR / "config.json"
 SCHEDULED_LOG = PROJECT_DIR / "giveaways_scheduled.log"

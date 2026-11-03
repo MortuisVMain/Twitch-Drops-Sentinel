@@ -3868,6 +3868,25 @@ def test_claimed_drop_never_replaces_the_drop_being_farmed():
     print("      Counter follows only the drop being farmed: ALL PASS [OK]")
 
 
+def test_resolve_fgc_root_has_no_undefined_names():
+    print("[dead-code] Giveaways: resolve_fgc_root refers only to names that exist...")
+    import ast
+    import builtins
+    import inspect
+    import textwrap
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(gc.resolve_fgc_root)))
+    fn = tree.body[0]
+    local = {a.arg for a in fn.args.args} | {n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    missing = sorted({n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                      and n.id not in local and not hasattr(gc, n.id) and not hasattr(builtins, n.id)})
+    assert not missing, f"resolve_fgc_root uses undefined names (dead code after a return?): {missing}"
+    assert sum(isinstance(n, ast.Return) for n in fn.body) <= 1, "a return at the top level of the function must not be followed by more code"
+    print("      resolve_fgc_root is clean: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -3951,6 +3970,7 @@ if __name__ == "__main__":
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
         test_english_ui_covers_every_russian_string,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
+        test_resolve_fgc_root_has_no_undefined_names,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
