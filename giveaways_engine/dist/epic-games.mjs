@@ -6796,6 +6796,10 @@ try {
       page.waitForURL("**/id/login/mfa**").then(async () => {
         console.log("Enter the security code to continue - This appears to be a new device, browser or location. A security code has been sent to your email address at ...");
         const otp = cfg.eg_otpkey && import_otplib.authenticator.generate(cfg.eg_otpkey) || await prompt({ type: "text", message: "Enter two-factor sign in code", validate: (n) => n.toString().length == 6 || "The code must be 6 digits!" });
+        if (!otp) {
+          console.log("[SENTINEL] \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043E\u0434 \u0434\u0432\u0443\u0445\u0444\u0430\u043A\u0442\u043E\u0440\u043D\u043E\u0439 \u0437\u0430\u0449\u0438\u0442\u044B Epic Games \u0432 \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430.");
+          return;
+        }
         await page.locator('input[name="code-input-0"]').pressSequentially(otp.toString());
         await page.click('button[type="submit"]');
       }).catch((_) => {

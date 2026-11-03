@@ -6012,6 +6012,10 @@ try {
         console.log("Two-Step Verification - Enter security code");
         console.log(await iframe.locator(".form__description").innerText());
         const otp = await prompt({ type: "text", message: "Enter two-factor sign in code", validate: (n) => n.toString().length == 4 || "The code must be 4 digits!" });
+        if (!otp) {
+          console.log("[SENTINEL] \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043E\u0434 \u0434\u0432\u0443\u0445\u0444\u0430\u043A\u0442\u043E\u0440\u043D\u043E\u0439 \u0437\u0430\u0449\u0438\u0442\u044B GOG \u0432 \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430.");
+          return;
+        }
         await iframe.locator("#second_step_authentication_token_letter_1").pressSequentially(otp.toString(), { delay: 10 });
         await iframe.locator("#second_step_authentication_send").click();
         await page.waitForTimeout(1e3);

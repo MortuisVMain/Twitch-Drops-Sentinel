@@ -5398,6 +5398,7 @@ var launchContext = async (cfg2, options) => {
 };
 
 // itch.js
+var isItchPage = (url) => (url.hostname === "itch.io" || url.hostname.endsWith(".itch.io")) && !url.pathname.includes("/login");
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "itch", ...a);
 async function main() {
   console.log(datetime(), "started checking Itch.io");
@@ -5468,7 +5469,7 @@ async function main() {
         return;
       } else {
         console.log("Waiting for manual login in the browser window (up to 3 minutes)...");
-        await page.waitForURL((url) => url.href.includes("itch.io") && !url.href.includes("/login"), { timeout: cfg.login_timeout || 18e4 });
+        await page.waitForURL(isItchPage, { timeout: cfg.login_timeout || 18e4 });
         console.log("Login detected! Continuing to game discovery...");
       }
     }

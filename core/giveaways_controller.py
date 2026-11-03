@@ -444,8 +444,8 @@ class GiveawaysOrchestrator:
                         if l:
                             self._broadcast("log", {"line": f"[npm] {l}", "ts": datetime.now(timezone.utc).isoformat()})
                 await self._wait_or_kill(npm_proc, "npm install")
-                if not patchright_dir.is_dir():
-                    logger.error(f"npm install failed with exit code {npm_proc.returncode}, {patchright_dir} is missing")
+                if npm_proc.returncode != 0 or not patchright_dir.is_dir():  # None: killed after the timeout
+                    logger.error(f"npm install failed with exit code {npm_proc.returncode}, patchright dir present: {patchright_dir.is_dir()}")
                     raise web.HTTPServiceUnavailable(
                         text=json.dumps({"detail": "Не удалось скачать браузерный движок раздач. "
                                                    "Проверьте интернет и запустите ещё раз."}, ensure_ascii=False),
@@ -464,6 +464,7 @@ class GiveawaysOrchestrator:
             self._proc = await asyncio.create_subprocess_exec(
                 *args,
                 cwd=str(fgc_dir),
+                stdin=asyncio.subprocess.DEVNULL,  # a service started from a console would make the engine wait for a terminal
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 creationflags=0x08000000  # CREATE_NO_WINDOW

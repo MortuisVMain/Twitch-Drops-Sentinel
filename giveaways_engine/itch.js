@@ -5,6 +5,9 @@ import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSI
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 
+// A third-party OAuth page can carry itch.io in its query string: only the host and the path tell a login is done.
+const isItchPage = url => (url.hostname === 'itch.io' || url.hostname.endsWith('.itch.io')) && !url.pathname.includes('/login');
+
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'itch', ...a);
 
 async function main() {
@@ -94,7 +97,7 @@ async function main() {
         return;
       } else {
         console.log('Waiting for manual login in the browser window (up to 3 minutes)...');
-        await page.waitForURL(url => url.href.includes('itch.io') && !url.href.includes('/login'), { timeout: cfg.login_timeout || 180000 });
+        await page.waitForURL(isItchPage, { timeout: cfg.login_timeout || 180000 });
         console.log('Login detected! Continuing to game discovery...');
       }
     }
