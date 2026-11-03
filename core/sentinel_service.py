@@ -157,6 +157,7 @@ from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
+from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
 from updater import UPDATER
 from version import __version__ as APP_VERSION
@@ -543,6 +544,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/giveaways/scheduler-days", self.handle_giveaways_scheduler_days)
         self.app.router.add_post("/api/v1/giveaways/auth/{store}", self.handle_giveaways_auth)
         self.app.router.add_get("/api/v1/giveaways/stream", self.handle_giveaways_stream)
+        self.app.router.add_get("/api/v1/giveaways/readiness", self.handle_giveaways_readiness)
+        self.app.router.add_post("/api/v1/giveaways/install-engine", self.handle_giveaways_install_engine)
         self.app.router.add_get("/api/v1/dimmer/state", self.handle_dimmer_state)
         self.app.router.add_post("/api/v1/dimmer/brightness", self.handle_dimmer_brightness)
         self.app.router.add_post("/api/v1/dimmer/blackout", self.handle_dimmer_blackout)
@@ -1407,6 +1410,12 @@ class SentinelSupervisor:
         store = request.match_info.get("store", "epic")
         res = await self.giveaways.start_auth(store=store, switch_account=request.query.get("switch") == "1")
         return web.json_response(res)
+
+    async def handle_giveaways_readiness(self, request: web.Request) -> web.Response:
+        return web.json_response(await check_giveaways_readiness(self.giveaways))
+
+    async def handle_giveaways_install_engine(self, request: web.Request) -> web.Response:
+        return web.json_response(await self.giveaways.install_engine())
 
     async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
         return await self.giveaways.handle_stream(request)

@@ -3734,6 +3734,214 @@ def test_switch_account_forgets_only_that_store():
     print("      Switch account: ALL PASS [OK]")
 
 
+def test_giveaways_readiness_says_what_is_left():
+    print("[readiness] Giveaways check: every item in both states, nothing is changed by looking...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    import giveaways_readiness as gr
+
+    work = Path(tempfile.mkdtemp(prefix="readiness_", dir=SANDBOX))
+    engine, home, config = work / "engine", work / "home", work / "config.json"
+    (engine / "data").mkdir(parents=True)
+    home.mkdir()
+    node = r"C:\Program Files\nodejs\node.exe"
+    saved = (gc.asyncio.create_subprocess_exec, gc.shutil.which, gc.resolve_fgc_root, gc.CONFIG_FILE, gr._site_reachable,
+             {k: os.environ.get(k) for k in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")})
+    gc.resolve_fgc_root, gc.CONFIG_FILE = (lambda: engine), config
+    for key in saved[5]:
+        os.environ[key] = str(home)
+
+    def check(fake=None, which=node, sites=True):
+        gc.asyncio.create_subprocess_exec = fake or _FakeTaskScheduler(exists=True)
+        gc.shutil.which = lambda name, *a, **k: which
+
+        async def reachable(session, url):
+            return sites
+        gr._site_reachable = reachable
+        report = asyncio.run(gr.check_readiness(gc.GiveawaysOrchestrator()))
+        return report, {(i["id"], i.get("store")): i for i in report["items"]}
+
+    def make_ready():
+        (engine / "runner.js").write_text("", encoding="utf-8")
+        (engine / "node_modules" / "patchright").mkdir(parents=True, exist_ok=True)
+        chrome = home / "Google" / "Chrome" / "Application"
+        chrome.mkdir(parents=True, exist_ok=True)
+        (chrome / "chrome.exe").write_text("", encoding="utf-8")
+        config.write_text(json.dumps({"giveaways_selected_stores": ["steam", "gog"]}), encoding="utf-8")
+        (engine / "data" / "sessions.json").write_text(json.dumps({
+            "steam": {"account": "me", "confirmedAt": 1700000000000}, "gog": {"account": "me2", "confirmedAt": 1}}), encoding="utf-8")
+
+    try:
+        # A clean machine: everything that is missing is named, and optional items do not block
+        report, items = check(_FakeTaskScheduler(exists=False), which=None, sites=False)
+        assert items[("module", None)]["status"] == "todo", items
+        assert items[("node", None)]["status"] == "todo" and items[("node", None)]["params"]["reason"] == "missing", items
+        assert items[("engine", None)]["status"] == "todo" and items[("engine", None)].get("action") is None, "the install cannot run without Node.js"
+        assert items[("browser", None)]["status"] == "warning", items
+        assert items[("login", "epic")]["status"] == "todo", "no choice saved yet: the default stores count"
+        assert items[("site", "epic")]["status"] == "warning", items
+        assert items[("scheduler", None)]["status"] == "info", items
+        assert not report["ready"] and report["remaining"] == sum(i["status"] == "todo" for i in report["items"]), report
+
+        # All set
+        make_ready()
+        before = {f: f.read_bytes() for f in (config, engine / "data" / "sessions.json")}
+        report, items = check()
+        assert report["ready"] and report["remaining"] == 0, report
+        assert items[("node", None)]["params"]["version"] == "v24.1.0", items
+        assert items[("browser", None)]["params"]["found"] == "chrome", items
+        assert items[("login", "steam")]["params"] == {"account": "me", "confirmedAt": 1700000000000}, items
+        assert ("login", "epic") not in items, "only the selected stores are checked"
+        assert all(f.read_bytes() == body for f, body in before.items()), "looking must change nothing"
+        assert "writes" not in report
+
+        # An old Node.js, and an engine ready to install once Node.js is fine
+        report, items = check(_FakeTaskScheduler(exists=True, node_version=b"v18.20.4\n"))
+        assert items[("node", None)]["params"] == {"reason": "old", "version": "v18.20.4", "required": 20}, items
+        shutil.rmtree(engine / "node_modules")
+        report, items = check()
+        assert items[("engine", None)]["action"] == {"kind": "install_engine"}, items
+        (engine / "node_modules" / "patchright").mkdir(parents=True)
+
+        # A store signed out after an earlier login
+        (engine / "data" / "sessions.json").write_text(json.dumps({"steam": {"account": None}, "gog": {"account": "me2", "confirmedAt": 1}}), encoding="utf-8")
+        report, items = check()
+        assert items[("login", "steam")]["status"] == "todo" and items[("login", "steam")]["action"] == {"kind": "sign_in", "store": "steam"}, items
+        assert items[("login", "gog")]["status"] == "ok" and report["remaining"] == 1, report
+
+        # The choice of stores
+        for body, reason in (({"giveaways_enabled": False, "giveaways_selected_stores": ["steam"]}, "disabled"),
+                             ({"giveaways_selected_stores": []}, "none_selected")):
+            config.write_text(json.dumps(body), encoding="utf-8")
+            report, items = check()
+            assert items[("selection", None)]["status"] == "todo" and items[("selection", None)]["params"]["reason"] == reason, items
+            assert not [k for k in items if k[0] == "login"], items
+        config.write_text("{ not json", encoding="utf-8")
+        report, items = check()
+        assert items[("selection", None)]["params"]["reason"] == "config_broken" and not report["ready"], items
+        config.write_bytes(b"\xef\xbb\xbf" + json.dumps({"giveaways_selected_stores": ["gog"]}).encode())
+        report, items = check()
+        assert items[("selection", None)]["status"] == "ok" and ("login", "gog") in items, "a config saved with a BOM still counts"
+
+        # A broken schedule warns, it does not stop a manual claim
+        report, items = check(_FakeTaskScheduler(exists=True, last_result=1))
+        assert items[("scheduler", None)]["status"] == "warning" and items[("scheduler", None)]["params"]["reason"] == "last_run_failed", items
+        assert items[("scheduler", None)]["params"]["logFile"], items
+        assert report["ready"], "the schedule is optional"
+        report, items = check(_FakeTaskScheduler(query_broken=True))
+        assert items[("scheduler", None)]["status"] == "warning" and items[("scheduler", None)]["params"]["reason"] == "query_failed", items
+
+        # An unreachable site warns only
+        report, items = check(sites=False)
+        assert items[("site", "gog")]["status"] == "warning" and report["ready"], items
+
+        # A check that cannot run reports itself, the rest still answer
+        async def broken_probe(session, url):
+            raise OSError("no sockets")
+        gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True)
+        gr._site_reachable = broken_probe
+        report = asyncio.run(gr.check_readiness(gc.GiveawaysOrchestrator()))
+        assert [i for i in report["items"] if i["id"] == "site"][0]["status"] == "warning", report
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.shutil.which, gc.resolve_fgc_root, gc.CONFIG_FILE, gr._site_reachable = saved[:5]
+        for key, value in saved[5].items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    print("      Giveaways readiness: ALL PASS [OK]")
+
+
+def test_engine_install_button_does_not_start_a_claim():
+    print("[readiness] Installing the browser engine runs on its own and reports a failure...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    from aiohttp import web
+
+    class _Out:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _Proc:
+        def __init__(self, returncode):
+            self.returncode, self.stdout, self.pid = returncode, _Out(), 7
+
+        async def wait(self):
+            return self.returncode
+
+    engine = Path(tempfile.mkdtemp(prefix="engine_install_", dir=SANDBOX))
+    (engine / "runner.js").write_text("", encoding="utf-8")
+    saved = gc.asyncio.create_subprocess_exec, gc.shutil.which, gc.resolve_fgc_root
+    gc.resolve_fgc_root = lambda: engine
+    gc.shutil.which = lambda name, *a, **k: rf"C:\nodejs\{name}"
+
+    def run(npm_code, slow=False):
+        calls = []
+
+        async def fake_exec(*args, **kwargs):
+            calls.append(args)
+            if "--version" in args:
+                proc = _Proc(0)
+
+                async def communicate():
+                    return b"v24.1.0\n", b""
+                proc.communicate = communicate
+                return proc
+            if "npm" in args:
+                if slow:
+                    await asyncio.sleep(0.05)
+                (engine / "node_modules" / "patchright").mkdir(parents=True, exist_ok=True)
+                return _Proc(npm_code)
+            return _Proc(0)
+
+        async def scenario():
+            orch = gc.GiveawaysOrchestrator()
+
+            async def no_scheduler(force=False):
+                return {"state": "Ready"}
+            orch._query_scheduler = no_scheduler
+            started = await orch.install_engine()
+            assert started["status"] == "started", started
+            assert orch.engine_install_state()["running"], "the state must say it runs"
+            again = await orch.install_engine()
+            assert again["status"] == "already_running", again
+            try:
+                await orch.start_claim(["steam"])
+                raise AssertionError("a claim must wait for the install to finish")
+            except web.HTTPConflict:
+                pass
+            await orch._engine_install_task
+            return orch.engine_install_state()
+
+        gc.asyncio.create_subprocess_exec = fake_exec
+        state = asyncio.run(scenario())
+        assert not [c for c in calls if "runner.js" in " ".join(map(str, c))], f"installing must not start a claim: {calls}"
+        return state
+
+    try:
+        state = run(0, slow=True)
+        assert not state["running"] and state["error"] is None, state
+        shutil.rmtree(engine / "node_modules")
+        state = run(1, slow=True)
+        assert not state["running"] and state["error"], f"a failed install must be reported: {state}"
+
+        # Without npm the button explains itself, nothing starts
+        gc.shutil.which = lambda name, *a, **k: None
+        async def no_npm():
+            await gc.GiveawaysOrchestrator().install_engine()
+        try:
+            asyncio.run(no_npm())
+            raise AssertionError("the install needs npm")
+        except web.HTTPPreconditionFailed as exc:
+            assert "Node.js" in json.loads(exc.text)["detail"], exc.text
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.shutil.which, gc.resolve_fgc_root = saved
+    print("      Engine install: ALL PASS [OK]")
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -4199,6 +4407,8 @@ if __name__ == "__main__":
         test_giveaways_setup_failure_and_engine_stdin,
         test_unity_orders_only_at_a_clear_zero_total,
         test_switch_account_forgets_only_that_store,
+        test_giveaways_readiness_says_what_is_left,
+        test_engine_install_button_does_not_start_a_claim,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,
         test_scheduler_query_that_hangs_is_killed_and_reaped,

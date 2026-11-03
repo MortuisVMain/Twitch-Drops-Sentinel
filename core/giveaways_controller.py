@@ -102,6 +102,21 @@ def _scheduler_refusal(error: type[web.HTTPException], detail: str) -> web.HTTPE
     return error(text=json.dumps({"detail": detail}, ensure_ascii=False), content_type="application/json")
 
 
+async def read_node_version(node: str) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        node, "--version",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        creationflags=0x08000000
+    )
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=NODE_VERSION_TIMEOUT_SECONDS)
+    return stdout.decode("utf-8", errors="replace").strip()
+
+
+def node_major(version: str) -> Optional[int]:
+    found = re.match(r"v(\d+)\.", version)
+    return int(found.group(1)) if found else None
+
+
 def _task_action(node: str) -> Tuple[str, str]:
     """Arguments and working directory of the task for this install; the store choice is read when the task runs.
 
@@ -165,6 +180,8 @@ class GiveawaysOrchestrator:
         self._lock = asyncio.Lock()
         self._scheduler_write_lock = asyncio.Lock()  # read-then-write: two quick clicks must not both see "no task"
         self._repair_error: Optional[str] = None
+        self._engine_install_task: Optional[asyncio.Task] = None
+        self._engine_install_error: Optional[str] = None
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._active_stores: List[str] = []
         self._started_at: Optional[str] = None
@@ -298,15 +315,9 @@ class GiveawaysOrchestrator:
         if node is None:
             raise _scheduler_refusal(web.HTTPPreconditionFailed, f"Для автосбора раздач нужен Node.js {MIN_NODE_MAJOR} или новее (nodejs.org). "
                                                                  "Установите его и включите автосбор ещё раз.")
-        proc = await asyncio.create_subprocess_exec(
-            node, "--version",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-            creationflags=0x08000000
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=NODE_VERSION_TIMEOUT_SECONDS)
-        version = stdout.decode("utf-8", errors="replace").strip()
-        found = re.match(r"v(\d+)\.", version)
-        if not found or int(found.group(1)) < MIN_NODE_MAJOR:
+        version = await read_node_version(node)
+        major = node_major(version)
+        if major is None or major < MIN_NODE_MAJOR:
             raise _scheduler_refusal(web.HTTPPreconditionFailed, f"Для автосбора раздач нужен Node.js {MIN_NODE_MAJOR} или новее (nodejs.org), "
                                                                  f"установлен {version or 'неизвестной версии'}. Обновите его и включите автосбор ещё раз.")
         return node
@@ -571,6 +582,8 @@ class GiveawaysOrchestrator:
         }
 
     async def start_claim(self, stores: List[str], headless: bool = True, switch_account: bool = False) -> dict:
+        if self.engine_install_state()["running"]:
+            raise web.HTTPConflict(reason="Идёт установка браузерного движка. Дождитесь её конца.")
         async with self._lock:
             fgc_dir = resolve_fgc_root()
             cmd_file = fgc_dir / "ClaimGames.cmd"
@@ -611,42 +624,7 @@ class GiveawaysOrchestrator:
             self._aborting = False
             self._started_at = datetime.now(timezone.utc).isoformat()
 
-            # Auto-install browser dependencies if patchright is missing
-            patchright_dir = fgc_dir / "node_modules" / "patchright"
-            if not patchright_dir.is_dir():
-                logger.warning("Giveaways browser engine missing. Executing automatic 'npm install'...")
-                self._broadcast("log", {
-                    "line": "[SENTINEL] Установка браузерного движка раздач (npm install)... Пожалуйста, подождите...",
-                    "ts": datetime.now(timezone.utc).isoformat()
-                })
-                npm_proc = await asyncio.create_subprocess_exec(
-                    "cmd.exe", "/c", "npm", "install",
-                    cwd=str(fgc_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    creationflags=0x08000000
-                )
-                if npm_proc.stdout:
-                    async for raw_l in npm_proc.stdout:
-                        l = raw_l.decode("utf-8", errors="replace").strip()
-                        if l:
-                            self._broadcast("log", {"line": f"[npm] {l}", "ts": datetime.now(timezone.utc).isoformat()})
-                await self._wait_or_kill(npm_proc, "npm install")
-                if npm_proc.returncode != 0 or not patchright_dir.is_dir():  # None: killed after the timeout
-                    logger.error(f"npm install failed with exit code {npm_proc.returncode}, patchright dir present: {patchright_dir.is_dir()}")
-                    raise web.HTTPServiceUnavailable(
-                        text=json.dumps({"detail": "Не удалось скачать браузерный движок раздач. "
-                                                   "Проверьте интернет и запустите ещё раз."}, ensure_ascii=False),
-                        content_type="application/json",
-                    )
-                br_proc = await asyncio.create_subprocess_exec(
-                    "cmd.exe", "/c", "npx", "patchright", "install", "chromium",
-                    cwd=str(fgc_dir),
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    creationflags=0x08000000
-                )
-                await self._wait_or_kill(br_proc, "patchright install")
+            await self._install_engine(fgc_dir)
 
             logger.info(f"Starting FGC claim run: stores={valid_stores}, headless={headless}")
             self._proc = await asyncio.create_subprocess_exec(
@@ -661,6 +639,72 @@ class GiveawaysOrchestrator:
             self._broadcast("state", {"state": "running", "pid": self._proc.pid, "stores": valid_stores})
             asyncio.create_task(self._monitor_process(self._proc))
             return {"status": "started", "pid": self._proc.pid, "stores": valid_stores}
+
+    async def _install_engine(self, fgc_dir: Path) -> None:
+        """Installs the browser engine if it is missing; raises with an explanation for the user when npm fails."""
+        patchright_dir = fgc_dir / "node_modules" / "patchright"
+        if not patchright_dir.is_dir():
+            logger.warning("Giveaways browser engine missing. Executing automatic 'npm install'...")
+            self._broadcast("log", {
+                "line": "[SENTINEL] Установка браузерного движка раздач (npm install)... Пожалуйста, подождите...",
+                "ts": datetime.now(timezone.utc).isoformat()
+            })
+            npm_proc = await asyncio.create_subprocess_exec(
+                "cmd.exe", "/c", "npm", "install",
+                cwd=str(fgc_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                creationflags=0x08000000
+            )
+            if npm_proc.stdout:
+                async for raw_l in npm_proc.stdout:
+                    l = raw_l.decode("utf-8", errors="replace").strip()
+                    if l:
+                        self._broadcast("log", {"line": f"[npm] {l}", "ts": datetime.now(timezone.utc).isoformat()})
+            await self._wait_or_kill(npm_proc, "npm install")
+            if npm_proc.returncode != 0 or not patchright_dir.is_dir():  # None: killed after the timeout
+                logger.error(f"npm install failed with exit code {npm_proc.returncode}, patchright dir present: {patchright_dir.is_dir()}")
+                raise web.HTTPServiceUnavailable(
+                    text=json.dumps({"detail": "Не удалось скачать браузерный движок раздач. "
+                                               "Проверьте интернет и запустите ещё раз."}, ensure_ascii=False),
+                    content_type="application/json",
+                )
+            br_proc = await asyncio.create_subprocess_exec(
+                "cmd.exe", "/c", "npx", "patchright", "install", "chromium",
+                cwd=str(fgc_dir),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                creationflags=0x08000000
+            )
+            await self._wait_or_kill(br_proc, "patchright install")
+
+    def engine_install_state(self) -> dict:
+        task = self._engine_install_task
+        return {"running": bool(task and not task.done()), "error": self._engine_install_error}
+
+    async def install_engine(self) -> dict:
+        """The Giveaways check's install button: runs in the background, the check reports how it went."""
+        if self.engine_install_state()["running"]:
+            return {"status": "already_running"}
+        if self._proc and self._proc.returncode is None:
+            raise web.HTTPConflict(reason="Сбор раздач уже запущен.")
+        if shutil.which("node") is None or shutil.which("npm") is None:
+            raise _scheduler_refusal(web.HTTPPreconditionFailed, f"Для установки движка нужен Node.js {MIN_NODE_MAJOR} или новее с nodejs.org.")
+        self._engine_install_error = None
+        self._engine_install_task = asyncio.create_task(self._run_engine_install())
+        return {"status": "started"}
+
+    async def _run_engine_install(self) -> None:
+        try:
+            async with self._lock:
+                await self._install_engine(resolve_fgc_root())
+        except web.HTTPException as e:
+            self._engine_install_error = json.loads(e.text)["detail"]
+            logger.error(f"Giveaways engine install failed: {self._engine_install_error}")
+        except Exception as e:
+            self._engine_install_error = "Не удалось установить браузерный движок. Подробности в журнале сервиса."
+            logger.error(f"Giveaways engine install failed: {type(e).__name__}: {e}", exc_info=True)
+        self._broadcast("state", {"engineInstall": {"running": False, "error": self._engine_install_error}})
 
     async def start_auth(self, store: str, switch_account: bool = False) -> dict:
         if store not in STORE_FILE_MAP:  # start_claim would replace it with the default stores

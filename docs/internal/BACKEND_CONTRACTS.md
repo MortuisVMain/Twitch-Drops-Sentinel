@@ -261,6 +261,25 @@
 
 Интегрированная подсистема авто-клейма подарков (Free Games Claimer) из 7 магазинов: Epic Games, GOG, Steam, Amazon Prime Gaming, Fab, Unity Asset Store, Itch.io.
 
+#### `GET /api/v1/giveaways/readiness`
+Что вкладке раздач ещё нужно для работы. Только смотрит, ничего не меняет. Текст показывает интерфейс, сервис отдаёт статусы и данные.
+- **Response:** `{"ready": bool, "remaining": int, "checkedAt": iso, "engineInstall": {"running": bool, "error": str|null}, "items": [...]}`
+- **Пункт:** `{"id", "status", "params", "action", "store"?}`; `status`: `ok`, `todo` (блокирует, входит в `remaining`), `warning`, `info` (необязательное, не настроено).
+- **`id` и `params`:**
+  - `module`: `path`
+  - `node`: `reason` (`missing`, `unreadable`, `old`, null), `version`, `required`
+  - `engine`: без данных
+  - `browser`: `found` (`chrome`, `edge`, `chromium`, null)
+  - `selection`: `reason` (`disabled`, `none_selected`, `config_broken`, null), `stores`
+  - `login` (по магазину, `store`): `account`, `confirmedAt` у вошедшего
+  - `site` (по магазину, `store`): без данных
+  - `scheduler`: `reason` (`not_created`, `query_failed`, `repair_failed`, `last_run_failed`, null), `error`, `lastRunTime`, `nextRunTime`, `activeDays`, `logFile`
+- **`action`:** null или `{"kind": "open_url", "url"}`, `{"kind": "install_engine"}`, `{"kind": "sign_in", "store"}`, `{"kind": "enable_giveaways"}`, `{"kind": "enable_scheduler"}`.
+
+#### `POST /api/v1/giveaways/install-engine`
+Ставит браузерный движок в фоне, сбор при этом не запускается. Ход и ошибка видны в `engineInstall` у `readiness`.
+- **Response:** `{"status": "started"}` или `{"status": "already_running"}`; `409`, если идёт сбор; `412` с `detail`, если нет Node.js.
+
 #### `GET /api/v1/giveaways/state`
 - **Query:** `?force_refresh=1` (опционально, для принудительного опроса БД)
 - **Response Structure:**
