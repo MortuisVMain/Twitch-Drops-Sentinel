@@ -3869,6 +3869,113 @@ def test_claimed_drop_never_replaces_the_drop_being_farmed():
     print("      Counter follows only the drop being farmed: ALL PASS [OK]")
 
 
+def test_scheduled_run_that_never_finished_is_reported_as_failed():
+    print("[scheduler] A scheduled run killed mid-way, or one that never started, is reported as failed...")
+    import asyncio
+    import datetime as dt
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    DONE, FORMAT = "[SENTINEL] ■", "[SENTINEL] ◆"
+    original_exec, original_log = gc.asyncio.create_subprocess_exec, gc.SCHEDULED_LOG
+    work = Path(tempfile.mkdtemp(prefix="sentinel_runend_"))
+    log = work / "giveaways_scheduled.log"
+    gc.SCHEDULED_LOG = log
+    task_args = f'--headless "node.exe" "runner.js" --scheduled --config "c.json" --log "{log}"'
+
+    def ps_stamp(when):
+        """What PowerShell's ToString('o') gives: 7 fraction digits and the UTC offset."""
+        text = when.isoformat(timespec="microseconds")
+        return text[:-6] + "0" + text[-6:]
+
+    def state_for(text, modified=None, last_run="now", state="Ready", arguments=task_args):
+        """lastRunFailed as the interface gets it, for a log with this text and mtime (epoch seconds) and this LastRunTime."""
+        log.unlink(missing_ok=True)
+        if text is not None:
+            log.write_text(text, encoding="utf-8")
+            if modified is not None:
+                os.utime(log, (modified, modified))
+        if last_run == "now":
+            last_run = ps_stamp(dt.datetime.now().astimezone())
+        info = {"state": state, "lastRun": last_run, "arguments": arguments, "execute": "conhost.exe", "workingDirectory": str(work)}
+        gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True, last_result=0, action=info)
+        return asyncio.run(gc.GiveawaysOrchestrator()._query_scheduler(force=True))["lastRunFailed"]
+
+    ok = f"{FORMAT} v2\n[SENTINEL] start\n{DONE} finished\n"
+    killed = f"{FORMAT} v2\n[SENTINEL] start\nSTORE epic\n"
+    try:
+        # Runs of the current runner: only an explicit end line means it got to the end
+        assert state_for(ok) is False
+        assert state_for(killed) is True, "a log that stops without the end line was killed by the task's time limit"
+        assert state_for(f"{FORMAT} v2\n[SENTINEL] start\n[SENTINEL] ✕ broken\n") is True
+        assert state_for(f"{FORMAT} v2\n[SENTINEL] ✕ Critical\nError: x\n    at main (runner.js:1)\n") is True
+        assert state_for(f"{FORMAT} v2\n[SENTINEL] skipped\n{DONE} finished\n") is False, "a skipped collection is a normal exit"
+        assert state_for(f"{FORMAT} v2\n") is True and state_for("") is True, "nothing after the start line: killed or never got going"
+        assert state_for(killed, state="Running") is False, "a run in progress has no end line yet"
+        assert state_for(f"{FORMAT} v2\n" + "STORE line\n" * 3000) is True, "a long log is judged by its tail"
+        assert state_for(f"{FORMAT} v2\n" + "STORE line\n" * 3000 + DONE + "\n") is False
+
+        # Logs of the previous runner have no end line: they must not turn into an error before a run of the new one
+        assert state_for("[SENTINEL] start\nSTORE epic\n") is False
+        assert state_for("[SENTINEL] start\n[SENTINEL] ✕ old failure\n") is True
+
+        # Node.js older than 20: runner.js dies on its imports before it opens the log, the log is from an earlier run
+        now = dt.datetime.now().astimezone()
+        for tz in (dt.timezone.utc, dt.timezone(dt.timedelta(hours=14)), dt.timezone(dt.timedelta(hours=-12)), dt.timezone(dt.timedelta(hours=5, minutes=30))):
+            ran = now.astimezone(tz)
+            stamp = ps_stamp(ran)
+            assert state_for(ok, modified=now.timestamp() - 3600, last_run=stamp) is True, f"stale log, offset {tz}"
+            assert state_for(ok, modified=now.timestamp() + 30, last_run=stamp) is False, f"fresh log, offset {tz}"
+        assert state_for("[SENTINEL] start\n", modified=now.timestamp() - 3600, last_run=now.isoformat()) is True, "an old-format log is stale too"
+        assert state_for(ok, modified=now.timestamp() - 3600, last_run=now.isoformat(), state="Running") is False
+        assert state_for(ok, modified=now.timestamp() - 3600, last_run="not a date") is False, "an unreadable time proves nothing"
+
+        # The task never ran: whatever is left in the log is not an error
+        assert state_for(ok, modified=now.timestamp() - 3600, last_run=None) is False
+        assert state_for(killed, modified=now.timestamp() - 3600, last_run="1999-11-30T00:00:00.0000000+03:00") is False
+        assert state_for(None, last_run=None) is False
+
+        # It ran, the task writes a log, and there is none: the runner never got to open it
+        assert state_for(None) is True
+        assert state_for(None, arguments='--headless "node.exe" "runner.js"') is False, "a task from before the log existed has none"
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.SCHEDULED_LOG = original_exec, original_log
+        shutil.rmtree(work, ignore_errors=True)
+
+    # The real runner: first line names the log format, every normal exit ends with the end line, a failure does not
+    node = shutil.which("node")
+    if not node:
+        print("      SKIP: Node.js is missing, the runner cannot be started")
+        return
+    engine = Path(tempfile.mkdtemp(prefix="sentinel_runend_engine_"))
+    try:
+        (engine / "dist").mkdir(parents=True)
+        (engine / "node_modules" / "patchright").mkdir(parents=True)
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
+        (engine / "dist" / "epic-games.mjs").write_text("console.log('STORE epic');", encoding="utf-8")
+        (engine / "dist" / "gog.mjs").write_text("process.exit(3);", encoding="utf-8")
+        config, run_log = engine / "config.json", engine / "run.log"
+
+        def lines_of_run(settings):
+            config.write_text(settings, encoding="utf-8")
+            subprocess.run([node, "runner.js", "--scheduled", "--config", str(config), "--log", str(run_log)],
+                           cwd=str(engine), capture_output=True, text=True, encoding="utf-8", timeout=60)
+            return run_log.read_text(encoding="utf-8").strip().splitlines()
+
+        for settings in ('{"giveaways_selected_stores": ["epic"]}', '{"giveaways_selected_stores": []}', '{"giveaways_enabled": false}'):
+            lines = lines_of_run(settings)
+            assert lines[0].startswith(FORMAT), (settings, lines)
+            assert lines[-1].startswith(DONE), (settings, lines)
+        for settings in ('{"giveaways_selected_stores": ["epic", "gog"]}', '{"giveaways_selected_stores": "epic"}'):
+            lines = lines_of_run(settings)
+            assert lines[0].startswith(FORMAT) and lines[-1].startswith("[SENTINEL] ✕"), (settings, lines)
+            assert not any(line.startswith(DONE) for line in lines), (settings, lines)
+    finally:
+        shutil.rmtree(engine, ignore_errors=True)
+    print("      Unfinished runs are reported, the runner marks its end: PASS [OK]")
+
+
 def test_concurrent_update_checks_share_one_request():
     print("[updater] Simultaneous update checks make one GitHub request, a forced one still respects a rate limit...")
     import email.message, json as _json, threading, time as real_time, types, urllib.error
@@ -4095,6 +4202,7 @@ if __name__ == "__main__":
         test_resolve_fgc_root_has_no_undefined_names,
         test_steam_login_window_fits_a_small_screen,
         test_concurrent_update_checks_share_one_request,
+        test_scheduled_run_that_never_finished_is_reported_as_failed,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

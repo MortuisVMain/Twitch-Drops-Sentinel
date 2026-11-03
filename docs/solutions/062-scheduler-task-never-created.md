@@ -47,13 +47,26 @@ exit code and return a `detail` the UI shows. A failed query now returns `queryF
 
 ## Known limits
 - Paths are repaired only when the service starts, and the task stays broken until then.
-- A run that was killed (time limit, shutdown) leaves a log without the `✕` line and is not reported as failed.
+- A run killed by the task's time limit or a shutdown is reported as failed only for logs written by the current `runner.js` (see below). The scheduler's own result cannot tell: conhost hides it.
+- The first run of a task whose `--log` file the user deleted, or a task from before the log existed, shows no error; a log older than `LastRunTime` does.
 - A store that fails during a run is visible only in the log.
 - Every run overwrites the log, so only the last run can be read.
 - Running a non-test service from another checkout re-points a task created by this app to that checkout.
 
-A store that exits with an error adds a last `[SENTINEL] ✕` line, because conhost hides the exit code. A run killed by the task's
-time limit writes no such line and still looks fine. The startup repair leaves a task alone while the `runner.js` it names still
+A store that exits with an error adds a last `[SENTINEL] ✕` line, because conhost hides the exit code. Since conhost also hides a
+kill by the task's time limit, `runner.js` now marks both ends of its log: the first line is `[SENTINEL] ◆ Журнал запуска v2`, and every
+normal exit (including a skipped collection: all stores off, giveaways disabled) ends with `[SENTINEL] ■ Запуск завершён.`. A failed run
+ends with a `✕` line instead. `_last_run_failed` (`core/giveaways_controller.py`) calls a v2 log failed when its last line is not the
+`■` one, unless the task is `Running` (no end line yet). When the log is older than the task's `LastRunTime` (the query returns it, ISO
+with the UTC offset, so time zones agree; the scheduler's `1999-11-30` for «never ran» counts as no time), the run did not even open
+the log (Node.js below 20 dying at start) and is failed too.
+
+Logs from before this change have neither mark. They are judged by the old rule (last line is `✕`), so the first start after an update
+shows no false error while the task has not yet run with the new `runner.js`; the same goes for a time that cannot be read or a task
+that has never run (e.g. recreated), whose leftover log may belong to an earlier task. A task that has run and writes `--log` but has no log file is failed (the
+runner died before opening it); one without `--log` in its action is not.
+Checked against the real scheduler under a throwaway name: `ToString('o')` gives seven fraction digits and the offset (`...52.0000000+05:30`).
+The startup repair leaves a task alone while the `runner.js` it names still
 exists, since that is another live install and not a moved one.
 
 ## Tests
