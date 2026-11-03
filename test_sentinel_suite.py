@@ -3320,6 +3320,17 @@ console.log(JSON.stringify({ states, paid, waits }));
     assert out["waits"] == {"stable": True, "flicker": False, "blank": False}, f"zero must hold on the page: {out['waits']}"
 
 
+def test_release_archives_carry_the_licenses():
+    print("[licensing] Both release archives ship the license texts of the code inside them...")
+    tool = (WORKSPACE / "tools" / "create_clean_release.py").read_text(encoding="utf-8")
+    assert 'LICENSE_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.md")' in tool, "the MIT and AGPL notices must travel with the code"
+    assert "shutil.copy2(WORKSPACE / license_file, RELEASE_DIR / license_file)" in tool, "the full archive must carry them"
+    assert "pzf.write(RELEASE_DIR / license_file, license_file)" in tool, "the patch must carry them"
+    for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "giveaways_engine/LICENSE"):
+        assert (WORKSPACE / name).is_file(), f"{name} is missing"
+    print("      Release licenses: ALL PASS [OK]")
+
+
 def test_store_login_finishes_without_a_terminal():
     print("[friend-report] Store login: no terminal prompts, the browser login is noticed and remembered...")
     if shutil.which("node") is None:
@@ -4179,6 +4190,7 @@ if __name__ == "__main__":
         test_cover_keeper_replaces_broken_and_missing_covers,
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
+        test_release_archives_carry_the_licenses,
         test_store_login_finishes_without_a_terminal,
         test_login_state_follows_the_latest_attempt,
         test_itch_login_wait_checks_the_host_not_a_substring,

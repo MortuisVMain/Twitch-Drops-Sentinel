@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Release archives now include `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 - Store sign-in on the Giveaways tab works inside the app: prompts no longer wait for a terminal, stores record a confirmed login, and the tab shows refusals and login progress. Fab now waits for the login, and Unity no longer reports a login that never happened.
 - A store card shows the account right after sign-in instead of after the first claimed game.
 - Switch account (the arrows button on a store card) asks first and signs out of that store only; Fab also signs out of Epic Games, because it signs in through Epic.

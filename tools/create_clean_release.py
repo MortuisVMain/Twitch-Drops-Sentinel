@@ -25,6 +25,7 @@ DIST_STAGING = WORKSPACE / "dist_release"
 RELEASE_DIR = DIST_STAGING / f"Twitch Drops Sentinel v{__version__}"
 ZIP_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"
 PATCH_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
+LICENSE_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.md")
 
 def create_release():
     print("=" * 65)
@@ -91,6 +92,10 @@ def create_release():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, target)
         (fgc_dest / "data").mkdir(parents=True, exist_ok=True)
+
+    # 5c. Licenses: the MIT and AGPL terms of the code above require their texts to travel with it
+    for license_file in LICENSE_FILES:
+        shutil.copy2(WORKSPACE / license_file, RELEASE_DIR / license_file)
 
     # 6. Clean Default Trophies.md
     print("[*] Generating clean Trophies.md template...")
@@ -168,6 +173,8 @@ def create_release():
         exe_file = RELEASE_DIR / "TwitchDropsSentinel.exe"
         if exe_file.exists():
             pzf.write(exe_file, "TwitchDropsSentinel.update")
+        for license_file in LICENSE_FILES:
+            pzf.write(RELEASE_DIR / license_file, license_file)
         # Include dist/
         for file in (RELEASE_DIR / "dist").rglob("*"):
             if file.is_file():
