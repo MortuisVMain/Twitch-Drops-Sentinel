@@ -8,7 +8,7 @@ import {
   SentinelSettings
 } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
-import { loginAttemptSucceeded } from '../utils/loginAttempt';
+import { loginAttemptSucceeded, loginHintVisible } from '../utils/loginAttempt';
 
 interface GiveawaysViewProps {
   onBackToDashboard?: () => void;
@@ -271,6 +271,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     loginStartedAtRef.current = null;
   }, [data, loginStore]);
 
+  // The engine confirmed this attempt while the run goes on: an error left from before is stale.
+  useEffect(() => {
+    if (loginStore && actionError && loginAttemptSucceeded(data?.stores?.[loginStore], loginAttemptAtRef.current)) setActionError(null);
+  }, [data, loginStore, actionError]);
+
   const handleCopyLogs = () => {
     playClick();
     const textToCopy = logs.length > 0 
@@ -519,7 +524,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         </div>
       )}
 
-      {loginStore && !actionError && (
+      {loginStore && loginHintVisible(data?.stores?.[loginStore], loginAttemptAtRef.current, actionError) && (
         <div className="titanium-island" role="status" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', display: 'block' }}>
           <strong>🔑 {STORES.find(s => s.id === loginStore)?.name}: </strong>
           {isClaiming

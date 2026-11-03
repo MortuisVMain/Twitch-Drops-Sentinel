@@ -2904,6 +2904,141 @@ def test_login_state_follows_the_latest_attempt():
     assert json.loads(res.stdout) == [False, True, False, False], res.stdout
 
 
+def test_itch_login_wait_checks_the_host_not_a_substring():
+    print("[login-polish] Itch: a third-party OAuth page that mentions itch.io is not a login...")
+    if shutil.which("node") is None:
+        print("      SKIP: Node.js is missing, the store scripts cannot run")
+        return
+    urls = [
+        "https://itch.io/my-collections", "https://someone.itch.io/game", "https://itch.io/login",
+        "https://accounts.example.com/oauth?redirect_uri=https://itch.io/callback", "https://notitch.io/", "https://itch.io.evil.example/",
+    ]
+    page = (
+        "const page = {\n"
+        "  goto: async () => {}, waitForTimeout: async () => {}, setViewportSize: async () => {}, isClosed: () => false,\n"
+        "  url: () => 'https://itch.io/login',\n"
+        "  locator: () => ({ count: async () => 1 }),\n"
+        f"  waitForURL: async predicate => {{ console.log('URLCHECK ' + JSON.stringify({json.dumps(urls)}.map(u => predicate(new URL(u))))); }},\n"
+        "};"
+    )
+    res, _ = _run_store_login("itch.mjs", page)
+    output = res.stdout + res.stderr
+    line = next((l for l in output.splitlines() if l.startswith("URLCHECK ")), None)
+    assert line, f"itch.mjs never waited for the login URL:\n{output[-800:]}"
+    assert json.loads(line[len("URLCHECK "):]) == [True, True, False, False, False, False], line
+
+
+def test_two_factor_and_confirm_without_a_terminal_go_through_the_log():
+    print("[login-polish] GOG/Epic/Prime: no code prompt without a terminal; Prime says why a game was skipped...")
+    engine = WORKSPACE / "giveaways_engine"
+    for name in ("gog.js", "epic-games.js", "prime-gaming.js"):
+        src = (engine / name).read_text(encoding="utf-8")
+        assert "if (!otp)" in src and src.index("if (!otp)") < src.index("[SENTINEL] Введите код двухфакторной") < src.index("pressSequentially(otp"),             f"{name}: without a code, log a request for the browser window and do not type"
+    prime = (engine / "prime-gaming.js").read_text(encoding="utf-8")
+    assert prime.count("await confirm()") == 1, "prime-gaming.js: confirm() must only be called through the logging wrapper"
+    assert prime.count("confirmClaim()") == 3 and "[SENTINEL]" in prime.split("confirmClaim =")[1].split("\n")[0], "the skip reason must be logged"
+
+
+def test_login_hint_goes_away_once_the_attempt_succeeded():
+    print("[login-polish] Login hint and stale error follow this attempt...")
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    if not esbuild.exists() or shutil.which("node") is None:
+        print("      (esbuild or node not available: skipped)")
+        return
+    out_dir = Path(tempfile.mkdtemp(prefix="login_hint_", dir=SANDBOX))
+    bundle = out_dir / "loginAttempt.mjs"
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "loginAttempt.ts"), "--bundle", "--format=esm", f"--outfile={bundle}"],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    check = out_dir / "check.mjs"
+    check.write_text(
+        "import { loginHintVisible as v } from './loginAttempt.mjs';\n"
+        "console.log(JSON.stringify([v({ loginConfirmedAt: 100 }, 200, null), v({ loginConfirmedAt: 300 }, 200, null),\n"
+        "  v(undefined, 200, null), v({ loginConfirmedAt: 100 }, 200, 'boom')]));\n", encoding="utf-8")
+    res = subprocess.run(["node", str(check)], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout) == [True, False, True, False], res.stdout
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "loginHintVisible(" in view, "GiveawaysView must hide the hint with loginHintVisible"
+
+
+def test_giveaways_setup_failure_and_engine_stdin():
+    print("[login-polish] npm failure is a failure; the engine never inherits the service's console...")
+    import asyncio
+    import types
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    from aiohttp import web
+
+    class _Out:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _Proc:
+        pid = 777
+
+        def __init__(self, returncode):
+            self.returncode = returncode
+            self.stdout = _Out()
+
+        async def wait(self):
+            return self.returncode
+
+    engine = Path(tempfile.mkdtemp(prefix="setup_", dir=SANDBOX))
+    (engine / "runner.js").write_text("", encoding="utf-8")
+
+    def run(npm_returncode):
+        spawned = []
+
+        async def fake_exec(*args, **kwargs):
+            spawned.append((args, kwargs))
+            if "install" in args and "npm" in args:  # npm leaves a half-installed patchright behind either way
+                (engine / "node_modules" / "patchright").mkdir(parents=True, exist_ok=True)
+                return _Proc(npm_returncode)
+            return _Proc(0)
+
+        async def no_scheduler(force=False):
+            return {"state": "Ready"}
+
+        async def no_wait(proc, label):
+            return None
+
+        async def no_monitor(proc):
+            return None
+
+        orch = gc.GiveawaysOrchestrator()
+        orch._query_scheduler = no_scheduler
+        orch._monitor_process = no_monitor
+        saved = (gc.resolve_fgc_root, gc.shutil.which, asyncio.create_subprocess_exec, orch._wait_or_kill)
+        gc.resolve_fgc_root = lambda: engine
+        gc.shutil.which = lambda name, *a, **k: name
+        asyncio.create_subprocess_exec = fake_exec
+        if npm_returncode is None:
+            orch._wait_or_kill = no_wait  # the timeout path: killed, returncode never filled in
+        try:
+            async def go():
+                try:
+                    await orch.start_claim(["epic"], False)
+                    return "started"
+                except web.HTTPServiceUnavailable:
+                    return "failed"
+            outcome = asyncio.run(go())
+        finally:
+            gc.resolve_fgc_root, gc.shutil.which, asyncio.create_subprocess_exec = saved[:3]
+            shutil.rmtree(engine / "node_modules", ignore_errors=True)
+        return outcome, spawned
+
+    assert run(1)[0] == "failed", "npm exited with 1: a leftover patchright folder must not hide that"
+    assert run(None)[0] == "failed", "npm timed out (returncode None): that is a failure too"
+    outcome, spawned = run(0)
+    assert outcome == "started", outcome
+    node_runs = [kw for args, kw in spawned if args and args[0] == "node"]
+    assert node_runs and node_runs[0].get("stdin") == asyncio.subprocess.DEVNULL, f"the engine must not inherit stdin, got {node_runs}"
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -3115,6 +3250,10 @@ if __name__ == "__main__":
         test_store_login_finishes_without_a_terminal,
         test_unity_orders_only_at_a_clear_zero_total,
         test_login_state_follows_the_latest_attempt,
+        test_itch_login_wait_checks_the_host_not_a_substring,
+        test_two_factor_and_confirm_without_a_terminal_go_through_the_log,
+        test_login_hint_goes_away_once_the_attempt_succeeded,
+        test_giveaways_setup_failure_and_engine_stdin,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_missing_webview2_runtime_has_an_explanation,
         test_login_code_copy_and_activate_link,
