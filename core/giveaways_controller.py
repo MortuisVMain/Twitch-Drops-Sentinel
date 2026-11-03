@@ -34,6 +34,10 @@ def resolve_fgc_root() -> Path:
         return DEV_FGC
     return LOCAL_FGC
 
+CONFIG_FILE = PROJECT_DIR / "config.json"
+SCHEDULED_LOG = PROJECT_DIR / "giveaways_scheduled.log"
+RUN_FAILED_MARK = "[SENTINEL] \u2715"  # runner.js ends the log of a failed run with such a line
+RUN_LOG_TAIL_BYTES = 4096
 FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
 CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
@@ -78,13 +82,60 @@ def bitmask_to_days(mask: Optional[int]) -> List[str]:
 
 FGC_RUN_CEILING_SECONDS = 1800.0  # hard limit for one claim run, including time spent without output
 FGC_SETUP_CEILING_SECONDS = 900.0  # npm install / browser download
+SCHEDULER_QUERY_TIMEOUT_SECONDS = 15.0  # the ScheduledTasks module alone can take seconds to load; a miss blocks writes
+SCHEDULER_WRITE_TIMEOUT_SECONDS = 30.0
+# A scheduled first run also installs the engine, hence the room above the run ceiling
+TASK_TIME_LIMIT_SECONDS = int(FGC_RUN_CEILING_SECONDS + 2 * FGC_SETUP_CEILING_SECONDS)
+TASK_DEFAULT_TIME = "13:30"
+MIN_NODE_MAJOR = 20
+NODE_VERSION_TIMEOUT_SECONDS = 10.0
+DEFAULT_CLAIM_STORES = ["epic", "gog", "steam", "fab", "unity"]
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def _ps_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _scheduler_refusal(error: type[web.HTTPException], detail: str) -> web.HTTPException:
+    return error(text=json.dumps({"detail": detail}, ensure_ascii=False), content_type="application/json")
+
+
+def _task_action(node: str) -> Tuple[str, str]:
+    """Arguments and working directory of the task for this install; the store choice is read when the task runs.
+
+    node.exe is a console program: a task in the interactive session would open its window at every run.
+    """
+    fgc_dir = resolve_fgc_root()
+    runner_file = fgc_dir / "runner.js"
+    arguments = f'--headless "{node}" "{runner_file}" --scheduled --config "{CONFIG_FILE}" --log "{SCHEDULED_LOG}"'
+    return arguments, str(fgc_dir)
+
+
+def _last_run_failed(code: Optional[int]) -> bool:
+    # 0x413xx are SCHED_S_* statuses such as "still running" or "has not run yet", not results of a run
+    if code and not 0x41300 <= code <= 0x413FF:
+        return True
+    # conhost does not pass node's exit code on, so a task of this app always reports 0: its run log tells
+    try:
+        with open(SCHEDULED_LOG, "rb") as log:
+            log.seek(0, os.SEEK_END)
+            log.seek(max(0, log.tell() - RUN_LOG_TAIL_BYTES))
+            lines = log.read().decode("utf-8", errors="replace").strip().splitlines()
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        logger.warning(f"Could not read {SCHEDULED_LOG}: {e}")
+        return False
+    return bool(lines) and lines[-1].startswith(RUN_FAILED_MARK)
 
 
 class GiveawaysOrchestrator:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
+        self._scheduler_write_lock = asyncio.Lock()  # read-then-write: two quick clicks must not both see "no task"
+        self._repair_error: Optional[str] = None
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._active_stores: List[str] = []
         self._started_at: Optional[str] = None
@@ -113,13 +164,16 @@ class GiveawaysOrchestrator:
             return self._scheduler_cache[1]
 
         ps_script = (
+            f"[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
             f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; "
             f"if ($t) {{ $i = Get-ScheduledTaskInfo -TaskName '{TASK_NAME}'; "
+            f"$a = $t.Actions[0]; "
             f"$d = if ($t.Triggers[0].DaysOfWeek) {{ [int]$t.Triggers[0].DaysOfWeek }} else {{ 37 }}; "
             f"@{{ exists=$true; state=$t.State.ToString(); "
             f"lastRun=if($i.LastRunTime){{$i.LastRunTime.ToString('o')}}else{{$null}}; "
             f"nextRun=if($i.NextRunTime){{$i.NextRunTime.ToString('o')}}else{{$null}}; "
-            f"lastResult=$i.LastTaskResult; daysOfWeek=$d }} | ConvertTo-Json -Compress }} "
+            f"lastResult=$i.LastTaskResult; daysOfWeek=$d; "
+            f"execute=$a.Execute; arguments=$a.Arguments; workingDirectory=$a.WorkingDirectory }} | ConvertTo-Json -Compress }} "
             f"else {{ @{{ exists=$false; state='Unknown'; lastRun=$null; nextRun=$null; lastResult=$null; daysOfWeek=$null }} | ConvertTo-Json -Compress }}"
         )
         try:
@@ -128,8 +182,8 @@ class GiveawaysOrchestrator:
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
                 creationflags=0x08000000  # CREATE_NO_WINDOW
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            raw = json.loads(stdout.decode("utf-8", errors="replace").strip())
+            stdout, _ = await self._communicate_or_kill(proc, SCHEDULER_QUERY_TIMEOUT_SECONDS)
+            raw = json.loads(stdout.decode("utf-8-sig", errors="replace").strip())
             raw_mask = raw.get("daysOfWeek")
             mask: Optional[int] = None
             if raw_mask is not None:
@@ -149,76 +203,177 @@ class GiveawaysOrchestrator:
                 "lastTaskResult": raw.get("lastResult"),
                 "daysOfWeek": mask,
                 "activeDays": bitmask_to_days(mask),
+                "lastRunFailed": _last_run_failed(raw.get("lastResult")),
+                "action": {key: raw.get(key) for key in ("execute", "arguments", "workingDirectory")},
             }
         except Exception as e:
-            logger.debug(f"Scheduler query fallback: {e}")
+            logger.warning(f"Windows Task Scheduler query failed: {type(e).__name__}: {e}")
             result = {
                 "taskName": TASK_NAME,
                 "exists": False,
+                "queryFailed": True,
                 "state": "Unknown",
                 "lastRunTime": None,
                 "nextRunTime": None,
                 "lastTaskResult": None,
                 "daysOfWeek": None,
                 "activeDays": [],
+                "lastRunFailed": False,
+                "action": {},
             }
 
+        result["repairError"] = self._repair_error
+        result["logFile"] = str(SCHEDULED_LOG)
         self._scheduler_cache = (now, result)
         return result
 
-    async def toggle_scheduler(self, enable: Optional[bool] = None) -> dict:
-        sched = await self._query_scheduler(force=True)
-        is_disabled = (sched.get("state") == "Disabled")
-        target_enable = is_disabled if enable is None else bool(enable)
-        cmd = "Enable-ScheduledTask" if target_enable else "Disable-ScheduledTask"
-        ps_script = f"{cmd} -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue"
+    @staticmethod
+    async def _communicate_or_kill(proc: asyncio.subprocess.Process, timeout: float) -> tuple:
+        """proc.communicate() with a ceiling; a process that misses it is killed and reaped before TimeoutError propagates."""
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-                creationflags=0x08000000
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise
+
+    async def _run_scheduler_write(self, ps_script: str) -> None:
+        """Runs a task-changing script; any failure reaches the caller, the UI must not show a change that did not happen."""
+        proc = await asyncio.create_subprocess_exec(
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+            "$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [Text.Encoding]::UTF8; " + ps_script,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            creationflags=0x08000000
+        )
+        try:
+            _, stderr = await self._communicate_or_kill(proc, SCHEDULER_WRITE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.error(f"Task scheduler write timed out after {SCHEDULER_WRITE_TIMEOUT_SECONDS:.0f}s")
+            raise _scheduler_refusal(web.HTTPInternalServerError, "Планировщик Windows не ответил вовремя. Попробуйте ещё раз.")
+        finally:
+            # Even a killed script may have applied the change
+            self._scheduler_cache = (0.0, {})
+        if proc.returncode != 0:
+            logger.error(f"Task scheduler write failed (exit {proc.returncode}): {stderr.decode('utf-8', errors='replace').strip()}")
+            raise _scheduler_refusal(web.HTTPInternalServerError, "Не удалось изменить задание в Планировщике Windows. Подробности в журнале приложения.")
+
+    async def _known_scheduler_state(self) -> dict:
+        sched = await self._query_scheduler(force=True)
+        if sched.get("queryFailed"):
+            raise _scheduler_refusal(web.HTTPServiceUnavailable, "Планировщик Windows не ответил. Попробуйте ещё раз.")
+        return sched
+
+    async def _usable_node(self) -> str:
+        """Path of a Node.js the engine can run on; refuses with an explanation otherwise."""
+        node = shutil.which("node")
+        if node is None:
+            raise _scheduler_refusal(web.HTTPPreconditionFailed, f"Для автосбора раздач нужен Node.js {MIN_NODE_MAJOR} или новее (nodejs.org). "
+                                                                 "Установите его и включите автосбор ещё раз.")
+        proc = await asyncio.create_subprocess_exec(
+            node, "--version",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            creationflags=0x08000000
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=NODE_VERSION_TIMEOUT_SECONDS)
+        version = stdout.decode("utf-8", errors="replace").strip()
+        found = re.match(r"v(\d+)\.", version)
+        if not found or int(found.group(1)) < MIN_NODE_MAJOR:
+            raise _scheduler_refusal(web.HTTPPreconditionFailed, f"Для автосбора раздач нужен Node.js {MIN_NODE_MAJOR} или новее (nodejs.org), "
+                                                                 f"установлен {version or 'неизвестной версии'}. Обновите его и включите автосбор ещё раз.")
+        return node
+
+    async def _create_task(self, days: List[str]) -> None:
+        """Registers the task for the current install. No -Force: a task that already exists stays as the user set it up."""
+        fgc_dir = resolve_fgc_root()
+        runner_file = fgc_dir / "runner.js"
+        if not runner_file.is_file():
+            raise _scheduler_refusal(web.HTTPNotFound, f"Модуль раздач не найден по пути {fgc_dir}")
+        node = await self._usable_node()
+        arguments, work_dir = _task_action(node)
+        days_quoted = ",".join(f"'{d}'" for d in days)
+        await self._run_scheduler_write(
+            f"$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument {_ps_literal(arguments)} "
+            f"-WorkingDirectory {_ps_literal(work_dir)}; "
+            f"$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek @({days_quoted}) -At '{TASK_DEFAULT_TIME}'; "
+            f"$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+            f"-MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds {TASK_TIME_LIMIT_SECONDS}); "
+            f"$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) "
+            f"-LogonType Interactive -RunLevel Limited; "
+            f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null"
+        )
+        logger.info(f"Created scheduler task {TASK_NAME}: days={days}, runner={runner_file}")
+
+    async def repair_task_paths(self) -> None:
+        """At service start: re-points a task created by this app when the app or Node.js moved. Never raises, never creates."""
+        async with self._scheduler_write_lock:
+            self._repair_error = None
+            try:
+                sched = await self._query_scheduler(force=True)
+                action = sched.get("action") or {}
+                is_ours = (action.get("execute") or "").lower() == "conhost.exe" and "runner.js" in (action.get("arguments") or "")
+                if not sched.get("exists") or not is_ours:
+                    return
+                arguments, work_dir = _task_action(await self._usable_node())
+                if (action.get("arguments", "").casefold(), (action.get("workingDirectory") or "").casefold()) == (arguments.casefold(), work_dir.casefold()):
+                    return
+                await self._run_scheduler_write(
+                    f"$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument {_ps_literal(arguments)} "
+                    f"-WorkingDirectory {_ps_literal(work_dir)}; "
+                    f"Set-ScheduledTask -TaskName '{TASK_NAME}' -Action $action | Out-Null"
+                )
+                logger.info(f"Re-pointed scheduler task {TASK_NAME} to the current install: {arguments}")
+            except web.HTTPException as e:
+                self._repair_error = json.loads(e.text)["detail"]
+                logger.error(f"Could not check scheduler task {TASK_NAME} at startup: {self._repair_error}")
+            except Exception as e:
+                self._repair_error = "Не удалось проверить задание автосбора. Подробности в журнале приложения."
+                logger.error(f"Could not check scheduler task {TASK_NAME} at startup: {type(e).__name__}: {e}", exc_info=True)
+            self._scheduler_cache = (0.0, {})
+
+    async def toggle_scheduler(self, enable: Optional[bool] = None) -> dict:
+        async with self._scheduler_write_lock:
+            sched = await self._known_scheduler_state()
+            is_active = bool(sched.get("exists")) and sched.get("state") != "Disabled"
+            target_enable = (not is_active) if enable is None else bool(enable)
+            if not sched.get("exists"):
+                if not target_enable:
+                    return sched
+                await self._create_task(bitmask_to_days(None))
+                return await self._query_scheduler(force=True)
+            cmd = "Enable-ScheduledTask" if target_enable else "Disable-ScheduledTask"
+            await self._run_scheduler_write(f"{cmd} -TaskName '{TASK_NAME}' | Out-Null")
             logger.info(f"Task scheduler {TASK_NAME} set to: {'Enabled' if target_enable else 'Disabled'}")
-        except Exception as e:
-            logger.error(f"Error toggling scheduler task: {e}")
-        return await self._query_scheduler(force=True)
+            return await self._query_scheduler(force=True)
 
     async def update_scheduler_days(self, days: List[str]) -> dict:
         """
-        Updates the weekly scheduled days for FreeGamesClaimerStudio in Windows Task Scheduler.
-        Preserves StartBoundary (execution time). If days is empty, disables the task.
+        Updates the weekly scheduled days for FreeGamesClaimerStudio in Windows Task Scheduler, creating the task if it
+        does not exist yet. Preserves StartBoundary (execution time). If days is empty, disables the task.
         """
         valid_days = [d.capitalize() for d in days if d.capitalize() in DAY_BITS]
-        
+
         if not valid_days:
             logger.info("All scheduler days unselected; disabling scheduled task.")
             return await self.toggle_scheduler(enable=False)
 
-        days_quoted = ",".join(f"'{d}'" for d in valid_days)
-        ps_script = (
-            f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; "
-            f"if ($t) {{ "
-            f"$sb = $t.Triggers[0].StartBoundary; "
-            f"$timeStr = if ($sb) {{ ([datetime]::Parse($sb)).ToString('HH:mm') }} else {{ '13:30' }}; "
-            f"$newTr = New-ScheduledTaskTrigger -Weekly -DaysOfWeek @({days_quoted}) -At $timeStr; "
-            f"Set-ScheduledTask -TaskName '{TASK_NAME}' -Trigger $newTr -ErrorAction Stop | Out-Null; "
-            f"if ($t.State -eq 'Disabled') {{ Enable-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue | Out-Null }} "
-            f"}}"
-        )
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-                creationflags=0x08000000
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            logger.info(f"Updated scheduler {TASK_NAME} days to: {valid_days}")
-        except Exception as e:
-            logger.error(f"Error updating scheduler days: {e}")
+        async with self._scheduler_write_lock:
+            sched = await self._known_scheduler_state()
+            if not sched.get("exists"):
+                await self._create_task(valid_days)
+                return await self._query_scheduler(force=True)
 
-        self._scheduler_cache = (0.0, {})
-        return await self._query_scheduler(force=True)
+            days_quoted = ",".join(f"'{d}'" for d in valid_days)
+            ps_script = (
+                f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}'; "
+                f"$sb = $t.Triggers[0].StartBoundary; "
+                f"$timeStr = if ($sb) {{ ([datetime]::Parse($sb)).ToString('HH:mm') }} else {{ '{TASK_DEFAULT_TIME}' }}; "
+                f"$newTr = New-ScheduledTaskTrigger -Weekly -DaysOfWeek @({days_quoted}) -At $timeStr; "
+                f"Set-ScheduledTask -TaskName '{TASK_NAME}' -Trigger $newTr | Out-Null; "
+                f"if ($t.State -eq 'Disabled') {{ Enable-ScheduledTask -TaskName '{TASK_NAME}' | Out-Null }}"
+            )
+            await self._run_scheduler_write(ps_script)
+            logger.info(f"Updated scheduler {TASK_NAME} days to: {valid_days}")
+            return await self._query_scheduler(force=True)
 
     def _read_sessions(self, data_dir: Path) -> Dict[str, dict]:
         fpath = data_dir / SESSIONS_FILE
@@ -397,7 +552,7 @@ class GiveawaysOrchestrator:
 
             valid_stores = [s for s in stores if s in STORE_FILE_MAP]
             if not valid_stores:
-                valid_stores = ["epic", "gog", "steam", "fab", "unity"]
+                valid_stores = list(DEFAULT_CLAIM_STORES)
 
             if runner_file.is_file():
                 # Node.js is not bundled (the browser engine is installed on first use): say so instead of crashing

@@ -7,10 +7,11 @@
  * graceful error recovery, and zero external shell batch dependencies.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import { format } from 'node:util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,17 +28,37 @@ const STORE_SCRIPTS = {
   prime: { script: 'prime-gaming.mjs', fallback: 'prime-gaming.js', label: 'Prime Gaming' },
 };
 
+const MIN_NODE_MAJOR = 20;
+// The same defaults as "giveaways_selected_stores" in the service settings
+const DEFAULT_SELECTED_STORES = ['epic', 'gog', 'steam', 'fab', 'unity'];
+const ENGINE_SETUP_TIMEOUT_MS = 900000;
+
+// Where children and setup commands write: the console, or the run log of a scheduled run
+let childOutput = 'inherit';
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let headless = true;
   let stores = [];
   let inClaim = false;
+  let scheduled = false;
+  let configPath = null;
+  let logPath = null;
 
   for (let i = 0; i < args.length; i++) {
     const raw = args[i];
     const arg = raw.toLowerCase();
 
-    if (arg === '--headless' || arg === '-h' || arg === '--h') {
+    if (arg === '--scheduled') {
+      scheduled = true;
+      inClaim = false;
+    } else if (arg === '--config') {
+      configPath = args[++i];
+      inClaim = false;
+    } else if (arg === '--log') {
+      logPath = args[++i];
+      inClaim = false;
+    } else if (arg === '--headless' || arg === '-h' || arg === '--h') {
       headless = true;
       inClaim = false;
     } else if (arg === '--show' || arg === '-s' || arg === '--s') {
@@ -60,7 +81,48 @@ function parseArgs() {
 
   // Deduplicate preserving order
   stores = [...new Set(stores)];
-  return { headless, stores };
+  return { headless, stores, scheduled, configPath, logPath };
+}
+
+// One file per task, started over at every run: its size stays that of a single run, whatever the task's lifetime
+function openRunLog(logPath) {
+  try {
+    fs.writeFileSync(logPath, '');
+    const fd = fs.openSync(logPath, 'a');
+    for (const level of ['log', 'info', 'warn', 'error']) {
+      console[level] = (...args) => fs.writeSync(fd, `${format(...args)}\n`);
+    }
+    childOutput = ['ignore', fd, fd];
+  } catch (err) {
+    // No log is no reason to skip the claim; the hidden console is all that is left for this message
+    console.error(`[SENTINEL] Не удалось открыть лог ${logPath}: ${err.message}`);
+  }
+}
+
+// Throws on a damaged config: guessing could claim in a store the user turned off
+function readScheduledStores(configPath) {
+  let text;
+  try {
+    text = fs.readFileSync(configPath, 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    console.log(`[SENTINEL] ${configPath} ещё не создан: собираем магазины по умолчанию.`);
+    return DEFAULT_SELECTED_STORES;
+  }
+  const config = JSON.parse(text.replace(/^\uFEFF/, ''));
+  if (config.giveaways_enabled === false) {
+    console.log('[SENTINEL] Раздачи отключены в настройках: сбор пропущен.');
+    return [];
+  }
+  const selected = config.giveaways_selected_stores;
+  if (selected === undefined) return DEFAULT_SELECTED_STORES;
+  if (!Array.isArray(selected)) throw new Error('giveaways_selected_stores должен быть списком');
+  if (selected.length === 0) console.log('[SENTINEL] Ни один магазин не выбран: сбор пропущен.');
+  const known = selected.filter((store) => {
+    if (!STORE_SCRIPTS[store]) console.warn(`[SENTINEL] Неизвестная платформа раздач: ${store}`);
+    return STORE_SCRIPTS[store];
+  });
+  return [...new Set(known)];
 }
 
 function resolveScript(entry) {
@@ -93,7 +155,7 @@ function runStore(storeKey, headless) {
     const proc = spawn(process.execPath, [scriptPath], {
       cwd: __dirname,
       env: childEnv,
-      stdio: 'inherit',
+      stdio: childOutput,
       windowsHide: true,
     });
 
@@ -113,8 +175,43 @@ function runStore(storeKey, headless) {
   });
 }
 
+// A scheduled run has nobody to press "Claim", so the first one on a fresh install sets up the browser engine itself
+function ensureBrowserEngine() {
+  if (fs.existsSync(path.join(__dirname, 'node_modules', 'patchright'))) return true;
+  console.log('[SENTINEL] Установка браузерного движка раздач...');
+  for (const command of ['npm install', 'npx patchright install chromium']) {
+    const { status } = spawnSync(command, { cwd: __dirname, shell: true, stdio: childOutput, windowsHide: true, timeout: ENGINE_SETUP_TIMEOUT_MS });
+    if (status !== 0) {
+      console.error(`[SENTINEL] ✕ Команда "${command}" завершилась с кодом ${status}.`);
+      return false;
+    }
+  }
+  return true;
+}
+
 async function main() {
-  const { headless, stores } = parseArgs();
+  const { headless, stores: claimedStores, scheduled, configPath, logPath } = parseArgs();
+  if (logPath) openRunLog(logPath);
+  if (scheduled) console.log(`[SENTINEL] Запуск по расписанию: ${new Date().toISOString()}`);
+
+  const nodeVersion = process.versions.node;
+  if (Number.parseInt(nodeVersion, 10) < MIN_NODE_MAJOR) {
+    console.error(`[SENTINEL] ✕ Для раздач нужен Node.js ${MIN_NODE_MAJOR} или новее (nodejs.org), установлен ${nodeVersion}.`);
+    process.exit(1);
+  }
+
+  let stores = claimedStores;
+  if (scheduled) {
+    try {
+      stores = readScheduledStores(configPath);
+    } catch (err) {
+      console.error(`[SENTINEL] ✕ Не удалось прочитать выбор магазинов из ${configPath} (config.json): ${err.message}. Сбор отменён.`);
+      process.exit(1);
+    }
+    if (stores.length === 0) process.exit(0);
+  }
+
+  if (!ensureBrowserEngine()) process.exit(1);
 
   console.log('============================================================');
   console.log('  TWITCH DROPS SENTINEL — МОДУЛЬ РАЗДАЧ ИГР (GIVEAWAYS)');
@@ -134,6 +231,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`[SENTINEL] Критическая ошибка в модуле раздач:`, err);
+  console.error(`[SENTINEL] ✕ Критическая ошибка в модуле раздач:`, err);
   process.exit(1);
 });

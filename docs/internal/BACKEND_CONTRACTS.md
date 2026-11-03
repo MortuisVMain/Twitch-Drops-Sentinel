@@ -335,6 +335,14 @@
 Включение/выключение задачи в Планировщике задач Windows (`Task Scheduler`).
 - **Request Body:** `{"enable": true}` (или пустой для toggle)
 - **Response:** возвращает обновленный объект `scheduler`.
+- Если задания нет, `enable: true` создаёт его (Вт, Пт, Вс в 13:30). Отказ приходит с кодом 4xx/5xx и полем `detail`.
+
+#### `POST /api/v1/giveaways/scheduler-days`
+Смена дней автосбора; если задания нет, создаёт его с этими днями.
+- **Request Body:** `{"days": ["Monday", "Friday"]}` (пустой список отключает задание)
+- **Response:** возвращает обновленный объект `scheduler`.
+
+Поля состояния: `exists: false` означает, что задания нет. `queryFailed: true` означает, что Планировщик Windows не ответил, и тогда `exists` ничего не говорит о задании. `repairError` содержит текст ошибки проверки путей задания при старте сервиса. `lastRunFailed: true` означает, что последний запуск по расписанию завершился с ошибкой, а `logFile` указывает на лог этого запуска.
 
 ---
 
@@ -400,7 +408,8 @@
 
 ### 3.2. Интеграция с Windows Task Scheduler
 - Задача планировщика называется **`FreeGamesClaimerStudio`**.
-- Управление задачей осуществляется через контроллер `core/giveaways_controller.py`, вызывающий нативные командлеты PowerShell (`Get-ScheduledTask`, `Enable-ScheduledTask`, `Disable-ScheduledTask`).
+- Управление задачей осуществляется через контроллер `core/giveaways_controller.py`, вызывающий нативные командлеты PowerShell (`Get-ScheduledTask`, `Enable-ScheduledTask`, `Disable-ScheduledTask`, `Register-ScheduledTask`).
+- Задачу создаёт сам контроллер при включении автосбора или выборе дней, если её ещё нет. Уже существующую задачу он не перезаписывает: меняются только дни и включённость.
 - UI не должен пытаться напрямую модифицировать системный реестр или планировщик — все операции должны идти строго через `POST /api/v1/giveaways/toggle-scheduler`.
 
 ### 3.3. Фоновые потоки и защита GUI от фризов

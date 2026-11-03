@@ -59,3 +59,4 @@
 | **059** | [Steam Grey Placeholder Covers](./059-steam-grey-placeholder-covers.md) | Box Art / Steam CDN Placeholder (HTTP 200) / Canvas Blank Check / CORS crossOrigin |
 | **060** | [Progress Counter Jumps to a Claimed Drop](./060-counter-jumps-to-claimed-drop.md) | Dashboard Counter / active_drop Slot / update_drop vs display_drop / Claimed Drop Takeover |
 | **061** | [Store Sign-in Without a Terminal](./061-store-login-without-a-terminal.md) | Giveaways / Enquirer at stdin EOF / ERR_USE_AFTER_CLOSE / sessions.json |
+| **062** | [Scheduler Shown Active With No Task](./062-scheduler-task-never-created.md) | Giveaways Scheduler / Register-ScheduledTask / conhost --headless / Honest Missing State |

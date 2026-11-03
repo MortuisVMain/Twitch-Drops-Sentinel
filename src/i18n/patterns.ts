@@ -100,6 +100,9 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Вы вошли как (.+)$/, 'Signed in as $1'],
   [/^Сменить аккаунт (.+)$/, 'Switch $1 account'],
   [/^Магазин: (.+)$/, 'Store: $1'],
+  [/^Модуль раздач не найден по пути (.+)$/, 'Giveaways module not found at $1'],
+  [/^Для автосбора раздач нужен Node\.js (\d+) или новее \(nodejs\.org\), установлен (.+)\. Обновите его и включите автосбор ещё раз\.$/, 'Auto-claim needs Node.js $1 or newer (nodejs.org), found $2. Update it and turn auto-claim on again.'],
+  [/^⚠ Последний запуск по расписанию завершился с ошибкой\. Лог: (.+)$/, '⚠ The last scheduled run failed. Log: $1'],
   [/^● Активен \((.+)\)$/, '● Active ($1)'],
   [/^(.+) \(((?:Активен|Отключен) — .+)\)$/, '$1 ($2)'],
   // ScreenDimmerView
