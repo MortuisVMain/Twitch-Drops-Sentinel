@@ -139,6 +139,7 @@ export const APP: Record<string, string> = {
   'Приостановить сбор дропов': 'Pause collecting drops',
   'Вернуться из мини-окна (PIP)': 'Leave the mini window (PIP)',
   'Мини-окно (PIP)': 'Mini window (PIP)',
+  '🔍 Быстрые команды': '🔍 Quick commands',
   'Выключить ночной режим': 'Turn night mode off',
   'Включить ночной режим': 'Turn night mode on',
   'Выбрать тему оформления': 'Choose a theme',

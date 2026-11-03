@@ -914,6 +914,15 @@
     .more-item-help { display: flex !important; }
   }
 
+  /* Fit levels set by useHeaderFit when the header is still too wide: labels go first, then Ctrl+K and Help move into "..." */
+  .console-header[data-fit="1"] .upd-text,
+  .console-header[data-fit="1"] .cmd-palette-btn span,
+  .console-header[data-fit="2"] .upd-text,
+  .console-header[data-fit="2"] .cmd-palette-btn,
+  .console-header[data-fit="2"] .help-btn { display: none !important; }
+  .console-header[data-fit="2"] .more-item-palette,
+  .console-header[data-fit="2"] .more-item-help { display: flex !important; }
+
   .tactile-btn {
     min-height: 31px; padding: 0 9px; background: var(--bg-btn);
     border: 1px solid var(--border-main); border-radius: 8px; box-shadow: var(--shadow-btn);
@@ -946,7 +955,7 @@
     color: var(--text-primary); font-size: var(--fs-sm); font-weight: 600; text-align: left; cursor: pointer;
   }
   .more-item:hover, .more-item:focus-visible { background: var(--bg-row-hover); border-color: var(--border-main); outline: none; }
-  .more-item-help { display: none; }
+  .more-item-help, .more-item-palette { display: none; }
   .more-hint { font-family: var(--font-ui); font-size: var(--fs-xs); color: var(--text-muted); }
   .more-check { font-family: var(--font-ui); font-size: var(--fs-sm); color: var(--led-mint); min-width: 12px; text-align: right; }
   .theme-dropdown-menu {

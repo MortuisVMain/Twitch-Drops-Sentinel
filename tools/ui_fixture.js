@@ -1,6 +1,7 @@
 // Offline fixture for UI checks: stubs fetch/EventSource with a populated state (long names on purpose) so
 // screens can be inspected without the local service. Inlined into a COPY of dist/index.html by build_ui_harness.mjs.
 // Query: ?lang=ru|en&scale=100|115|130 are written to localStorage before the app starts.
+// ?update=1 serves an available update, so the header shows its widest state (update button).
 (function () {
   var q = new URLSearchParams(location.search);
   try {
@@ -80,7 +81,8 @@
     giveaways.inventory.forEach(function (it, i) { it.title = ['Celeste', 'Hollow Knight', 'Into the Breach', 'Dredge', 'Tunic'][i]; it.account = 'demo@example.com'; });
     dimmer.monitors.forEach(function (m, i) { m.name = ['Dell U2723QE', 'LG 27GP850', 'Built-in Display'][i]; });
   }
-  var routes = { '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.5', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.5', remote_version: '3.5.5', error: null };
+  var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     var body = routes[path] || { status: 'ok' };
