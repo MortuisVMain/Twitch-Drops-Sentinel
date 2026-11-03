@@ -3036,6 +3036,15 @@ def test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install():
             await o.repair_task_paths()
             return await o._query_scheduler(force=True)
 
+        # Another install that still exists owns this task: two copies must not keep overwriting each other
+        other_install = Path(tempfile.mkdtemp(prefix="other_install_", dir=SANDBOX))
+        (other_install / "runner.js").write_text("", encoding="utf-8")
+        foreign = {**current, "arguments": arguments.replace(str(gc.resolve_fgc_root()), str(other_install))}
+        assert foreign["arguments"] != arguments, foreign
+        fake = _FakeTaskScheduler(exists=True, action=foreign)
+        run(fake, repair_then_state)
+        assert fake.writes == [], f"the task of a live install was overwritten: {fake.writes}"
+
         # Moved install: only the action changes, the trigger with the chosen days stays
         fake = _FakeTaskScheduler(exists=True, action=stale)
         state = run(fake, repair_then_state)
@@ -3165,6 +3174,16 @@ def test_scheduled_run_collects_selected_stores_and_writes_a_log():
         code, text = run_scheduled()
         assert code == 0 and stores_in(text) == defaults, (code, text)
 
+        # A store that fails makes the whole run fail visibly: conhost hides the exit code, the last log line tells
+        (engine / "dist" / "gog.mjs").write_text("console.log('STORE gog раздача'); process.exit(3);", encoding="utf-8")
+        config.write_text(json.dumps({"giveaways_selected_stores": ["gog", "steam"]}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert stores_in(text) == ["gog", "steam"], (code, text)
+        assert text.strip().splitlines()[-1].startswith("[SENTINEL] ✕"), text
+        config.write_text(json.dumps({"giveaways_selected_stores": ["steam"]}), encoding="utf-8")
+        code, text = run_scheduled()
+        assert not text.strip().splitlines()[-1].startswith("[SENTINEL] ✕"), text
+
         # A damaged config: a store the user turned off must not run on a guess, the run fails visibly
         for damaged in ('{"giveaways_selected_stores": ["epic"', '{"giveaways_selected_stores": "epic"}', "null"):
             config.write_text(damaged, encoding="utf-8")
@@ -3270,12 +3289,15 @@ console.log(JSON.stringify({ states, paid, waits }));
 """
     module = (WORKSPACE / "giveaways_engine" / "src" / "checkout.js").as_uri()
     free = ["Total $0.00", "Итого 0,00 ₽", "Total\n$0.00", "Total: 0.00 USD", "Total (incl. VAT) €0,00",
-            "Subtotal $49.00\nDiscount -$49.00\nTotal $0.00", "Итого\n0 ₽", "Total tax $0.00\nTotal $0.00"]
+            "Subtotal $49.00\nDiscount -$49.00\nTotal $0.00", "Итого\n0 ₽", "Total tax $0.00\nTotal $0.00",
+            "Total savings $49.00\nTotal $0.00", "Sub-total $49.00\nTotal $0.00", "Your total: $0.00", "Total ₹0.00"]
     paid_totals = ["Total $49.00", "Итого 1000,00 ₽", "Total 10 €", "Total 49,90 €", "Total $0.50", "Сумма 4900 ₽",
                    "Subtotal $49.00\nTax $0.00\nTotal $49.00", "Total\n$49.00", "Total 1 000,00 ₽", "Total USD 5.00",
-                   "Total $0.00\nTotal due $49.00"]
+                   "Total $0.00\nTotal due $49.00", "Total: $0.00\nTotal due today: $19.99", "Total: $0.00\nTotal price $19.99",
+                   "Total: ₹499.00\nTotal: $0.00", "Your total: $19.99", "Total: $0.00\nTotal 5 PLN", "Total\n₹499\nTotal $0.00",
+                   "Total $0.00 ($19.99 after trial)"]
     unknown = ["", "Your cart", "Subtotal $0.00", "Total Free", "Total", "Total tax $0.00", "Discount $0.00", "Total $0.00 or so"]
-    buttons_paid = ["Pay $49.00", "Оплатить 1000 ₽", "Pay now 0,50 €"]
+    buttons_paid = ["Pay $49.00", "Оплатить 1000 ₽", "Pay now 0,50 €", "Pay ₹499", "Pay 19.99", "Pay 19,99 zł"]
     buttons_free = ["Pay now", "Заплатить немедленно", "Pay $0.00", "Complete order"]
     res = subprocess.run(
         ["node", "--input-type=module", "-e", script, module, json.dumps(free + paid_totals + unknown),
@@ -3356,6 +3378,8 @@ def test_store_login_finishes_without_a_terminal():
     res, sessions = _run_store_login("unity.mjs", unity_page("null"))
     output = res.stdout + res.stderr
     assert not sessions.get("unity", {}).get("account"), f"a page that never answered proves no login, got {sessions}:\n{output[-800:]}"
+    res, sessions = _run_store_login("unity.mjs", unity_page("null"), seed=lambda path: path.write_text('{"unity": {"account": "kept", "confirmedAt": 1}}', encoding="utf-8"))
+    assert sessions["unity"]["account"] == "kept", f"silence from the store proves no sign-out either, got {sessions}"
     res, sessions = _run_store_login("unity.mjs", unity_page("Date.now() - started < 500 ? { id: '0', name: 'Anonymous' } : { id: '42', name: 'unity_tester' }"))
     output = res.stdout + res.stderr
     assert sessions.get("unity", {}).get("account") == "unity_tester", f"a finished Unity login must be noticed, got {sessions}:\n{output[-800:]}"
@@ -3684,6 +3708,14 @@ def test_switch_account_forgets_only_that_store():
         asyncio.create_subprocess_exec, gc.resolve_fgc_root = real_exec, real_root
     assert "FGC_SWITCH_ACCOUNT" not in (spawned[-2].get("env") or os.environ), "a plain sign-in must keep the login"
     assert spawned[-1]["env"]["FGC_SWITCH_ACCOUNT"] == "steam", "the switch must reach the engine"
+    from aiohttp import web
+    count = len(spawned)
+    try:
+        asyncio.run(gc.GiveawaysOrchestrator().start_auth("nonsense", switch_account=True))
+        raise AssertionError("an unknown store must be refused, not replaced with the default stores")
+    except web.HTTPBadRequest:
+        pass
+    assert len(spawned) == count, "a refused sign-in must not start anything"
 
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "window.confirm(" in view and "handleStoreAuth(store.id, true)" in view and "?switch=1" in view, "the button must ask first, then switch"
@@ -3941,7 +3973,7 @@ if __name__ == "__main__":
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
-    print("  ALL 41 VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print(f"  ALL {len(GATES)} VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

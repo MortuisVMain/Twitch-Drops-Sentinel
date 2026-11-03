@@ -314,6 +314,10 @@ class GiveawaysOrchestrator:
                 if not sched.get("exists") or not is_ours:
                     return
                 arguments, work_dir = _task_action(await self._usable_node())
+                task_runner = re.search(r'"([^"]*runner\.js)"', action.get("arguments") or "")
+                if task_runner and task_runner.group(1) not in arguments and Path(task_runner.group(1)).is_file():
+                    logger.info(f"Scheduler task {TASK_NAME} belongs to another install, left as is: {task_runner.group(1)}")
+                    return
                 if (action.get("arguments", "").casefold(), (action.get("workingDirectory") or "").casefold()) == (arguments.casefold(), work_dir.casefold()):
                     return
                 await self._run_scheduler_write(
@@ -630,6 +634,9 @@ class GiveawaysOrchestrator:
             return {"status": "started", "pid": self._proc.pid, "stores": valid_stores}
 
     async def start_auth(self, store: str, switch_account: bool = False) -> dict:
+        if store not in STORE_FILE_MAP:  # start_claim would replace it with the default stores
+            raise web.HTTPBadRequest(text=json.dumps({"detail": f"Неизвестный магазин: {store}"}, ensure_ascii=False),
+                                     content_type="application/json")
         return await self.start_claim(stores=[store], headless=False, switch_account=switch_account)
 
     async def _monitor_process(self, proc: asyncio.subprocess.Process) -> None:

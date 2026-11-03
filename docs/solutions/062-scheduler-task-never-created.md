@@ -52,6 +52,10 @@ exit code and return a `detail` the UI shows. A failed query now returns `queryF
 - Every run overwrites the log, so only the last run can be read.
 - Running a non-test service from another checkout re-points a task created by this app to that checkout.
 
+A store that exits with an error adds a last `[SENTINEL] ✕` line, because conhost hides the exit code. A run killed by the task's
+time limit writes no such line and still looks fine. The startup repair leaves a task alone while the `runner.js` it names still
+exists, since that is another live install and not a moved one.
+
 ## Tests
 Gates `test_scheduler_task_is_created_on_a_clean_install` and `test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install`
 (fake `powershell.exe`, the real scheduler is never touched), `test_engine_installs_itself_for_a_scheduled_run` (fake `npm`/`npx`)

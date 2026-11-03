@@ -5414,14 +5414,14 @@ var launchContext = async (cfg2, options) => {
 };
 
 // src/checkout.js
-var CURRENCY = "[$\u20AC\xA3\xA5\u20BD]";
+var CURRENCY = "\\p{Sc}";
 var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
 var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
-var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`);
-var ANY_AMOUNT = new RegExp(AMOUNT, "g");
-var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`);
-var TOTAL_LINE = /^(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/i;
-var isZero = (amount) => !/[1-9]/.test(amount);
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
+var hasNonZeroDigit = (text) => /[1-9]/.test(text);
 var orderTotalState = (text) => {
   const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let state = "unknown";
@@ -5429,9 +5429,10 @@ var orderTotalState = (text) => {
   for (const [i, line] of lines.entries()) {
     const match = TOTAL_LINE.exec(line);
     if (!match) continue;
+    if (NOT_THE_PRICE.test(match[2])) continue;
     const amount = match[2] || lines[i + 1] || "";
+    if (hasNonZeroDigit(amount)) return "paid";
     if (WHOLE_AMOUNT.test(amount)) {
-      if (!isZero(amount)) return "paid";
       state = "free";
     } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
       unreadable = true;
@@ -5439,7 +5440,7 @@ var orderTotalState = (text) => {
   }
   return unreadable ? "unknown" : state;
 };
-var hasPaidAmount = (text) => (String(text).match(ANY_AMOUNT) || []).some((amount) => !isZero(amount));
+var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
 var readPageText = (page2) => page2.evaluate(() => document.body.innerText).catch((err) => {
   console.warn(`Cannot read the checkout page: ${err.message}`);
   return "";
@@ -5491,7 +5492,8 @@ try {
   });
   for (let waited = 0; !storeUser && waited < 1e4; waited += 500) await page.waitForTimeout(500);
   if (!isSignedIn()) {
-    await markSignedOut("unity");
+    if (storeUser) await markSignedOut("unity");
+    else console.warn("Unity did not say who is signed in, the saved login state stays as it was.");
     const loginPrompt = "Not signed in to Unity ID. Run with --show to login: ClaimGames.cmd --show --claim unity";
     console.warn(`[WARN] ${loginPrompt}`);
     if (!cfg.show || process.env.FGC_MINIMIZE == "1") {

@@ -57,7 +57,8 @@ try {
   for (let waited = 0; !storeUser && waited < 10000; waited += 500) await page.waitForTimeout(500);
 
   if (!isSignedIn()) {
-    await markSignedOut('unity');
+    if (storeUser) await markSignedOut('unity'); // silence from a slow or changed API says nothing about the login
+    else console.warn('Unity did not say who is signed in, the saved login state stays as it was.');
     const loginPrompt = 'Not signed in to Unity ID. Run with --show to login: ClaimGames.cmd --show --claim unity';
     console.warn(`[WARN] ${loginPrompt}`);
     if (!cfg.show || process.env.FGC_MINIMIZE == '1') {

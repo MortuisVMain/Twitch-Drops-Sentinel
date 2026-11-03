@@ -1,14 +1,14 @@
 // Stands between a claim and a real charge: anything but a clear zero on the page must stop the order.
-const CURRENCY = '[$€£¥₽]';
+const CURRENCY = '\\p{Sc}';
 const NUMBER = '\\d(?:[\\d\\s.,]*\\d)?';
 const AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|руб)`;
-const WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`);
-const ANY_AMOUNT = new RegExp(AMOUNT, 'g');
-const STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`);
-const TOTAL_LINE = /^(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/i;
+const WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, 'u');
+const STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, 'u');
+const TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+const NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i; // a saving next to the word "total" is not what gets charged
 
 // A price is zero when it has no digit but 0, whatever the locale's separators are.
-const isZero = amount => !/[1-9]/.test(amount);
+const hasNonZeroDigit = text => /[1-9]/.test(text);
 
 /** 'free' only if every total line says zero; 'paid' if any names a price; 'unknown' if the page does not say. */
 export const orderTotalState = text => {
@@ -18,9 +18,10 @@ export const orderTotalState = text => {
   for (const [i, line] of lines.entries()) {
     const match = TOTAL_LINE.exec(line);
     if (!match) continue;
+    if (NOT_THE_PRICE.test(match[2])) continue;
     const amount = match[2] || lines[i + 1] || '';
+    if (hasNonZeroDigit(amount)) return 'paid'; // also a price in a form we cannot read: the order stops either way
     if (WHOLE_AMOUNT.test(amount)) {
-      if (!isZero(amount)) return 'paid';
       state = 'free';
     } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
       unreadable = true; // reads like a price, but not one we understand
@@ -29,8 +30,8 @@ export const orderTotalState = text => {
   return unreadable ? 'unknown' : state;
 };
 
-/** True if the text, such as the label of the order button, names a price above zero. */
-export const hasPaidAmount = text => (String(text).match(ANY_AMOUNT) || []).some(amount => !isZero(amount));
+/** True if the text, such as the label of the order button, has any number above zero: a free order's button has no reason to. */
+export const hasPaidAmount = text => hasNonZeroDigit(String(text));
 
 export const readPageText = page => page.evaluate(() => document.body.innerText).catch(err => {
   console.warn(`Cannot read the checkout page: ${err.message}`);

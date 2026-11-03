@@ -220,13 +220,16 @@ async function main() {
   console.log(`[SENTINEL] Режим браузера: ${headless ? 'Фоновый стелс' : 'Активный экран'}`);
   console.log(`[SENTINEL] Выбранные платформы: ${stores.map(s => STORE_SCRIPTS[s]?.label || s).join(', ')}`);
 
+  const failed = [];
   for (const store of stores) {
-    await runStore(store, headless);
+    if (await runStore(store, headless)) failed.push(STORE_SCRIPTS[store]?.label || store);
   }
 
   console.log('\n============================================================');
   console.log('[SENTINEL] Все выбранные платформы обработаны. Сбор раздач завершен.');
   console.log('============================================================\n');
+  // The last line of a scheduled run's log is how the interface learns about a failure: conhost hides the exit code
+  if (failed.length) console.error(`[SENTINEL] ✕ Сбор завершился с ошибкой: ${failed.join(', ')}`);
   process.exit(0);
 }
 

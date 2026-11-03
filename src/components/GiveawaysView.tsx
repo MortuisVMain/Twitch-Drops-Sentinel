@@ -719,11 +719,6 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               {`⚠ Последний запуск по расписанию завершился с ошибкой. Лог: ${data.scheduler.logFile}`}
             </div>
           )}
-          {actionError && (
-            <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4 }}>
-              ⚠ {actionError}
-            </div>
-          )}
 
           <div
             ref={terminalRef}
