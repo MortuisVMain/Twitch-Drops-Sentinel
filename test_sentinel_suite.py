@@ -2690,7 +2690,8 @@ class _FakeTaskScheduler:
             return self.returncode
 
     def __init__(self, exists=False, fail_writes=False, query_broken=False, hang_writes=False, action=None,
-                 node_version=b"v24.1.0\n", last_result=None):
+                 node_version=b"v24.1.0\n", last_result=None, hang_queries=False):
+        self.hang_queries = hang_queries
         self.action = action or {}
         self.node_version = node_version
         self.last_result = last_result
@@ -2706,6 +2707,9 @@ class _FakeTaskScheduler:
         if script == "--version":
             return self._Proc(self.node_version, 0)
         if "ConvertTo-Json" in script:
+            if self.hang_queries:
+                self.hung_proc = self._HungProc()
+                return self.hung_proc
             if self.query_broken:
                 return self._Proc(b"", 1)
             info = {"exists": self.exists, "state": "Ready" if self.exists else "Unknown", "lastRun": None,
@@ -2844,6 +2848,24 @@ def test_scheduler_task_is_created_on_a_clean_install():
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "data?.scheduler?.state !== 'Disabled'" not in view, "a missing task must not read as active"
     assert "isSchedulerMissing" in view and "{actionError" in view, "the missing task and scheduler errors must be shown"
+
+
+def test_scheduler_query_that_hangs_is_killed_and_reaped():
+    print("[clean-install] Giveaways scheduler: a state query that hangs is killed, awaited and reported as failed...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import asyncio
+    import giveaways_controller as gc
+
+    original_exec, original_timeout = gc.asyncio.create_subprocess_exec, gc.SCHEDULER_QUERY_TIMEOUT_SECONDS
+    fake = _FakeTaskScheduler(hang_queries=True)
+    gc.asyncio.create_subprocess_exec = fake
+    gc.SCHEDULER_QUERY_TIMEOUT_SECONDS = 0.01
+    try:
+        state = asyncio.run(gc.GiveawaysOrchestrator()._query_scheduler(force=True))
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.SCHEDULER_QUERY_TIMEOUT_SECONDS = original_exec, original_timeout
+    assert state["queryFailed"] is True, state
+    assert fake.hung_proc.reaped and fake.hung_proc.returncode is not None, "the hung query process must be killed and awaited"
 
 
 def test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install():
@@ -3216,6 +3238,7 @@ if __name__ == "__main__":
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
         test_scheduler_task_is_created_on_a_clean_install,
+        test_scheduler_query_that_hangs_is_killed_and_reaped,
         test_engine_installs_itself_for_a_scheduled_run,
         test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install,
         test_scheduled_run_collects_selected_stores_and_writes_a_log,

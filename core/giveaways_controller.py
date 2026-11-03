@@ -181,7 +181,7 @@ class GiveawaysOrchestrator:
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
                 creationflags=0x08000000  # CREATE_NO_WINDOW
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=SCHEDULER_QUERY_TIMEOUT_SECONDS)
+            stdout, _ = await self._communicate_or_kill(proc, SCHEDULER_QUERY_TIMEOUT_SECONDS)
             raw = json.loads(stdout.decode("utf-8-sig", errors="replace").strip())
             raw_mask = raw.get("daysOfWeek")
             mask: Optional[int] = None
@@ -226,6 +226,16 @@ class GiveawaysOrchestrator:
         self._scheduler_cache = (now, result)
         return result
 
+    @staticmethod
+    async def _communicate_or_kill(proc: asyncio.subprocess.Process, timeout: float) -> tuple:
+        """proc.communicate() with a ceiling; a process that misses it is killed and reaped before TimeoutError propagates."""
+        try:
+            return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise
+
     async def _run_scheduler_write(self, ps_script: str) -> None:
         """Runs a task-changing script; any failure reaches the caller, the UI must not show a change that did not happen."""
         proc = await asyncio.create_subprocess_exec(
@@ -235,10 +245,8 @@ class GiveawaysOrchestrator:
             creationflags=0x08000000
         )
         try:
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=SCHEDULER_WRITE_TIMEOUT_SECONDS)
+            _, stderr = await self._communicate_or_kill(proc, SCHEDULER_WRITE_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
             logger.error(f"Task scheduler write timed out after {SCHEDULER_WRITE_TIMEOUT_SECONDS:.0f}s")
             raise _scheduler_refusal(web.HTTPInternalServerError, "Планировщик Windows не ответил вовремя. Попробуйте ещё раз.")
         finally:
