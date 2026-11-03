@@ -34,6 +34,8 @@ CACHE_FILE = PROJECT_DIR / "data" / "update_check_cache.json"
 from version import __version__ as CURRENT_VERSION
 REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest"
 UPDATE_CACHE_SECONDS = 900
+# A caller waits this long for the check already in flight (its own request is capped at 8s plus the token lookup)
+CHECK_WAIT_SECONDS = 30.0
 
 # Files that MUST NEVER be overwritten by an update
 PROTECTED_PATHS = {
@@ -170,10 +172,14 @@ class GitHubUpdater:
     def __init__(self):
         self.last_check_time: float = 0.0
         self._retry_not_before: float = 0.0
+        self._rate_limited_until: float = 0.0  # unlike _retry_not_before, a forced check respects it too
         self._last_error: str = ""
         self._cached_result: Optional[dict[str, Any]] = None
         self._is_updating: bool = False
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # guards the fields above and the status; never held during a request
+        self._check_lock = threading.Lock()  # one request to GitHub at a time
+        self._attempts: int = 0  # finished requests, so a caller that waited can tell its answer arrived
+        self._last_attempt: dict[str, Any] = {}
         self._status: dict[str, Any] = {
             "is_updating": False,
             "stage": "idle",
@@ -209,13 +215,30 @@ class GitHubUpdater:
             logger.debug(f"Could not save update cache: {e}")
 
     def check_for_updates(self, force: bool = False) -> dict[str, Any]:
+        """Callers arriving while a request is in flight wait for its answer instead of sending their own."""
         now = time.time()
         # Cache for 15 minutes unless force refresh requested
-        if not force and self._cached_result and (now - self.last_check_time) < UPDATE_CACHE_SECONDS:
-            return self._cached_result
+        with self._lock:
+            if not force and self._cached_result and (now - self.last_check_time) < UPDATE_CACHE_SECONDS:
+                return self._cached_result
+            attempts_seen = self._attempts
 
-        live_current = get_live_local_version()
-        result: dict[str, Any] = {
+        if not self._check_lock.acquire(timeout=CHECK_WAIT_SECONDS):
+            logger.warning("Update check skipped: the previous request is still running after %.0fs", CHECK_WAIT_SECONDS)
+            with self._lock:
+                return {**(self._cached_result or self._baseline_result(get_live_local_version())),
+                        "error": "TimeoutError: the previous update check is still running"}
+        try:
+            with self._lock:
+                if self._attempts != attempts_seen:
+                    return dict(self._last_attempt)
+            return self._request_latest_release(force)
+        finally:
+            self._check_lock.release()
+
+    @staticmethod
+    def _baseline_result(live_current: str) -> dict[str, Any]:
+        return {
             "current_version": live_current,
             "latest_version": live_current,
             "local_version": live_current,
@@ -231,8 +254,16 @@ class GitHubUpdater:
             "published_at": "",
         }
 
-        if not force and now < self._retry_not_before:
-            return {**(self._cached_result or result), "error": self._last_error}
+    def _request_latest_release(self, force: bool) -> dict[str, Any]:
+        """Only called with _check_lock held."""
+        now = time.time()
+        live_current = get_live_local_version()
+        result = self._baseline_result(live_current)
+
+        with self._lock:
+            # A forced check skips the pause after an ordinary failure, never the one GitHub asked for
+            if now < self._rate_limited_until or (not force and now < self._retry_not_before):
+                return {**(self._cached_result or result), "error": self._last_error}
 
         token = get_optional_github_token()
         headers = {
@@ -291,17 +322,27 @@ class GitHubUpdater:
                     "is_hot_patch": bool(patch_url),
                     "published_at": data.get("published_at", ""),
                 })
-                self._cached_result = result
-                self.last_check_time = now
-                self._retry_not_before = 0.0
-                self._last_error = ""
+                with self._lock:
+                    self._cached_result = result
+                    self.last_check_time = now
+                    self._retry_not_before = 0.0
+                    self._rate_limited_until = 0.0
+                    self._last_error = ""
+                    self._attempts += 1
+                    self._last_attempt = result
                 self._save_cache(result)
                 logger.info(f"Update check completed: remote={remote_tag}, available={update_avail}")
         except Exception as e:
-            self._last_error = f"{type(e).__name__}: {e}"
-            self._retry_not_before = now + max(UPDATE_CACHE_SECONDS, rate_limit_wait(e, now))
-            logger.warning("Update check failed: %s", self._last_error)
-            return {**(self._cached_result or result), "error": self._last_error}
+            wait = rate_limit_wait(e, now)
+            with self._lock:
+                self._last_error = f"{type(e).__name__}: {e}"
+                self._retry_not_before = now + max(UPDATE_CACHE_SECONDS, wait)
+                self._rate_limited_until = now + wait if wait > 0 else 0.0
+                failed = {**(self._cached_result or result), "error": self._last_error}
+                self._attempts += 1
+                self._last_attempt = failed
+            logger.warning("Update check failed: %s", failed["error"])
+            return failed
 
         return result
 
@@ -472,8 +513,9 @@ class GitHubUpdater:
             check_and_apply_pending_exe_update()
 
             # Invalidate update cache so subsequent checks immediately see new version
-            self._cached_result = None
-            self.last_check_time = 0.0
+            with self._lock:
+                self._cached_result = None
+                self.last_check_time = 0.0
             if CACHE_FILE.exists():
                 try:
                     CACHE_FILE.unlink(missing_ok=True)

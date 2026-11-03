@@ -3869,6 +3869,112 @@ def test_claimed_drop_never_replaces_the_drop_being_farmed():
     print("      Counter follows only the drop being farmed: ALL PASS [OK]")
 
 
+def test_concurrent_update_checks_share_one_request():
+    print("[updater] Simultaneous update checks make one GitHub request, a forced one still respects a rate limit...")
+    import email.message, json as _json, threading, time as real_time, types, urllib.error
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import updater
+
+    work = SANDBOX / "update_check_concurrent"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    calls = []
+    clock = {"now": 2_000_000.0}
+    gate = threading.Event()
+    entered = threading.Event()
+    behaviour = {"value": None}
+
+    class _Resp:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def read(self):
+            return _json.dumps(self.payload).encode("utf-8")
+
+    class _Opener:
+        def open(self, req, timeout=None):
+            calls.append(req.full_url)
+            entered.set()
+            gate.wait(10)
+            value = behaviour["value"]
+            if isinstance(value, Exception):
+                raise value
+            return _Resp(value)
+
+    def rate_limited(reset_in):
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = "0"
+        headers["X-RateLimit-Reset"] = str(int(clock["now"] + reset_in))
+        return urllib.error.HTTPError(updater.REPO_API_URL, 403, "rate limit exceeded", headers, None)
+
+    def in_threads(count, **kwargs):
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(checker.check_for_updates(**kwargs)), daemon=True) for _ in range(count)]
+        for thread in threads:
+            thread.start()
+        return threads, results
+
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time,
+             getattr(updater, "CHECK_WAIT_SECONDS", None))
+    updater.CACHE_FILE = work / "cache.json"
+    updater.get_optional_github_token = lambda: ""
+    updater.urllib.request.build_opener = lambda *a: _Opener()
+    updater.time = types.SimpleNamespace(time=lambda: clock["now"])
+    try:
+        # Six callers at once (a forced one among them): one request, everybody gets its result
+        checker = updater.GitHubUpdater()
+        behaviour["value"] = release
+        threads, results = in_threads(5)
+        assert entered.wait(5), "the check never reached GitHub"
+        more, more_results = in_threads(1, force=True)
+        real_time.sleep(0.3)
+        gate.set()
+        for thread in threads + more:
+            thread.join(10)
+        assert len(calls) == 1, f"simultaneous checks must share one request, got {len(calls)}"
+        assert len(results + more_results) == 6 and all(r["update_available"] and "error" not in r for r in results + more_results), results
+
+        # A rate limit pauses forced checks too; the usual pause after another failure does not
+        checker = updater.GitHubUpdater()
+        calls.clear()
+        behaviour["value"] = rate_limited(3600)
+        assert "403" in checker.check_for_updates(force=True)["error"] and len(calls) == 1
+        clock["now"] += 60
+        assert "403" in checker.check_for_updates(force=True)["error"] and len(calls) == 1, "a forced check must wait for X-RateLimit-Reset"
+        clock["now"] += 3600
+        behaviour["value"] = release
+        assert "error" not in checker.check_for_updates(force=True) and len(calls) == 2
+
+        # A check stuck on the network neither blocks a periodic check that has a fresh cache nor traps a later caller forever
+        updater.CHECK_WAIT_SECONDS = 0.3
+        calls.clear()
+        gate.clear()
+        entered.clear()
+        stuck, _ = in_threads(1, force=True)
+        assert entered.wait(5)
+        started = real_time.perf_counter()
+        assert checker.check_for_updates()["update_available"] is True, "a fresh cache must be served without waiting"
+        assert real_time.perf_counter() - started < 0.25, "a periodic check with a fresh cache must not wait for the lock"
+        started = real_time.perf_counter()
+        late = checker.check_for_updates(force=True)
+        assert real_time.perf_counter() - started < 5 and "error" in late and len(calls) == 1, late
+        gate.set()
+        stuck[0].join(10)
+    finally:
+        gate.set()
+        updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time, wait = saved
+        if wait is None:
+            if hasattr(updater, "CHECK_WAIT_SECONDS"):
+                del updater.CHECK_WAIT_SECONDS
+        else:
+            updater.CHECK_WAIT_SECONDS = wait
+    print("      Update checks: one request, rate limit kept, no endless wait: PASS [OK]")
+
+
 def test_steam_login_window_fits_a_small_screen():
     print("[steam-viewport] Steam: a visible login window follows the window size, a hidden one keeps 1920x1080...")
     if shutil.which("node") is None:
@@ -3988,6 +4094,7 @@ if __name__ == "__main__":
         test_claimed_drop_never_replaces_the_drop_being_farmed,
         test_resolve_fgc_root_has_no_undefined_names,
         test_steam_login_window_fits_a_small_screen,
+        test_concurrent_update_checks_share_one_request,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
