@@ -3246,8 +3246,9 @@ def _run_store_login(script, page_code, extra_env=None, seed=None):
     (stub / "index.js").write_text(
         "import fs from 'node:fs';\n"
         + page_code
-        + "\nexport const chromium = { launchPersistentContext: async dir => {\n"
+        + "\nexport const chromium = { launchPersistentContext: async (dir, options) => {\n"
           "  fs.mkdirSync(dir, { recursive: true });\n"  # a real browser creates the profile and with it data/
+          "  if (process.env.LAUNCH_LOG) fs.writeFileSync(process.env.LAUNCH_LOG, JSON.stringify(options));\n"
           "  return { pages: () => [page], newPage: async () => page, setDefaultTimeout() {}, close: async () => {},\n"
           "    clearCookies: async o => { fs.appendFileSync(process.env.COOKIE_LOG, String(o.domain) + '\\n'); } };\n"
           "} };\n",
@@ -3868,6 +3869,21 @@ def test_claimed_drop_never_replaces_the_drop_being_farmed():
     print("      Counter follows only the drop being farmed: ALL PASS [OK]")
 
 
+def test_steam_login_window_fits_a_small_screen():
+    print("[steam-viewport] Steam: a visible login window follows the window size, a hidden one keeps 1920x1080...")
+    if shutil.which("node") is None:
+        print("      SKIP: Node.js is missing, the store scripts cannot run")
+        return
+    page = "const page = { goto: async () => {}, $$eval: async () => [], waitForSelector: async () => {}, locator: () => ({ count: async () => 1, textContent: async () => 'x' }) };"
+    for show, expected in (("1", None), ("0", {"width": 1920, "height": 1080})):
+        launch_log = Path(tempfile.mkdtemp(prefix="steam_viewport_", dir=SANDBOX)) / "launch.json"
+        _run_store_login("steam.mjs", page, extra_env={"SHOW": show, "FGC_FORCE": "1", "LAUNCH_LOG": str(launch_log)})
+        assert launch_log.is_file(), "the stub browser was not launched"
+        options = json.loads(launch_log.read_text(encoding="utf-8"))
+        assert "viewport" in options and options["viewport"] == expected, f"SHOW={show}: viewport must be {expected}, got {options.get('viewport', 'missing')}"
+    print("      Steam viewport: PASS [OK]")
+
+
 def test_resolve_fgc_root_has_no_undefined_names():
     print("[dead-code] Giveaways: resolve_fgc_root refers only to names that exist...")
     import ast
@@ -3971,6 +3987,7 @@ if __name__ == "__main__":
         test_english_ui_covers_every_russian_string,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
         test_resolve_fgc_root_has_no_undefined_names,
+        test_steam_login_window_fits_a_small_screen,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
