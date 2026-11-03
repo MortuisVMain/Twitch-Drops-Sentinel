@@ -1798,6 +1798,8 @@ export const App: React.FC = () => {
 
               onUpdateSettings={handleUpdateSettings}
 
+              appVersion={sentinelState.version}
+
             />
 
           )}

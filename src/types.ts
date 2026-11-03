@@ -253,3 +253,30 @@ export interface UpdateProgressStatus {
   speed_mbps: number;
   error_message?: string;
 }
+
+// GET /api/v1/giveaways/readiness: statuses and data only, the interface writes all the text
+export type ReadinessStatus = 'ok' | 'todo' | 'warning' | 'info';
+export type ReadinessItemId = 'module' | 'node' | 'engine' | 'browser' | 'selection' | 'login' | 'site' | 'scheduler';
+
+export type ReadinessAction =
+  | { kind: 'open_url'; url: string }
+  | { kind: 'install_engine' }
+  | { kind: 'sign_in'; store: StoreId }
+  | { kind: 'enable_giveaways' }
+  | { kind: 'enable_scheduler' };
+
+export interface ReadinessItem {
+  id: ReadinessItemId;
+  status: ReadinessStatus;
+  params: Record<string, any>;
+  action: ReadinessAction | null;
+  store?: StoreId;
+}
+
+export interface ReadinessResponse {
+  ready: boolean;
+  remaining: number;
+  checkedAt: string;
+  engineInstall: { running: boolean; error: string | null };
+  items: ReadinessItem[];
+}

@@ -135,4 +135,17 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Запомнить текущие (\d+)% как базовую яркость этого монитора$/, 'Save the current $1% as this monitor’s baseline brightness'],
   [/^Вернуть этот монитор к базовой яркости \((\d+)%\)$/, 'Restore this monitor to its baseline brightness ($1%)'],
   [/^● (\d+) мин$/, '● $1 min'],
+  // GiveawaysReadiness
+  [/^Осталось шагов: (\d+)$/, 'Steps left: $1'],
+  [/^Версия (.+)$/, 'Version $1'],
+  [/^Нужен Node\.js (\d+) или новее$/, 'Node.js $1 or newer is required'],
+  [/^Установлен (.+), нужен Node\.js (\d+) или новее$/, '$1 is installed, Node.js $2 or newer is required'],
+  [/^Состояние не распознано: (.+)$/, 'Status not recognised: $1'],
+  [/^Не удалось установить: (.+)$/, 'Could not install: $1'],
+  [/^Включено магазинов: (\d+)$/, 'Stores turned on: $1'],
+  [/^Вход подтверждён: (.+)$/, 'Sign-in confirmed: $1'],
+  [/^Дни: (.+)$/, 'Days: $1'],
+  [/^Следующий запуск: (.+)$/, 'Next run: $1'],
+  [/^Ошибка: (.+)$/, 'Error: $1'],
+  [/^Лог: (.+)$/, 'Log: $1'],
 ];

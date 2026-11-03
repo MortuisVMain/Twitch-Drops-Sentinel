@@ -9,11 +9,15 @@ import {
 } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { loginAttemptSucceeded, loginHintVisible } from '../utils/loginAttempt';
+import { useGiveawaysReadiness } from '../hooks/useGiveawaysReadiness';
+import { GiveawaysReadiness } from './GiveawaysReadiness';
+import { countTodo } from '../utils/giveawaysReadiness';
 
 interface GiveawaysViewProps {
   onBackToDashboard?: () => void;
   settings?: SentinelSettings;
   onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
+  appVersion?: string;
 }
 
 interface StoreMeta {
@@ -80,13 +84,18 @@ function formatClaimDate(rawDate?: string, tsMs?: number): string {
   return 'Недавно';
 }
 
+const STORE_NAMES: Record<string, string> = Object.fromEntries(STORES.map((s) => [s.id, s.name]));
+
 const SWITCH_ACCOUNT_CONFIRM = 'Выйти из этого аккаунта и войти в другой? Если закрыть окно браузера, не войдя, магазин останется без входа. У Fab вход через Epic Games: выйти придётся из обоих.';
 
 export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   onBackToDashboard,
   settings,
   onUpdateSettings,
+  appVersion = '',
 }) => {
+  const [readinessOpen, setReadinessOpen] = useState(false);
+  const readiness = useGiveawaysReadiness(readinessOpen);
   const [data, setData] = useState<GiveawaysStateResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isClaiming, setIsClaiming] = useState(false);
@@ -451,6 +460,20 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="tactile-btn"
+            onClick={() => { playClick(); setReadinessOpen(true); }}
+            title="Что уже готово для раздач и что осталось сделать"
+            aria-haspopup="dialog"
+          >
+            ✔ Проверить готовность
+            {readiness.data && !readiness.failure && countTodo(readiness.data.items) > 0 && (
+              <>
+                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--led-rose)', flexShrink: 0 }} />
+                <span className="sr-only" data-overflow-ok>Есть незавершённые шаги</span>
+              </>
+            )}
+          </button>
           <button 
             className={`tactile-btn ${headless ? 'active-mint' : ''}`}
             onClick={handleToggleHeadless}
@@ -542,6 +565,22 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           );
         })}
       </div>
+
+      <GiveawaysReadiness
+        isOpen={readinessOpen}
+        onClose={() => setReadinessOpen(false)}
+        data={readiness.data}
+        loading={readiness.loading}
+        failure={readiness.failure}
+        actionError={readiness.actionError}
+        storeNames={STORE_NAMES}
+        appVersion={appVersion}
+        onRecheck={() => readiness.check()}
+        onInstallEngine={readiness.installEngine}
+        onSignIn={(store) => handleStoreAuth(store)}
+        onEnableGiveaways={async () => { await onUpdateSettings?.({ giveaways_enabled: true }); }}
+        onEnableScheduler={handleToggleScheduler}
+      />
 
       {actionError && (
         <div className="titanium-island" role="alert" style={{ flexShrink: 0, color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
