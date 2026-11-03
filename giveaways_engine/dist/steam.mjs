@@ -5918,7 +5918,8 @@ var context = await launchContext(cfg, {
   channel: "chrome",
   headless: cfg.headless,
   locale: "en-US",
-  viewport: { width: cfg.width, height: cfg.height },
+  viewport: cfg.show ? null : { width: cfg.width, height: cfg.height },
+  // a visible window follows its own size, 1920x1080 does not fit a small screen
   recordVideo: cfg.record ? { dir: "data/record/", size: { width: cfg.width, height: cfg.height } } : void 0,
   recordHar: cfg.record ? { path: `data/record/steam-${filenamify(datetime())}.har` } : void 0,
   handleSIGINT: false

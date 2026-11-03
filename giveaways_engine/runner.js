@@ -84,6 +84,10 @@ function parseArgs() {
   return { headless, stores, scheduled, configPath, logPath };
 }
 
+const RUN_LOG_FORMAT_LINE = '[SENTINEL] ◆ Журнал запуска v2';
+// The last line of every normal exit, a skipped collection included; a failure ends with a ✕ line instead
+const RUN_DONE_LINE = '[SENTINEL] ■ Запуск завершён.';
+
 // One file per task, started over at every run: its size stays that of a single run, whatever the task's lifetime
 function openRunLog(logPath) {
   try {
@@ -93,6 +97,8 @@ function openRunLog(logPath) {
       console[level] = (...args) => fs.writeSync(fd, `${format(...args)}\n`);
     }
     childOutput = ['ignore', fd, fd];
+    // The app judges the log by these two marks: a log that opens with the first and does not end with RUN_DONE_LINE was cut off
+    console.log(RUN_LOG_FORMAT_LINE);
   } catch (err) {
     // No log is no reason to skip the claim; the hidden console is all that is left for this message
     console.error(`[SENTINEL] Не удалось открыть лог ${logPath}: ${err.message}`);
@@ -208,7 +214,10 @@ async function main() {
       console.error(`[SENTINEL] ✕ Не удалось прочитать выбор магазинов из ${configPath} (config.json): ${err.message}. Сбор отменён.`);
       process.exit(1);
     }
-    if (stores.length === 0) process.exit(0);
+    if (stores.length === 0) {
+      console.log(RUN_DONE_LINE);
+      process.exit(0);
+    }
   }
 
   if (!ensureBrowserEngine()) process.exit(1);
@@ -230,6 +239,7 @@ async function main() {
   console.log('============================================================\n');
   // The last line of a scheduled run's log is how the interface learns about a failure: conhost hides the exit code
   if (failed.length) console.error(`[SENTINEL] ✕ Сбор завершился с ошибкой: ${failed.join(', ')}`);
+  else console.log(RUN_DONE_LINE);
   process.exit(0);
 }
 

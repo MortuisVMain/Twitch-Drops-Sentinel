@@ -30,13 +30,13 @@ def resolve_fgc_root() -> Path:
     if LOCAL_FGC.is_dir() and (LOCAL_FGC / "ClaimGames.cmd").is_file():
         return LOCAL_FGC
     return LOCAL_FGC
-    if DEV_FGC.is_dir() and (DEV_FGC / "ClaimGames.cmd").is_file():
-        return DEV_FGC
-    return LOCAL_FGC
 
 CONFIG_FILE = PROJECT_DIR / "config.json"
 SCHEDULED_LOG = PROJECT_DIR / "giveaways_scheduled.log"
 RUN_FAILED_MARK = "[SENTINEL] \u2715"  # runner.js ends the log of a failed run with such a line
+RUN_DONE_MARK = "[SENTINEL] ■"  # runner.js ends every normal run with such a line; a log without it was cut off
+RUN_LOG_FORMAT_MARK = "[SENTINEL] ◆"  # first line of a log by a runner that writes the line above; older logs lack both
+RUN_LOG_CLOCK_SLACK_SECONDS = 2.0  # the log is touched after the scheduler stamps the start; file times are coarser than that
 RUN_LOG_TAIL_BYTES = 4096
 FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
@@ -113,22 +113,51 @@ def _task_action(node: str) -> Tuple[str, str]:
     return arguments, str(fgc_dir)
 
 
-def _last_run_failed(code: Optional[int]) -> bool:
+def _parse_task_time(value: Optional[str]) -> Optional[float]:
+    """Epoch seconds of a scheduler time (PowerShell 'o': local time with its UTC offset); None for 'never' or unreadable."""
+    if not value:
+        return None
+    try:
+        when = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", str(value)))  # 7 fraction digits are too many for fromisoformat
+    except ValueError:
+        logger.warning(f"Unreadable scheduler time {value!r}")
+        return None
+    # The scheduler reports 1999-11-30 for a task that never ran
+    return None if when.year < 2000 else when.timestamp()
+
+
+def _last_run_failed(code: Optional[int], state: Optional[str] = None, last_run: Optional[str] = None,
+                     arguments: Optional[str] = None) -> bool:
+    if state == "Running":
+        return False
     # 0x413xx are SCHED_S_* statuses such as "still running" or "has not run yet", not results of a run
     if code and not 0x41300 <= code <= 0x413FF:
         return True
     # conhost does not pass node's exit code on, so a task of this app always reports 0: its run log tells
+    ran_at = _parse_task_time(last_run)
     try:
         with open(SCHEDULED_LOG, "rb") as log:
+            modified = os.fstat(log.fileno()).st_mtime
+            head = log.read(len(RUN_LOG_FORMAT_MARK.encode("utf-8")) + 3)
             log.seek(0, os.SEEK_END)
             log.seek(max(0, log.tell() - RUN_LOG_TAIL_BYTES))
             lines = log.read().decode("utf-8", errors="replace").strip().splitlines()
     except FileNotFoundError:
-        return False
+        # The task writes a log and has run, but there is none: runner.js died before it opened the file
+        return ran_at is not None and "--log" in (arguments or "")
     except OSError as e:
         logger.warning(f"Could not read {SCHEDULED_LOG}: {e}")
         return False
-    return bool(lines) and lines[-1].startswith(RUN_FAILED_MARK)
+    # A log older than the last run is from an earlier one: runner.js failed before it could start over (Node.js below 20)
+    if ran_at is not None and modified < ran_at - RUN_LOG_CLOCK_SLACK_SECONDS:
+        return True
+    if not lines:
+        return ran_at is not None
+    if ran_at is None or not head.decode("utf-8", errors="replace").startswith(RUN_LOG_FORMAT_MARK):
+        # Not known to belong to a run (the task was recreated), or written by a runner that did not mark its end:
+        # only an explicit failure line counts, until the new runner has run
+        return lines[-1].startswith(RUN_FAILED_MARK)
+    return not lines[-1].startswith(RUN_DONE_MARK)
 
 
 class GiveawaysOrchestrator:
@@ -203,7 +232,7 @@ class GiveawaysOrchestrator:
                 "lastTaskResult": raw.get("lastResult"),
                 "daysOfWeek": mask,
                 "activeDays": bitmask_to_days(mask),
-                "lastRunFailed": _last_run_failed(raw.get("lastResult")),
+                "lastRunFailed": _last_run_failed(raw.get("lastResult"), raw.get("state"), raw.get("lastRun"), raw.get("arguments")),
                 "action": {key: raw.get(key) for key in ("execute", "arguments", "workingDirectory")},
             }
         except Exception as e:

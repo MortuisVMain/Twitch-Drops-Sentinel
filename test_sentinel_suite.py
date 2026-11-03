@@ -3246,8 +3246,9 @@ def _run_store_login(script, page_code, extra_env=None, seed=None):
     (stub / "index.js").write_text(
         "import fs from 'node:fs';\n"
         + page_code
-        + "\nexport const chromium = { launchPersistentContext: async dir => {\n"
+        + "\nexport const chromium = { launchPersistentContext: async (dir, options) => {\n"
           "  fs.mkdirSync(dir, { recursive: true });\n"  # a real browser creates the profile and with it data/
+          "  if (process.env.LAUNCH_LOG) fs.writeFileSync(process.env.LAUNCH_LOG, JSON.stringify(options));\n"
           "  return { pages: () => [page], newPage: async () => page, setDefaultTimeout() {}, close: async () => {},\n"
           "    clearCookies: async o => { fs.appendFileSync(process.env.COOKIE_LOG, String(o.domain) + '\\n'); } };\n"
           "} };\n",
@@ -3868,6 +3869,253 @@ def test_claimed_drop_never_replaces_the_drop_being_farmed():
     print("      Counter follows only the drop being farmed: ALL PASS [OK]")
 
 
+def test_scheduled_run_that_never_finished_is_reported_as_failed():
+    print("[scheduler] A scheduled run killed mid-way, or one that never started, is reported as failed...")
+    import asyncio
+    import datetime as dt
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    DONE, FORMAT = "[SENTINEL] ■", "[SENTINEL] ◆"
+    original_exec, original_log = gc.asyncio.create_subprocess_exec, gc.SCHEDULED_LOG
+    work = Path(tempfile.mkdtemp(prefix="sentinel_runend_"))
+    log = work / "giveaways_scheduled.log"
+    gc.SCHEDULED_LOG = log
+    task_args = f'--headless "node.exe" "runner.js" --scheduled --config "c.json" --log "{log}"'
+
+    def ps_stamp(when):
+        """What PowerShell's ToString('o') gives: 7 fraction digits and the UTC offset."""
+        text = when.isoformat(timespec="microseconds")
+        return text[:-6] + "0" + text[-6:]
+
+    def state_for(text, modified=None, last_run="now", state="Ready", arguments=task_args):
+        """lastRunFailed as the interface gets it, for a log with this text and mtime (epoch seconds) and this LastRunTime."""
+        log.unlink(missing_ok=True)
+        if text is not None:
+            log.write_text(text, encoding="utf-8")
+            if modified is not None:
+                os.utime(log, (modified, modified))
+        if last_run == "now":
+            last_run = ps_stamp(dt.datetime.now().astimezone())
+        info = {"state": state, "lastRun": last_run, "arguments": arguments, "execute": "conhost.exe", "workingDirectory": str(work)}
+        gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True, last_result=0, action=info)
+        return asyncio.run(gc.GiveawaysOrchestrator()._query_scheduler(force=True))["lastRunFailed"]
+
+    ok = f"{FORMAT} v2\n[SENTINEL] start\n{DONE} finished\n"
+    killed = f"{FORMAT} v2\n[SENTINEL] start\nSTORE epic\n"
+    try:
+        # Runs of the current runner: only an explicit end line means it got to the end
+        assert state_for(ok) is False
+        assert state_for(killed) is True, "a log that stops without the end line was killed by the task's time limit"
+        assert state_for(f"{FORMAT} v2\n[SENTINEL] start\n[SENTINEL] ✕ broken\n") is True
+        assert state_for(f"{FORMAT} v2\n[SENTINEL] ✕ Critical\nError: x\n    at main (runner.js:1)\n") is True
+        assert state_for(f"{FORMAT} v2\n[SENTINEL] skipped\n{DONE} finished\n") is False, "a skipped collection is a normal exit"
+        assert state_for(f"{FORMAT} v2\n") is True and state_for("") is True, "nothing after the start line: killed or never got going"
+        assert state_for(killed, state="Running") is False, "a run in progress has no end line yet"
+        assert state_for(f"{FORMAT} v2\n" + "STORE line\n" * 3000) is True, "a long log is judged by its tail"
+        assert state_for(f"{FORMAT} v2\n" + "STORE line\n" * 3000 + DONE + "\n") is False
+
+        # Logs of the previous runner have no end line: they must not turn into an error before a run of the new one
+        assert state_for("[SENTINEL] start\nSTORE epic\n") is False
+        assert state_for("[SENTINEL] start\n[SENTINEL] ✕ old failure\n") is True
+
+        # Node.js older than 20: runner.js dies on its imports before it opens the log, the log is from an earlier run
+        now = dt.datetime.now().astimezone()
+        for tz in (dt.timezone.utc, dt.timezone(dt.timedelta(hours=14)), dt.timezone(dt.timedelta(hours=-12)), dt.timezone(dt.timedelta(hours=5, minutes=30))):
+            ran = now.astimezone(tz)
+            stamp = ps_stamp(ran)
+            assert state_for(ok, modified=now.timestamp() - 3600, last_run=stamp) is True, f"stale log, offset {tz}"
+            assert state_for(ok, modified=now.timestamp() + 30, last_run=stamp) is False, f"fresh log, offset {tz}"
+        assert state_for("[SENTINEL] start\n", modified=now.timestamp() - 3600, last_run=now.isoformat()) is True, "an old-format log is stale too"
+        assert state_for(ok, modified=now.timestamp() - 3600, last_run=now.isoformat(), state="Running") is False
+        assert state_for(ok, modified=now.timestamp() - 3600, last_run="not a date") is False, "an unreadable time proves nothing"
+
+        # The task never ran: whatever is left in the log is not an error
+        assert state_for(ok, modified=now.timestamp() - 3600, last_run=None) is False
+        assert state_for(killed, modified=now.timestamp() - 3600, last_run="1999-11-30T00:00:00.0000000+03:00") is False
+        assert state_for(None, last_run=None) is False
+
+        # It ran, the task writes a log, and there is none: the runner never got to open it
+        assert state_for(None) is True
+        assert state_for(None, arguments='--headless "node.exe" "runner.js"') is False, "a task from before the log existed has none"
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.SCHEDULED_LOG = original_exec, original_log
+        shutil.rmtree(work, ignore_errors=True)
+
+    # The real runner: first line names the log format, every normal exit ends with the end line, a failure does not
+    node = shutil.which("node")
+    if not node:
+        print("      SKIP: Node.js is missing, the runner cannot be started")
+        return
+    engine = Path(tempfile.mkdtemp(prefix="sentinel_runend_engine_"))
+    try:
+        (engine / "dist").mkdir(parents=True)
+        (engine / "node_modules" / "patchright").mkdir(parents=True)
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
+        (engine / "dist" / "epic-games.mjs").write_text("console.log('STORE epic');", encoding="utf-8")
+        (engine / "dist" / "gog.mjs").write_text("process.exit(3);", encoding="utf-8")
+        config, run_log = engine / "config.json", engine / "run.log"
+
+        def lines_of_run(settings):
+            config.write_text(settings, encoding="utf-8")
+            subprocess.run([node, "runner.js", "--scheduled", "--config", str(config), "--log", str(run_log)],
+                           cwd=str(engine), capture_output=True, text=True, encoding="utf-8", timeout=60)
+            return run_log.read_text(encoding="utf-8").strip().splitlines()
+
+        for settings in ('{"giveaways_selected_stores": ["epic"]}', '{"giveaways_selected_stores": []}', '{"giveaways_enabled": false}'):
+            lines = lines_of_run(settings)
+            assert lines[0].startswith(FORMAT), (settings, lines)
+            assert lines[-1].startswith(DONE), (settings, lines)
+        for settings in ('{"giveaways_selected_stores": ["epic", "gog"]}', '{"giveaways_selected_stores": "epic"}'):
+            lines = lines_of_run(settings)
+            assert lines[0].startswith(FORMAT) and lines[-1].startswith("[SENTINEL] ✕"), (settings, lines)
+            assert not any(line.startswith(DONE) for line in lines), (settings, lines)
+    finally:
+        shutil.rmtree(engine, ignore_errors=True)
+    print("      Unfinished runs are reported, the runner marks its end: PASS [OK]")
+
+
+def test_concurrent_update_checks_share_one_request():
+    print("[updater] Simultaneous update checks make one GitHub request, a forced one still respects a rate limit...")
+    import email.message, json as _json, threading, time as real_time, types, urllib.error
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import updater
+
+    work = SANDBOX / "update_check_concurrent"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    calls = []
+    clock = {"now": 2_000_000.0}
+    gate = threading.Event()
+    entered = threading.Event()
+    behaviour = {"value": None}
+
+    class _Resp:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def read(self):
+            return _json.dumps(self.payload).encode("utf-8")
+
+    class _Opener:
+        def open(self, req, timeout=None):
+            calls.append(req.full_url)
+            entered.set()
+            gate.wait(10)
+            value = behaviour["value"]
+            if isinstance(value, Exception):
+                raise value
+            return _Resp(value)
+
+    def rate_limited(reset_in):
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = "0"
+        headers["X-RateLimit-Reset"] = str(int(clock["now"] + reset_in))
+        return urllib.error.HTTPError(updater.REPO_API_URL, 403, "rate limit exceeded", headers, None)
+
+    def in_threads(count, **kwargs):
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(checker.check_for_updates(**kwargs)), daemon=True) for _ in range(count)]
+        for thread in threads:
+            thread.start()
+        return threads, results
+
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time,
+             getattr(updater, "CHECK_WAIT_SECONDS", None))
+    updater.CACHE_FILE = work / "cache.json"
+    updater.get_optional_github_token = lambda: ""
+    updater.urllib.request.build_opener = lambda *a: _Opener()
+    updater.time = types.SimpleNamespace(time=lambda: clock["now"])
+    try:
+        # Six callers at once (a forced one among them): one request, everybody gets its result
+        checker = updater.GitHubUpdater()
+        behaviour["value"] = release
+        threads, results = in_threads(5)
+        assert entered.wait(5), "the check never reached GitHub"
+        more, more_results = in_threads(1, force=True)
+        real_time.sleep(0.3)
+        gate.set()
+        for thread in threads + more:
+            thread.join(10)
+        assert len(calls) == 1, f"simultaneous checks must share one request, got {len(calls)}"
+        assert len(results + more_results) == 6 and all(r["update_available"] and "error" not in r for r in results + more_results), results
+
+        # A rate limit pauses forced checks too; the usual pause after another failure does not
+        checker = updater.GitHubUpdater()
+        calls.clear()
+        behaviour["value"] = rate_limited(3600)
+        assert "403" in checker.check_for_updates(force=True)["error"] and len(calls) == 1
+        clock["now"] += 60
+        assert "403" in checker.check_for_updates(force=True)["error"] and len(calls) == 1, "a forced check must wait for X-RateLimit-Reset"
+        clock["now"] += 3600
+        behaviour["value"] = release
+        assert "error" not in checker.check_for_updates(force=True) and len(calls) == 2
+
+        # A check stuck on the network neither blocks a periodic check that has a fresh cache nor traps a later caller forever
+        updater.CHECK_WAIT_SECONDS = 0.3
+        calls.clear()
+        gate.clear()
+        entered.clear()
+        stuck, _ = in_threads(1, force=True)
+        assert entered.wait(5)
+        started = real_time.perf_counter()
+        assert checker.check_for_updates()["update_available"] is True, "a fresh cache must be served without waiting"
+        assert real_time.perf_counter() - started < 0.25, "a periodic check with a fresh cache must not wait for the lock"
+        started = real_time.perf_counter()
+        late = checker.check_for_updates(force=True)
+        assert real_time.perf_counter() - started < 5 and "error" in late and len(calls) == 1, late
+        gate.set()
+        stuck[0].join(10)
+    finally:
+        gate.set()
+        updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time, wait = saved
+        if wait is None:
+            if hasattr(updater, "CHECK_WAIT_SECONDS"):
+                del updater.CHECK_WAIT_SECONDS
+        else:
+            updater.CHECK_WAIT_SECONDS = wait
+    print("      Update checks: one request, rate limit kept, no endless wait: PASS [OK]")
+
+
+def test_steam_login_window_fits_a_small_screen():
+    print("[steam-viewport] Steam: a visible login window follows the window size, a hidden one keeps 1920x1080...")
+    if shutil.which("node") is None:
+        print("      SKIP: Node.js is missing, the store scripts cannot run")
+        return
+    page = "const page = { goto: async () => {}, $$eval: async () => [], waitForSelector: async () => {}, locator: () => ({ count: async () => 1, textContent: async () => 'x' }) };"
+    for show, expected in (("1", None), ("0", {"width": 1920, "height": 1080})):
+        launch_log = Path(tempfile.mkdtemp(prefix="steam_viewport_", dir=SANDBOX)) / "launch.json"
+        _run_store_login("steam.mjs", page, extra_env={"SHOW": show, "FGC_FORCE": "1", "LAUNCH_LOG": str(launch_log)})
+        assert launch_log.is_file(), "the stub browser was not launched"
+        options = json.loads(launch_log.read_text(encoding="utf-8"))
+        assert "viewport" in options and options["viewport"] == expected, f"SHOW={show}: viewport must be {expected}, got {options.get('viewport', 'missing')}"
+    print("      Steam viewport: PASS [OK]")
+
+
+def test_resolve_fgc_root_has_no_undefined_names():
+    print("[dead-code] Giveaways: resolve_fgc_root refers only to names that exist...")
+    import ast
+    import builtins
+    import inspect
+    import textwrap
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(gc.resolve_fgc_root)))
+    fn = tree.body[0]
+    local = {a.arg for a in fn.args.args} | {n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    missing = sorted({n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                      and n.id not in local and not hasattr(gc, n.id) and not hasattr(builtins, n.id)})
+    assert not missing, f"resolve_fgc_root uses undefined names (dead code after a return?): {missing}"
+    assert sum(isinstance(n, ast.Return) for n in fn.body) <= 1, "a return at the top level of the function must not be followed by more code"
+    print("      resolve_fgc_root is clean: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -3951,6 +4199,10 @@ if __name__ == "__main__":
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
         test_english_ui_covers_every_russian_string,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
+        test_resolve_fgc_root_has_no_undefined_names,
+        test_steam_login_window_fits_a_small_screen,
+        test_concurrent_update_checks_share_one_request,
+        test_scheduled_run_that_never_finished_is_reported_as_failed,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
