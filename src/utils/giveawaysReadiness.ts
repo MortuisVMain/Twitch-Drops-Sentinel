@@ -159,6 +159,10 @@ export const actionLabel = (action: ReadinessAction): string => {
   }
 };
 
+// A Windows path often holds the user name: the report keeps the file name only (a path with spaces is cut at its end or at a quote)
+const PATH = /(?:[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/])[^"'<>|*?\n]*/g;
+export const scrubPaths = (text: string): string => text.replace(PATH, (path) => path.split(/[\\/]/).filter(Boolean).pop() ?? '');
+
 /** Plain text for support. `tr` translates one piece at a time (the UI language), so patterns still match. */
 export const buildReport = (
   resp: ReadinessResponse,
@@ -179,7 +183,7 @@ export const buildReport = (
     out.push('', tr(group.title));
     for (const item of groups[group.id]) {
       const text = itemText(item, reportCtx);
-      out.push(`[${tr(statusLabel(item.status))}] ${tr(text.title)}: ${text.lines.map(tr).join('; ')}`);
+      out.push(`[${tr(statusLabel(item.status))}] ${tr(text.title)}: ${text.lines.map((line) => scrubPaths(tr(line))).join('; ')}`);
     }
   }
   return out.join('\n');

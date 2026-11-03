@@ -1412,7 +1412,7 @@ class SentinelSupervisor:
         return web.json_response(res)
 
     async def handle_giveaways_readiness(self, request: web.Request) -> web.Response:
-        return web.json_response(await check_giveaways_readiness(self.giveaways))
+        return web.json_response(await check_giveaways_readiness(self.giveaways, full=request.query.get("quick") != "1"))
 
     async def handle_giveaways_install_engine(self, request: web.Request) -> web.Response:
         return web.json_response(await self.giveaways.install_engine())

@@ -125,7 +125,8 @@ def _scheduler_item(sched: dict) -> dict:
     return _item("scheduler", "ok", {"reason": None, **params})
 
 
-async def check_readiness(orchestrator: gc.GiveawaysOrchestrator) -> dict:
+async def check_readiness(orchestrator: gc.GiveawaysOrchestrator, full: bool = True) -> dict:
+    """full=False is the quick check: no store site is asked and the Task Scheduler answer may come from the 2 minute cache."""
     fgc_dir = gc.resolve_fgc_root()
     module_ok = (fgc_dir / "runner.js").is_file()
     engine_ok = (fgc_dir / "node_modules" / "patchright").is_dir()
@@ -133,10 +134,10 @@ async def check_readiness(orchestrator: gc.GiveawaysOrchestrator) -> dict:
 
     (node_item, node_ok), sched, (store_meta, _), browser, site_items = await asyncio.gather(
         _node_item(),
-        orchestrator._query_scheduler(force=True),
+        orchestrator._query_scheduler(force=full),
         asyncio.to_thread(orchestrator._read_inventory_sync, True),
         asyncio.to_thread(_browser_found),
-        _site_items(stores),
+        _site_items(stores) if full else asyncio.sleep(0, result=[]),
     )
 
     selection_action = {"kind": "enable_giveaways"} if selection_problem == "disabled" else None
@@ -162,6 +163,7 @@ async def check_readiness(orchestrator: gc.GiveawaysOrchestrator) -> dict:
         "ready": remaining == 0,
         "remaining": remaining,
         "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "full": full,
         "engineInstall": orchestrator.engine_install_state(),
         "items": items,
     }

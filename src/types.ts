@@ -277,6 +277,8 @@ export interface ReadinessResponse {
   ready: boolean;
   remaining: number;
   checkedAt: string;
+  /** false: quick check, no `site` items */
+  full: boolean;
   engineInstall: { running: boolean; error: string | null };
   items: ReadinessItem[];
 }

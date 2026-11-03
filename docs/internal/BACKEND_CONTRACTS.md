@@ -263,7 +263,8 @@
 
 #### `GET /api/v1/giveaways/readiness`
 Что вкладке раздач ещё нужно для работы. Только смотрит, ничего не меняет. Текст показывает интерфейс, сервис отдаёт статусы и данные.
-- **Response:** `{"ready": bool, "remaining": int, "checkedAt": iso, "engineInstall": {"running": bool, "error": str|null}, "items": [...]}`
+- **Query:** `?quick=1` (опционально): быстрая проверка. Пунктов `site` нет (сайты магазинов не опрашиваются), планировщик читается из кэша на 2 минуты, а не заново. Без параметра проверка полная: сайты опрашиваются при каждом запросе, планировщик читается заново.
+- **Response:** `{"ready": bool, "remaining": int, "checkedAt": iso, "full": bool, "engineInstall": {"running": bool, "error": str|null}, "items": [...]}`
 - **Пункт:** `{"id", "status", "params", "action", "store"?}`; `status`: `ok`, `todo` (блокирует, входит в `remaining`), `warning`, `info` (необязательное, не настроено).
 - **`id` и `params`:**
   - `module`: `path`
@@ -272,7 +273,7 @@
   - `browser`: `found` (`chrome`, `edge`, `chromium`, null)
   - `selection`: `reason` (`disabled`, `none_selected`, `config_broken`, null), `stores`
   - `login` (по магазину, `store`): `account`, `confirmedAt` у вошедшего
-  - `site` (по магазину, `store`): без данных
+  - `site` (по магазину, `store`): без данных; только при `full: true`
   - `scheduler`: `reason` (`not_created`, `query_failed`, `repair_failed`, `last_run_failed`, null), `error`, `lastRunTime`, `nextRunTime`, `activeDays`, `logFile`
 - **`action`:** null или `{"kind": "open_url", "url"}`, `{"kind": "install_engine"}`, `{"kind": "sign_in", "store"}`, `{"kind": "enable_giveaways"}`, `{"kind": "enable_scheduler"}`.
 
