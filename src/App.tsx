@@ -22,6 +22,7 @@ import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils
 import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
+import { useHeaderFit } from './hooks/useHeaderFit';
 
 import { 
 
@@ -212,6 +213,7 @@ export const App: React.FC = () => {
 
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const headerRef = useHeaderFit();
 
   const [isPipMode, setIsPipMode] = useState(false);
 
@@ -1015,7 +1017,7 @@ export const App: React.FC = () => {
 
       {/* ==================== CONSOLE HEADER ==================== */}
 
-      <header className="console-header" onMouseDown={handleHeaderMouseDown} onDoubleClick={handleHeaderDoubleClick}>
+      <header ref={headerRef} className="console-header" onMouseDown={handleHeaderMouseDown} onDoubleClick={handleHeaderDoubleClick}>
 
         <div 
 
@@ -1184,10 +1186,11 @@ export const App: React.FC = () => {
               className="tactile-btn active-mint pip-hide animate-pulse"
 
               title={`Обновление доступно: v${updateInfo.remote_version}`}
+              aria-label={`Обновление доступно: v${updateInfo.remote_version}`}
 
             >
 
-              <span>✨ v{updateInfo.remote_version}</span>
+              <span>✨<span className="upd-text"> v{updateInfo.remote_version}</span></span>
 
             </button>
 
@@ -1248,6 +1251,10 @@ export const App: React.FC = () => {
               {isNightGuard && <span className="more-night" title="Ночной режим включён" aria-label="Ночной режим включён">🌙</span>}
             </button>
             <div className={`more-menu ${showMoreMenu ? 'open' : ''}`} role="menu" onClick={(e) => e.stopPropagation()}>
+              <button className="more-item more-item-palette" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowCmdPalette(true); }}>
+                <span>🔍 Быстрые команды</span>
+                <span className="more-hint">Ctrl+K</span>
+              </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); handleTogglePipMode(); }}>
                 <span>📐 Мини-окно (PIP)</span>
                 <span className="more-hint">Ctrl+M</span>
