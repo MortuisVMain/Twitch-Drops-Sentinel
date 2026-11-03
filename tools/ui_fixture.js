@@ -2,6 +2,7 @@
 // screens can be inspected without the local service. Inlined into a COPY of dist/index.html by build_ui_harness.mjs.
 // Query: ?lang=ru|en&scale=100|115|130 are written to localStorage before the app starts.
 // ?update=1 serves an available update, so the header shows its widest state (update button).
+// ?readiness=clean serves a clean machine for the giveaways readiness window (default: everything ready); ?readiness=error makes the check fail.
 (function () {
   var q = new URLSearchParams(location.search);
   try {
@@ -81,11 +82,36 @@
     giveaways.inventory.forEach(function (it, i) { it.title = ['Celeste', 'Hollow Knight', 'Into the Breach', 'Dredge', 'Tunic'][i]; it.account = 'demo@example.com'; });
     dimmer.monitors.forEach(function (m, i) { m.name = ['Dell U2723QE', 'LG 27GP850', 'Built-in Display'][i]; });
   }
+  // Readiness window: statuses and data only (the interface writes the text). Default = ready, clean = a fresh PC
+  var STORE_IDS = ['epic', 'gog', 'steam', 'fab', 'unity', 'itch', 'prime'];
+  function readinessBody(kind) {
+    var clean = kind === 'clean';
+    var items = [
+      { id: 'module', status: 'ok', params: { path: 'C:\Sentinel\core\free-games-claimer' }, action: null },
+      clean ? { id: 'node', status: 'todo', params: { reason: 'missing', version: null, required: 20 }, action: { kind: 'open_url', url: 'https://nodejs.org' } }
+            : { id: 'node', status: 'ok', params: { reason: null, version: 'v20.18.0', required: 20 }, action: null },
+      clean ? { id: 'engine', status: 'todo', params: {}, action: null } : { id: 'engine', status: 'ok', params: {}, action: null },
+      clean ? { id: 'browser', status: 'warning', params: { found: null }, action: null } : { id: 'browser', status: 'ok', params: { found: 'edge' }, action: null },
+      { id: 'selection', status: 'ok', params: { reason: null, stores: STORE_IDS }, action: null },
+    ];
+    STORE_IDS.forEach(function (id) {
+      items.push(clean ? { id: 'login', status: 'todo', params: {}, action: { kind: 'sign_in', store: id }, store: id }
+        : { id: 'login', status: 'ok', params: { account: 'long.account.name.number@example.com', confirmedAt: '2026-10-30T18:20:00Z' }, action: null, store: id });
+    });
+    STORE_IDS.forEach(function (id, i) {
+      items.push({ id: 'site', status: clean && i === 3 ? 'warning' : 'ok', params: {}, action: null, store: id });
+    });
+    items.push(clean ? { id: 'scheduler', status: 'info', params: { reason: 'not_created' }, action: { kind: 'enable_scheduler' } }
+      : { id: 'scheduler', status: 'ok', params: { reason: null, lastRunTime: '2026-10-31T10:00:00Z', nextRunTime: '2026-11-02T10:00:00Z', activeDays: ['Tuesday', 'Friday', 'Sunday'], logFile: null }, action: null });
+    var remaining = items.filter(function (it) { return it.status === 'todo'; }).length;
+    return { ready: remaining === 0, remaining: remaining, checkedAt: '2026-11-03T12:00:00Z', engineInstall: { running: false, error: null }, items: items };
+  }
   var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.6', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.6', remote_version: '3.5.6', error: null };
-  var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
+  var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/v1/giveaways/readiness': readinessBody(q.get('readiness')), '/api/game-directories': { directories: state.settings.game_directories } };
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     var body = routes[path] || { status: 'ok' };
+    if (path === '/api/v1/giveaways/readiness' && q.get('readiness') === 'error') return Promise.resolve({ ok: false, status: 500, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } });
     // the dimmer normally gets its state from the WebView2 host: replay it as a window message
     if (path === '/api/v1/dimmer/state') setTimeout(function () { window.postMessage({ type: 'DIMMER_STATE_CHANGED', state: dimmer }, '*'); }, 30);
     return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(body); }, text: function () { return Promise.resolve(JSON.stringify(body)); } });

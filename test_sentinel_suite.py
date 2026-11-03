@@ -2757,6 +2757,86 @@ def test_login_code_copy_and_activate_link():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_giveaways_readiness_window_texts_report_and_counts():
+    print("[readiness-ui] Readiness window: every reason has a text, the report hides account names, todo items are counted...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "readiness_ui_check"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir()
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "giveawaysReadiness.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'giveawaysReadiness.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import * as R from './giveawaysReadiness.mjs';\n"
+        "const ctx = { storeName: (id) => ({ epic: 'Epic Games', gog: 'GOG.com' }[id] || id), formatDate: (iso) => 'D:' + iso.slice(0, 10) };\n"
+        "const it = (id, status, params = {}, action = null, store) => ({ id, status, params, action, ...(store ? { store } : {}) });\n"
+        "const SECRET = 'secret.user@example.com';\n"
+        "const items = [\n"
+        "  it('module', 'ok', { path: 'C:/x' }),\n"
+        "  it('node', 'todo', { reason: 'old', version: 'v18.2.0', required: 20 }, { kind: 'open_url', url: 'https://nodejs.org' }),\n"
+        "  it('engine', 'todo', {}, null),\n"
+        "  it('browser', 'warning', { found: null }),\n"
+        "  it('selection', 'ok', { reason: null, stores: ['epic', 'gog'] }),\n"
+        "  it('login', 'ok', { account: SECRET, confirmedAt: '2026-10-30T18:20:00Z' }, null, 'epic'),\n"
+        "  it('login', 'todo', {}, { kind: 'sign_in', store: 'gog' }, 'gog'),\n"
+        "  it('site', 'ok', {}, null, 'epic'), it('site', 'warning', {}, null, 'gog'),\n"
+        "  it('scheduler', 'info', { reason: 'not_created' }, { kind: 'enable_scheduler' }),\n"
+        "];\n"
+        "const resp = { ready: false, remaining: 3, checkedAt: '2026-11-03T12:00:00Z', engineInstall: { running: false, error: null }, items };\n"
+        "const report = R.buildReport(resp, ctx, '3.5.6');\n"
+        "const bad = [];\n"
+        "for (const [id, reasons] of Object.entries(R.KNOWN_REASONS)) for (const reason of reasons) {\n"
+        "  const params = id === 'browser' ? { found: reason } : { reason, version: 'v1', required: 20, error: 'boom', logFile: 'C:/log.txt', stores: [] };\n"
+        "  for (const status of ['ok', 'todo', 'warning', 'info']) for (const action of [null, { kind: 'install_engine' }]) {\n"
+        "    const t = R.itemText(it(id, status, params, action), ctx);\n"
+        "    const all = [t.title, ...t.lines];\n"
+        "    if (!t.lines.length || all.some((s) => typeof s !== 'string' || !s.trim() || /undefined|null|NaN|\\[object/.test(s))) bad.push([id, reason, status, all]);\n"
+        "  }\n"
+        "}\n"
+        "const strange = R.itemText(it('scheduler', 'warning', { reason: 'brand_new_reason' }), ctx);\n"
+        "const unknownId = R.itemText({ id: 'zzz', status: 'weird', params: {}, action: null }, ctx);\n"
+        "const grouped = R.groupItems(items);\n"
+        "const installing = R.itemText(it('engine', 'todo', {}, { kind: 'install_engine' }), { ...ctx, engineInstall: { running: true, error: null } });\n"
+        "const failed = R.itemText(it('engine', 'todo', {}, { kind: 'install_engine' }), { ...ctx, engineInstall: { running: false, error: 'EPERM' } });\n"
+        "console.log(JSON.stringify({\n"
+        "  report, bad, strange, unknownId, installing, failed,\n"
+        "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
+        "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
+        "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
+        "  summaryZero: R.summaryText(0), summaryTwo: R.summaryText(2),\n"
+        "  urls: [R.safeUrl('https://nodejs.org'), R.safeUrl('javascript:alert(1)'), R.safeUrl(null)],\n"
+        "  loginWindow: R.itemText(items[5], ctx).lines, loginMissing: R.itemText(items[6], ctx).lines,\n"
+        "}));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert "secret.user@example.com" not in d["report"], "the report must not carry account names"
+    assert "Вход есть" in d["report"] and "Версия приложения: 3.5.6" in d["report"] and "Осталось шагов: 3" in d["report"], d["report"]
+    assert d["bad"] == [], f"every status/reason must give a text, not an empty or broken string: {d['bad']}"
+    assert d["strange"]["lines"] and d["unknownId"]["title"] == "zzz" and d["unknownId"]["lines"], "an unknown reason or id still gets a text"
+    assert d["loginWindow"][0] == "secret.user@example.com" and d["loginWindow"][1].startswith("Вход подтверждён"), d["loginWindow"]
+    assert d["loginMissing"] == ["Нужно войти в аккаунт"]
+    assert d["installing"]["lines"] == ["Устанавливается…"] and "EPERM" in " ".join(d["failed"]["lines"])
+    assert d["todo"] == 3 and d["todoNone"] == 0 and d["todoWarnOnly"] == 0, "only `todo` items count as steps left"
+    assert d["groups"] == {"main": ["module", "node", "engine", "browser", "selection"], "logins": ["login", "login"],
+                           "sites": ["site", "site"], "scheduler": ["scheduler"]}, d["groups"]
+    assert d["sitesOk"] is True and d["sitesMixed"] is False and d["sitesEmpty"] is False
+    assert d["summaryZero"] == "Всё готово" and d["summaryTwo"] == "Осталось шагов: 2"
+    assert d["urls"] == ["https://nodejs.org", None, None], "only http(s) addresses are opened"
+    hook = (WORKSPACE / "src" / "hooks" / "useGiveawaysReadiness.ts").read_text(encoding="utf-8")
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "INSTALL_POLL_MS = 5000" in hook and "if (!windowOpen || !installing) return;" in hook, "poll only while the window is open and the engine installs"
+    assert hook.count("setInterval") == 1, "no other timer-driven polling: every check opens the store sites"
+    assert view.count("setInterval") == 1 and "useGiveawaysReadiness(" in view, "the view adds no timer of its own"
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
 def test_missing_webview2_runtime_has_an_explanation():
     print("[clean-install] A PC without the WebView2 Runtime gets a Russian explanation and the download page...")
     main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -4417,6 +4497,7 @@ if __name__ == "__main__":
         test_scheduled_run_collects_selected_stores_and_writes_a_log,
         test_missing_webview2_runtime_has_an_explanation,
         test_login_code_copy_and_activate_link,
+        test_giveaways_readiness_window_texts_report_and_counts,
         test_config_files_saved_with_a_bom_still_load,
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
         test_english_ui_covers_every_russian_string,
