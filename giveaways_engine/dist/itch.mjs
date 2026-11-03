@@ -5215,6 +5215,11 @@ var timeoutPlugin = (timeout) => (enquirer2) => {
   });
 };
 enquirer.use(timeoutPlugin(cfg.login_timeout));
+var markSignedIn = async (store, account) => {
+  const sessions = await jsonDb("sessions.json", {});
+  sessions.data[store] = account;
+  await sessions.write();
+};
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -5455,6 +5460,7 @@ async function main() {
         console.log("Login detected! Continuing to game discovery...");
       }
     }
+    await markSignedIn("itch", "Itch.io");
     console.log(`Discovered ${candidateGames.length} 100% discount candidate games on Itch.io.`);
     for (const game of candidateGames) {
       const existed = db.data[user][game.id] || db.data[user][game.url];

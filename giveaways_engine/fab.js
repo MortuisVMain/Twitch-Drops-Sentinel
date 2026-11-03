@@ -1,7 +1,7 @@
 // Fab.com asset claimer (replaces legacy Unreal Engine Marketplace)
 // Automatically discovers and claims Limited-Time Free assets and 100% discount promotional packs.
 
-import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 
@@ -42,14 +42,24 @@ try {
   await page.goto('https://www.fab.com/limited-time-free', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
 
-  const isLoggedIn = await page.evaluate(async () => {
+  const checkLoggedIn = () => page.evaluate(async () => {
     try {
       const res = await fetch('https://www.fab.com/i/users/me/wallet');
       return res.status === 200;
     } catch (e) {
       return false;
     }
-  });
+  }).catch(() => false); // the page navigates while the user signs in
+
+  let isLoggedIn = await checkLoggedIn();
+  if (!isLoggedIn && cfg.show && process.env.FGC_MINIMIZE != '1') {
+    console.log(`[SENTINEL] Войдите в аккаунт в открывшемся окне браузера (кнопка Sign In на сайте Fab). Если окна не видно, найдите его на панели задач. На вход есть ${cfg.login_timeout / 60000} мин.`);
+    const deadline = Date.now() + cfg.login_timeout;
+    while (!isLoggedIn && Date.now() < deadline && !page.isClosed()) {
+      await new Promise(r => setTimeout(r, 1000));
+      isLoggedIn = await checkLoggedIn();
+    }
+  }
 
   if (!isLoggedIn) {
     const errorMsg = 'Not signed in to Fab. Please run with --show to login: ClaimGames.cmd --show --claim fab';
@@ -59,6 +69,7 @@ try {
   }
 
   console.log(`Signed in to Fab as ${user}`);
+  await markSignedIn('fab', user == 'default' ? 'Epic ID' : user);
 
   // 2. Discover promotional assets from /limited-time-free and search API
   console.log('Discovering promotional free assets...');

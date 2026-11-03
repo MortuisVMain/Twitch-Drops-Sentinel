@@ -4,7 +4,7 @@
 // Permanently free-to-play games are not claimed (excluded via `hidef2p=1`).
 
 import { launchContext } from './src/browser.js';
-import { jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT } from './src/util.js';
+import { jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT, loginHint, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 import chalk from 'chalk';
 
@@ -68,12 +68,17 @@ const signIn = async () => {
   if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give the user extra time to log in
   console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
   if (cfg.steam_username && cfg.steam_password) console.info('Using account name and password from environment.');
-  else console.info('Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).');
+  else console.info(loginHint());
   const username = cfg.steam_username || await prompt({ message: 'Enter Steam account name' });
   const password = username && (cfg.steam_password || await prompt({ type: 'password', message: 'Enter password' }));
   if (!password) {
     console.log('Waiting for you to login in the browser.');
     await notify('steam: no longer signed in and not enough options set for automatic login.');
+    if (cfg.headless) {
+      console.log('Run `SHOW=1 node steam` to login in the opened browser.');
+      await context.close();
+      process.exit(1);
+    }
   } else {
     await page.getByLabel(/account name/i).fill(username);
     await page.getByLabel('Password').fill(password);
@@ -112,6 +117,7 @@ try {
   // `persona_name` is the public name (e.g. 'Ralf'), but `account_name` in the dropdown is the unique account
   user = (await page.locator('#account_pulldown').textContent()).trim();
   console.log(`Signed in as ${user}`);
+  await markSignedIn('steam', user);
   db.data[user] ||= {};
 
   // find free-to-keep games

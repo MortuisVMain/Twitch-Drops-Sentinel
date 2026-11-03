@@ -1,7 +1,7 @@
 // Unity Asset Store claimer
 // Automatically claims the weekly paid asset featured in "Publisher of the Week / Free Asset of the Week".
 
-import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 
@@ -42,11 +42,11 @@ try {
   // Clear cookie banner if present
   page.locator('button:has-text("Accept All Cookies"), button:has-text("Одобрить все")').first().click().catch(() => {});
 
-  const isLoggedOut = page.url().includes('id.unity.com') ||
+  const isLoggedOut = async () => page.url().includes('id.unity.com') ||
     page.url().includes('login.unity.com') ||
     (await page.locator('button:has-text("Sign in"), button:has-text("Sign up"), a:has-text("Sign in"), input#email, input[name="email"]').count()) > 0;
 
-  if (isLoggedOut) {
+  if (await isLoggedOut()) {
     const loginPrompt = 'Not signed in to Unity ID. Run with --show to login: ClaimGames.cmd --show --claim unity';
     console.warn(`[WARN] ${loginPrompt}`);
     if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
@@ -55,11 +55,20 @@ try {
       await context.close();
       process.exit(0);
     } else {
-      console.log('Waiting for manual login in the browser window (up to 3 minutes)...');
-      await page.waitForURL(url => url.href.includes('assetstore.unity.com') && !url.href.includes('login') && !url.href.includes('sign-in'), { timeout: cfg.login_timeout || 180000 });
+      console.log('[SENTINEL] Войдите в аккаунт в открывшемся окне браузера (кнопка Sign in на сайте Unity). Если окна не видно, найдите его на панели задач. На вход есть 3 мин.');
+      // A signed-out visitor stays on the store page, so the address proves nothing: wait until the sign-in controls are gone,
+      // twice in a row because they render late after the redirect back from Unity ID
+      const deadline = Date.now() + (cfg.login_timeout || 180000);
+      for (let signedInChecks = 0; signedInChecks < 2;) {
+        if (page.isClosed() || Date.now() >= deadline) throw new Error('Unity ID: not signed in (window closed or timeout).');
+        await page.waitForTimeout(2000);
+        const signedIn = page.url().includes('assetstore.unity.com') && !await isLoggedOut().catch(() => true); // the page navigates during the login
+        signedInChecks = signedIn ? signedInChecks + 1 : 0;
+      }
       console.log('Login detected! Continuing to asset discovery...');
     }
   }
+  await markSignedIn('unity', 'Unity ID');
 
   console.log('Navigating to Publisher Sale page: https://assetstore.unity.com/publisher-sale ...');
   await page.goto('https://assetstore.unity.com/publisher-sale', { waitUntil: 'domcontentloaded', timeout: 45000 });

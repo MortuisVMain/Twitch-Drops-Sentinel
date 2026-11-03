@@ -1,6 +1,6 @@
 import { launchContext } from './src/browser.js';
 import chalk from 'chalk';
-import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT } from './src/util.js';
+import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT, loginHint, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'gog', ...a);
@@ -146,7 +146,7 @@ try {
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give user some extra time to log in
     console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
     if (cfg.gog_email && cfg.gog_password) console.info('Using email and password from environment.');
-    else console.info('Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).');
+    else console.info(loginHint());
     const email = cfg.gog_email || await prompt({ message: 'Enter email' });
     const password = email && (cfg.gog_password || await prompt({ type: 'password', message: 'Enter password' }));
     if (email && password) {
@@ -197,6 +197,7 @@ try {
   }) || (await usernameLabel.textContent())?.trim() || await page.locator('#menuUsername').first().textContent() || 'me';
   if (user == 'Account') user = 'me'; // the dropdown title falls back to the literal 'Account' until the account is loaded
   console.log(`Signed in as ${user}`);
+  await markSignedIn('gog', user);
   db.data[user] ||= {};
 
   const banner = page.locator('#giveaway');

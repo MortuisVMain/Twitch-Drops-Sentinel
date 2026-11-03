@@ -1,7 +1,7 @@
 import { launchContext } from './src/browser.js';
 import { authenticator } from 'otplib';
 import chalk from 'chalk';
-import { resolve, jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT, loginHint, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'prime-gaming', ...a);
@@ -54,7 +54,7 @@ try {
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give user some extra time to log in
     console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
     if (cfg.pg_email && cfg.pg_password) console.info('Using email and password from environment.');
-    else console.info('Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).');
+    else console.info(loginHint());
     const email = cfg.pg_email || await prompt({ message: 'Enter email' });
     const password = email && (cfg.pg_password || await prompt({ type: 'password', message: 'Enter password' }));
     if (email && password) {
@@ -93,6 +93,7 @@ try {
   }
   user = await page.locator('[data-a-target="user-dropdown-first-name-text"]').first().innerText();
   console.log(`Signed in as ${user}`);
+  await markSignedIn('prime', user);
   // await page.click('button[aria-label="User dropdown and more options"]');
   // const twitch = await page.locator('[data-a-target="TwitchDisplayName"]').first().innerText();
   // console.log(`Twitch user name is ${twitch}`);

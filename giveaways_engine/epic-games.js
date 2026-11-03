@@ -3,7 +3,7 @@ import { authenticator } from 'otplib';
 import chalk from 'chalk';
 import path from 'path';
 import { existsSync, writeFileSync } from 'fs';
-import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, loginHint, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
@@ -135,7 +135,7 @@ try {
     console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
     await page.goto(URL_LOGIN, { waitUntil: 'domcontentloaded' });
     if (cfg.eg_email && cfg.eg_password) console.info('Using email and password from environment.');
-    else console.info('Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).');
+    else console.info(loginHint());
     const notifyBrowserLogin = async () => {
       console.log('Waiting for you to login in the browser.');
       await notify('epic-games: no longer signed in and not enough options set for automatic login.');
@@ -185,6 +185,7 @@ try {
   }
   user = await page.locator('egs-navigation').getAttribute('displayname'); // 'null' if !isloggedin
   console.log(`Signed in as ${user}`);
+  await markSignedIn('epic', user);
   db.data[user] ||= {};
   if (cfg.time) console.timeEnd('login');
   if (cfg.time) console.time('claim all games');

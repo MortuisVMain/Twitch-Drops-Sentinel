@@ -100,6 +100,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   });
   const [logs, setLogs] = useState<GiveawaysLogEntry[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [loginStore, setLoginStore] = useState<StoreId | null>(null);
+  const loginStartedAtRef = useRef<number | null>(null);
   const [filterStore, setFilterStore] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
@@ -156,12 +158,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         } catch {}
       });
 
-      sse.addEventListener('state', (event: MessageEvent) => {
-        try {
-          const stateData: GiveawaysStateResponse = JSON.parse(event.data);
-          setData(stateData);
-          setIsClaiming(stateData.runner.state === 'running');
-        } catch {}
+      // State events only say that something changed (they carry no store data): re-read the full state
+      sse.addEventListener('state', () => {
+        fetchState(false);
       });
 
       return () => {
@@ -234,13 +233,40 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
   const handleStoreAuth = async (storeId: StoreId) => {
     playClick();
+    setActionError(null);
+    loginStartedAtRef.current = null;
+    setLoginStore(storeId);
     try {
-      await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}`, { method: 'POST' });
+      const res = await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}`, { method: 'POST' });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        setActionError(errJson.detail || (res.status === 409
+          ? 'Уже идёт сбор или вход в другой магазин. Дождитесь конца или остановите его.'
+          : 'Не удалось открыть окно входа'));
+        setLoginStore(null);
+        return;
+      }
+      loginStartedAtRef.current = Date.now();
       fetchState(true);
     } catch (err) {
       console.error(`GiveawaysView: авторизация магазина ${storeId} не запущена`, err);
+      setActionError('Ошибка сети при запуске');
+      setLoginStore(null);
     }
   };
+
+  // A login run has ended: without an account the user has to know that it did not work.
+  // The grace period covers a state poll that was already on its way when the run started.
+  useEffect(() => {
+    const startedAt = loginStartedAtRef.current;
+    if (!loginStore || !data?.runner || startedAt === null || Date.now() - startedAt < 6000) return;
+    if (data.runner.state === 'running' || data.runner.state === 'aborting') return;
+    if (!(data.stores as any)?.[loginStore]?.account) {
+      setActionError('Вход не завершён: окно браузера закрыто или вышло время. Нажмите «Войти в аккаунт» ещё раз.');
+    }
+    setLoginStore(null);
+    loginStartedAtRef.current = null;
+  }, [data, loginStore]);
 
   const handleCopyLogs = () => {
     playClick();
@@ -483,6 +509,21 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           );
         })}
       </div>
+
+      {actionError && (
+        <div className="titanium-island" role="alert" style={{ flexShrink: 0, color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
+          ⚠ {actionError}
+        </div>
+      )}
+
+      {loginStore && !actionError && (
+        <div className="titanium-island" role="status" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', display: 'block' }}>
+          <strong>🔑 {STORES.find(s => s.id === loginStore)?.name}: </strong>
+          {isClaiming
+            ? <span>войдите в аккаунт в открывшемся окне браузера. Если окна не видно, найдите его на панели задач. На вход есть 3 минуты.</span>
+            : <span>готовим браузер. При первом запуске он скачивается, это займёт несколько минут.</span>}
+        </div>
+      )}
 
       {/* 2-Column Bento: Left Collected Collection + Right Task Scheduler 1-to-1 with SPEC */}
       <div className="giveaways-main-grid" style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px', flex: 1, minHeight: 0, overflow: 'hidden', alignItems: 'start' }}>

@@ -2662,6 +2662,118 @@ def test_giveaways_without_node_explains_what_is_missing():
     assert orch._proc is None, "nothing may be left running after the refusal"
 
 
+def _run_store_login(script, page_code):
+    """Runs the shipped dist/<script> the way the app does (visible browser, stdin at EOF) against a stub browser engine."""
+    engine = Path(tempfile.mkdtemp(prefix="login_check_", dir=SANDBOX))
+    shutil.copytree(WORKSPACE / "giveaways_engine" / "dist", engine / "dist")
+    shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
+    stub = engine / "node_modules" / "patchright"
+    stub.mkdir(parents=True)
+    (stub / "package.json").write_text('{"name": "patchright", "type": "module", "main": "index.js"}', encoding="utf-8")
+    (stub / "index.js").write_text(
+        "import fs from 'node:fs';\n"
+        + page_code
+        + "\nexport const chromium = { launchPersistentContext: async dir => {\n"
+          "  fs.mkdirSync(dir, { recursive: true });\n"  # a real browser creates the profile and with it data/
+          "  return { pages: () => [page], newPage: async () => page, setDefaultTimeout() {}, close: async () => {} };\n"
+          "} };\n",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "SHOW": "1", "FGC_MINIMIZE": "0", "LOGIN_TIMEOUT": "2", "NOTIFY": ""}
+    res = subprocess.run(["node", str(engine / "dist" / script)], cwd=engine, env=env, stdin=subprocess.DEVNULL,
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    sessions = engine / "data" / "sessions.json"
+    return res, (json.loads(sessions.read_text(encoding="utf-8")) if sessions.exists() else {})
+
+
+def test_store_login_finishes_without_a_terminal():
+    print("[friend-report] Store login: no terminal prompts, the browser login is noticed and remembered...")
+    if shutil.which("node") is None:
+        print("      SKIP: Node.js is missing, the store scripts cannot run")
+        return
+    # Signed out at first; the user finishes signing in inside the browser window.
+    steam_page = (
+        "let signedIn = false;\n"
+        "const page = {\n"
+        "  goto: async () => {}, $$eval: async () => [],\n"
+        "  waitForSelector: async () => { signedIn = true; },\n"
+        "  locator: () => ({ count: async () => (signedIn ? 1 : 0), textContent: async () => 'steam_tester' }),\n"
+        "};"
+    )
+    res, sessions = _run_store_login("steam.mjs", steam_page)
+    output = res.stdout + res.stderr
+    assert "ERR_USE_AFTER_CLOSE" not in output, f"a terminal prompt killed the login window:\n{output[-800:]}"
+    assert res.returncode == 0, f"steam login run failed ({res.returncode}):\n{output[-800:]}"
+    assert "Press ESC" not in output, "the app log must not talk about a terminal the user does not have"
+    assert sessions.get("steam") == "steam_tester", f"a finished login must be remembered, got {sessions}"
+
+    # Fab has its own login check: it must wait for the user instead of failing right after the window opens.
+    fab_page = (
+        "let checks = 0;\n"
+        "const page = {\n"
+        "  goto: async () => {}, waitForTimeout: async () => {}, setViewportSize: async () => {}, $$eval: async () => [],\n"
+        "  evaluate: async () => { checks += 1; return checks > 2; },\n"
+        "  isClosed: () => false,\n"
+        "  screenshot: async () => {},\n"
+        "};"
+    )
+    res, sessions = _run_store_login("fab.mjs", fab_page)
+    output = res.stdout + res.stderr
+    assert "fab" in sessions, f"Fab must wait for the login in the browser window, got {sessions}:\n{output[-800:]}"
+
+    # Unity stays on the store page while signed out: only the sign-in controls tell, the address does not.
+    unity_page = (
+        "const page = {\n"
+        "  goto: async () => {}, waitForTimeout: async () => {}, setViewportSize: async () => {}, addStyleTag: async () => {},\n"
+        "  isClosed: () => false, url: () => 'https://assetstore.unity.com/',\n"
+        "  locator: () => ({ count: async () => 1, first: () => ({ click: async () => {} }) }),\n"
+        "};"
+    )
+    res, sessions = _run_store_login("unity.mjs", unity_page)
+    output = res.stdout + res.stderr
+    assert "unity" not in sessions and "Login detected" not in output, f"nobody signed in to Unity, got {sessions}:\n{output[-800:]}"
+    unity_login = unity_page.replace("count: async () => 1", "count: async () => (Date.now() - started < 500 ? 1 : 0)")
+    res, sessions = _run_store_login("unity.mjs", "const started = Date.now();\n" + unity_login)
+    output = res.stdout + res.stderr
+    assert "unity" in sessions, f"a finished Unity login must be noticed, got {sessions}:\n{output[-800:]}"
+
+
+def test_store_card_shows_login_even_with_nothing_claimed():
+    print("[friend-report] Store card: a finished login counts, claimed games are not required...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    engine = Path(tempfile.mkdtemp(prefix="cards_", dir=SANDBOX))
+    (engine / "data").mkdir()
+    (engine / "data" / "sessions.json").write_text('{"steam": "steam_tester"}', encoding="utf-8")
+    (engine / "data" / "steam.json").write_text('{"steam_tester": {}}', encoding="utf-8")
+    # Signed-out run of Fab/Unity/itch.io leaves a placeholder account behind: that is not a login
+    (engine / "data" / "fab.json").write_text('{"default": {}}', encoding="utf-8")
+    # Older installs have claimed games but no sessions entry yet
+    (engine / "data" / "gog.json").write_text('{"gog_tester": {"1": {"title": "G", "time": "2026-01-01", "status": "claimed"}}}', encoding="utf-8")
+    original = gc.resolve_fgc_root
+    gc.resolve_fgc_root = lambda: engine
+    try:
+        orch = gc.GiveawaysOrchestrator()
+        stores, _ = orch._read_inventory_sync(force=True)
+        assert stores["steam"]["account"] == "steam_tester", stores["steam"]
+        assert stores["fab"]["account"] is None, stores["fab"]
+        assert stores["gog"]["account"] == "gog_tester", stores["gog"]
+        assert stores["epic"]["account"] is None, stores["epic"]
+        # the card must flip during the run, without a forced refresh
+        (engine / "data" / "sessions.json").write_text('{"steam": "steam_tester", "epic": "epic_tester"}', encoding="utf-8")
+        os.utime(engine / "data" / "sessions.json", (time.time() + 5, time.time() + 5))
+        stores, _ = orch._read_inventory_sync(force=False)
+        assert stores["epic"]["account"] == "epic_tester", stores["epic"]
+    finally:
+        gc.resolve_fgc_root = original
+
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "{actionError &&" in view, "errors from starting a run or a login must be visible"
+    assert "setData(stateData)" not in view, "SSE state events are partial: they must not replace the store data"
+    auth = view[view.index("const handleStoreAuth"):view.index("const handleCopyLogs")]
+    assert "res.ok" in auth, "a refused login (no Node.js, a run in progress) must be reported"
+
+
 def test_english_ui_covers_every_russian_string():
     print("[i18n] Every Russian string of the UI has an English translation...")
     node = shutil.which("node")
@@ -2809,6 +2921,8 @@ if __name__ == "__main__":
         test_cover_keeper_replaces_broken_and_missing_covers,
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
+        test_store_login_finishes_without_a_terminal,
+        test_store_card_shows_login_even_with_nothing_claimed,
         test_missing_webview2_runtime_has_an_explanation,
         test_login_code_copy_and_activate_link,
         test_config_files_saved_with_a_bom_still_load,

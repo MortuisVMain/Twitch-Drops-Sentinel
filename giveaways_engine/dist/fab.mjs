@@ -5215,6 +5215,11 @@ var timeoutPlugin = (timeout) => (enquirer2) => {
   });
 };
 enquirer.use(timeoutPlugin(cfg.login_timeout));
+var markSignedIn = async (store, account) => {
+  const sessions = await jsonDb("sessions.json", {});
+  sessions.data[store] = account;
+  await sessions.write();
+};
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -5408,14 +5413,23 @@ try {
   console.log("Navigating to Fab limited-time free page...");
   await page.goto("https://www.fab.com/limited-time-free", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(3e3);
-  const isLoggedIn = await page.evaluate(async () => {
+  const checkLoggedIn = () => page.evaluate(async () => {
     try {
       const res = await fetch("https://www.fab.com/i/users/me/wallet");
       return res.status === 200;
     } catch (e) {
       return false;
     }
-  });
+  }).catch(() => false);
+  let isLoggedIn = await checkLoggedIn();
+  if (!isLoggedIn && cfg.show && process.env.FGC_MINIMIZE != "1") {
+    console.log(`[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 (\u043A\u043D\u043E\u043F\u043A\u0430 Sign In \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 Fab). \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C ${cfg.login_timeout / 6e4} \u043C\u0438\u043D.`);
+    const deadline = Date.now() + cfg.login_timeout;
+    while (!isLoggedIn && Date.now() < deadline && !page.isClosed()) {
+      await new Promise((r) => setTimeout(r, 1e3));
+      isLoggedIn = await checkLoggedIn();
+    }
+  }
   if (!isLoggedIn) {
     const errorMsg = "Not signed in to Fab. Please run with --show to login: ClaimGames.cmd --show --claim fab";
     console.error(errorMsg);
@@ -5423,6 +5437,7 @@ try {
     throw new Error(errorMsg);
   }
   console.log(`Signed in to Fab as ${user}`);
+  await markSignedIn("fab", user == "default" ? "Epic ID" : user);
   console.log("Discovering promotional free assets...");
   const assetMap = /* @__PURE__ */ new Map();
   const pageListings = await page.$$eval('a[href*="/listings/"]', (els) => els.map((a) => {

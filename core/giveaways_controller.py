@@ -38,6 +38,7 @@ FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
 CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
 TASK_NAME = "FreeGamesClaimerStudio"
+SESSIONS_FILE = "sessions.json"  # store -> account of the last confirmed login, written by the engine
 
 STORE_FILE_MAP: Dict[str, str] = {
     "epic": "epic-games.json",
@@ -219,11 +220,27 @@ class GiveawaysOrchestrator:
         self._scheduler_cache = (0.0, {})
         return await self._query_scheduler(force=True)
 
+    def _read_sessions(self, data_dir: Path) -> Dict[str, str]:
+        fpath = data_dir / SESSIONS_FILE
+        if not fpath.is_file():
+            return {}
+        try:
+            data = json.loads(fpath.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"Error reading store logins from {fpath}: {e}")
+            return {}
+        return data if isinstance(data, dict) else {}
+
     def _read_inventory_sync(self, force: bool = False) -> Tuple[Dict[str, dict], List[dict]]:
         fgc_dir = resolve_fgc_root()
         data_dir = fgc_dir / "data"
         changed = force
         current_mtimes: Dict[str, float] = {}
+        sessions_path = data_dir / SESSIONS_FILE
+        if sessions_path.is_file():
+            current_mtimes[SESSIONS_FILE] = sessions_path.stat().st_mtime
+            if self._file_mtimes.get(SESSIONS_FILE) != current_mtimes[SESSIONS_FILE]:
+                changed = True
         for store, filename in STORE_FILE_MAP.items():
             fpath = data_dir / filename
             if fpath.is_file():
@@ -239,6 +256,7 @@ class GiveawaysOrchestrator:
 
         inventory: List[dict] = []
         stores_meta: Dict[str, dict] = {}
+        sessions = self._read_sessions(data_dir)
 
         for store, filename in STORE_FILE_MAP.items():
             fpath = data_dir / filename
@@ -309,7 +327,8 @@ class GiveawaysOrchestrator:
                 "existedCount": existed_cnt,
                 "lastClaimedAt": latest_iso,
                 "dbFileExists": exists,
-                "account": accounts[0] if (accounts and total_items > 0) else None,
+                # A login counts without any claimed game; databases of older installs only know accounts that claimed something
+                "account": sessions.get(store) or (accounts[0] if (accounts and total_items > 0) else None),
             }
 
         inventory.sort(key=lambda x: x["timestampMs"], reverse=True)
@@ -418,6 +437,13 @@ class GiveawaysOrchestrator:
                         if l:
                             self._broadcast("log", {"line": f"[npm] {l}", "ts": datetime.now(timezone.utc).isoformat()})
                 await self._wait_or_kill(npm_proc, "npm install")
+                if not patchright_dir.is_dir():
+                    logger.error(f"npm install failed with exit code {npm_proc.returncode}, {patchright_dir} is missing")
+                    raise web.HTTPServiceUnavailable(
+                        text=json.dumps({"detail": "Не удалось скачать браузерный движок раздач. "
+                                                   "Проверьте интернет и запустите ещё раз."}, ensure_ascii=False),
+                        content_type="application/json",
+                    )
                 br_proc = await asyncio.create_subprocess_exec(
                     "cmd.exe", "/c", "npx", "patchright", "install", "chromium",
                     cwd=str(fgc_dir),

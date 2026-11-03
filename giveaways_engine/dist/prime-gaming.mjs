@@ -6575,9 +6575,18 @@ var timeoutPlugin = (timeout) => (enquirer2) => {
   });
 };
 enquirer.use(timeoutPlugin(cfg.login_timeout));
-var prompt = (o) => enquirer.prompt({ name: "name", type: "input", message: "Enter value", ...o }).then((r) => r.name).catch((_) => {
-});
+var prompt = (o) => process.stdin.isTTY ? enquirer.prompt({ name: "name", type: "input", message: "Enter value", ...o }).then((r) => r.name).catch((_) => {
+}) : Promise.resolve();
 var confirm = (o) => prompt({ type: "confirm", message: "Continue?", ...o });
+var loginHint = () => {
+  if (process.stdin.isTTY) return "Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).";
+  return cfg.headless ? "[SENTINEL] \u0412\u0445\u043E\u0434 \u0432 \u043C\u0430\u0433\u0430\u0437\u0438\u043D \u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D: \u043D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u0412\u043E\u0439\u0442\u0438 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\xBB \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0420\u0430\u0437\u0434\u0430\u0447\u0438\xBB." : `[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430. \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C ${cfg.login_timeout / 6e4} \u043C\u0438\u043D.`;
+};
+var markSignedIn = async (store, account) => {
+  const sessions = await jsonDb("sessions.json", {});
+  sessions.data[store] = account;
+  await sessions.write();
+};
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -6648,7 +6657,7 @@ try {
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout);
     console.info(`Login timeout is ${cfg.login_timeout / 1e3} seconds!`);
     if (cfg.pg_email && cfg.pg_password) console.info("Using email and password from environment.");
-    else console.info("Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).");
+    else console.info(loginHint());
     const email = cfg.pg_email || await prompt({ message: "Enter email" });
     const password = email && (cfg.pg_password || await prompt({ type: "password", message: "Enter password" }));
     if (email && password) {
@@ -6686,6 +6695,7 @@ try {
   }
   user = await page.locator('[data-a-target="user-dropdown-first-name-text"]').first().innerText();
   console.log(`Signed in as ${user}`);
+  await markSignedIn("prime", user);
   db.data[user] ||= {};
   if (await page.getByRole("button", { name: "Try Prime" }).count()) {
     console.error("User is currently not an Amazon Prime member, so no games to claim. Exit!");

@@ -5215,6 +5215,11 @@ var timeoutPlugin = (timeout) => (enquirer2) => {
   });
 };
 enquirer.use(timeoutPlugin(cfg.login_timeout));
+var markSignedIn = async (store, account) => {
+  const sessions = await jsonDb("sessions.json", {});
+  sessions.data[store] = account;
+  await sessions.write();
+};
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -5408,8 +5413,8 @@ try {
   await page.waitForTimeout(3e3);
   page.locator('button:has-text("Accept All Cookies"), button:has-text("\u041E\u0434\u043E\u0431\u0440\u0438\u0442\u044C \u0432\u0441\u0435")').first().click().catch(() => {
   });
-  const isLoggedOut = page.url().includes("id.unity.com") || page.url().includes("login.unity.com") || await page.locator('button:has-text("Sign in"), button:has-text("Sign up"), a:has-text("Sign in"), input#email, input[name="email"]').count() > 0;
-  if (isLoggedOut) {
+  const isLoggedOut = async () => page.url().includes("id.unity.com") || page.url().includes("login.unity.com") || await page.locator('button:has-text("Sign in"), button:has-text("Sign up"), a:has-text("Sign in"), input#email, input[name="email"]').count() > 0;
+  if (await isLoggedOut()) {
     const loginPrompt = "Not signed in to Unity ID. Run with --show to login: ClaimGames.cmd --show --claim unity";
     console.warn(`[WARN] ${loginPrompt}`);
     if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
@@ -5418,11 +5423,18 @@ try {
       await context.close();
       process.exit(0);
     } else {
-      console.log("Waiting for manual login in the browser window (up to 3 minutes)...");
-      await page.waitForURL((url) => url.href.includes("assetstore.unity.com") && !url.href.includes("login") && !url.href.includes("sign-in"), { timeout: cfg.login_timeout || 18e4 });
+      console.log("[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 (\u043A\u043D\u043E\u043F\u043A\u0430 Sign in \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 Unity). \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C 3 \u043C\u0438\u043D.");
+      const deadline = Date.now() + (cfg.login_timeout || 18e4);
+      for (let signedInChecks = 0; signedInChecks < 2; ) {
+        if (page.isClosed() || Date.now() >= deadline) throw new Error("Unity ID: not signed in (window closed or timeout).");
+        await page.waitForTimeout(2e3);
+        const signedIn = page.url().includes("assetstore.unity.com") && !await isLoggedOut().catch(() => true);
+        signedInChecks = signedIn ? signedInChecks + 1 : 0;
+      }
       console.log("Login detected! Continuing to asset discovery...");
     }
   }
+  await markSignedIn("unity", "Unity ID");
   console.log("Navigating to Publisher Sale page: https://assetstore.unity.com/publisher-sale ...");
   await page.goto("https://assetstore.unity.com/publisher-sale", { waitUntil: "domcontentloaded", timeout: 45e3 });
   await page.waitForTimeout(3e3);

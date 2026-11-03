@@ -59,8 +59,26 @@ const timeoutPlugin = timeout => enquirer => { // cancel prompt after timeout ms
 enquirer.use(timeoutPlugin(cfg.login_timeout)); // TODO may not want to have this timeout for all prompts; better extend Prompt and add a timeout prompt option
 // single prompt that just returns the non-empty value instead of an object
 // @ts-ignore
-export const prompt = o => enquirer.prompt({ name: 'name', type: 'input', message: 'Enter value', ...o }).then(r => r.name).catch(_ => {});
+// Inside the app there is no terminal to answer in (stdin is at EOF): no answer right away, the login happens in the browser window.
+// Waiting for Enquirer instead blocks the login and, on Node 24, its timeout crashes the process with ERR_USE_AFTER_CLOSE.
+export const prompt = o => process.stdin.isTTY
+  ? enquirer.prompt({ name: 'name', type: 'input', message: 'Enter value', ...o }).then(r => r.name).catch(_ => {})
+  : Promise.resolve();
 export const confirm = o => prompt({ type: 'confirm', message: 'Continue?', ...o });
+
+export const loginHint = () => {
+  if (process.stdin.isTTY) return 'Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).';
+  return cfg.headless
+    ? '[SENTINEL] Вход в магазин не выполнен: нажмите «Войти в аккаунт» на вкладке «Раздачи».'
+    : `[SENTINEL] Войдите в аккаунт в открывшемся окне браузера. Если окна не видно, найдите его на панели задач. На вход есть ${cfg.login_timeout / 60000} мин.`;
+};
+
+// The store card shows this login; the per-store databases only learn about an account once something was claimed.
+export const markSignedIn = async (store, account) => {
+  const sessions = await jsonDb('sessions.json', {});
+  sessions.data[store] = account;
+  await sessions.write();
+};
 
 // notifications via apprise CLI
 import { execFile } from 'child_process';

@@ -1,7 +1,7 @@
 // Itch.io 100% off game claimer
 // Automatically discovers and claims limited-time 100% discount promotional games to user's Itch.io library.
 
-import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 
@@ -97,6 +97,7 @@ async function main() {
         console.log('Login detected! Continuing to game discovery...');
       }
     }
+    await markSignedIn('itch', 'Itch.io');
 
     // Claim candidates
     console.log(`Discovered ${candidateGames.length} 100% discount candidate games on Itch.io.`);
