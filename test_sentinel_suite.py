@@ -2801,11 +2801,18 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "}\n"
         "const strange = R.itemText(it('scheduler', 'warning', { reason: 'brand_new_reason' }), ctx);\n"
         "const unknownId = R.itemText({ id: 'zzz', status: 'weird', params: {}, action: null }, ctx);\n"
+        "const bs = String.fromCharCode(92);\n"
+        "const logPath = 'C:' + bs + 'Users' + bs + 'Ivan Petrov' + bs + 'AppData' + bs + 'run.log';\n"
+        "const pathReport = R.buildReport({ ...resp, engineInstall: { running: false, error: \"EPERM, open '\" + logPath + \"'\" }, items: [\n"
+        "  it('engine', 'todo', {}, { kind: 'install_engine' }),\n"
+        "  it('scheduler', 'warning', { reason: 'last_run_failed', logFile: logPath }, null),\n"
+        "  it('scheduler', 'warning', { reason: 'repair_failed', error: 'denied ' + bs + bs + 'pc' + bs + 'share' + bs + 'Ivan' + bs + 'task.xml' }, null),\n"
+        "] }, ctx, '3.5.6');\n"
         "const grouped = R.groupItems(items);\n"
         "const installing = R.itemText(it('engine', 'todo', {}, { kind: 'install_engine' }), { ...ctx, engineInstall: { running: true, error: null } });\n"
         "const failed = R.itemText(it('engine', 'todo', {}, { kind: 'install_engine' }), { ...ctx, engineInstall: { running: false, error: 'EPERM' } });\n"
         "console.log(JSON.stringify({\n"
-        "  report, bad, strange, unknownId, installing, failed,\n"
+        "  report, pathReport, bad, strange, unknownId, installing, failed,\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -2818,6 +2825,9 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     d = json.loads(run.stdout)
     assert "secret.user@example.com" not in d["report"], "the report must not carry account names"
     assert "Вход есть" in d["report"] and "Версия приложения: 3.5.6" in d["report"] and "Осталось шагов: 3" in d["report"], d["report"]
+    assert "Ivan" not in d["pathReport"] and "Users" not in d["pathReport"] and "pc" not in d["pathReport"].split("denied")[1], \
+        f"the report must not carry a Windows user name from a path: {d['pathReport']}"
+    assert "run.log" in d["pathReport"] and "task.xml" in d["pathReport"], "the report keeps the file name"
     assert d["bad"] == [], f"every status/reason must give a text, not an empty or broken string: {d['bad']}"
     assert d["strange"]["lines"] and d["unknownId"]["title"] == "zzz" and d["unknownId"]["lines"], "an unknown reason or id still gets a text"
     assert d["loginWindow"][0] == "secret.user@example.com" and d["loginWindow"][1].startswith("Вход подтверждён"), d["loginWindow"]
@@ -2832,6 +2842,8 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     hook = (WORKSPACE / "src" / "hooks" / "useGiveawaysReadiness.ts").read_text(encoding="utf-8")
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "INSTALL_POLL_MS = 5000" in hook and "if (!windowOpen || !installing) return;" in hook, "poll only while the window is open and the engine installs"
+    assert "?quick=1" in hook and "useEffect(() => { check(true); }, [check]);" in hook and "check(true, true), INSTALL_POLL_MS" in hook, \
+        "the check on tab open and the install poll are quick: no store sites"
     assert hook.count("setInterval") == 1, "no other timer-driven polling: every check opens the store sites"
     assert view.count("setInterval") == 1 and "useGiveawaysReadiness(" in view, "the view adds no timer of its own"
     shutil.rmtree(out_dir, ignore_errors=True)
@@ -3831,14 +3843,26 @@ def test_giveaways_readiness_says_what_is_left():
     for key in saved[5]:
         os.environ[key] = str(home)
 
-    def check(fake=None, which=node, sites=True):
+    probed, forced = [], []
+
+    def check(fake=None, which=node, sites=True, **kwargs):
         gc.asyncio.create_subprocess_exec = fake or _FakeTaskScheduler(exists=True)
         gc.shutil.which = lambda name, *a, **k: which
+        probed.clear()
+        forced.clear()
 
         async def reachable(session, url):
+            probed.append(url)
             return sites
         gr._site_reachable = reachable
-        report = asyncio.run(gr.check_readiness(gc.GiveawaysOrchestrator()))
+        orchestrator = gc.GiveawaysOrchestrator()
+        real_query = orchestrator._query_scheduler
+
+        async def spy(force=False):
+            forced.append(force)
+            return await real_query(force=force)
+        orchestrator._query_scheduler = spy
+        report = asyncio.run(gr.check_readiness(orchestrator, **kwargs))
         return report, {(i["id"], i.get("store")): i for i in report["items"]}
 
     def make_ready():
@@ -3914,6 +3938,15 @@ def test_giveaways_readiness_says_what_is_left():
         # An unreachable site warns only
         report, items = check(sites=False)
         assert items[("site", "gog")]["status"] == "warning" and report["ready"], items
+
+        # A quick check (the tab just opened) asks no site and takes the scheduler from the cache; the rest counts the same
+        full_report, full_items = check(sites=False)
+        assert full_report["full"] is True and probed and forced == [True], (probed, forced)
+        quick, quick_items = check(sites=False, full=False)
+        assert quick["full"] is False and not probed, "a quick check must not touch the store sites"
+        assert forced == [False], "a quick check may use the cached scheduler state"
+        assert not [k for k in quick_items if k[0] == "site"], quick_items
+        assert quick["remaining"] == full_report["remaining"] and quick["ready"] == full_report["ready"], (quick, full_report)
 
         # A check that cannot run reports itself, the rest still answer
         async def broken_probe(session, url):

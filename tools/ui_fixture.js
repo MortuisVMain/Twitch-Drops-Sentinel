@@ -84,7 +84,7 @@
   }
   // Readiness window: statuses and data only (the interface writes the text). Default = ready, clean = a fresh PC
   var STORE_IDS = ['epic', 'gog', 'steam', 'fab', 'unity', 'itch', 'prime'];
-  function readinessBody(kind) {
+  function readinessBody(kind, quick) {
     var clean = kind === 'clean';
     var items = [
       { id: 'module', status: 'ok', params: { path: 'C:\Sentinel\core\free-games-claimer' }, action: null },
@@ -98,19 +98,19 @@
       items.push(clean ? { id: 'login', status: 'todo', params: {}, action: { kind: 'sign_in', store: id }, store: id }
         : { id: 'login', status: 'ok', params: { account: 'long.account.name.number@example.com', confirmedAt: '2026-10-30T18:20:00Z' }, action: null, store: id });
     });
-    STORE_IDS.forEach(function (id, i) {
+    if (!quick) STORE_IDS.forEach(function (id, i) {
       items.push({ id: 'site', status: clean && i === 3 ? 'warning' : 'ok', params: {}, action: null, store: id });
     });
     items.push(clean ? { id: 'scheduler', status: 'info', params: { reason: 'not_created' }, action: { kind: 'enable_scheduler' } }
       : { id: 'scheduler', status: 'ok', params: { reason: null, lastRunTime: '2026-10-31T10:00:00Z', nextRunTime: '2026-11-02T10:00:00Z', activeDays: ['Tuesday', 'Friday', 'Sunday'], logFile: null }, action: null });
     var remaining = items.filter(function (it) { return it.status === 'todo'; }).length;
-    return { ready: remaining === 0, remaining: remaining, checkedAt: '2026-11-03T12:00:00Z', engineInstall: { running: false, error: null }, items: items };
+    return { ready: remaining === 0, remaining: remaining, checkedAt: '2026-11-03T12:00:00Z', full: !quick, engineInstall: { running: false, error: null }, items: items };
   }
   var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.6', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.6', remote_version: '3.5.6', error: null };
-  var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/v1/giveaways/readiness': readinessBody(q.get('readiness')), '/api/game-directories': { directories: state.settings.game_directories } };
+  var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
-    var body = routes[path] || { status: 'ok' };
+    var body = path === '/api/v1/giveaways/readiness' ? readinessBody(q.get('readiness'), /[?&]quick=1/.test(String(url))) : routes[path] || { status: 'ok' };
     if (path === '/api/v1/giveaways/readiness' && q.get('readiness') === 'error') return Promise.resolve({ ok: false, status: 500, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } });
     // the dimmer normally gets its state from the WebView2 host: replay it as a window message
     if (path === '/api/v1/dimmer/state') setTimeout(function () { window.postMessage({ type: 'DIMMER_STATE_CHANGED', state: dimmer }, '*'); }, 30);
