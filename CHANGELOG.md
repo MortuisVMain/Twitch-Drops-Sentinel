@@ -2,6 +2,14 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [Unreleased]
+- Store sign-in on the Giveaways tab works inside the app: prompts no longer wait for a terminal, stores record a confirmed login, and the tab shows refusals and login progress. Fab now waits for the login, and Unity no longer reports a login that never happened.
+- A store card shows the account right after sign-in instead of after the first claimed game.
+- Switch account (the arrows button on a store card) asks first and signs out of that store only; Fab also signs out of Epic Games, because it signs in through Epic.
+- The scheduled claim is created on a clean install when auto-claim is turned on or days are picked, follows the selected stores, writes `giveaways_scheduled.log` and is reported as failed when a store fails. A missing task and scheduler errors are shown in the UI, and Node.js older than 20 is refused with an explanation.
+- Update checks repeat every 30 minutes and when the window is shown again, and a failed check is reported in Settings instead of looking like "up to date".
+- Unity orders are placed only at a clearly zero total; made-up billing details are no longer filled in and not every checkbox on the page is ticked.
+
 ## [3.5.5] - 2026-11-02
 - Fixed the progress counter jumping to 100% and back when a drop from another campaign was claimed in the background. The counter now stays strictly on the drop being actively farmed.
 - Added a game card with cover art and game name to the left of the progress counter on the Live Dashboard, making the actively farmed game immediately recognizable.

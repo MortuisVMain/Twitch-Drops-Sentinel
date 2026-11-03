@@ -49,7 +49,7 @@ Sentinel is a desktop app that collects Twitch Drops for you. Pick the games you
 3. Run `TwitchDropsSentinel.exe`.
 4. Sign in: Sentinel opens [twitch.tv/activate](https://www.twitch.tv/activate) with a one-time code. Confirm it in your browser; your password never goes through the app.
 
-**Requirements:** Windows 10 or 11 (64-bit) and the Microsoft Edge WebView2 Runtime, which Windows 11 already has (Sentinel offers the download if it is missing). Python is bundled. The free-games claimer additionally needs [Node.js](https://nodejs.org/); its browser engine installs itself on first use.
+**Requirements:** Windows 10 or 11 (64-bit) and the Microsoft Edge WebView2 Runtime, which Windows 11 already has (Sentinel offers the download if it is missing). Python is bundled. The Giveaways tab additionally needs [Node.js](https://nodejs.org/) 20 or newer; it is not included in the download, and nothing else in the app needs it. The tab's browser engine installs itself on first use.
 
 > [!TIP]
 > To get drops for a game, your Twitch account usually has to be linked to the game's account. Sentinel marks such campaigns with "link your account".
