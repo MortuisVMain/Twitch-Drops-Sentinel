@@ -1640,6 +1640,132 @@ def test_update_check_failure_reports_running_version():
     assert data["latest_version"] == __version__, data
 
 
+def test_update_check_failure_is_visible_and_retried():
+    print("[updater] A failed update check is reported, logged and retried without hammering GitHub...")
+    import asyncio, email.message, inspect, json as _json, logging, types, urllib.error
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import updater
+    from sentinel_service import SentinelSupervisor, UPDATER
+
+    work = SANDBOX / "update_check"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    calls = []
+    clock = {"now": 1_000_000.0}
+    next_response = {"value": None}
+
+    class _Resp:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def read(self):
+            return _json.dumps(self.payload).encode("utf-8")
+
+    class _Opener:
+        def open(self, req, timeout=None):
+            calls.append(req.full_url)
+            value = next_response["value"]
+            if isinstance(value, Exception):
+                raise value
+            return _Resp(value)
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__(level=logging.WARNING)
+            self.messages = []
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    def rate_limited(reset_in):
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = "0"
+        headers["X-RateLimit-Reset"] = str(int(clock["now"] + reset_in))
+        return urllib.error.HTTPError(updater.REPO_API_URL, 403, "rate limit exceeded", headers, None)
+
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time)
+    capture = _Capture()
+    updater.logger.addHandler(capture)
+    updater.CACHE_FILE = work / "cache.json"
+    updater.get_optional_github_token = lambda: ""
+    updater.urllib.request.build_opener = lambda *a: _Opener()
+    updater.time = types.SimpleNamespace(time=lambda: clock["now"])
+    try:
+        checker = updater.GitHubUpdater()
+
+        # No cache yet: the failure is reported with its reason and written to the log at warning level
+        next_response["value"] = urllib.error.URLError("getaddrinfo failed")
+        first = checker.check_for_updates()
+        assert "getaddrinfo failed" in first.get("error", ""), first
+        assert first["update_available"] is False
+        assert any("getaddrinfo failed" in m for m in capture.messages), capture.messages
+
+        # A periodic check right after does not go to GitHub again and still reports the failure
+        assert checker.check_for_updates().get("error") == first["error"] and len(calls) == 1
+        # ...but a press of the button always does, and after the pause the periodic check does too
+        checker.check_for_updates(force=True)
+        assert len(calls) == 2
+        clock["now"] += 901
+        checker.check_for_updates()
+        assert len(calls) == 3
+
+        # A rate limit holds periodic checks until GitHub's reset time, well past the usual pause
+        clock["now"] += 901
+        next_response["value"] = rate_limited(3600)
+        limited = checker.check_for_updates()
+        assert "403" in limited["error"] and len(calls) == 4, limited
+        clock["now"] += 1800
+        assert "403" in checker.check_for_updates()["error"] and len(calls) == 4, "must wait for X-RateLimit-Reset"
+        clock["now"] += 1801
+        next_response["value"] = release
+
+        # Success clears the failure
+        ok = checker.check_for_updates()
+        assert len(calls) == 5 and ok["update_available"] is True and "error" not in ok, ok
+
+        # A later failure keeps the known release and says the check failed; the cache itself stays clean
+        clock["now"] += 901
+        next_response["value"] = urllib.error.URLError("offline")
+        stale = checker.check_for_updates()
+        assert stale["update_available"] is True and stale["remote_version"] == "99.0.0" and "offline" in stale["error"], stale
+        assert "error" not in checker._cached_result and "error" not in _json.loads(updater.CACHE_FILE.read_text(encoding="utf-8"))["result"]
+
+        # A reply without a tag is a failure, not "you are up to date"
+        next_response["value"] = {"message": "unexpected"}
+        assert "tag_name" in checker.check_for_updates(force=True)["error"]
+    finally:
+        updater.logger.removeHandler(capture)
+        updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time = saved
+
+    # The periodic check must not flash a console window over a game
+    assert "creationflags" in inspect.getsource(updater.get_optional_github_token)
+
+    # The service keeps the shape the UI reads even when the check itself crashes
+    def boom(force=False):
+        raise RuntimeError("simulated crash")
+    original = UPDATER.check_for_updates
+    UPDATER.check_for_updates = boom
+    try:
+        class _Req:
+            query = {}
+        data = _json.loads(asyncio.run(SentinelSupervisor.handle_check_updates(None, _Req())).text)
+    finally:
+        UPDATER.check_for_updates = original
+    assert data["update_available"] is False and data["local_version"] and "simulated crash" in data["error"], data
+
+    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "setInterval(pollUpdates, UPDATE_POLL_MS)" in app_tsx, "App.tsx must repeat the check while the app sits in the tray"
+    assert "'visibilitychange'" in app_tsx, "App.tsx must check when the window is shown again"
+    assert "announcedUpdateRef" in app_tsx, "the periodic check must not reopen a dismissed update window"
+    assert "if (result.error)" in app_tsx, "a manual check must not claim the version is current when the check failed"
+    settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "`Не удалось проверить обновления: ${updateCheckFailure}`" in settings_tsx, "Settings must show the failed check"
+    print("      Update check failure visible, logged, retried within limits: PASS [OK]")
+
+
 def test_campaigns_fetcher_backoff_retry_after_and_fresh_cache():
     print("[audit F-020] Campaigns API client: Retry-After, exponential backoff, fresh-cache startup...")
     import email.message
@@ -3650,6 +3776,7 @@ if __name__ == "__main__":
         test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite,
         test_manual_farm_override_and_native_screendimmer_suite,
         test_update_check_failure_reports_running_version,
+        test_update_check_failure_is_visible_and_retried,
         test_campaigns_fetcher_backoff_retry_after_and_fresh_cache,
         test_console_messages_follow_configured_language,
         test_giveaways_hung_node_process_hits_ceiling,

@@ -19,6 +19,7 @@ interface SettingsStudioProps {
   onUnbanStreamer?: (channel: string) => void;
   onCheckUpdates?: () => Promise<void>;
   updateInfo?: UpdateCheckResult | null;
+  updateCheckFailure?: string | null;
   updateProgress?: UpdateProgressStatus | null;
 }
 
@@ -34,6 +35,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   onOpenVaultFile,
   onCheckUpdates,
   updateInfo,
+  updateCheckFailure,
   updateProgress,
 }) => {
   const [textScale, setTextScaleState] = useState(getTextScale());
@@ -327,10 +329,12 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       ? updateProgress.error_message || updateStageNames[updateProgress.stage] || updateProgress.stage
       : updateInfo?.update_available
         ? `Доступно обновление v${updateInfo.remote_version}`
-        : updateInfo
-          ? `Установлена актуальная версия v${updateInfo.local_version}`
-          : 'Обновления: не проверялись';
-  const updatePct = updateProgress?.percent ?? (updateInfo ? 100 : 0);
+        : updateCheckFailure
+          ? `Не удалось проверить обновления: ${updateCheckFailure}`
+          : updateInfo
+            ? `Установлена актуальная версия v${updateInfo.local_version}`
+            : 'Обновления: не проверялись';
+  const updatePct = updateProgress?.percent ?? (updateInfo && !updateCheckFailure ? 100 : 0);
 
   const moduleOn = moduleStates(settings, { muted: isMuted, autostart: autostartEnabled });
   const powerModeWord = settings.auto_shutdown_mode === 'shutdown' ? 'выключится' : settings.auto_shutdown_mode === 'lock' ? 'заблокируется' : 'уйдёт в сон';
@@ -692,7 +696,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div className="obsidian-well" style={{ padding: '6px 12px', width: '15rem', maxWidth: '100%', minWidth: 0 }}>
               <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)', marginBottom: '3px' }}>
-                <span id="updStageText" title={updateStage} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{updateStage}</span>
+                <span id="updStageText" title={updateStage} style={{ color: updateCheckFailure && !updateInfo?.update_available ? 'var(--led-rose)' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{updateStage}</span>
                 <strong style={{ color: 'var(--led-mint)' }} id="updPctText">{updatePct}%</strong>
               </div>
               <div style={{ height: '5px', background: 'var(--bg-row)', borderRadius: '3px', overflow: 'hidden' }}>
