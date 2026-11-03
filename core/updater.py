@@ -4,7 +4,7 @@ Mortuis_V_Studio
 
 Handles:
 - Checking latest release from GitHub API (https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest)
-- Rate limit mitigation (caches response for 6 hours, timeout 5s)
+- Rate limit mitigation (15 min cache, 15 min pause after a failure, honours GitHub's rate limit reset, timeout 8s)
 - Semantic version comparison
 - Safe atomic patch extraction (100% protection of cookies.jar, Trophies.md, config.json)
 """
@@ -19,6 +19,7 @@ import shutil
 import sys
 import time
 import threading
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -32,6 +33,7 @@ CACHE_FILE = PROJECT_DIR / "data" / "update_check_cache.json"
 
 from version import __version__ as CURRENT_VERSION
 REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest"
+UPDATE_CACHE_SECONDS = 900
 
 # Files that MUST NEVER be overwritten by an update
 PROTECTED_PATHS = {
@@ -82,6 +84,7 @@ def get_optional_github_token() -> str:
             capture_output=True,
             text=True,
             timeout=3,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if proc.returncode == 0:
             for line in proc.stdout.splitlines():
@@ -149,9 +152,25 @@ def get_live_local_version() -> str:
         logger.debug("Failed reading version.py: %s", exc)
     return CURRENT_VERSION
 
+def rate_limit_wait(exc: Exception, now: float) -> float:
+    """Seconds GitHub asked to wait before the next request; 0 when the error is not a rate limit."""
+    if not isinstance(exc, urllib.error.HTTPError) or exc.code not in (403, 429):
+        return 0.0
+    try:
+        retry_after = exc.headers.get("Retry-After")
+        if retry_after:
+            return float(retry_after)
+        if exc.headers.get("X-RateLimit-Remaining") == "0":
+            return float(exc.headers["X-RateLimit-Reset"]) - now
+    except (KeyError, TypeError, ValueError) as parse_err:
+        logger.warning("Unreadable GitHub rate limit headers: %s", parse_err)
+    return 0.0
+
 class GitHubUpdater:
     def __init__(self):
         self.last_check_time: float = 0.0
+        self._retry_not_before: float = 0.0
+        self._last_error: str = ""
         self._cached_result: Optional[dict[str, Any]] = None
         self._is_updating: bool = False
         self._lock = threading.Lock()
@@ -191,8 +210,8 @@ class GitHubUpdater:
 
     def check_for_updates(self, force: bool = False) -> dict[str, Any]:
         now = time.time()
-        # Cache for 6 hours unless force refresh requested
-        if not force and self._cached_result and (now - self.last_check_time) < 900:  # 15 min cache
+        # Cache for 15 minutes unless force refresh requested
+        if not force and self._cached_result and (now - self.last_check_time) < UPDATE_CACHE_SECONDS:
             return self._cached_result
 
         live_current = get_live_local_version()
@@ -212,6 +231,9 @@ class GitHubUpdater:
             "published_at": "",
         }
 
+        if not force and now < self._retry_not_before:
+            return {**(self._cached_result or result), "error": self._last_error}
+
         token = get_optional_github_token()
         headers = {
             "User-Agent": "TwitchDropsSentinel-Updater/3.1",
@@ -226,7 +248,7 @@ class GitHubUpdater:
         try:
             with opener.open(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                remote_tag = data.get("tag_name", "3.0.0")
+                remote_tag = data["tag_name"]
                 remote_ver = parse_version(remote_tag)
                 local_ver = parse_version(live_current)
 
@@ -271,12 +293,15 @@ class GitHubUpdater:
                 })
                 self._cached_result = result
                 self.last_check_time = now
+                self._retry_not_before = 0.0
+                self._last_error = ""
                 self._save_cache(result)
                 logger.info(f"Update check completed: remote={remote_tag}, available={update_avail}")
         except Exception as e:
-            logger.debug(f"GitHub update check note: {e}")
-            if self._cached_result:
-                return self._cached_result
+            self._last_error = f"{type(e).__name__}: {e}"
+            self._retry_not_before = now + max(UPDATE_CACHE_SECONDS, rate_limit_wait(e, now))
+            logger.warning("Update check failed: %s", self._last_error)
+            return {**(self._cached_result or result), "error": self._last_error}
 
         return result
 

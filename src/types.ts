@@ -231,6 +231,7 @@ export interface UpdateCheckResult {
   download_url: string;
   asset_api_url?: string;
   html_url: string;
+  /** Why the check failed; the other fields then hold the last known result */
   error?: string;
 }
 

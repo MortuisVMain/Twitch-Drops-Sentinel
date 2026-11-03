@@ -953,6 +953,9 @@ class SentinelSupervisor:
             logger.warning(f"Failed to check for updates (network or timeout): {e}")
             return web.json_response({
                 "has_update": False,
+                "update_available": False,
+                "local_version": APP_VERSION,
+                "remote_version": APP_VERSION,
                 "current_version": APP_VERSION,
                 "latest_version": APP_VERSION,
                 "error": str(e)

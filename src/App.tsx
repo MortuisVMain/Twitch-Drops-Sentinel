@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 import { NavTab, UpdateCheckResult, UpdateProgressStatus } from './types';
 
@@ -170,6 +170,8 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 
 
 // Twitch Drops Sentinel • Author: Mortuis_V / Mortuis_V_Studio
+
+const UPDATE_POLL_MS = 30 * 60 * 1000;
 
 /** Hide the PiP cover and show its emoji fallback. */
 const hidePipCover = (img: HTMLImageElement) => {
@@ -479,6 +481,10 @@ export const App: React.FC = () => {
 
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
 
+  const [updateCheckFailure, setUpdateCheckFailure] = useState<string | null>(null);
+
+  const announcedUpdateRef = useRef<string | null>(null);
+
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
 
   const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
@@ -501,7 +507,12 @@ export const App: React.FC = () => {
 
       setUpdateInfo(data);
 
-      if (data.update_available) {
+      setUpdateCheckFailure(data.error || null);
+
+      // A periodic check announces each version once, so it never reopens a dismissed window
+      if (data.update_available && (force || announcedUpdateRef.current !== data.remote_version)) {
+
+        announcedUpdateRef.current = data.remote_version;
 
         setShowUpdateModal(true);
 
@@ -512,6 +523,7 @@ export const App: React.FC = () => {
     } catch (err) {
 
       console.warn('Could not check for updates:', err);
+      setUpdateCheckFailure(err instanceof Error ? err.message : String(err));
       throw err;
 
     }
@@ -521,7 +533,9 @@ export const App: React.FC = () => {
   const handleManualCheckUpdates = async () => {
     try {
       const result = await checkUpdates(true);
-      if (!result.update_available) {
+      if (result.error) {
+        showToast(`Не удалось проверить обновления: ${result.error}`);
+      } else if (!result.update_available) {
         showToast(`Установлена актуальная версия ${result.local_version}`);
       }
     } catch (error) {
@@ -533,7 +547,23 @@ export const App: React.FC = () => {
 
   useEffect(() => {
 
-    void checkUpdates(false).catch(() => {});
+    const pollUpdates = () => { void checkUpdates(false).catch(() => {}); };
+
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') pollUpdates(); };
+
+    pollUpdates();
+
+    const timer = setInterval(pollUpdates, UPDATE_POLL_MS);
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+
+      clearInterval(timer);
+
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+
+    };
 
   }, []);
 
@@ -1807,6 +1837,7 @@ export const App: React.FC = () => {
               onUnbanStreamer={handleUnbanStreamer}
               onCheckUpdates={handleManualCheckUpdates}
               updateInfo={updateInfo}
+              updateCheckFailure={updateCheckFailure}
               updateProgress={updateProgress}
             />
 
