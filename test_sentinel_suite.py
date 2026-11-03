@@ -12,6 +12,7 @@ Validates:
 7. Hardware Guard & psutil detection
 """
 
+import asyncio
 import os
 import sys
 import json
@@ -2671,12 +2672,29 @@ class _FakeTaskScheduler:
             self.returncode = returncode
 
         async def communicate(self):
+            await asyncio.sleep(0)  # a real process yields here, which is what lets two requests interleave
             return self._stdout, b"Access is denied"
 
-    def __init__(self, exists=False, fail_writes=False, query_broken=False):
+    class _HungProc:
+        returncode = None
+        reaped = False
+
+        async def communicate(self):
+            await asyncio.sleep(3600)
+
+        def kill(self):
+            self.returncode = 1
+
+        async def wait(self):
+            self.reaped = True
+            return self.returncode
+
+    def __init__(self, exists=False, fail_writes=False, query_broken=False, hang_writes=False):
         self.exists = exists
         self.fail_writes = fail_writes
         self.query_broken = query_broken
+        self.hang_writes = hang_writes
+        self.hung_proc = None
         self.writes = []
 
     async def __call__(self, *args, **kwargs):
@@ -2688,9 +2706,14 @@ class _FakeTaskScheduler:
                     "nextRun": None, "lastResult": None, "daysOfWeek": 37 if self.exists else None}
             return self._Proc(json.dumps(info).encode(), 0)
         self.writes.append(script)
+        if self.hang_writes:
+            self.hung_proc = self._HungProc()
+            return self.hung_proc
         if self.fail_writes:
             return self._Proc(b"", 1)
         if "Register-ScheduledTask" in script:
+            if self.exists:  # no -Force: the real cmdlet refuses a task that already exists
+                return self._Proc(b"", 1)
             self.exists = True
         return self._Proc(b"", 0)
 
@@ -2703,6 +2726,8 @@ def test_scheduler_task_is_created_on_a_clean_install():
     from aiohttp import web
 
     original_exec, original_which = gc.asyncio.create_subprocess_exec, gc.shutil.which
+    original_write_timeout = gc.SCHEDULER_WRITE_TIMEOUT_SECONDS
+    original_fgc_path = os.environ.pop("FGC_PATH", None)  # the gate needs the sandbox engine, whatever the machine has set
     gc.shutil.which = lambda name, *a, **k: r"C:\Program Files\nodejs\node.exe"
 
     def run(fake, action):
@@ -2759,6 +2784,30 @@ def test_scheduler_task_is_created_on_a_clean_install():
             except web.HTTPException as exc:
                 assert exc.status >= 400 and json.loads(exc.text)["detail"], exc.text
 
+        # Two quick day clicks on a clean install: the task is created once, the second click updates it
+        async def two_quick_clicks(o):
+            return await asyncio.gather(o.update_scheduler_days(["Monday"]), o.update_scheduler_days(["Monday", "Friday"]))
+
+        fake = _FakeTaskScheduler()
+        run(fake, two_quick_clicks)
+        registers = [w for w in fake.writes if "Register-ScheduledTask" in w]
+        assert len(registers) == 1 and "'Friday'" in fake.writes[-1] and "Set-ScheduledTask" in fake.writes[-1], fake.writes
+
+        # A write that hangs is killed and reaped, and its possibly applied result is not hidden by the cache
+        async def write_times_out(o):
+            try:
+                await o.update_scheduler_days(["Monday"])
+                raise AssertionError("a hung scheduler write must raise")
+            except web.HTTPException as exc:
+                assert json.loads(exc.text)["detail"], exc.text
+            assert o._scheduler_cache[0] == 0.0, "the state cached before the write must not survive it"
+
+        gc.SCHEDULER_WRITE_TIMEOUT_SECONDS = 0.01
+        fake = _FakeTaskScheduler(exists=True, hang_writes=True)
+        run(fake, write_times_out)
+        assert fake.hung_proc.reaped and fake.hung_proc.returncode is not None, "the hung process must be killed and awaited"
+        gc.SCHEDULER_WRITE_TIMEOUT_SECONDS = original_write_timeout
+
         # A scheduler that did not answer is not reported as "no task", and nothing is written blindly
         fake = _FakeTaskScheduler(query_broken=True)
         state = run(fake, lambda o: o._query_scheduler(force=True))
@@ -2781,6 +2830,9 @@ def test_scheduler_task_is_created_on_a_clean_install():
         assert not fake.writes, fake.writes
     finally:
         gc.asyncio.create_subprocess_exec, gc.shutil.which = original_exec, original_which
+        gc.SCHEDULER_WRITE_TIMEOUT_SECONDS = original_write_timeout
+        if original_fgc_path is not None:
+            os.environ["FGC_PATH"] = original_fgc_path
 
     # The interface derives "active" from a task that really exists
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")

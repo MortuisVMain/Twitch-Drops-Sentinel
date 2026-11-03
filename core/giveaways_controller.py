@@ -77,7 +77,8 @@ def bitmask_to_days(mask: Optional[int]) -> List[str]:
 
 FGC_RUN_CEILING_SECONDS = 1800.0  # hard limit for one claim run, including time spent without output
 FGC_SETUP_CEILING_SECONDS = 900.0  # npm install / browser download
-SCHEDULER_WRITE_TIMEOUT_SECONDS = 30.0  # the ScheduledTasks module alone can take seconds to load
+SCHEDULER_QUERY_TIMEOUT_SECONDS = 15.0  # the ScheduledTasks module alone can take seconds to load; a miss blocks writes
+SCHEDULER_WRITE_TIMEOUT_SECONDS = 30.0
 # A scheduled first run also installs the engine, hence the room above the run ceiling
 TASK_TIME_LIMIT_SECONDS = int(FGC_RUN_CEILING_SECONDS + 2 * FGC_SETUP_CEILING_SECONDS)
 TASK_DEFAULT_TIME = "13:30"
@@ -97,6 +98,7 @@ def _scheduler_refusal(error: type[web.HTTPException], detail: str) -> web.HTTPE
 class GiveawaysOrchestrator:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
+        self._scheduler_write_lock = asyncio.Lock()  # read-then-write: two quick clicks must not both see "no task"
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._active_stores: List[str] = []
         self._started_at: Optional[str] = None
@@ -140,7 +142,7 @@ class GiveawaysOrchestrator:
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
                 creationflags=0x08000000  # CREATE_NO_WINDOW
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=SCHEDULER_QUERY_TIMEOUT_SECONDS)
             raw = json.loads(stdout.decode("utf-8", errors="replace").strip())
             raw_mask = raw.get("daysOfWeek")
             mask: Optional[int] = None
@@ -191,8 +193,12 @@ class GiveawaysOrchestrator:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=SCHEDULER_WRITE_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             proc.kill()
+            await proc.wait()
             logger.error(f"Task scheduler write timed out after {SCHEDULER_WRITE_TIMEOUT_SECONDS:.0f}s")
             raise _scheduler_refusal(web.HTTPInternalServerError, "Планировщик Windows не ответил вовремя. Попробуйте ещё раз.")
+        finally:
+            # Even a killed script may have applied the change
+            self._scheduler_cache = (0.0, {})
         if proc.returncode != 0:
             logger.error(f"Task scheduler write failed (exit {proc.returncode}): {stderr.decode('utf-8', errors='replace').strip()}")
             raise _scheduler_refusal(web.HTTPInternalServerError, "Не удалось изменить задание в Планировщике Windows. Подробности в журнале приложения.")
@@ -229,18 +235,19 @@ class GiveawaysOrchestrator:
         logger.info(f"Created scheduler task {TASK_NAME}: days={days}, runner={runner_file}")
 
     async def toggle_scheduler(self, enable: Optional[bool] = None) -> dict:
-        sched = await self._known_scheduler_state()
-        is_active = bool(sched.get("exists")) and sched.get("state") != "Disabled"
-        target_enable = (not is_active) if enable is None else bool(enable)
-        if not sched.get("exists"):
-            if not target_enable:
-                return sched
-            await self._create_task(bitmask_to_days(None))
+        async with self._scheduler_write_lock:
+            sched = await self._known_scheduler_state()
+            is_active = bool(sched.get("exists")) and sched.get("state") != "Disabled"
+            target_enable = (not is_active) if enable is None else bool(enable)
+            if not sched.get("exists"):
+                if not target_enable:
+                    return sched
+                await self._create_task(bitmask_to_days(None))
+                return await self._query_scheduler(force=True)
+            cmd = "Enable-ScheduledTask" if target_enable else "Disable-ScheduledTask"
+            await self._run_scheduler_write(f"{cmd} -TaskName '{TASK_NAME}' | Out-Null")
+            logger.info(f"Task scheduler {TASK_NAME} set to: {'Enabled' if target_enable else 'Disabled'}")
             return await self._query_scheduler(force=True)
-        cmd = "Enable-ScheduledTask" if target_enable else "Disable-ScheduledTask"
-        await self._run_scheduler_write(f"{cmd} -TaskName '{TASK_NAME}' | Out-Null")
-        logger.info(f"Task scheduler {TASK_NAME} set to: {'Enabled' if target_enable else 'Disabled'}")
-        return await self._query_scheduler(force=True)
 
     async def update_scheduler_days(self, days: List[str]) -> dict:
         """
@@ -253,23 +260,24 @@ class GiveawaysOrchestrator:
             logger.info("All scheduler days unselected; disabling scheduled task.")
             return await self.toggle_scheduler(enable=False)
 
-        sched = await self._known_scheduler_state()
-        if not sched.get("exists"):
-            await self._create_task(valid_days)
-            return await self._query_scheduler(force=True)
+        async with self._scheduler_write_lock:
+            sched = await self._known_scheduler_state()
+            if not sched.get("exists"):
+                await self._create_task(valid_days)
+                return await self._query_scheduler(force=True)
 
-        days_quoted = ",".join(f"'{d}'" for d in valid_days)
-        ps_script = (
-            f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}'; "
-            f"$sb = $t.Triggers[0].StartBoundary; "
-            f"$timeStr = if ($sb) {{ ([datetime]::Parse($sb)).ToString('HH:mm') }} else {{ '{TASK_DEFAULT_TIME}' }}; "
-            f"$newTr = New-ScheduledTaskTrigger -Weekly -DaysOfWeek @({days_quoted}) -At $timeStr; "
-            f"Set-ScheduledTask -TaskName '{TASK_NAME}' -Trigger $newTr | Out-Null; "
-            f"if ($t.State -eq 'Disabled') {{ Enable-ScheduledTask -TaskName '{TASK_NAME}' | Out-Null }}"
-        )
-        await self._run_scheduler_write(ps_script)
-        logger.info(f"Updated scheduler {TASK_NAME} days to: {valid_days}")
-        return await self._query_scheduler(force=True)
+            days_quoted = ",".join(f"'{d}'" for d in valid_days)
+            ps_script = (
+                f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}'; "
+                f"$sb = $t.Triggers[0].StartBoundary; "
+                f"$timeStr = if ($sb) {{ ([datetime]::Parse($sb)).ToString('HH:mm') }} else {{ '{TASK_DEFAULT_TIME}' }}; "
+                f"$newTr = New-ScheduledTaskTrigger -Weekly -DaysOfWeek @({days_quoted}) -At $timeStr; "
+                f"Set-ScheduledTask -TaskName '{TASK_NAME}' -Trigger $newTr | Out-Null; "
+                f"if ($t.State -eq 'Disabled') {{ Enable-ScheduledTask -TaskName '{TASK_NAME}' | Out-Null }}"
+            )
+            await self._run_scheduler_write(ps_script)
+            logger.info(f"Updated scheduler {TASK_NAME} days to: {valid_days}")
+            return await self._query_scheduler(force=True)
 
     def _read_inventory_sync(self, force: bool = False) -> Tuple[Dict[str, dict], List[dict]]:
         fgc_dir = resolve_fgc_root()
