@@ -4,7 +4,7 @@
 // Permanently free-to-play games are not claimed (excluded via `hidef2p=1`).
 
 import { launchContext } from './src/browser.js';
-import { jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT, loginHint, markSignedIn } from './src/util.js';
+import { jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import chalk from 'chalk';
 
@@ -64,6 +64,7 @@ const isSignedIn = async () => await page.locator('#account_pulldown').count() >
 // so use accessible names instead of the generated class names
 const signIn = async () => {
   console.error('Not signed in anymore.');
+  await markSignedOut('steam');
   await page.goto(URL_LOGIN, { waitUntil: 'domcontentloaded' });
   if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give the user extra time to log in
   console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
@@ -98,8 +99,12 @@ const signIn = async () => {
       console.log(useEmailCode ? 'Steam Guard - Enter the code sent to your email.' : 'Steam Guard - Enter the code from your mobile authenticator.');
       const code = await prompt({ message: 'Enter Steam Guard code' });
       const field = useEmailCode ? emailCode : twoFactor;
-      await field.fill(code);
-      await field.press('Enter');
+      if (code) {
+        await field.fill(code);
+        await field.press('Enter');
+      } else {
+        console.log('[SENTINEL] Введите код Steam Guard в окне браузера.'); // no terminal to answer in: the wait below covers the manual input
+      }
     } else if (!await isSignedIn()) {
       console.log('No code requested - approve the logon in your Steam mobile app. Waiting until signed in...');
     }

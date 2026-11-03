@@ -4921,7 +4921,7 @@ var require_main = __commonJS({
 import path from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { format } from "node:util";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, rmSync } from "node:fs";
 
 // node_modules/lowdb/lib/adapters/node/TextFile.js
 import { readFile } from "node:fs/promises";
@@ -5215,11 +5215,22 @@ var timeoutPlugin = (timeout) => (enquirer2) => {
   });
 };
 enquirer.use(timeoutPlugin(cfg.login_timeout));
-var markSignedIn = async (store, account) => {
-  const sessions = await jsonDb("sessions.json", {});
-  sessions.data[store] = account;
-  await sessions.write();
+var writeSession = async (store, entry) => {
+  try {
+    const sessions = await jsonDb("sessions.json", {}).catch((error) => {
+      if (!(error instanceof SyntaxError)) throw error;
+      console.error(`[SENTINEL] Replacing damaged sessions.json: ${error.message}`);
+      rmSync(dataDir("sessions.json"), { force: true });
+      return jsonDb("sessions.json", {});
+    });
+    sessions.data[store] = entry;
+    await sessions.write();
+  } catch (error) {
+    console.error(`[SENTINEL] Could not save the login state of ${store} to sessions.json: ${error.message}`);
+  }
 };
+var markSignedIn = (store, account) => writeSession(store, { account, confirmedAt: Date.now() });
+var markSignedOut = (store) => writeSession(store, { account: null });
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -5408,13 +5419,23 @@ if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 var page = context.pages().length ? context.pages()[0] : await context.newPage();
 await page.setViewportSize({ width: cfg.width, height: cfg.height });
 try {
+  let storeUser = null;
+  page.on("response", async (response) => {
+    if (!response.url().includes("/api/graphql/batch")) return;
+    const batch = await response.json().catch(() => null);
+    const answered = Array.isArray(batch) && batch.map((entry) => entry?.data?.user).find(Boolean);
+    if (answered) storeUser = answered;
+  });
+  const isSignedIn = () => Boolean(storeUser) && String(storeUser.id) !== "0";
   console.log("Checking Unity ID login status...");
-  await page.goto("https://assetstore.unity.com/account/cart", { waitUntil: "domcontentloaded", timeout: 35e3 });
+  const URL_CART = "https://assetstore.unity.com/account/cart";
+  await page.goto(URL_CART, { waitUntil: "domcontentloaded", timeout: 35e3 });
   await page.waitForTimeout(3e3);
   page.locator('button:has-text("Accept All Cookies"), button:has-text("\u041E\u0434\u043E\u0431\u0440\u0438\u0442\u044C \u0432\u0441\u0435")').first().click().catch(() => {
   });
-  const isLoggedOut = async () => page.url().includes("id.unity.com") || page.url().includes("login.unity.com") || await page.locator('button:has-text("Sign in"), button:has-text("Sign up"), a:has-text("Sign in"), input#email, input[name="email"]').count() > 0;
-  if (await isLoggedOut()) {
+  for (let waited = 0; !storeUser && waited < 1e4; waited += 500) await page.waitForTimeout(500);
+  if (!isSignedIn()) {
+    await markSignedOut("unity");
     const loginPrompt = "Not signed in to Unity ID. Run with --show to login: ClaimGames.cmd --show --claim unity";
     console.warn(`[WARN] ${loginPrompt}`);
     if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
@@ -5423,18 +5444,21 @@ try {
       await context.close();
       process.exit(0);
     } else {
-      console.log("[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 (\u043A\u043D\u043E\u043F\u043A\u0430 Sign in \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 Unity). \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C 3 \u043C\u0438\u043D.");
+      await page.goto("https://assetstore.unity.com/", { waitUntil: "domcontentloaded", timeout: 35e3 });
+      console.log("[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 (\u0437\u043D\u0430\u0447\u043E\u043A \u043F\u0440\u043E\u0444\u0438\u043B\u044F \u0432\u0432\u0435\u0440\u0445\u0443 \u0441\u043F\u0440\u0430\u0432\u0430 \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 Unity). \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C 3 \u043C\u0438\u043D.");
       const deadline = Date.now() + (cfg.login_timeout || 18e4);
-      for (let signedInChecks = 0; signedInChecks < 2; ) {
+      let leftStore = false;
+      while (!isSignedIn()) {
         if (page.isClosed() || Date.now() >= deadline) throw new Error("Unity ID: not signed in (window closed or timeout).");
-        await page.waitForTimeout(2e3);
-        const signedIn = page.url().includes("assetstore.unity.com") && !await isLoggedOut().catch(() => true);
-        signedInChecks = signedIn ? signedInChecks + 1 : 0;
+        await page.waitForTimeout(1e3);
+        const onStore = page.url().includes("assetstore.unity.com");
+        if (onStore && leftStore) await page.goto(URL_CART, { waitUntil: "domcontentloaded", timeout: 35e3 });
+        leftStore = !onStore;
       }
       console.log("Login detected! Continuing to asset discovery...");
     }
   }
-  await markSignedIn("unity", "Unity ID");
+  await markSignedIn("unity", storeUser.name || "Unity ID");
   console.log("Navigating to Publisher Sale page: https://assetstore.unity.com/publisher-sale ...");
   await page.goto("https://assetstore.unity.com/publisher-sale", { waitUntil: "domcontentloaded", timeout: 45e3 });
   await page.waitForTimeout(3e3);

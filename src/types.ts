@@ -156,6 +156,7 @@ export interface StoreTelemetry {
   lastClaimedAt: string | null;
   dbFileExists: boolean;
   account?: string | null;
+  loginConfirmedAt?: number | null;
 }
 
 export interface SchedulerTelemetry {

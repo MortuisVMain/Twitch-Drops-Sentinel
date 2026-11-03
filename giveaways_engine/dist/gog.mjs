@@ -5530,7 +5530,7 @@ var source_default = chalk;
 import path2 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { format } from "node:util";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, rmSync } from "node:fs";
 
 // node_modules/lowdb/lib/adapters/node/TextFile.js
 import { readFile } from "node:fs/promises";
@@ -5831,11 +5831,22 @@ var loginHint = () => {
   if (process.stdin.isTTY) return "Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).";
   return cfg.headless ? "[SENTINEL] \u0412\u0445\u043E\u0434 \u0432 \u043C\u0430\u0433\u0430\u0437\u0438\u043D \u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D: \u043D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u0412\u043E\u0439\u0442\u0438 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\xBB \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0420\u0430\u0437\u0434\u0430\u0447\u0438\xBB." : `[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430. \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C ${cfg.login_timeout / 6e4} \u043C\u0438\u043D.`;
 };
-var markSignedIn = async (store, account) => {
-  const sessions = await jsonDb("sessions.json", {});
-  sessions.data[store] = account;
-  await sessions.write();
+var writeSession = async (store, entry) => {
+  try {
+    const sessions = await jsonDb("sessions.json", {}).catch((error) => {
+      if (!(error instanceof SyntaxError)) throw error;
+      console.error(`[SENTINEL] Replacing damaged sessions.json: ${error.message}`);
+      rmSync(dataDir("sessions.json"), { force: true });
+      return jsonDb("sessions.json", {});
+    });
+    sessions.data[store] = entry;
+    await sessions.write();
+  } catch (error) {
+    console.error(`[SENTINEL] Could not save the login state of ${store} to sessions.json: ${error.message}`);
+  }
 };
+var markSignedIn = (store, account) => writeSession(store, { account, confirmedAt: Date.now() });
+var markSignedOut = (store) => writeSession(store, { account: null });
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -5974,6 +5985,7 @@ try {
       break;
     }
     console.error("Not signed in anymore.");
+    await markSignedOut("gog");
     await signIn.waitFor({ timeout: 1e4 }).catch((_) => {
     });
     if (await signIn.count() == 0) {

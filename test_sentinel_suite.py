@@ -2662,7 +2662,7 @@ def test_giveaways_without_node_explains_what_is_missing():
     assert orch._proc is None, "nothing may be left running after the refusal"
 
 
-def _run_store_login(script, page_code):
+def _run_store_login(script, page_code, extra_env=None, seed=None):
     """Runs the shipped dist/<script> the way the app does (visible browser, stdin at EOF) against a stub browser engine."""
     engine = Path(tempfile.mkdtemp(prefix="login_check_", dir=SANDBOX))
     shutil.copytree(WORKSPACE / "giveaways_engine" / "dist", engine / "dist")
@@ -2679,11 +2679,14 @@ def _run_store_login(script, page_code):
           "} };\n",
         encoding="utf-8",
     )
-    env = {**os.environ, "SHOW": "1", "FGC_MINIMIZE": "0", "LOGIN_TIMEOUT": "2", "NOTIFY": ""}
+    if seed is not None:
+        (engine / "data").mkdir()
+        seed(engine / "data" / "sessions.json")
+    env = {**os.environ, "SHOW": "1", "FGC_MINIMIZE": "0", "LOGIN_TIMEOUT": "2", "NOTIFY": "", **(extra_env or {})}
     res = subprocess.run(["node", str(engine / "dist" / script)], cwd=engine, env=env, stdin=subprocess.DEVNULL,
                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
     sessions = engine / "data" / "sessions.json"
-    return res, (json.loads(sessions.read_text(encoding="utf-8")) if sessions.exists() else {})
+    return res, (json.loads(sessions.read_text(encoding="utf-8")) if sessions.is_file() else {})
 
 
 def test_store_login_finishes_without_a_terminal():
@@ -2705,7 +2708,8 @@ def test_store_login_finishes_without_a_terminal():
     assert "ERR_USE_AFTER_CLOSE" not in output, f"a terminal prompt killed the login window:\n{output[-800:]}"
     assert res.returncode == 0, f"steam login run failed ({res.returncode}):\n{output[-800:]}"
     assert "Press ESC" not in output, "the app log must not talk about a terminal the user does not have"
-    assert sessions.get("steam") == "steam_tester", f"a finished login must be remembered, got {sessions}"
+    assert sessions.get("steam", {}).get("account") == "steam_tester", f"a finished login must be remembered, got {sessions}"
+    assert sessions["steam"].get("confirmedAt"), f"the UI compares this with the start of the attempt, got {sessions}"
 
     # Fab has its own login check: it must wait for the user instead of failing right after the window opens.
     fab_page = (
@@ -2719,23 +2723,132 @@ def test_store_login_finishes_without_a_terminal():
     )
     res, sessions = _run_store_login("fab.mjs", fab_page)
     output = res.stdout + res.stderr
-    assert "fab" in sessions, f"Fab must wait for the login in the browser window, got {sessions}:\n{output[-800:]}"
+    assert sessions.get("fab", {}).get("account"), f"Fab must wait for the login in the browser window, got {sessions}:\n{output[-800:]}"
 
-    # Unity stays on the store page while signed out: only the sign-in controls tell, the address does not.
-    unity_page = (
+    # Unity: the page asks its API who is signed in. The newsletter "Sign up" button is on the page either way.
+    def unity_page(user_code):
+        return (
+            "const started = Date.now();\n"
+            "const handlers = [];\n"
+            f"const currentUser = () => ({user_code});\n"
+            "const answer = () => { const user = currentUser(); if (user) handlers.forEach(h => h({\n"
+            "  url: () => 'https://assetstore.unity.com/api/graphql/batch', json: async () => [{ data: { user } }] })); };\n"
+            "const page = {\n"
+            "  on: (name, handler) => { if (name === 'response') handlers.push(handler); },\n"
+            "  goto: async () => answer(), waitForTimeout: async ms => { await new Promise(r => setTimeout(r, Math.min(ms, 100))); answer(); },\n"
+            "  setViewportSize: async () => {}, addStyleTag: async () => {}, isClosed: () => false,\n"
+            "  url: () => 'https://assetstore.unity.com/',\n"
+            "  locator: () => ({ count: async () => 1, first: () => ({ click: async () => {}, isVisible: async () => false }) }),\n"
+            "};"
+        )
+
+    res, sessions = _run_store_login("unity.mjs", unity_page("{ id: '0', name: 'Anonymous' }"))
+    output = res.stdout + res.stderr
+    assert not sessions.get("unity", {}).get("account") and "Login detected" not in output, f"nobody signed in to Unity, got {sessions}:\n{output[-800:]}"
+    res, sessions = _run_store_login("unity.mjs", unity_page("null"))
+    output = res.stdout + res.stderr
+    assert not sessions.get("unity", {}).get("account"), f"a page that never answered proves no login, got {sessions}:\n{output[-800:]}"
+    res, sessions = _run_store_login("unity.mjs", unity_page("Date.now() - started < 500 ? { id: '0', name: 'Anonymous' } : { id: '42', name: 'unity_tester' }"))
+    output = res.stdout + res.stderr
+    assert sessions.get("unity", {}).get("account") == "unity_tester", f"a finished Unity login must be noticed, got {sessions}:\n{output[-800:]}"
+
+    # Measured on the real site: only /account/cart asks for the user, the home page where the sign-in starts does not.
+    unity_round_trip = (
+        "const started = Date.now();\n"
+        "const elapsed = () => Date.now() - started;\n"
+        "const handlers = [];\n"
+        "let visited = 'https://assetstore.unity.com/account/cart';\n"
         "const page = {\n"
-        "  goto: async () => {}, waitForTimeout: async () => {}, setViewportSize: async () => {}, addStyleTag: async () => {},\n"
-        "  isClosed: () => false, url: () => 'https://assetstore.unity.com/',\n"
-        "  locator: () => ({ count: async () => 1, first: () => ({ click: async () => {} }) }),\n"
+        "  on: (name, handler) => { if (name === 'response') handlers.push(handler); },\n"
+        "  goto: async url => {\n"
+        "    visited = url;\n"
+        "    if (!url.includes('/account/cart')) return;\n"
+        "    const user = elapsed() < 800 ? { id: '0', name: 'Anonymous' } : { id: '42', name: 'unity_tester' };\n"
+        "    handlers.forEach(h => h({ url: () => 'https://assetstore.unity.com/api/graphql/batch', json: async () => [{ data: { user } }] }));\n"
+        "  },\n"
+        "  waitForTimeout: async ms => new Promise(r => setTimeout(r, Math.min(ms, 100))),\n"
+        "  setViewportSize: async () => {}, addStyleTag: async () => {}, isClosed: () => false,\n"
+        "  url: () => (elapsed() > 300 && elapsed() < 800 ? 'https://id.unity.com/login' : visited),\n"
+        "  locator: () => ({ count: async () => 1, first: () => ({ click: async () => {}, isVisible: async () => false }) }),\n"
         "};"
     )
-    res, sessions = _run_store_login("unity.mjs", unity_page)
+    res, sessions = _run_store_login("unity.mjs", unity_round_trip)
     output = res.stdout + res.stderr
-    assert "unity" not in sessions and "Login detected" not in output, f"nobody signed in to Unity, got {sessions}:\n{output[-800:]}"
-    unity_login = unity_page.replace("count: async () => 1", "count: async () => (Date.now() - started < 500 ? 1 : 0)")
-    res, sessions = _run_store_login("unity.mjs", "const started = Date.now();\n" + unity_login)
+    assert sessions.get("unity", {}).get("account") == "unity_tester", f"coming back from Unity ID must be checked on the page that answers, got {sessions}:\n{output[-800:]}"
+
+
+def test_login_state_follows_the_latest_attempt():
+    print("[friend-report review] Login state: sign-out, Steam Guard in the browser, broken sessions.json...")
+    if shutil.which("node") is None:
+        print("      SKIP: Node.js is missing, the store scripts cannot run")
+        return
+    signed_out_steam = (
+        "const page = {\n"
+        "  goto: async () => {}, $$eval: async () => [], waitForSelector: async () => {},\n"
+        "  locator: () => ({ count: async () => 0, textContent: async () => { throw new Error('Timeout: nobody signed in'); } }),\n"
+        "};"
+    )
+    earlier_login = lambda path: path.write_text('{"steam": {"account": "old_account", "confirmedAt": 1}}', encoding="utf-8")
+    res, sessions = _run_store_login("steam.mjs", signed_out_steam, seed=earlier_login)
+    assert sessions.get("steam", {}).get("account", "kept") is None, f"a signed-out store must forget the old account, got {sessions}"
+    assert "confirmedAt" not in sessions["steam"], f"nothing was confirmed, got {sessions}"
+
+    # Credentials from the environment, Steam then asks for a Steam Guard code: only the browser window can answer it.
+    # fill(undefined) throws the same way in real Patchright: "locator.fill: value: expected string, got undefined"
+    steam_guard = (
+        "let signedIn = false;\n"
+        "const field = { fill: async v => { if (typeof v !== 'string') throw new Error('locator.fill: value: expected string, got undefined'); }, click: async () => {} };\n"
+        "const page = {\n"
+        "  goto: async () => {}, $$eval: async () => [], waitForSelector: async () => { signedIn = true; },\n"
+        "  getByLabel: () => field, getByRole: () => field,\n"
+        "  locator: s => ({\n"
+        "    count: async () => (s === '#account_pulldown' && signedIn ? 1 : 0), textContent: async () => 'guard_tester',\n"
+        "    waitFor: async () => {}, isVisible: async () => s === '#authcode', fill: field.fill, press: async () => {},\n"
+        "  }),\n"
+        "};"
+    )
+    res, sessions = _run_store_login("steam.mjs", steam_guard, extra_env={"STEAM_USERNAME": "fixture_name", "STEAM_PASSWORD": "fixture_value"})
     output = res.stdout + res.stderr
-    assert "unity" in sessions, f"a finished Unity login must be noticed, got {sessions}:\n{output[-800:]}"
+    assert res.returncode == 0 and "expected string" not in output, f"a Steam Guard code without a terminal must not fail the run:\n{output[-800:]}"
+    assert sessions.get("steam", {}).get("account") == "guard_tester", f"got {sessions}"
+
+    signed_in_steam = (
+        "const page = {\n"
+        "  goto: async () => {}, $$eval: async () => [], waitForSelector: async () => {},\n"
+        "  locator: () => ({ count: async () => 1, textContent: async () => 'steam_tester' }),\n"
+        "};"
+    )
+    res, sessions = _run_store_login("steam.mjs", signed_in_steam, seed=lambda path: path.write_text("{broken", encoding="utf-8"))
+    output = res.stdout + res.stderr
+    assert res.returncode == 0, f"a broken sessions.json must not fail the run:\n{output[-800:]}"
+    assert sessions.get("steam", {}).get("account") == "steam_tester", f"a broken sessions.json must recover, got {sessions}"
+    assert "sessions.json" in output, "the broken file must be logged"
+
+    res, _ = _run_store_login("steam.mjs", signed_in_steam, seed=lambda path: path.mkdir())  # stands in for a file that cannot be written
+    output = res.stdout + res.stderr
+    assert res.returncode == 0, f"a failed write must not fail the run:\n{output[-800:]}"
+    assert "sessions.json" in output and "steam" in output, f"a failed write must be logged with context:\n{output[-800:]}"
+
+    # The tab judges this attempt, not whether some account is known from before.
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "loginAttemptSucceeded(" in view, "GiveawaysView must judge the login by this attempt"
+    if not esbuild.exists():
+        print("      (esbuild not available: login attempt rule skipped)")
+        return
+    out_dir = Path(tempfile.mkdtemp(prefix="login_attempt_", dir=SANDBOX))
+    bundle = out_dir / "loginAttempt.mjs"
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "loginAttempt.ts"), "--bundle", "--format=esm", f"--outfile={bundle}"],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    check = out_dir / "check.mjs"
+    check.write_text(
+        "import { loginAttemptSucceeded as ok } from './loginAttempt.mjs';\n"
+        "console.log(JSON.stringify([ok({ account: 'old', loginConfirmedAt: 100 }, 200), ok({ account: 'old', loginConfirmedAt: 300 }, 200),\n"
+        "  ok({ account: 'old' }, 200), ok(undefined, 200)]));\n", encoding="utf-8")
+    res = subprocess.run(["node", str(check)], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout) == [False, True, False, False], res.stdout
 
 
 def test_store_card_shows_login_even_with_nothing_claimed():
@@ -2744,7 +2857,7 @@ def test_store_card_shows_login_even_with_nothing_claimed():
     import giveaways_controller as gc
     engine = Path(tempfile.mkdtemp(prefix="cards_", dir=SANDBOX))
     (engine / "data").mkdir()
-    (engine / "data" / "sessions.json").write_text('{"steam": "steam_tester"}', encoding="utf-8")
+    (engine / "data" / "sessions.json").write_text('{"steam": {"account": "steam_tester", "confirmedAt": 5}}', encoding="utf-8")
     (engine / "data" / "steam.json").write_text('{"steam_tester": {}}', encoding="utf-8")
     # Signed-out run of Fab/Unity/itch.io leaves a placeholder account behind: that is not a login
     (engine / "data" / "fab.json").write_text('{"default": {}}', encoding="utf-8")
@@ -2760,10 +2873,35 @@ def test_store_card_shows_login_even_with_nothing_claimed():
         assert stores["gog"]["account"] == "gog_tester", stores["gog"]
         assert stores["epic"]["account"] is None, stores["epic"]
         # the card must flip during the run, without a forced refresh
-        (engine / "data" / "sessions.json").write_text('{"steam": "steam_tester", "epic": "epic_tester"}', encoding="utf-8")
-        os.utime(engine / "data" / "sessions.json", (time.time() + 5, time.time() + 5))
+        sessions_file = engine / "data" / "sessions.json"
+        sessions_file.write_text('{"steam": {"account": "steam_tester"}, "epic": {"account": "epic_tester"}}', encoding="utf-8")
+        os.utime(sessions_file, (time.time() + 5, time.time() + 5))
         stores, _ = orch._read_inventory_sync(force=False)
         assert stores["epic"]["account"] == "epic_tester", stores["epic"]
+        assert stores["steam"]["loginConfirmedAt"] is None, stores["steam"]
+        # Signed out after an earlier login: claimed games must not bring the old account back
+        sessions_file.write_text('{"gog": {"account": null}}', encoding="utf-8")
+        os.utime(sessions_file, (time.time() + 10, time.time() + 10))
+        stores, _ = orch._read_inventory_sync(force=False)
+        assert stores["gog"]["account"] is None, stores["gog"]
+        # A BOM is not damage
+        sessions_file.write_bytes(b'\xef\xbb\xbf{"epic": {"account": "bom_tester", "confirmedAt": 7}}')
+        os.utime(sessions_file, (time.time() + 15, time.time() + 15))
+        stores, _ = orch._read_inventory_sync(force=False)
+        assert stores["epic"]["account"] == "bom_tester" and stores["epic"]["loginConfirmedAt"] == 7, stores["epic"]
+        # A broken file means "nothing known", not a crash
+        sessions_file.write_text("{broken", encoding="utf-8")
+        os.utime(sessions_file, (time.time() + 20, time.time() + 20))
+        stores, _ = orch._read_inventory_sync(force=False)
+        assert stores["epic"]["account"] is None and stores["gog"]["account"] == "gog_tester", stores["gog"]
+        # A removed file is noticed without a forced refresh
+        sessions_file.write_text('{"epic": {"account": "epic_tester"}}', encoding="utf-8")
+        os.utime(sessions_file, (time.time() + 25, time.time() + 25))
+        stores, _ = orch._read_inventory_sync(force=False)
+        assert stores["epic"]["account"] == "epic_tester", stores["epic"]
+        sessions_file.unlink()
+        stores, _ = orch._read_inventory_sync(force=False)
+        assert stores["epic"]["account"] is None, stores["epic"]
     finally:
         gc.resolve_fgc_root = original
 
@@ -2922,6 +3060,7 @@ if __name__ == "__main__":
         test_cover_search_names_and_non_game_filter,
         test_giveaways_without_node_explains_what_is_missing,
         test_store_login_finishes_without_a_terminal,
+        test_login_state_follows_the_latest_attempt,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_missing_webview2_runtime_has_an_explanation,
         test_login_code_copy_and_activate_link,

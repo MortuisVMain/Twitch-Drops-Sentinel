@@ -1,6 +1,6 @@
 import { launchContext } from './src/browser.js';
 import chalk from 'chalk';
-import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT, loginHint, markSignedIn } from './src/util.js';
+import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'gog', ...a);
@@ -133,6 +133,7 @@ try {
       break;
     }
     console.error('Not signed in anymore.');
+    await markSignedOut('gog');
     // The header is rendered by JS, so allow a short, targeted wait for the sign in button to appear
     await signIn.waitFor({ timeout: 10000 }).catch(_ => { });
     if (await signIn.count() == 0) {

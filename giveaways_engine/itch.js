@@ -1,7 +1,7 @@
 // Itch.io 100% off game claimer
 // Automatically discovers and claims limited-time 100% discount promotional games to user's Itch.io library.
 
-import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 
@@ -84,6 +84,7 @@ async function main() {
     const isLoggedOut = page.url().includes('/login') || (await page.locator('a[href*="/login"], button:has-text("Log in")').count()) > 0;
 
     if (isLoggedOut) {
+      await markSignedOut('itch');
       const loginPrompt = 'Not signed in to Itch.io. Run with --show to login: ClaimGames.cmd --show --claim itch';
       console.warn(`[WARN] ${loginPrompt}`);
       if (!cfg.show || process.env.FGC_MINIMIZE == '1') {

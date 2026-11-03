@@ -22,14 +22,16 @@ On top of that, the card showed an account only when `total_items > 0`, so a suc
 
 ## Fix
 - `prompt()` answers immediately without a TTY; the login happens in the browser window. `loginHint()` replaces the terminal instructions.
-- Stores record a confirmed login in `giveaways_engine/data/sessions.json` via `markSignedIn()`; the controller reads it for the card. Older installs still get the account from claimed games.
-- Fab and Unity poll for a real login. Unity needs the sign-in controls gone twice in a row on the store page. Steam exits at once in background mode, like the other stores.
-- The UI shows refusals and a hint during the login, and says so when a login run ends without an account.
+- Stores record what they see in `giveaways_engine/data/sessions.json`: `{account, confirmedAt}` after a login (`markSignedIn()`), `{account: null}` when signed out (`markSignedOut()`). The controller reads it for the card. Claimed games only name the account while the engine has not reported the store yet (older installs), so a sign-out does not bring the old account back. A write failure is logged and never stops the run; a damaged file is replaced, because it only holds what the next run finds out again.
+- Fab polls for a real login. Steam exits at once in background mode, like the other stores.
+- Unity trusts only the store's own answer: `/account/cart` requests `CurrentUser` through `/api/graphql/batch`, and signed out that returns `{id: "0", name: "Anonymous"}`. The old check looked for sign-in controls, but its selector matches the newsletter "Sign up" button and e-mail input that are on the page for everyone. The home page does not send this request, so after coming back from Unity ID the script opens the cart page to read the answer.
+- A Steam Guard code without a terminal goes through the browser window: `locator.fill(undefined)` really throws (`value: expected string, got undefined`).
+- The UI shows refusals and a hint during the login. It judges the login by this attempt (`loginConfirmedAt` not older than the click, `src/utils/loginAttempt.ts`), not by an account known from before, and says so when the attempt failed.
 
 After changing engine sources, rebuild `giveaways_engine/dist`: `runner.js` prefers it over the sources. With `node_modules` as a junction, pass `--preserve-symlinks` to esbuild or the bundle comments pick up relative paths.
 
 ## Tests
-`test_store_login_finishes_without_a_terminal` runs the shipped `dist/*.mjs` at stdin EOF against a stub `patchright`. A stub missing a page method makes a script throw before the code under test: check that the test can fail. `test_store_card_shows_login_even_with_nothing_claimed` covers the card.
+`test_store_login_finishes_without_a_terminal` runs the shipped `dist/*.mjs` at stdin EOF against a stub `patchright`. A stub missing a page method makes a script throw before the code under test: check that the test can fail. `test_login_state_follows_the_latest_attempt` covers sign-out after a login, Steam Guard and a broken or unwritable file. `test_store_card_shows_login_even_with_nothing_claimed` covers the card. Check stubs against the real site: the Unity stub first answered on every page, and only a run against the real home page showed that it does not.
 
 ## Not verified
-A real login to each store: it needs real accounts. Prime's `waitForURL(.../claims/home?signedIn=true)` and Epic's exact redirect are the likeliest to break next.
+A real login to each store: it needs real accounts. Prime's `waitForURL(.../claims/home?signedIn=true)` and Epic's exact redirect are the likeliest to break next. For Unity, only the signed-out answer was seen; that a signed-in user gets another `id` from the same request, and that the login returns in the same tab, are assumptions. If they are wrong, the login is reported as failed, not falsely as done.

@@ -4921,7 +4921,7 @@ var require_main = __commonJS({
 import path from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { format } from "node:util";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, rmSync } from "node:fs";
 
 // node_modules/lowdb/lib/adapters/node/TextFile.js
 import { readFile } from "node:fs/promises";
@@ -5215,11 +5215,22 @@ var timeoutPlugin = (timeout) => (enquirer2) => {
   });
 };
 enquirer.use(timeoutPlugin(cfg.login_timeout));
-var markSignedIn = async (store, account) => {
-  const sessions = await jsonDb("sessions.json", {});
-  sessions.data[store] = account;
-  await sessions.write();
+var writeSession = async (store, entry) => {
+  try {
+    const sessions = await jsonDb("sessions.json", {}).catch((error) => {
+      if (!(error instanceof SyntaxError)) throw error;
+      console.error(`[SENTINEL] Replacing damaged sessions.json: ${error.message}`);
+      rmSync(dataDir("sessions.json"), { force: true });
+      return jsonDb("sessions.json", {});
+    });
+    sessions.data[store] = entry;
+    await sessions.write();
+  } catch (error) {
+    console.error(`[SENTINEL] Could not save the login state of ${store} to sessions.json: ${error.message}`);
+  }
 };
+var markSignedIn = (store, account) => writeSession(store, { account, confirmedAt: Date.now() });
+var markSignedOut = (store) => writeSession(store, { account: null });
 var notify = (html) => new Promise((resolve2, reject) => {
   if (!cfg.notify) {
     if (cfg.debug) console.debug("notify: NOTIFY is not set!");
@@ -5447,6 +5458,7 @@ async function main() {
     await page.waitForTimeout(3e3);
     const isLoggedOut = page.url().includes("/login") || await page.locator('a[href*="/login"], button:has-text("Log in")').count() > 0;
     if (isLoggedOut) {
+      await markSignedOut("itch");
       const loginPrompt = "Not signed in to Itch.io. Run with --show to login: ClaimGames.cmd --show --claim itch";
       console.warn(`[WARN] ${loginPrompt}`);
       if (!cfg.show || process.env.FGC_MINIMIZE == "1") {

@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { format } from 'node:util';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, rmSync } from 'node:fs';
 // not the same since these will give the absolute paths for this file instead of for the file using them
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,12 +73,27 @@ export const loginHint = () => {
     : `[SENTINEL] Войдите в аккаунт в открывшемся окне браузера. Если окна не видно, найдите его на панели задач. На вход есть ${cfg.login_timeout / 60000} мин.`;
 };
 
-// The store card shows this login; the per-store databases only learn about an account once something was claimed.
-export const markSignedIn = async (store, account) => {
-  const sessions = await jsonDb('sessions.json', {});
-  sessions.data[store] = account;
-  await sessions.write();
+// A login state that cannot be saved must not cost the user the run: the card is only wrong until the next run.
+const writeSession = async (store, entry) => {
+  try {
+    const sessions = await jsonDb('sessions.json', {}).catch(error => {
+      if (!(error instanceof SyntaxError)) throw error;
+      // Only holds what the next run finds out again, so a damaged file is safe to replace
+      console.error(`[SENTINEL] Replacing damaged sessions.json: ${error.message}`);
+      rmSync(dataDir('sessions.json'), { force: true });
+      return jsonDb('sessions.json', {});
+    });
+    sessions.data[store] = entry;
+    await sessions.write();
+  } catch (error) {
+    console.error(`[SENTINEL] Could not save the login state of ${store} to sessions.json: ${error.message}`);
+  }
 };
+// The store card shows this login; the per-store databases only learn about an account once something was claimed.
+// confirmedAt lets the UI tell this login attempt from an earlier one.
+export const markSignedIn = (store, account) => writeSession(store, { account, confirmedAt: Date.now() });
+// Keeps the entry: it also stops the card from falling back to the account of already claimed games.
+export const markSignedOut = store => writeSession(store, { account: null });
 
 // notifications via apprise CLI
 import { execFile } from 'child_process';

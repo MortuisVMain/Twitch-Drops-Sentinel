@@ -38,7 +38,7 @@ FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
 CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
 TASK_NAME = "FreeGamesClaimerStudio"
-SESSIONS_FILE = "sessions.json"  # store -> account of the last confirmed login, written by the engine
+SESSIONS_FILE = "sessions.json"  # store -> last login state the engine saw: {account, confirmedAt} or {account: null}
 
 STORE_FILE_MAP: Dict[str, str] = {
     "epic": "epic-games.json",
@@ -220,16 +220,18 @@ class GiveawaysOrchestrator:
         self._scheduler_cache = (0.0, {})
         return await self._query_scheduler(force=True)
 
-    def _read_sessions(self, data_dir: Path) -> Dict[str, str]:
+    def _read_sessions(self, data_dir: Path) -> Dict[str, dict]:
         fpath = data_dir / SESSIONS_FILE
         if not fpath.is_file():
             return {}
         try:
-            data = json.loads(fpath.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
+            data = json.loads(fpath.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as e:
             logger.warning(f"Error reading store logins from {fpath}: {e}")
             return {}
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        return {store: entry for store, entry in data.items() if isinstance(entry, dict)}
 
     def _read_inventory_sync(self, force: bool = False) -> Tuple[Dict[str, dict], List[dict]]:
         fgc_dir = resolve_fgc_root()
@@ -241,6 +243,8 @@ class GiveawaysOrchestrator:
             current_mtimes[SESSIONS_FILE] = sessions_path.stat().st_mtime
             if self._file_mtimes.get(SESSIONS_FILE) != current_mtimes[SESSIONS_FILE]:
                 changed = True
+        elif SESSIONS_FILE in self._file_mtimes:
+            changed = True
         for store, filename in STORE_FILE_MAP.items():
             fpath = data_dir / filename
             if fpath.is_file():
@@ -319,6 +323,7 @@ class GiveawaysOrchestrator:
                         return self._cached_stores, self._cached_inventory
 
             total_items = claimed_cnt + existed_cnt
+            session = sessions.get(store)
             stores_meta[store] = {
                 "store": store,
                 "displayName": STORE_DISPLAY_NAMES.get(store, store.upper()),
@@ -327,8 +332,10 @@ class GiveawaysOrchestrator:
                 "existedCount": existed_cnt,
                 "lastClaimedAt": latest_iso,
                 "dbFileExists": exists,
-                # A login counts without any claimed game; databases of older installs only know accounts that claimed something
-                "account": sessions.get(store) or (accounts[0] if (accounts and total_items > 0) else None),
+                # A login counts without any claimed game. Claimed games only name the account while the engine has not
+                # reported this store yet (older installs): after a sign-out they must not bring the old account back.
+                "account": (session.get("account") or None) if session else (accounts[0] if (accounts and total_items > 0) else None),
+                "loginConfirmedAt": session.get("confirmedAt") if session else None,
             }
 
         inventory.sort(key=lambda x: x["timestampMs"], reverse=True)

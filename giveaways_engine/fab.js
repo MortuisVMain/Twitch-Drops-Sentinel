@@ -1,7 +1,7 @@
 // Fab.com asset claimer (replaces legacy Unreal Engine Marketplace)
 // Automatically discovers and claims Limited-Time Free assets and 100% discount promotional packs.
 
-import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 
@@ -52,6 +52,7 @@ try {
   }).catch(() => false); // the page navigates while the user signs in
 
   let isLoggedIn = await checkLoggedIn();
+  if (!isLoggedIn) await markSignedOut('fab');
   if (!isLoggedIn && cfg.show && process.env.FGC_MINIMIZE != '1') {
     console.log(`[SENTINEL] Войдите в аккаунт в открывшемся окне браузера (кнопка Sign In на сайте Fab). Если окна не видно, найдите его на панели задач. На вход есть ${cfg.login_timeout / 60000} мин.`);
     const deadline = Date.now() + cfg.login_timeout;

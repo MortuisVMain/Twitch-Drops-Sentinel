@@ -8,6 +8,7 @@ import {
   SentinelSettings
 } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { loginAttemptSucceeded } from '../utils/loginAttempt';
 
 interface GiveawaysViewProps {
   onBackToDashboard?: () => void;
@@ -102,6 +103,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   const [actionError, setActionError] = useState<string | null>(null);
   const [loginStore, setLoginStore] = useState<StoreId | null>(null);
   const loginStartedAtRef = useRef<number | null>(null);
+  const loginAttemptAtRef = useRef<number>(0);
   const [filterStore, setFilterStore] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
@@ -235,6 +237,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     playClick();
     setActionError(null);
     loginStartedAtRef.current = null;
+    loginAttemptAtRef.current = Date.now();
     setLoginStore(storeId);
     try {
       const res = await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}`, { method: 'POST' });
@@ -255,13 +258,13 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     }
   };
 
-  // A login run has ended: without an account the user has to know that it did not work.
+  // A login run has ended: unless this very attempt was confirmed, the user has to know that it did not work.
   // The grace period covers a state poll that was already on its way when the run started.
   useEffect(() => {
     const startedAt = loginStartedAtRef.current;
     if (!loginStore || !data?.runner || startedAt === null || Date.now() - startedAt < 6000) return;
     if (data.runner.state === 'running' || data.runner.state === 'aborting') return;
-    if (!(data.stores as any)?.[loginStore]?.account) {
+    if (!loginAttemptSucceeded(data.stores?.[loginStore], loginAttemptAtRef.current)) {
       setActionError('Вход не завершён: окно браузера закрыто или вышло время. Нажмите «Войти в аккаунт» ещё раз.');
     }
     setLoginStore(null);
