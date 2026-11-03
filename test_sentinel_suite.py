@@ -3229,7 +3229,8 @@ def _run_store_login(script, page_code, extra_env=None, seed=None):
         + page_code
         + "\nexport const chromium = { launchPersistentContext: async dir => {\n"
           "  fs.mkdirSync(dir, { recursive: true });\n"  # a real browser creates the profile and with it data/
-          "  return { pages: () => [page], newPage: async () => page, setDefaultTimeout() {}, close: async () => {} };\n"
+          "  return { pages: () => [page], newPage: async () => page, setDefaultTimeout() {}, close: async () => {},\n"
+          "    clearCookies: async o => { fs.appendFileSync(process.env.COOKIE_LOG, String(o.domain) + '\\n'); } };\n"
           "} };\n",
         encoding="utf-8",
     )
@@ -3593,6 +3594,102 @@ def test_giveaways_setup_failure_and_engine_stdin():
     assert node_runs and node_runs[0].get("stdin") == asyncio.subprocess.DEVNULL, f"the engine must not inherit stdin, got {node_runs}"
 
 
+def test_switch_account_forgets_only_that_store():
+    print("[switch-account] The button signs out of one store, a normal run never touches cookies...")
+    if shutil.which("node") is None:
+        print("      SKIP: Node.js is missing, the store scripts cannot run")
+        return
+    import asyncio
+    import re
+    import types
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    steam_page = (
+        "let signedIn = false;\n"
+        "const page = {\n"
+        "  goto: async () => {}, $$eval: async () => [],\n"
+        "  waitForSelector: async () => { signedIn = true; },\n"
+        "  locator: () => ({ count: async () => (signedIn ? 1 : 0), textContent: async () => 'other_account' }),\n"
+        "};"
+    )
+    fab_page = (
+        "const page = {\n"
+        "  goto: async () => {}, waitForTimeout: async () => {}, setViewportSize: async () => {}, $$eval: async () => [],\n"
+        "  evaluate: async () => false, isClosed: () => false, screenshot: async () => {},\n"
+        "};"
+    )
+
+    def run(script, page_code, store=None, seed=None):
+        log = Path(tempfile.mkdtemp(prefix="cookies_", dir=SANDBOX)) / "cleared.log"
+        env = {"COOKIE_LOG": str(log)}
+        if store:
+            env["FGC_SWITCH_ACCOUNT"] = store
+        res, sessions = _run_store_login(script, page_code, extra_env=env, seed=seed)
+        cleared = log.read_text(encoding="utf-8").split() if log.is_file() else []
+        return res, sessions, cleared
+
+    res, sessions, cleared = run("steam.mjs", steam_page)
+    assert cleared == [], f"a normal run must keep every login, cleared {cleared}"
+
+    res, sessions, cleared = run("steam.mjs", steam_page, store="steam")
+    assert len(cleared) == 1, f"switching must clear the store's cookies once, got {cleared}:\n{res.stdout[-600:]}"
+    domain = re.compile(cleared[0].strip("/"))
+    for host in (".steampowered.com", "store.steampowered.com", "steamcommunity.com"):
+        assert domain.search(host), f"{host} keeps the old Steam login"
+    for host in (".gog.com", "notsteampowered.com", ".epicgames.com"):
+        assert not domain.search(host), f"switching Steam must not sign out of {host}"
+    assert sessions["steam"]["account"] == "other_account", f"the new login must be recorded, got {sessions}"
+
+    res, sessions, cleared = run("steam.mjs", steam_page, store="nonsense")
+    assert res.returncode != 0 and not sessions.get("steam", {}).get("account"), "an unknown store must stop, not claim under the old login"
+
+    seed = lambda path: path.write_text('{"epic": {"account": "old", "confirmedAt": 1}}', encoding="utf-8")
+    res, sessions, cleared = run("fab.mjs", fab_page, store="fab", seed=seed)
+    domain = re.compile(cleared[0].strip("/"))
+    assert domain.search("www.fab.com") and domain.search(".epicgames.com"), "Fab signs in through Epic: both must go"
+    assert sessions["epic"]["account"] is None, f"the Epic card must not keep the account that was signed out, got {sessions}"
+
+    class _Out:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    engine = Path(tempfile.mkdtemp(prefix="switch_", dir=SANDBOX))
+    (engine / "runner.js").write_text("", encoding="utf-8")
+    (engine / "node_modules" / "patchright").mkdir(parents=True)
+    spawned = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append(kwargs)
+        return types.SimpleNamespace(pid=1, returncode=None, stdout=_Out())
+
+    async def no_scheduler(force=False):
+        return {"state": "Ready"}
+
+    async def go(switch):
+        orch = gc.GiveawaysOrchestrator()
+        orch._query_scheduler = no_scheduler
+        orch._monitor_process = lambda proc: asyncio.sleep(0)
+        await orch.start_auth("steam", switch_account=switch)
+
+    real_exec, real_root = asyncio.create_subprocess_exec, gc.resolve_fgc_root
+    asyncio.create_subprocess_exec, gc.resolve_fgc_root = fake_exec, lambda: engine
+    try:
+        asyncio.run(go(False))
+        asyncio.run(go(True))
+    finally:
+        asyncio.create_subprocess_exec, gc.resolve_fgc_root = real_exec, real_root
+    assert "FGC_SWITCH_ACCOUNT" not in (spawned[-2].get("env") or os.environ), "a plain sign-in must keep the login"
+    assert spawned[-1]["env"]["FGC_SWITCH_ACCOUNT"] == "steam", "the switch must reach the engine"
+
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "window.confirm(" in view and "handleStoreAuth(store.id, true)" in view and "?switch=1" in view, "the button must ask first, then switch"
+    print("      Switch account: ALL PASS [OK]")
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -3809,6 +3906,7 @@ if __name__ == "__main__":
         test_login_hint_goes_away_once_the_attempt_succeeded,
         test_giveaways_setup_failure_and_engine_stdin,
         test_unity_orders_only_at_a_clear_zero_total,
+        test_switch_account_forgets_only_that_store,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,
         test_scheduler_query_that_hangs_is_killed_and_reaped,

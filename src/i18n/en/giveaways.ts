@@ -102,6 +102,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Раздачи': 'Giveaways',
   'Советы по бесплатным раздачам': 'Free giveaway tips',
   'Вход в магазины в один клик': 'One-click store sign-in',
+  'Выйти из этого аккаунта и войти в другой? Если закрыть окно браузера, не войдя, магазин останется без входа. У Fab вход через Epic Games: выйти придётся из обоих.': 'Sign out of this account and sign in to another? If you close the browser window without signing in, the store stays signed out. Fab signs in through Epic Games, so both are signed out.',
   'Нажмите «🔑 Войти в аккаунт» на карточке магазина. Откроется окно браузера: войдите один раз, и сессия сохранится. Сменить аккаунт можно кнопкой ⇄ на карточке.': 'Click “🔑 Sign in to the account” on a store card. A browser window opens: sign in once and the session is saved. Switch accounts with the ⇄ button on the card.',
   'Один раз': 'Once',
   'Быстрая проверка перед запуском': 'Quick check before launch',

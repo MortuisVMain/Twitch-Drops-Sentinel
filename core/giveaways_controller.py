@@ -537,7 +537,7 @@ class GiveawaysOrchestrator:
             "totalClaimed": sum(s.get("claimedCount", 0) for s in stores.values()),
         }
 
-    async def start_claim(self, stores: List[str], headless: bool = True) -> dict:
+    async def start_claim(self, stores: List[str], headless: bool = True, switch_account: bool = False) -> dict:
         async with self._lock:
             fgc_dir = resolve_fgc_root()
             cmd_file = fgc_dir / "ClaimGames.cmd"
@@ -620,6 +620,7 @@ class GiveawaysOrchestrator:
                 *args,
                 cwd=str(fgc_dir),
                 stdin=asyncio.subprocess.DEVNULL,  # a service started from a console would make the engine wait for a terminal
+                env={**os.environ, "FGC_SWITCH_ACCOUNT": valid_stores[0]} if switch_account else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 creationflags=0x08000000  # CREATE_NO_WINDOW
@@ -628,8 +629,8 @@ class GiveawaysOrchestrator:
             asyncio.create_task(self._monitor_process(self._proc))
             return {"status": "started", "pid": self._proc.pid, "stores": valid_stores}
 
-    async def start_auth(self, store: str) -> dict:
-        return await self.start_claim(stores=[store], headless=False)
+    async def start_auth(self, store: str, switch_account: bool = False) -> dict:
+        return await self.start_claim(stores=[store], headless=False, switch_account=switch_account)
 
     async def _monitor_process(self, proc: asyncio.subprocess.Process) -> None:
         async def pump_output() -> None:

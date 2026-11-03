@@ -53,6 +53,7 @@ try {
 
   let isLoggedIn = await checkLoggedIn();
   if (!isLoggedIn) await markSignedOut('fab');
+  if (process.env.FGC_SWITCH_ACCOUNT === 'fab') await markSignedOut('epic'); // the same switch cleared the Epic login
   if (!isLoggedIn && cfg.show && process.env.FGC_MINIMIZE != '1') {
     console.log(`[SENTINEL] Войдите в аккаунт в открывшемся окне браузера (кнопка Sign In на сайте Fab). Если окна не видно, найдите его на панели задач. На вход есть ${cfg.login_timeout / 60000} мин.`);
     const deadline = Date.now() + cfg.login_timeout;

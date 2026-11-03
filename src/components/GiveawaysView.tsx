@@ -80,6 +80,8 @@ function formatClaimDate(rawDate?: string, tsMs?: number): string {
   return 'Недавно';
 }
 
+const SWITCH_ACCOUNT_CONFIRM = 'Выйти из этого аккаунта и войти в другой? Если закрыть окно браузера, не войдя, магазин останется без входа. У Fab вход через Epic Games: выйти придётся из обоих.';
+
 export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   onBackToDashboard,
   settings,
@@ -244,14 +246,14 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     }
   };
 
-  const handleStoreAuth = async (storeId: StoreId) => {
+  const handleStoreAuth = async (storeId: StoreId, switchAccount = false) => {
     playClick();
     setActionError(null);
     loginStartedAtRef.current = null;
     loginAttemptAtRef.current = Date.now();
     setLoginStore(storeId);
     try {
-      const res = await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}`, { method: 'POST' });
+      const res = await fetch(`http://127.0.0.1:28492/api/v1/giveaways/auth/${storeId}${switchAccount ? '?switch=1' : ''}`, { method: 'POST' });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         setActionError(errJson.detail || (res.status === 409
@@ -514,7 +516,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     style={{ minHeight: '20px', width: '22px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleStoreAuth(store.id);
+                      if (window.confirm(SWITCH_ACCOUNT_CONFIRM)) handleStoreAuth(store.id, true);
                     }}
                     title="Сменить аккаунт"
                     aria-label={`Сменить аккаунт ${store.name}`}

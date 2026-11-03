@@ -5280,6 +5280,15 @@ var html_game_list = (games, statsSummary = null) => {
 // src/browser.js
 import fs from "fs";
 import path2 from "path";
+var STORE_LOGIN_COOKIES = {
+  epic: /(^|\.)epicgames\.com$/,
+  gog: /(^|\.)gog\.com$/,
+  steam: /(^|\.)(steampowered|steamcommunity)\.com$/,
+  fab: /(^|\.)(fab|epicgames)\.com$/,
+  unity: /(^|\.)unity\.com$/,
+  itch: /(^|\.)itch\.io$/,
+  prime: /(^|\.)amazon\.[a-z.]+$/
+};
 var ENGINES = {
   patchright: {
     package: "patchright",
@@ -5394,6 +5403,13 @@ var launchContext = async (cfg2, options) => {
     }
   }
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") await minimizeWindow(context2);
+  const switching = process.env.FGC_SWITCH_ACCOUNT;
+  if (switching) {
+    const domain = STORE_LOGIN_COOKIES[switching];
+    if (!domain) throw new Error(`Cannot switch the account of an unknown store: ${switching}`);
+    await context2.clearCookies({ domain });
+    console.log("[SENTINEL] \u0412\u044B\u0445\u043E\u0434 \u0438\u0437 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D: \u0432\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u043D\u0443\u0436\u043D\u044B\u0439 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430.");
+  }
   return context2;
 };
 
@@ -5434,6 +5450,7 @@ try {
   }).catch(() => false);
   let isLoggedIn = await checkLoggedIn();
   if (!isLoggedIn) await markSignedOut("fab");
+  if (process.env.FGC_SWITCH_ACCOUNT === "fab") await markSignedOut("epic");
   if (!isLoggedIn && cfg.show && process.env.FGC_MINIMIZE != "1") {
     console.log(`[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 (\u043A\u043D\u043E\u043F\u043A\u0430 Sign In \u043D\u0430 \u0441\u0430\u0439\u0442\u0435 Fab). \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C ${cfg.login_timeout / 6e4} \u043C\u0438\u043D.`);
     const deadline = Date.now() + cfg.login_timeout;

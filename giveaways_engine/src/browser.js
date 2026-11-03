@@ -1,6 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 
+// All stores share one browser profile, so leaving one account means clearing that store's cookies only.
+// Fab signs in through Epic: with the Epic cookies left in place it would sign straight back in.
+const STORE_LOGIN_COOKIES = {
+  epic: /(^|\.)epicgames\.com$/,
+  gog: /(^|\.)gog\.com$/,
+  steam: /(^|\.)(steampowered|steamcommunity)\.com$/,
+  fab: /(^|\.)(fab|epicgames)\.com$/,
+  unity: /(^|\.)unity\.com$/,
+  itch: /(^|\.)itch\.io$/,
+  prime: /(^|\.)amazon\.[a-z.]+$/,
+};
+
 // Browser automation engines that can be used to run the storefront scripts.
 // Each entry maps the value of the AUTOMATION option to the npm package to load
 // and the browser type to launch. Adding another Playwright-compatible library
@@ -166,5 +178,13 @@ export const launchContext = async (cfg, options) => {
   // minimize only when a store forces a visible browser although headless was requested;
   // ClaimGames.cmd sets FGC_MINIMIZE for that case, so an explicit SHOW=1 stays visible
   if (options.headless === false && process.env.FGC_MINIMIZE == '1') await minimizeWindow(context);
+
+  const switching = process.env.FGC_SWITCH_ACCOUNT;
+  if (switching) {
+    const domain = STORE_LOGIN_COOKIES[switching];
+    if (!domain) throw new Error(`Cannot switch the account of an unknown store: ${switching}`);
+    await context.clearCookies({ domain });
+    console.log('[SENTINEL] Выход из аккаунта выполнен: войдите в нужный аккаунт в окне браузера.');
+  }
   return context;
 };

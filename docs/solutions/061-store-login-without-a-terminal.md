@@ -45,3 +45,9 @@ reads whole lines: a price is zero when it has no digit but 0, one price above z
 means no order. Zero must hold for three checks while the coupon applies and is read again right before the click. The script
 no longer fills in made-up billing details or ticks every checkbox on the page. Page wording was not checked on a real order:
 a label the code does not know stops the order instead of charging, so the failure to expect is a missed claim.
+
+## Switch account
+All stores share one browser profile, so a valid login used to make the button start a claim under the old account. With
+`?switch=1` the engine gets `FGC_SWITCH_ACCOUNT=<store>` and `launchContext` clears that store's cookies only
+(`STORE_LOGIN_COOKIES` in `src/browser.js`), then the store's normal login wait takes over. Fab also clears Epic, because it
+signs in through Epic and would come straight back. Sites that keep a login outside cookies were not checked on real accounts.

@@ -1405,7 +1405,7 @@ class SentinelSupervisor:
 
     async def handle_giveaways_auth(self, request: web.Request) -> web.Response:
         store = request.match_info.get("store", "epic")
-        res = await self.giveaways.start_auth(store=store)
+        res = await self.giveaways.start_auth(store=store, switch_account=request.query.get("switch") == "1")
         return web.json_response(res)
 
     async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
