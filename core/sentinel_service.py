@@ -300,7 +300,7 @@ def normalize_game_name(name: str) -> str:
     return cleaned
 
 SUPERVISOR_DEFAULTS = {
-    "auto_shutdown_on_complete": True,
+    "auto_shutdown_on_complete": False,
     "auto_shutdown_mode": "shutdown",
     "pause_on_gaming": True,
     "pause_on_battery": True,
@@ -314,7 +314,7 @@ SUPERVISOR_DEFAULTS = {
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
-    "user_linked_games": ["Hunt: Showdown 1896"],
+    "user_linked_games": [],
     "excluded_games": [],
     "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
     "games_to_pause": DEFAULT_GAMES_PROCESSES,

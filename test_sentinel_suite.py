@@ -5473,6 +5473,34 @@ def test_clean_install_copies_the_default_config_template():
     print("      template copied on a clean install: PASS [OK]")
 
 
+def test_safe_defaults_power_off_and_linked_games():
+    print("[safe-defaults] power-off after farming is off and no linked games, also in the template and after reset...")
+    template = json.loads((WORKSPACE / "config.default.json").read_text(encoding="utf-8-sig"))
+    assert template.get("auto_shutdown_on_complete") is False, "config.default.json must ship with power-off off"
+    work = Path(tempfile.mkdtemp(prefix="safe_defaults_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    # a throwaway copy: the module resolves config.json next to core/, so the real file is never touched
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "class Fake:\n"
+        "    def __init__(self): self.settings = {'auto_shutdown_on_complete': True, 'user_linked_games': ['X']}\n"
+        "    def save_settings(self): pass\n"
+        "    async def broadcast_ws(self): pass\n"
+        "fake = Fake()\n"
+        "resp = asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None))\n"
+        "print(json.dumps({'defaults': [s.SUPERVISOR_DEFAULTS['auto_shutdown_on_complete'], s.SUPERVISOR_DEFAULTS['user_linked_games']],\n"
+        "                  'reset': [fake.settings['auto_shutdown_on_complete'], fake.settings['user_linked_games']], 'status': resp.status}))\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["defaults"] == [False, []], f"SUPERVISOR_DEFAULTS must not power off or link games: {got['defaults']}"
+    assert got["reset"] == [False, []] and got["status"] == 200, f"reset must yield power-off off: {got}"
+    assert not (work / "config.json").exists(), "the check must not write a config.json"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      safe defaults: PASS [OK]")
+
+
 def test_loading_states_of_giveaways_and_dimmer():
     print("[loading] Giveaways and Dimmer tell loading, failure and a real empty answer apart...")
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
@@ -5678,6 +5706,7 @@ if __name__ == "__main__":
         test_loading_states_of_giveaways_and_dimmer,
         test_small_controls_have_a_larger_invisible_click_area,
         test_clean_install_copies_the_default_config_template,
+        test_safe_defaults_power_off_and_linked_games,
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
