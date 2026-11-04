@@ -2,6 +2,18 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [Unreleased]
+- New "Check readiness" window on the Giveaways tab: what is ready, what is left, and buttons to fix it.
+- An interrupted browser engine install no longer counts as done, and a failed Chromium download is reported.
+- Updates install only release assets of this repository, and archives can no longer overwrite user files through paths such as `./config.json`.
+- The local service refuses requests from other websites.
+- Settings files are saved together or not at all, and reset uses the right defaults. The profile backup now includes `config.json` and reports what is missing.
+- A running auto-shutdown countdown stops when the setting is turned off or a new target appears, and it does not repeat after the PC wakes.
+- Saved engine switches (channel points, auto-claim, streamer watchdog) now apply on every engine start.
+- Settings send only what changed, so a quick second change cannot bring an old value back. An empty store choice no longer starts the default stores.
+- Command palette: arrow keys and Enter. Dialogs keep and return focus, tab hotkeys no longer act behind them, and the FARM switch works from the keyboard. The console no longer repeats a line's level.
+- Dimmer: writes to different monitors no longer cancel each other, Poll shows the hardware value, and repeated blackouts keep the original sound state.
+
 ## [3.5.6] - 2026-11-03
 - Release archives now include `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 - Store sign-in on the Giveaways tab works inside the app: prompts no longer wait for a terminal, stores record a confirmed login, and the tab shows refusals and login progress. Fab now waits for the login, and Unity no longer reports a login that never happened.
