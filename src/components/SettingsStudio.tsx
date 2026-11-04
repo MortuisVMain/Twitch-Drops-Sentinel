@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
 import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 
 interface SettingsStudioProps {
@@ -44,6 +45,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [backupLabel, setBackupLabel] = useState<string>('📦 Бэкап профиля (.zip)');
   const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | null>(null);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
+  const diagDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(showDiagModal, diagDialogRef, () => setShowDiagModal(false));
   const [diagContent, setDiagContent] = useState<string>('');
   const [isLoadingDiag, setIsLoadingDiag] = useState<boolean>(false);
 
@@ -722,17 +725,23 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           onClick={() => setShowDiagModal(false)}
         >
           <div 
-            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-6 space-y-4"
+            ref={diagDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="diag-title"
+            tabIndex={-1}
+            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-6 space-y-4 outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
               <div className="flex items-center gap-2">
                 <span className="led-dot"></span>
-                <h3 className="text-sm font-bold tracking-[0.04em] uppercase text-[var(--text-primary)]">
+                <h3 id="diag-title" className="text-sm font-bold tracking-[0.04em] uppercase text-[var(--text-primary)]">
                   🩺 ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ
                 </h3>
               </div>
               <button 
+                aria-label="Закрыть"
                 className="tactile-btn" 
                 style={{ height: '24px', width: '24px', padding: 0 }}
                 onClick={() => setShowDiagModal(false)}

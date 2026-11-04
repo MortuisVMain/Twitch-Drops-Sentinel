@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { useModalFocus } from '../hooks/useModalFocus';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { collapseLogs, withoutLevelPrefix } from '../utils/consoleLog';
@@ -120,6 +121,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   };
   const [shelfFilter, setShelfFilter] = useState('ALL');
   const [showFullCatalogModal, setShowFullCatalogModal] = useState(false);
+  const catalogDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(showFullCatalogModal, catalogDialogRef, () => setShowFullCatalogModal(false), 'input');
   const [catalogModalSearch, setCatalogModalSearch] = useState('');
   const [catalogModalTab, setCatalogModalTab] = useState<'ALL' | 'TOP' | 'INSTALLED'>('ALL');
   const safeAllGames = useMemo(() => (Array.isArray(allGames) ? allGames : []), [allGames]);
@@ -1232,7 +1235,12 @@ const filteredLogs = useMemo(() => {
           onClick={() => { playClick(); setShowFullCatalogModal(false); }}
         >
           <div 
-            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-5 space-y-3.5 max-h-[85vh] flex flex-col"
+            ref={catalogDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="catalog-title"
+            tabIndex={-1}
+            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-5 space-y-3.5 max-h-[85vh] flex flex-col outline-none"
             onClick={(e) => e.stopPropagation()}
             style={{
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-subtle)'
@@ -1243,7 +1251,7 @@ const filteredLogs = useMemo(() => {
               <div className="flex items-center gap-2.5">
                 <span className="led-dot amber" />
                 <div>
-                  <h3 className="text-sm font-bold tracking-[0.04em] text-[var(--text-primary)]">
+                  <h3 id="catalog-title" className="text-sm font-bold tracking-[0.04em] text-[var(--text-primary)]">
                     ⚡ ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam • Каталог игр Twitch & Steam
                   </h3>
                   <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
@@ -1252,6 +1260,7 @@ const filteredLogs = useMemo(() => {
                 </div>
               </div>
               <button 
+                aria-label="Закрыть"
                 className="tactile-btn" 
                 style={{ height: '26px', width: '26px', padding: 0 }} 
                 onClick={() => { playClick(); setShowFullCatalogModal(false); }}

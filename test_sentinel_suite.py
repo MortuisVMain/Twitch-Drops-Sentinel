@@ -4224,11 +4224,13 @@ def test_keyboard_palette_help_farm_and_log_prefix():
         assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
-        "import { movePaletteIndex as m, clampPaletteIndex as c } from './paletteIndex.mjs';\n"
+        "import { movePaletteIndex as m, clampPaletteIndex as c, defaultPaletteIndex as d } from './paletteIndex.mjs';\n"
         "import { withoutLevelPrefix as w } from './consoleLog.mjs';\n"
         "console.log(JSON.stringify({\n"
         "  down: m(0, 1, 3), wrapDown: m(2, 1, 3), wrapUp: m(0, -1, 3), single: m(0, 1, 1), none: m(0, 1, 0),\n"
         "  clamped: c(5, 3), clampedEmpty: c(5, 0), kept: c(1, 3),\n"
+        "  noneDown: m(-1, 1, 3), noneUp: m(-1, -1, 3), noneEmpty: m(-1, 1, 0), noneKept: c(-1, 3), noneOne: m(-1, 1, 1), oneDown: m(0, 1, 1),\n"
+        "  startNav: d(2), startNoNav: d(0),\n"
         "  status: w('[STATUS] Ожидание', 'STATUS'), twice: w('[STATUS] [STATUS] Ожидание', 'status'),\n"
         "  source: w('[CORE] Запуск', 'INFO'), keepsOther: w('[STATUS] [CORE] Запуск', 'STATUS'),\n"
         "  plain: w('Просто текст', 'STATUS'), inside: w('Статус [STATUS] внутри', 'STATUS'), onlyPrefix: w('[STATUS]', 'STATUS'),\n"
@@ -4241,6 +4243,9 @@ def test_keyboard_palette_help_farm_and_log_prefix():
     d = json.loads(res.stdout)
     assert (d["down"], d["wrapDown"], d["wrapUp"], d["single"], d["none"]) == (1, 0, 2, 0, 0), d
     assert (d["clamped"], d["clampedEmpty"], d["kept"]) == (2, 0, 1), d
+    # review 13: with no selection Down takes the first result and Up the last; the first selection is only ever a navigation entry
+    assert (d["noneDown"], d["noneUp"], d["noneEmpty"], d["noneKept"], d["noneOne"], d["oneDown"]) == (0, 2, 0, -1, 0, 0), d
+    assert (d["startNav"], d["startNoNav"]) == (0, -1), d
     assert d["status"] == "Ожидание" and d["twice"] == "Ожидание", d
     assert d["source"] == "[CORE] Запуск" and d["keepsOther"] == "[CORE] Запуск", "other brackets stay"
     assert d["plain"] == "Просто текст" and d["inside"] == "Статус [STATUS] внутри", "only a leading prefix goes"
@@ -4258,6 +4263,13 @@ def test_keyboard_palette_help_farm_and_log_prefix():
     assert 'aria-labelledby="help-title"' in help_modal and 'id="help-title"' in help_modal, "the dialog needs its visible title as a name"
     view = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "withoutLevelPrefix(log.message, cat)" in view, "the console must show the level once"
+    # review 14: every modal overlay is a real dialog, so hotkeys stay off behind it and Esc/Tab work inside it
+    for name, title_id in (("App.tsx", "update-title"), ("components/LiveDashboard.tsx", "catalog-title"), ("components/SettingsStudio.tsx", "diag-title")):
+        src = (WORKSPACE / "src" / name).read_text(encoding="utf-8")
+        assert f'aria-labelledby="{title_id}"' in src and f'id="{title_id}"' in src, f"{name}: the dialog needs its visible title as a name"
+        assert 'aria-modal="true"' in src and "useModalFocus(" in src, f"{name}: modal and focus trap"
+    palette = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "defaultPaletteIndex(navActions.length)" in palette, "review 13: Enter right after typing runs only a navigation entry"
     print("      Keyboard and log prefix: ALL PASS [OK]")
 
 

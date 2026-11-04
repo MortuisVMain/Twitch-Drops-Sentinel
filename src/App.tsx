@@ -18,7 +18,7 @@ import { AppearancePanel } from './components/AppearancePanel';
 
 import { HelpModal } from './components/HelpModal';
 import { useModalFocus } from './hooks/useModalFocus';
-import { clampPaletteIndex, movePaletteIndex } from './utils/paletteIndex';
+import { clampPaletteIndex, defaultPaletteIndex, movePaletteIndex } from './utils/paletteIndex';
 import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils/gameBoxArts';
 
 import { useTactileAudio } from './hooks/useTactileAudio';
@@ -197,10 +197,10 @@ export const App: React.FC = () => {
   const [showCmdPalette, setShowCmdPalette] = useState(false);
 
   const [cmdSearch, setCmdSearch] = useState('');
-  const [cmdIndex, setCmdIndex] = useState(0);
+  const [cmdIndex, setCmdIndex] = useState<number | null>(null); // null: the user has not moved yet, the default rule applies
   const cmdDialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(showCmdPalette, cmdDialogRef, () => setShowCmdPalette(false), 'input');
-  useEffect(() => setCmdIndex(0), [cmdSearch, showCmdPalette]);
+  useEffect(() => setCmdIndex(null), [cmdSearch, showCmdPalette]);
   useEffect(() => {
     cmdDialogRef.current?.querySelector('[data-cmd-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [cmdIndex, cmdSearch, showCmdPalette]);
@@ -500,6 +500,8 @@ export const App: React.FC = () => {
   const announcedUpdateRef = useRef<string | null>(null);
 
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
+  const updateDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(showUpdateModal && !!updateInfo, updateDialogRef, () => setShowUpdateModal(false));
 
   const [isApplyingUpdate, setIsApplyingUpdate] = useState<boolean>(false);
 
@@ -1910,9 +1912,9 @@ export const App: React.FC = () => {
           ...matchingGames.map(game => ({ title: game.name, run: () => focusGame(game) })),
         ];
         const totalResults = results.length;
-        const selectedIndex = clampPaletteIndex(cmdIndex, totalResults);
+        const selectedIndex = cmdIndex === null ? defaultPaletteIndex(navActions.length) : clampPaletteIndex(cmdIndex, totalResults);
         const runResult = (index: number) => {
-          const result = results[index];
+          const result = index >= 0 ? results[index] : undefined; // nothing selected: Enter does nothing
           if (!result) return;
           playClick();
           result.run();
@@ -2111,9 +2113,18 @@ export const App: React.FC = () => {
 
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
 
-          <div className="titanium-island max-w-lg w-full p-6 md:p-8 space-y-5 relative">
+          <div
+            ref={updateDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-title"
+            tabIndex={-1}
+            className="titanium-island max-w-lg w-full p-6 md:p-8 space-y-5 relative outline-none"
+          >
 
             <button
+
+              aria-label="Закрыть"
 
               onClick={() => setShowUpdateModal(false)}
 
@@ -2137,7 +2148,7 @@ export const App: React.FC = () => {
 
               <div>
 
-                <h3 className="text-base font-bold text-[var(--text-primary)]">
+                <h3 id="update-title" className="text-base font-bold text-[var(--text-primary)]">
 
                   Доступно обновление v{updateInfo.remote_version}
 
