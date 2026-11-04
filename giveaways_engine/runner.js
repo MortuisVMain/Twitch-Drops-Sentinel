@@ -183,7 +183,7 @@ function runStore(storeKey, headless) {
 
 // A scheduled run has nobody to press "Claim", so the first one on a fresh install sets up the browser engine itself
 function ensureBrowserEngine() {
-  // npm creates the folder before it finishes: the mark tells an install that was cut short (same file in giveaways_controller.py)
+  // The folder alone proves little: the mark stays until npm has succeeded (same file in giveaways_controller.py)
   const incompleteMark = path.join(__dirname, 'data', '.engine-install-incomplete');
   if (fs.existsSync(path.join(__dirname, 'node_modules', 'patchright')) && !fs.existsSync(incompleteMark)) return true;
   fs.mkdirSync(path.dirname(incompleteMark), { recursive: true });

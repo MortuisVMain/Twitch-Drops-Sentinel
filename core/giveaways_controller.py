@@ -104,7 +104,7 @@ def _scheduler_refusal(error: type[web.HTTPException], detail: str) -> web.HTTPE
 
 
 def engine_installed(fgc_dir: Path) -> bool:
-    """npm creates the folder before it finishes, so an install cut short leaves the folder and the mark."""
+    """The folder alone proves little: npm can exit with an error and leave it. The mark stays until npm has succeeded."""
     return (fgc_dir / "node_modules" / "patchright").is_dir() and not (fgc_dir / "data" / ENGINE_INCOMPLETE_MARK).exists()
 
 

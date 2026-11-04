@@ -572,7 +572,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         data={readiness.data}
         loading={readiness.loading}
         failure={readiness.failure}
-        actionError={readiness.actionError}
+        actionError={readiness.actionError || actionError}
         storeNames={STORE_NAMES}
         appVersion={appVersion}
         onRecheck={() => readiness.check()}

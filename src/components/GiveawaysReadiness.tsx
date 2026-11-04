@@ -77,7 +77,19 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
     if (!isOpen) return;
     const previous = document.activeElement as HTMLElement | null;
     dialogRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
+    // On the window, not on the dialog: a button disabled while it works drops focus to <body>, out of the dialog's reach
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onCloseRef.current(); return; }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const nodes = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (!nodes.length) { e.preventDefault(); return; }
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      const active = document.activeElement;
+      const outside = !dialogRef.current.contains(active) || active === dialogRef.current;
+      if (e.shiftKey && (outside || active === first)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (outside || active === last)) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
@@ -93,19 +105,8 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
 
   if (!isOpen) return null;
 
-  const trapTab = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    const nodes = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
-    if (!nodes.length) { e.preventDefault(); return; }
-    const first = nodes[0];
-    const last = nodes[nodes.length - 1];
-    const active = document.activeElement;
-    if (e.shiftKey && (active === first || active === dialogRef.current)) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
-  };
-
-  const formatDate = (iso: string): string => {
-    const d = new Date(iso);
+  const formatDate = (when: string | number): string => {
+    const d = new Date(when);
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(uiLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
   const ctx: TextContext = { storeName: (id) => storeNames[id] ?? id, formatDate, engineInstall: data?.engineInstall };
@@ -201,7 +202,6 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
         aria-labelledby="readiness-title"
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={trapTab}
         style={{ width: 'min(760px, 94vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-chassis-base)', color: 'var(--text-primary)', border: '1px solid var(--border-main)', borderRadius: 16, boxShadow: 'var(--shadow-chassis)', outline: 'none' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--border-main)', flexShrink: 0 }}>

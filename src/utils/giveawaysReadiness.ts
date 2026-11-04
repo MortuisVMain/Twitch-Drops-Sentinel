@@ -50,7 +50,7 @@ export const safeUrl = (url: unknown): string | null => (typeof url === 'string'
 
 export interface TextContext {
   storeName: (id: string) => string;
-  formatDate: (iso: string) => string;
+  formatDate: (when: string | number) => string;
   engineInstall?: { running: boolean; error: string | null };
   /** The report leaves account names out: "вход есть" instead */
   hideAccount?: boolean;
@@ -65,9 +65,10 @@ const nonEmpty = (lines: Array<string | null | undefined | false>): string[] => 
 
 const storeTitle = (item: ReadinessItem, ctx: TextContext): string => (item.store ? ctx.storeName(item.store) : 'Магазин');
 
-const dateLine = (prefix: string, iso: unknown, ctx: TextContext): string | null => {
-  if (typeof iso !== 'string' || !iso) return null;
-  const text = ctx.formatDate(iso);
+// confirmedAt comes as epoch ms, the scheduler's times as strings
+const dateLine = (prefix: string, when: unknown, ctx: TextContext): string | null => {
+  if ((typeof when !== 'string' && typeof when !== 'number') || !when) return null;
+  const text = ctx.formatDate(when);
   return text ? `${prefix}: ${text}` : null;
 };
 
@@ -83,8 +84,9 @@ const nodeText = (item: ReadinessItem): ItemText => {
 
 const engineText = (item: ReadinessItem, ctx: TextContext): ItemText => {
   const title = 'Браузерный движок';
-  if (item.status === 'ok') return { title, lines: ['Установлен'] };
   const install = ctx.engineInstall;
+  // The engine can be in place while Chromium did not download: the service says so in the same field
+  if (item.status === 'ok') return { title, lines: nonEmpty(['Установлен', install?.error ?? null]) };
   if (install?.running) return { title, lines: ['Устанавливается…'] };
   const base = item.action ? 'Не установлен. Скачивается один раз' : 'Не установлен. Сначала нужен Node.js';
   return { title, lines: nonEmpty([base, install?.error ? `Не удалось установить: ${install.error}` : null]) };

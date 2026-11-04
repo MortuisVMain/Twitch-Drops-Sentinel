@@ -2774,7 +2774,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     driver = out_dir / "driver.mjs"
     driver.write_text(
         "import * as R from './giveawaysReadiness.mjs';\n"
-        "const ctx = { storeName: (id) => ({ epic: 'Epic Games', gog: 'GOG.com' }[id] || id), formatDate: (iso) => 'D:' + iso.slice(0, 10) };\n"
+        "const ctx = { storeName: (id) => ({ epic: 'Epic Games', gog: 'GOG.com' }[id] || id), formatDate: (when) => 'D:' + new Date(when).toISOString().slice(0, 10) };\n"
         "const it = (id, status, params = {}, action = null, store) => ({ id, status, params, action, ...(store ? { store } : {}) });\n"
         "const SECRET = 'secret.user@example.com';\n"
         "const items = [\n"
@@ -2813,6 +2813,8 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "const failed = R.itemText(it('engine', 'todo', {}, { kind: 'install_engine' }), { ...ctx, engineInstall: { running: false, error: 'EPERM' } });\n"
         "console.log(JSON.stringify({\n"
         "  report, pathReport, bad, strange, unknownId, installing, failed,\n"
+        "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
+        "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -2834,12 +2836,16 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     assert d["loginMissing"] == ["Нужно войти в аккаунт"]
     assert d["installing"]["lines"] == ["Устанавливается…"] and "EPERM" in " ".join(d["failed"]["lines"])
     assert d["todo"] == 3 and d["todoNone"] == 0 and d["todoWarnOnly"] == 0, "only `todo` items count as steps left"
+    assert any("D:2023-11-14" in line for line in d["epochLogin"]["lines"]), f"the service sends confirmedAt as epoch ms: {d['epochLogin']}"
+    assert "Chromium warning" in d["engineWarned"]["lines"], f"the install warning must show on a ready engine: {d['engineWarned']}"
     assert d["groups"] == {"main": ["module", "node", "engine", "browser", "selection"], "logins": ["login", "login"],
                            "sites": ["site", "site"], "scheduler": ["scheduler"]}, d["groups"]
     assert d["sitesOk"] is True and d["sitesMixed"] is False and d["sitesEmpty"] is False
     assert d["summaryZero"] == "Всё готово" and d["summaryTwo"] == "Осталось шагов: 2"
     assert d["urls"] == ["https://nodejs.org", None, None], "only http(s) addresses are opened"
     hook = (WORKSPACE / "src" / "hooks" / "useGiveawaysReadiness.ts").read_text(encoding="utf-8")
+    assert "silent && quick && fullInFlight.current" in hook, "a poll must not replace a full check in flight"
+    assert "finished && windowOpenRef.current" in hook, "a full check asks the store sites: only for the open window"
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "INSTALL_POLL_MS = 5000" in hook and "if (!windowOpen || !installing) return;" in hook, "poll only while the window is open and the engine installs"
     assert "?quick=1" in hook and "useEffect(() => { check(true); }, [check]);" in hook and "check(true, true), INSTALL_POLL_MS" in hook, \

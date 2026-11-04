@@ -22,6 +22,9 @@ export function useGiveawaysReadiness(windowOpen: boolean) {
   const wasInstalling = useRef(false);
   const dataRef = useRef<ReadinessResponse | null>(null);
   const requestId = useRef(0);
+  const fullInFlight = useRef(false);
+  const windowOpenRef = useRef(windowOpen);
+  windowOpenRef.current = windowOpen;
   const alive = useRef(true);
 
   useEffect(() => {
@@ -31,7 +34,10 @@ export function useGiveawaysReadiness(windowOpen: boolean) {
 
   /** quick: no store sites asked. silent: refresh without the skeleton (the install progress poll) */
   const check = useCallback(async (quick = false, silent = false) => {
+    // A full check can outlast several polls: the newest request wins, so a poll must not replace it
+    if (silent && quick && fullInFlight.current) return;
     const mine = ++requestId.current;
+    fullInFlight.current = !quick;
     if (!silent) setLoading(true);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -58,8 +64,8 @@ export function useGiveawaysReadiness(windowOpen: boolean) {
       dataRef.current = next;
       setData(next);
       setFailure(null);
-      // The install ended: one full check shows where things stand now
-      if (finished) check(false, false);
+      // The install ended: one full check shows where things stand now. It asks the store sites, so only for the open window
+      if (finished && windowOpenRef.current) check(false, false);
     } catch (err: any) {
       console.error('useGiveawaysReadiness: проверка готовности не выполнена', err);
       if (!alive.current || mine !== requestId.current) return;
@@ -67,6 +73,7 @@ export function useGiveawaysReadiness(windowOpen: boolean) {
       if (!silent) setFailure(err?.failure ?? 'unreachable');
     } finally {
       clearTimeout(timer);
+      if (mine === requestId.current && !quick) fullInFlight.current = false;
       if (alive.current && mine === requestId.current) setLoading(false);
     }
   }, []);

@@ -70,10 +70,10 @@ The startup repair leaves a task alone while the `runner.js` it names still
 exists, since that is another live install and not a moved one.
 
 ## An engine install that was cut short
-`npm install` creates `node_modules/patchright` long before it finishes, so the folder alone cannot say the engine is ready: an
-interrupted install used to count as done forever and never ran again. `data/.engine-install-incomplete` is written before npm starts
-and removed when npm succeeds; `engine_installed()` and `ensureBrowserEngine()` in `runner.js` read it. Older installs have no mark and
-stay valid. A failed Chromium download does not count as a failed install, because the engine falls back on Chrome and Edge, but it is reported.
+The check used to be whether `node_modules/patchright` exists, so anything that left the folder after a failed `npm install` would count as
+done forever. `data/.engine-install-incomplete` is written before npm starts and removed when npm succeeds; `engine_installed()` and
+`ensureBrowserEngine()` in `runner.js` read it. Older installs have no mark and stay valid. A real install killed at 1 to 5 s, with all
+packages in the npm cache, left either no folder or a finished one, so the half-finished state was not reproduced: a slow download may behave differently. A failed Chromium download does not count as a failed install, because the engine falls back on Chrome and Edge, but it is reported.
 
 ## Tests
 Gates `test_scheduler_task_is_created_on_a_clean_install` and `test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install`

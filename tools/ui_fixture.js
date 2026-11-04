@@ -96,7 +96,7 @@
     ];
     STORE_IDS.forEach(function (id) {
       items.push(clean ? { id: 'login', status: 'todo', params: {}, action: { kind: 'sign_in', store: id }, store: id }
-        : { id: 'login', status: 'ok', params: { account: 'long.account.name.number@example.com', confirmedAt: '2026-10-30T18:20:00Z' }, action: null, store: id });
+        : { id: 'login', status: 'ok', params: { account: 'long.account.name.number@example.com', confirmedAt: Date.parse('2026-10-30T18:20:00Z') }, action: null, store: id });
     });
     if (!quick) STORE_IDS.forEach(function (id, i) {
       items.push({ id: 'site', status: clean && i === 3 ? 'warning' : 'ok', params: {}, action: null, store: id });
