@@ -189,11 +189,6 @@ export function useSentinelState(
       ? currentPriority.filter((name) => name && name.toLowerCase() !== targetName.toLowerCase())
       : [...currentPriority, targetName];
 
-    const updatedSettings = {
-      ...sentinelState.settings,
-      priority_games: newPriority,
-    };
-
     let updatedCatalog = sentinelState.all_catalog_games;
     if (!found) {
       const customItem = {
@@ -206,21 +201,9 @@ export function useSentinelState(
       updatedCatalog = [customItem, ...sentinelState.all_catalog_games];
     }
 
-    setSentinelState((prev) => ({
-      ...prev,
-      all_catalog_games: updatedCatalog,
-      settings: updatedSettings,
-    }));
+    setSentinelState((prev) => ({ ...prev, all_catalog_games: updatedCatalog }));
 
-    try {
-      await fetch('http://127.0.0.1:28492/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSettings),
-      });
-    } catch {
-      // Standalone mode
-    }
+    await saveSettingsChange({ priority_games: newPriority });
 
     showToast(isPriority ? `"${targetName}" удалена из приоритета` : `"${targetName}" добавлена в очередь фарма`);
   };
@@ -244,25 +227,7 @@ export function useSentinelState(
       ? currentExcluded.filter((name) => name && name.toLowerCase() !== targetName.toLowerCase())
       : [...currentExcluded, targetName];
 
-    const updatedSettings = {
-      ...sentinelState.settings,
-      excluded_games: newExcluded,
-    };
-
-    setSentinelState((prev) => ({
-      ...prev,
-      settings: updatedSettings,
-    }));
-
-    try {
-      await fetch('http://127.0.0.1:28492/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSettings),
-      });
-    } catch {
-      // Standalone mode
-    }
+    await saveSettingsChange({ excluded_games: newExcluded });
 
     showToast(isExcluded ? `"${targetName}" возвращена в ротацию` : `"${targetName}" исключена из дропов`);
   };
@@ -290,11 +255,6 @@ export function useSentinelState(
       ? currentLinked.filter((name) => !isGameMatch(name, gameName))
       : [...currentLinked, gameName];
 
-    const updatedSettings = {
-      ...sentinelState.settings,
-      user_linked_games: newLinked,
-    };
-
     const updatedCatalog = sentinelState.all_catalog_games.map((g) => {
       if (isGameMatch(g.name, gameName)) {
         return {
@@ -307,7 +267,7 @@ export function useSentinelState(
 
     setSentinelState((prev) => ({
       ...prev,
-      settings: updatedSettings,
+      settings: { ...prev.settings, user_linked_games: newLinked },
       all_catalog_games: updatedCatalog,
     }));
 
@@ -324,21 +284,26 @@ export function useSentinelState(
     showToast(isLinked ? `Привязка для "${gameName}" снята` : `"${gameName}" отмечена как привязанная ✓`);
   };
 
-  // Update Settings
-  const handleUpdateSettings = async (newSettings: Partial<SentinelSettings>) => {
-    const merged = { ...sentinelState.settings, ...newSettings };
-    setSentinelState((prev) => ({ ...prev, settings: merged }));
+  // The only way settings are saved: merge into the latest state, post just the changed fields
+  // (the service merges partial updates), so a stale snapshot can never bring back an old value.
+  const saveSettingsChange = async (changes: Partial<SentinelSettings>) => {
+    setSentinelState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }));
 
     try {
-      await fetch('http://127.0.0.1:28492/api/settings', {
+      const res = await fetch('http://127.0.0.1:28492/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(merged),
+        body: JSON.stringify(changes),
       });
-    } catch {
-      // Standalone mode
+      if (!res.ok) {
+        console.error('settings: the service refused the change', res.status, Object.keys(changes));
+        showToast('Не удалось сохранить настройку');
+      }
+    } catch (err) {
+      console.warn('settings: the service is unreachable, the change stays local', err);
     }
   };
+  const handleUpdateSettings = saveSettingsChange;
 
   // Claim Drop
   const handleClaimNow = async (dropId?: string) => {
@@ -499,20 +464,7 @@ export function useSentinelState(
 
     // Swap positions
     [current[idx], current[targetIdx]] = [current[targetIdx], current[idx]];
-    const updatedSettings = {
-      ...sentinelState.settings,
-      priority_games: current,
-    };
-    setSentinelState((prev) => ({ ...prev, settings: updatedSettings }));
-    try {
-      await fetch('http://127.0.0.1:28492/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSettings),
-      });
-    } catch {
-      // Standalone mode
-    }
+    await saveSettingsChange({ priority_games: current });
     showToast(`⭐ Приоритет обновлен: ${gameName} перемещен ${direction === 'up' ? 'выше' : 'ниже'}`);
   };
 
@@ -544,20 +496,7 @@ export function useSentinelState(
     const existing = sentinelState.settings.ignored_channels || [];
     const filtered = existing.filter((c) => c.name.toLowerCase() !== channelName.toLowerCase());
     const newIgnored = [...filtered, { name: channelName, until, reason }];
-    const updatedSettings = {
-      ...sentinelState.settings,
-      ignored_channels: newIgnored,
-    };
-    setSentinelState((prev) => ({ ...prev, settings: updatedSettings }));
-    try {
-      await fetch('http://127.0.0.1:28492/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSettings),
-      });
-    } catch {
-      // Standalone mode
-    }
+    await saveSettingsChange({ ignored_channels: newIgnored });
     showToast(isSnooze2h ? `⏳ Канал "${channelName}" скрыт на 2 часа` : `🚫 Канал "${channelName}" добавлен в чёрный список`);
     handleSwitchStreamer(false);
   };
@@ -567,20 +506,7 @@ export function useSentinelState(
     playClick();
     const existing = sentinelState.settings.ignored_channels || [];
     const newIgnored = existing.filter((c) => c.name.toLowerCase() !== channelName.toLowerCase());
-    const updatedSettings = {
-      ...sentinelState.settings,
-      ignored_channels: newIgnored,
-    };
-    setSentinelState((prev) => ({ ...prev, settings: updatedSettings }));
-    try {
-      await fetch('http://127.0.0.1:28492/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSettings),
-      });
-    } catch {
-      // Standalone mode
-    }
+    await saveSettingsChange({ ignored_channels: newIgnored });
     showToast(`✓ Канал "${channelName}" удалён из черного списка`);
   };
 

@@ -4946,6 +4946,22 @@ def test_resolve_fgc_root_has_no_undefined_names():
     print("      resolve_fgc_root is clean: PASS [OK]")
 
 
+def test_settings_changes_send_only_the_changed_fields():
+    print("[audit C07] Settings: every handler posts only what it changed...")
+    hook = (WORKSPACE / "src" / "hooks" / "useSentinelState.ts").read_text(encoding="utf-8")
+    assert "const saveSettingsChange = async (changes: Partial<SentinelSettings>)" in hook, "one function must save partial changes"
+    assert "const handleUpdateSettings = saveSettingsChange" in hook, "handleUpdateSettings is that function"
+    assert "settings: { ...prev.settings, ...changes }" in hook, "local state merges into prev, not into a stale closure"
+    assert "body: JSON.stringify(changes)" in hook, "only the changes go to the service"
+    assert "JSON.stringify(updatedSettings)" not in hook and "JSON.stringify(merged)" not in hook, "no full snapshot may be posted"
+    assert "...sentinelState.settings," not in hook, "no handler may rebuild settings from a stale snapshot"
+    assert "console.error" in hook and "Не удалось сохранить настройку" in hook, "a refused save must be visible"
+    for name in ("i18n/index.ts", "utils/textScale.ts"):
+        src = (WORKSPACE / "src" / name).read_text(encoding="utf-8")
+        assert "JSON.stringify({ " in src and "JSON.stringify(settings" not in src, f"{name} posts a single field"
+    print("      Partial settings: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5048,6 +5064,7 @@ if __name__ == "__main__":
         test_steam_login_window_fits_a_small_screen,
         test_concurrent_update_checks_share_one_request,
         test_scheduled_run_that_never_finished_is_reported_as_failed,
+        test_settings_changes_send_only_the_changed_fields,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
