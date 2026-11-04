@@ -2,7 +2,7 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
-## [Unreleased]
+## [3.5.7] - 2026-11-04
 - The Giveaways and Dimmer tabs tell loading, failure and an empty answer apart, instead of showing "Sign in required" or "No monitors" before the data arrives.
 - New "Check readiness" window on the Giveaways tab: what is ready, what is left, and buttons to fix it.
 - An interrupted browser engine install no longer counts as done, and a failed Chromium download is reported.
