@@ -361,7 +361,7 @@ class SentinelSupervisor:
                 try:
                     shutil.copy2(default_template, CONFIG_FILE)
                 except Exception as exc:
-                    logger.debug("Failed copying default config template: %s", exc)
+                    logger.warning("Failed copying default config template: %s", exc)
 
         if CONFIG_FILE.exists():
             try:
