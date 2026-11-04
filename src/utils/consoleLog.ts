@@ -36,6 +36,14 @@ const levelOf = (l: SentinelLogEntry): string => String(l.level || l.category ||
 
 const bareMessage = (l: SentinelLogEntry): string => String(l.message).replace(/^\s*(\[[A-Z]+\]\s*)+/, '').trim();
 
+/** The row already shows the level: only a leading prefix naming that same level goes, other brackets stay. */
+export const withoutLevelPrefix = (message: unknown, level: string): string => {
+  const text = String(message);
+  const escaped = level.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const stripped = text.replace(new RegExp(`^\\s*(\\[${escaped}\\]\\s*)+`, 'i'), '');
+  return stripped || text;
+};
+
 export const isSyncLine = (l: SentinelLogEntry): boolean =>
   FOLDABLE_LEVELS.has(levelOf(l).toUpperCase()) && SYNC_PATTERNS.some((re) => re.test(bareMessage(l)));
 

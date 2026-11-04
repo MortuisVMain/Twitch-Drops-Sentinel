@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useModalFocus } from '../hooks/useModalFocus';
 import { createPortal } from 'react-dom';
 import { X, CircleCheck, CircleX, TriangleAlert, Info, RefreshCw, ClipboardCopy } from 'lucide-react';
 import { ReadinessAction, ReadinessItem, ReadinessResponse, StoreId } from '../types';
@@ -36,7 +37,6 @@ const STATUS_COLOR: Record<string, string> = {
   ok: 'var(--led-mint)', todo: 'var(--led-rose)', warning: 'var(--led-amber)', info: 'var(--led-cyan)',
 };
 
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // The shape differs per status, so the state never rests on colour alone
 const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
@@ -68,34 +68,10 @@ const SkeletonBlock: React.FC = () => (
 export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => {
   const { isOpen, onClose, data, loading, failure, actionError, storeNames, appVersion } = props;
   const dialogRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
   const [busy, setBusy] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle');
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const previous = document.activeElement as HTMLElement | null;
-    dialogRef.current?.focus();
-    // On the window, not on the dialog: a button disabled while it works drops focus to <body>, out of the dialog's reach
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onCloseRef.current(); return; }
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const nodes = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (!nodes.length) { e.preventDefault(); return; }
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      const active = document.activeElement;
-      const outside = !dialogRef.current.contains(active) || active === dialogRef.current;
-      if (e.shiftKey && (outside || active === first)) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && (outside || active === last)) { e.preventDefault(); first.focus(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      previous?.focus?.();
-    };
-  }, [isOpen]);
+  useModalFocus(isOpen, dialogRef, onClose);
 
   useEffect(() => {
     if (copyState === 'idle') return;

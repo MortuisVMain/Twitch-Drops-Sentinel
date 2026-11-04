@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useModalFocus } from '../hooks/useModalFocus';
 import { 
   X, 
   Check, 
@@ -213,16 +214,8 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
     }
   }, [isOpen, activeTab]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(isOpen, dialogRef, onClose);
 
   if (!isOpen) return null;
 
@@ -232,10 +225,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
       onClick={onClose}
     >
       <div 
-        className="w-[min(920px,92vw)] bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
+        className="w-[min(920px,92vw)] outline-none bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="help-title"
+        tabIndex={-1}
       >
         {/* Modal Header - shrink-0 ensures it stays intact */}
         <div className="py-4 px-6 border-b border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
@@ -244,7 +240,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
               <CircleHelp size={18} />
             </div>
             <div>
-              <h2 className="text-sm md:text-base font-bold text-white">
+              <h2 id="help-title" className="text-sm md:text-base font-bold text-white">
                 Справка и горячие клавиши
               </h2>
               <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5">

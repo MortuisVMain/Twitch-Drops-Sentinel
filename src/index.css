@@ -1040,7 +1040,9 @@
     padding: 3px 7px; border-radius: 9px; border: 1px solid var(--border-subtle); box-shadow: var(--shadow-well);
     flex-shrink: 0 !important; white-space: nowrap;
   }
+  .power-rocker:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
   .power-rocker {
+    display: block; padding: 0;
     width: 38px; height: 19px; background: var(--bg-row); border-radius: 10px;
     border: 1px solid var(--border-main); position: relative; cursor: pointer; transition: all 0.2s ease;
   }

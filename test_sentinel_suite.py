@@ -4209,6 +4209,58 @@ def test_built_page_embeds_its_font():
     print("      Embedded font: ALL PASS [OK]")
 
 
+def test_keyboard_palette_help_farm_and_log_prefix():
+    print("[ui-audit] Palette arrows and Enter, modal focus, the FARM switch, one level per log line...")
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    if not esbuild.exists() or shutil.which("node") is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "ui_audit_check"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir()
+    for name in ("paletteIndex", "consoleLog"):
+        res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / f"{name}.ts"), "--bundle", "--format=esm",
+                              f"--outfile={out_dir / (name + '.mjs')}"], capture_output=True, text=True, timeout=60, shell=os.name == "nt")
+        assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { movePaletteIndex as m, clampPaletteIndex as c } from './paletteIndex.mjs';\n"
+        "import { withoutLevelPrefix as w } from './consoleLog.mjs';\n"
+        "console.log(JSON.stringify({\n"
+        "  down: m(0, 1, 3), wrapDown: m(2, 1, 3), wrapUp: m(0, -1, 3), single: m(0, 1, 1), none: m(0, 1, 0),\n"
+        "  clamped: c(5, 3), clampedEmpty: c(5, 0), kept: c(1, 3),\n"
+        "  status: w('[STATUS] Ожидание', 'STATUS'), twice: w('[STATUS] [STATUS] Ожидание', 'status'),\n"
+        "  source: w('[CORE] Запуск', 'INFO'), keepsOther: w('[STATUS] [CORE] Запуск', 'STATUS'),\n"
+        "  plain: w('Просто текст', 'STATUS'), inside: w('Статус [STATUS] внутри', 'STATUS'), onlyPrefix: w('[STATUS]', 'STATUS'),\n"
+        "  regexLevel: w('[A.B] x', 'A.B'), notRegex: w('[AxB] x', 'A.B'),\n"
+        "}));\n",
+        encoding="utf-8",
+    )
+    res = subprocess.run(["node", str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert res.returncode == 0, res.stderr[-800:]
+    d = json.loads(res.stdout)
+    assert (d["down"], d["wrapDown"], d["wrapUp"], d["single"], d["none"]) == (1, 0, 2, 0, 0), d
+    assert (d["clamped"], d["clampedEmpty"], d["kept"]) == (2, 0, 1), d
+    assert d["status"] == "Ожидание" and d["twice"] == "Ожидание", d
+    assert d["source"] == "[CORE] Запуск" and d["keepsOther"] == "[CORE] Запуск", "other brackets stay"
+    assert d["plain"] == "Просто текст" and d["inside"] == "Статус [STATUS] внутри", "only a leading prefix goes"
+    assert d["onlyPrefix"] == "[STATUS]", "a line that is only the prefix must not turn empty"
+    assert d["regexLevel"] == "x" and d["notRegex"] == "[AxB] x", "the level is text, not a pattern"
+
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'role="switch"' in app and "aria-checked={!sentinelState.hardware.is_paused}" in app, "FARM must be a real switch"
+    assert '<div \n              className={`power-rocker' not in app.replace("\r\n", "\n"), "FARM is not reachable from a keyboard as a div"
+    assert "e.nativeEvent.isComposing" in app, "arrows and Enter must not break IME input"
+    assert 'aria-modal="true"]' in app, "hotkeys must not act behind an open dialog"
+    for name in ("HelpModal.tsx", "GiveawaysReadiness.tsx"):
+        assert "useModalFocus(" in (WORKSPACE / "src" / "components" / name).read_text(encoding="utf-8"), name
+    help_modal = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
+    assert 'aria-labelledby="help-title"' in help_modal and 'id="help-title"' in help_modal, "the dialog needs its visible title as a name"
+    view = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "withoutLevelPrefix(log.message, cat)" in view, "the console must show the level once"
+    print("      Keyboard and log prefix: ALL PASS [OK]")
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -4680,6 +4732,7 @@ if __name__ == "__main__":
         test_engine_install_error_without_json_is_kept,
         test_runner_finishes_an_interrupted_engine_install,
         test_built_page_embeds_its_font,
+        test_keyboard_palette_help_farm_and_log_prefix,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,
         test_scheduler_query_that_hangs_is_killed_and_reaped,

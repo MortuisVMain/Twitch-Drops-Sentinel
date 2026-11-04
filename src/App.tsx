@@ -17,6 +17,8 @@ import { PhotoBackdrop } from './components/PhotoBackdrop';
 import { AppearancePanel } from './components/AppearancePanel';
 
 import { HelpModal } from './components/HelpModal';
+import { useModalFocus } from './hooks/useModalFocus';
+import { clampPaletteIndex, movePaletteIndex } from './utils/paletteIndex';
 import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils/gameBoxArts';
 
 import { useTactileAudio } from './hooks/useTactileAudio';
@@ -181,6 +183,9 @@ const hidePipCover = (img: HTMLImageElement) => {
   if (fallback) fallback.style.display = 'flex';
 };
 
+// Not a Tailwind class: the row's own hover background would otherwise hide it
+const CMD_SELECTED_STYLE: React.CSSProperties = { background: 'rgba(255, 255, 255, 0.06)', boxShadow: 'inset 0 0 0 1px var(--led-mint)' };
+
 export const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -192,6 +197,13 @@ export const App: React.FC = () => {
   const [showCmdPalette, setShowCmdPalette] = useState(false);
 
   const [cmdSearch, setCmdSearch] = useState('');
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const cmdDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(showCmdPalette, cmdDialogRef, () => setShowCmdPalette(false), 'input');
+  useEffect(() => setCmdIndex(0), [cmdSearch, showCmdPalette]);
+  useEffect(() => {
+    cmdDialogRef.current?.querySelector('[data-cmd-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [cmdIndex, cmdSearch, showCmdPalette]);
 
 
 
@@ -763,6 +775,8 @@ export const App: React.FC = () => {
 
 
 
+      if (e.key !== 'Escape' && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
 
         e.preventDefault();
@@ -1323,17 +1337,16 @@ export const App: React.FC = () => {
 
             </span>
 
-            <div 
-
-              className={`power-rocker ${!sentinelState.hardware.is_paused ? 'on' : ''}`} 
-
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!sentinelState.hardware.is_paused}
+              aria-label="Главный тумблер фарма"
+              className={`power-rocker ${!sentinelState.hardware.is_paused ? 'on' : ''}`}
               onClick={handleToggleDaemon}
-
             >
-
-              <div className="power-rocker-thumb"></div>
-
-            </div>
+              <span className="power-rocker-thumb"></span>
+            </button>
 
           </div>
 
@@ -1885,15 +1898,44 @@ export const App: React.FC = () => {
           .filter(g => query && g.name.toLowerCase().includes(query))
           .slice(0, 5);
 
-        const totalResults = navActions.length + quickActions.length + matchingGames.length;
+        const focusGame = (game: { name: string }) => {
+          handleForceFarm(game.name);
+          handleTabChange('dashboard');
+          showToast(`Фокус: ${game.name}`);
+        };
+        // The order the sections are drawn in: the arrows walk this list
+        const results = [
+          ...navActions.map(item => ({ title: item.title, run: item.action })),
+          ...quickActions.map(item => ({ title: item.title, run: item.action })),
+          ...matchingGames.map(game => ({ title: game.name, run: () => focusGame(game) })),
+        ];
+        const totalResults = results.length;
+        const selectedIndex = clampPaletteIndex(cmdIndex, totalResults);
+        const runResult = (index: number) => {
+          const result = results[index];
+          if (!result) return;
+          playClick();
+          result.run();
+          setShowCmdPalette(false);
+        };
+        const optionProps = (index: number) => ({
+          'data-cmd-selected': index === selectedIndex,
+          'aria-current': index === selectedIndex ? ('true' as const) : undefined,
+          style: index === selectedIndex ? CMD_SELECTED_STYLE : undefined,
+        });
 
         return (
           <div 
             className="fixed inset-0 z-50 bg-[#0c100f]/65 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
             onClick={() => setShowCmdPalette(false)}
           >
-            <div 
-              className="w-full max-w-xl bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col max-h-[80vh] my-auto animate-in zoom-in-95 duration-150"
+            <div
+              ref={cmdDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Быстрые команды"
+              tabIndex={-1}
+              className="w-full max-w-xl outline-none bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col max-h-[80vh] my-auto animate-in zoom-in-95 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-3 px-4 bg-[#202725] border-b border-[#303a35] flex items-center gap-2.5 shrink-0">
@@ -1901,16 +1943,26 @@ export const App: React.FC = () => {
                 <input 
                   type="text" 
                   placeholder="Поиск по играм, стримам и действиям... (Esc)" 
-                  autoFocus 
                   className="w-full bg-transparent border-none outline-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing) return;
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setCmdIndex(movePaletteIndex(selectedIndex, e.key === 'ArrowDown' ? 1 : -1, totalResults));
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (!e.repeat) runResult(selectedIndex);
+                    }
+                  }}
                 />
                 <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[length:var(--fs-xs)] tabular text-[var(--text-muted)] shrink-0 select-none">
                   ESC
                 </kbd>
               </div>
 
+              <span className="sr-only" role="status" data-overflow-ok>{results[selectedIndex]?.title ?? ''}</span>
               <div className="p-2 overflow-y-auto space-y-2 scrollbar-thin flex-1 min-h-0">
                 {navActions.length > 0 && (
                   <div>
@@ -1918,15 +1970,12 @@ export const App: React.FC = () => {
                       Навигация
                     </div>
                     <div className="space-y-0.5">
-                      {navActions.map(item => (
+                      {navActions.map((item, i) => (
                         <button 
                           key={item.id}
                           className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-white/[0.06] text-left transition-colors cursor-pointer group"
-                          onClick={() => {
-                            playClick();
-                            item.action();
-                            setShowCmdPalette(false);
-                          }}
+                          {...optionProps(i)}
+                          onClick={() => runResult(i)}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className="w-5 text-center text-xs shrink-0">{item.icon}</span>
@@ -1949,15 +1998,12 @@ export const App: React.FC = () => {
                       Действия
                     </div>
                     <div className="space-y-0.5">
-                      {quickActions.map(item => (
+                      {quickActions.map((item, i) => (
                         <button 
                           key={item.id}
                           className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-white/[0.06] text-left transition-colors cursor-pointer group"
-                          onClick={() => {
-                            playClick();
-                            item.action();
-                            setShowCmdPalette(false);
-                          }}
+                          {...optionProps(navActions.length + i)}
+                          onClick={() => runResult(navActions.length + i)}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className="w-5 text-center text-xs shrink-0">{item.icon}</span>
@@ -1983,17 +2029,12 @@ export const App: React.FC = () => {
                       <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">Фокус ↵</span>
                     </div>
                     <div className="space-y-0.5">
-                      {matchingGames.map(game => (
+                      {matchingGames.map((game, i) => (
                         <button 
                           key={game.id}
                           className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-[#368873]/20 text-left transition-colors cursor-pointer group border border-transparent hover:border-[#73bba5]/30"
-                          onClick={() => {
-                            playClick();
-                            handleForceFarm(game.name);
-                            handleTabChange('dashboard');
-                            setShowCmdPalette(false);
-                            showToast(`Фокус: ${game.name}`);
-                          }}
+                          {...optionProps(navActions.length + quickActions.length + i)}
+                          onClick={() => runResult(navActions.length + quickActions.length + i)}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="w-5 text-center text-xs shrink-0">🎯</span>

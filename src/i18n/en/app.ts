@@ -207,4 +207,6 @@ export const APP: Record<string, string> = {
   'Twitch Drops Sentinel — Сбой Инициализации UI': 'Twitch Drops Sentinel — UI initialization failure',
   'Интерфейс Sentinel перехватил ошибку в React-дереве:': 'The Sentinel interface caught an error in the React tree:',
   'Перезагрузить интерфейс': 'Reload the interface',
+  'Главный тумблер фарма': 'Main farm switch',
+  'Быстрые команды': 'Quick commands',
 };

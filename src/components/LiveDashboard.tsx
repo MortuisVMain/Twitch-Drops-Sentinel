@@ -8,7 +8,7 @@ import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLog
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
-import { collapseLogs } from '../utils/consoleLog';
+import { collapseLogs, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
 import { campaignLabel, getCampaignState, queueView, type CampaignState } from '../utils/campaignState';
 
@@ -1109,7 +1109,7 @@ const filteredLogs = useMemo(() => {
                         [{cat}]
                       </span>
                       <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                        {block ? (expandedSync.includes(syncKey(block)) ? '▾ ' : '▸ ') : ''}{log.message}
+                        {block ? (expandedSync.includes(syncKey(block)) ? '▾ ' : '▸ ') : ''}{withoutLevelPrefix(log.message, cat)}
                         {count > 1 && <span className="tabular" style={{ color: 'var(--text-muted)', marginLeft: '6px' }}>×{count}</span>}
                       </span>
                     </div>
