@@ -21,6 +21,7 @@ import time
 import threading
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 import zipfile
 from pathlib import Path
 from typing import Any, Optional
@@ -43,6 +44,7 @@ PROTECTED_PATHS = {
     "trophies.md",
     "cookies.jar",
     "core/cookies.jar",
+    "core/settings.json",
     "window_state.json",
     "data/window_state.json",
     "installed_games.json",
@@ -50,6 +52,71 @@ PROTECTED_PATHS = {
     "ignored_games.json",
     "data/ignored_games.json",
 }
+
+TRUSTED_RELEASE_REPO = "MortuisVMain/Twitch-Drops-Sentinel"
+PROTECTED_FOLDERS = ("data/", "giveaways_engine/data/")
+PROTECTED_SUFFIXES = (".jar", ".log")
+
+
+def is_trusted_release_url(url: Any) -> bool:
+    """Only release assets of this repository: the parsed address decides, a substring proves nothing."""
+    if not isinstance(url, str) or "\\" in url or any(ch.isspace() or ord(ch) < 32 for ch in url):
+        return False
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme.lower() != "https" or parsed.username or parsed.password or port not in (None, 443):
+        return False
+    host = (parsed.hostname or "").lower()
+    if "/../" in parsed.path or parsed.path.endswith("/.."):
+        return False
+    if host == "github.com":
+        return parsed.path.startswith(f"/{TRUSTED_RELEASE_REPO}/releases/download/")
+    if host == "api.github.com":
+        return parsed.path.startswith(f"/repos/{TRUSTED_RELEASE_REPO}/releases/assets/")
+    return False
+
+
+def _is_protected(rel_path: str) -> bool:
+    lowered = rel_path.casefold()
+    return (lowered in PROTECTED_PATHS or lowered.endswith(PROTECTED_SUFFIXES)
+            or lowered.startswith(PROTECTED_FOLDERS))
+
+
+def archive_member_target(root: Path, member: str) -> Optional[Path]:
+    """Where an archive member may be written, or None. The path is normalized first: ./config.json is config.json."""
+    text = member.replace("\\", "/")
+    if ":" in text or "\0" in text or text.startswith("//"):
+        return None  # a drive, an NTFS stream or a network share
+    parts: list[str] = []
+    for raw_part in text.split("/"):
+        part = raw_part.rstrip(" .") if raw_part not in (".", "..") else raw_part  # Windows drops these from a name
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+        else:
+            parts.append(part)
+    if text.endswith("/") or not parts:
+        return None
+    # The whole release may sit in one folder, e.g. "Twitch Drops Sentinel v3.0/core/..."
+    if len(parts) > 1 and ("twitch" in parts[0].lower() or "sentinel" in parts[0].lower()):
+        parts = parts[1:]
+    if _is_protected("/".join(parts)):
+        return None
+    resolved_root = root.resolve()
+    target = resolved_root.joinpath(*parts).resolve()
+    if not target.is_relative_to(resolved_root):
+        return None
+    # Links and short 8.3 names only show after resolving
+    if _is_protected(target.relative_to(resolved_root).as_posix()):
+        return None
+    return target
+
 
 def parse_version(v: str) -> tuple[int, ...]:
     clean = v.strip().lstrip("vV")
@@ -133,14 +200,16 @@ class SafeAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
     across domains (e.g. GitHub API -> AWS S3 / objects.githubusercontent.com).
     """
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme.lower() != "https":
+            raise urllib.error.HTTPError(newurl, code, "Redirect away from https refused", headers, fp)
         new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_req is not None:
-            from urllib.parse import urlparse
-            orig_host = urlparse(req.full_url).netloc
-            new_host = urlparse(newurl).netloc
+            orig_host = (urlsplit(req.full_url).hostname or "").lower()
+            new_host = (urlsplit(newurl).hostname or "").lower()
             if orig_host != new_host and "Authorization" in new_req.headers:
                 del new_req.headers["Authorization"]
         return new_req
+
 
 def get_live_local_version() -> str:
     try:
@@ -347,9 +416,15 @@ class GitHubUpdater:
         return result
 
     def apply_update_from_url(self, download_url: str, asset_api_url: Optional[str] = None) -> tuple[bool, str]:
-        if not download_url or not download_url.startswith("http"):
+        """Installs a release asset of this repository; any other address is refused before a request is made."""
+        urls = [download_url] + ([asset_api_url] if asset_api_url and asset_api_url != download_url else [])
+        untrusted = [u for u in urls if not is_trusted_release_url(u)]
+        if untrusted:
+            logger.warning(f"Update refused, not a release of {TRUSTED_RELEASE_REPO}: {untrusted}")
             return False, "Некорректная ссылка на скачивание обновления."
+        return self._install_update(urls)
 
+    def _install_update(self, urls_to_try: list[str]) -> tuple[bool, str]:
         if self._is_updating:
             return False, "Обновление уже загружается и устанавливается."
         self._is_updating = True
@@ -373,10 +448,6 @@ class GitHubUpdater:
         token = get_optional_github_token()
         opener = urllib.request.build_opener(SafeAuthRedirectHandler)
 
-        urls_to_try = [download_url]
-        if asset_api_url and asset_api_url != download_url and asset_api_url.startswith("http"):
-            urls_to_try.append(asset_api_url)
-
         try:
             staging_dir.mkdir(parents=True, exist_ok=True)
             backup_dir.mkdir(parents=True, exist_ok=True)
@@ -388,11 +459,9 @@ class GitHubUpdater:
                 try:
                     logger.info(f"Downloading update payload from {try_url}...")
                     req_headers = {"User-Agent": "TwitchDropsSentinel-Updater/3.1"}
-                    if "api.github.com" in try_url:
+                    if (urlsplit(try_url).hostname or "").lower() == "api.github.com":
                         req_headers["Accept"] = "application/octet-stream"
-                        if token:
-                            req_headers["Authorization"] = f"Bearer {token}"
-                    elif token:
+                    if token and is_trusted_release_url(try_url):
                         req_headers["Authorization"] = f"Bearer {token}"
 
                     req = urllib.request.Request(try_url, headers=req_headers)
@@ -470,25 +539,10 @@ class GitHubUpdater:
                 # 2. Extract strictly non-protected files
                 extracted_count = 0
                 for member in zf.namelist():
-                    norm = member.replace("\\", "/").lstrip("/")
-                    # If file is nested inside folder in zip (e.g. "Twitch Drops Sentinel v3.0/core/..."):
-                    parts = norm.split("/")
-                    if len(parts) > 1 and ("twitch" in parts[0].lower() or "sentinel" in parts[0].lower()):
-                        rel_path = "/".join(parts[1:])
-                    else:
-                        rel_path = norm
-
-                    if not rel_path or rel_path.endswith("/"):
-                        continue
-
-                    # Check blacklist
-                    if (rel_path.lower() in PROTECTED_PATHS or rel_path.endswith(".jar") or rel_path.lower().startswith("giveaways_engine/data/")):
-                        logger.info(f"Preserving protected user file: {rel_path}")
-                        continue
-
-                    target_file = (PROJECT_DIR / rel_path).resolve()
-                    if not target_file.is_relative_to(PROJECT_DIR.resolve()):
-                        logger.warning(f"ZipSlip path traversal attempt detected and blocked: {rel_path}")
+                    target_file = archive_member_target(PROJECT_DIR, member)
+                    if target_file is None:
+                        if not member.endswith(("/", "\\")):
+                            logger.info(f"Preserving protected path, not extracting: {member}")
                         continue
                     target_file.parent.mkdir(parents=True, exist_ok=True)
 

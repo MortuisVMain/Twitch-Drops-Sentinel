@@ -34,6 +34,7 @@ from typing import Any, Optional
 from types import SimpleNamespace
 
 import aiohttp
+import copy
 from aiohttp import web
 import psutil
 
@@ -157,6 +158,12 @@ from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
+from atomic_json import atomic_write_json
+from auto_shutdown import next_countdown, priority_drops_done
+from engine_flags import apply_engine_flags
+from local_access import host_allowed, origin_allowed
+from profile_backup import profile_entries, write_backup
+from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
 from updater import UPDATER
@@ -290,6 +297,34 @@ def normalize_game_name(name: str) -> str:
 
     return cleaned
 
+SUPERVISOR_DEFAULTS = {
+    "auto_shutdown_on_complete": True,
+    "auto_shutdown_mode": "shutdown",
+    "pause_on_gaming": True,
+    "pause_on_battery": True,
+    "native_toasts": True,
+    "ui_sound_enabled": True,
+    "claim_channel_points": True,
+    "auto_claim_drops": True,
+    "giveaways_enabled": True,
+    "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
+    "giveaways_headless": True,
+    "streamer_watchdog_enabled": True,
+    "game_directories": [],
+    "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
+    "user_linked_games": ["Hunt: Showdown 1896"],
+    "excluded_games": [],
+    "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
+    "games_to_pause": DEFAULT_GAMES_PROCESSES,
+    "ignored_processes": [],
+    "ignored_channels": [],
+    "ui_theme": "titanium",
+    "ui_backdrop_type": "3d",
+    "ui_relief_mode": "hex-magma",
+    "ui_relief_opacity": 85,
+}
+
+
 class SentinelSupervisor:
     def __init__(self):
         self.app = web.Application()
@@ -316,32 +351,7 @@ class SentinelSupervisor:
         self._setup_routes()
 
     def load_settings(self) -> dict:
-        default_settings = {
-            "auto_shutdown_on_complete": True,
-            "auto_shutdown_mode": "shutdown",
-            "pause_on_gaming": True,
-            "pause_on_battery": True,
-            "native_toasts": True,
-            "ui_sound_enabled": True,
-            "claim_channel_points": True,
-            "auto_claim_drops": True,
-            "giveaways_enabled": True,
-            "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
-            "giveaways_headless": True,
-            "streamer_watchdog_enabled": True,
-            "game_directories": [],
-            "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
-            "user_linked_games": ["Hunt: Showdown 1896"],
-            "excluded_games": [],
-            "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
-            "games_to_pause": DEFAULT_GAMES_PROCESSES,
-            "ignored_processes": [],
-            "ignored_channels": [],
-            "ui_theme": "titanium",
-            "ui_backdrop_type": "3d",
-            "ui_relief_mode": "hex-magma",
-            "ui_relief_opacity": 85,
-        }
+        default_settings = copy.deepcopy(SUPERVISOR_DEFAULTS)
         if not CONFIG_FILE.exists():
             default_template = PROJECT_DIR / "config.default.json"
             if default_template.exists():
@@ -419,11 +429,7 @@ class SentinelSupervisor:
         set_native_toasts(self.settings.get("native_toasts", True))
 
         # 2. Save supervisor configuration
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.settings, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Failed to save config.json: {e}")
+        atomic_write_json(CONFIG_FILE, self.settings)
 
         # 3. Save DevilXD engine settings.json with full type serialization
         try:
@@ -438,7 +444,8 @@ class SentinelSupervisor:
             json_save(SETTINGS_PATH, devilxd_settings, sort=True)
             logger.info(f"Synchronized {len(deduped_priority)} priority games (mode={priority_mode_val}) into {SETTINGS_PATH.name}")
         except Exception as e:
-            logger.error(f"Failed to save DevilXD settings.json: {e}")
+            logger.error(f"Failed to save DevilXD settings.json: {e}", exc_info=True)
+            raise
 
         # 4. Notify active Twitch client
         if self.twitch_client and hasattr(self.twitch_client, "settings"):
@@ -450,9 +457,7 @@ class SentinelSupervisor:
                     self.twitch_client.settings.priority_mode = PriorityMode(priority_mode_val)
                 except Exception as exc:
                     logger.debug("Failed setting PriorityMode(%s): %s", priority_mode_val, exc)
-                self.twitch_client.claim_channel_points_enabled = bool(self.settings.get("claim_channel_points", True))
-                self.twitch_client.auto_claim_drops_enabled = bool(self.settings.get("auto_claim_drops", True))
-                self.twitch_client.streamer_watchdog_enabled = bool(self.settings.get("streamer_watchdog_enabled", True))
+                apply_engine_flags(self.twitch_client, self.settings)
                 self.twitch_client.settings.save(force=True)
                 if hasattr(self.twitch_client, "change_state"):
                     self.twitch_client.change_state(State.INVENTORY_FETCH)
@@ -560,12 +565,38 @@ class SentinelSupervisor:
 
     @web.middleware
     async def cors_middleware(self, request, handler):
+        origin = request.headers.get("Origin")
+        if not origin_allowed(origin) or not host_allowed(request.headers.get("Host")):
+            logger.warning(f"Refused {request.method} {request.path} from origin={origin!r} host={request.headers.get('Host')!r}")
+            return web.json_response({"status": "error", "message": "Forbidden"}, status=403)
+
+        def allow(headers):
+            if origin:
+                headers["Access-Control-Allow-Origin"] = origin
+                headers["Vary"] = "Origin"
+                headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+                headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+
         if request.method == "OPTIONS":
             response = web.Response()
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            allow(response.headers)
             return response
+        try:
+            response = await handler(request)
+        except web.HTTPException as ex:
+            allow(ex.headers)
+            raise ex
+        except Exception as err:
+            logger.error(f"Unhandled exception in request {request.path}: {err}", exc_info=True)
+            ex = web.HTTPInternalServerError(
+                text=json.dumps({"error": str(err)}, ensure_ascii=False),
+                content_type="application/json"
+            )
+            allow(ex.headers)
+            raise ex
+
+        allow(response.headers)
+        return response
         try:
             response = await handler(request)
         except web.HTTPException as ex:
@@ -967,8 +998,17 @@ class SentinelSupervisor:
     async def handle_apply_update(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
-            url = str(data.get("download_url", "")).strip()
-            asset_api_url = str(data.get("asset_api_url", "")).strip() or None
+            requested = str(data.get("download_url", "")).strip()
+            if requested and not is_trusted_release_url(requested):
+                logger.warning(f"Update refused, foreign address: {requested}")
+                return web.json_response({"status": "error", "message": "Некорректная ссылка на скачивание обновления."}, status=400)
+            # The page only asks for the update: what gets installed comes from the release metadata
+            info = await asyncio.to_thread(UPDATER.check_for_updates)
+            url, asset_api_url = info.get("download_url"), info.get("asset_api_url") or None
+            if not info.get("update_available") or not url:
+                return web.json_response({"status": "error", "message": "Нет доступного обновления."}, status=409)
+            if requested and requested not in (url, asset_api_url):
+                return web.json_response({"status": "error", "message": "Сведения об обновлении устарели, проверьте обновления ещё раз."}, status=409)
             success, message = await asyncio.to_thread(UPDATER.apply_update_from_url, url, asset_api_url)
             return web.json_response({"status": "ok" if success else "error", "message": message})
         except Exception as e:
@@ -1089,25 +1129,21 @@ class SentinelSupervisor:
 
     async def handle_backup_profile(self, request: web.Request) -> web.Response:
         try:
-            import zipfile
             backup_dir = PROJECT_DIR / "data" / "backups"
             backup_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             zip_filename = f"sentinel_profile_backup_{ts}.zip"
             zip_path = backup_dir / zip_filename
-            files_to_pack = [
-                PROJECT_DIR / "data" / "settings.json",
-                PROJECT_DIR / "data" / "installed_games.json",
-                PROJECT_DIR / "data" / "dimmer_state.json",
-                PROJECT_DIR / "Trophies.md",
-                PROJECT_DIR / "cookies.jar",
-            ]
-            added_names = set()
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for fp in files_to_pack:
-                    if fp.exists() and fp.name not in added_names:
-                        zf.write(fp, arcname=fp.name)
-                        added_names.add(fp.name)
+            missing = await asyncio.to_thread(write_backup, zip_path, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH))
+            if missing:
+                logger.error(f"Profile backup is incomplete, missing: {missing}")
+                return web.json_response({
+                    "status": "partial",
+                    "message": "Backup is incomplete",
+                    "missing": missing,
+                    "filename": zip_filename,
+                    "path": str(zip_path)
+                })
             logger.info(f"Profile backup created successfully: {zip_path}")
             return web.json_response({
                 "status": "ok",
@@ -1121,9 +1157,13 @@ class SentinelSupervisor:
 
     async def handle_reset_settings(self, request: web.Request) -> web.Response:
         try:
-            from settings import default_settings
-            self.settings = dict(default_settings)
-            self.save_settings()
+            previous = self.settings
+            self.settings = copy.deepcopy(SUPERVISOR_DEFAULTS)
+            try:
+                self.save_settings()
+            except Exception:
+                self.settings = previous
+                raise
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
@@ -1607,33 +1647,24 @@ class SentinelSupervisor:
     async def luna_autoshutdown_loop(self):
         while self.is_running:
             try:
-                if self.settings.get("auto_shutdown_on_complete", False) and self.twitch_client:
-                    # Check if all priority drops are completed
-                    all_done = True
-                    has_active = False
-                    for campaign in self.twitch_client.inventory:
-                        for drop in campaign.timed_drops.values():
-                            if drop.campaign.game.name.lower() in [g.lower() for g in self.settings.get("priority_games", [])]:
-                                has_active = True
-                                if not drop.is_claimed:
-                                    all_done = False
-                                    break
-                    
-                    if has_active and all_done and self.luna_countdown is None:
-                        logger.info("All priority drops completed! Triggering Luna Auto-Shutdown in 60s...")
-                        send_windows_toast("Luna Auto-Shutdown 🌙", "Все дропы собраны! Выключение через 60 секунд.")
-                        self.luna_countdown = 60
-
-                if self.luna_countdown is not None:
-                    self.luna_countdown -= 1
-                    if self.luna_countdown <= 0:
-                        mode = self.settings.get("auto_shutdown_mode", "shutdown")
-                        logger.info(f"Luna Auto-Shutdown executing: {mode}")
-                        if mode == "shutdown":
-                            subprocess.Popen(["shutdown", "/s", "/t", "0"])
-                        elif mode == "sleep":
-                            subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
-                        self.luna_countdown = None
+                enabled = bool(self.settings.get("auto_shutdown_on_complete", False))
+                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []))
+                was_counting = self.luna_countdown is not None
+                step = next_countdown(self.luna_countdown, enabled, done)
+                self.luna_countdown = step.countdown
+                if step.cancelled:
+                    logger.info(f"Luna Auto-Shutdown cancelled: enabled={enabled}, all priority drops claimed={done}")
+                    send_windows_toast("Luna Auto-Shutdown 🌙", "Автовыключение отменено.")
+                elif step.countdown is not None and not was_counting:
+                    logger.info("All priority drops completed! Triggering Luna Auto-Shutdown in 60s...")
+                    send_windows_toast("Luna Auto-Shutdown 🌙", "Все дропы собраны! Выключение через 60 секунд.")
+                if step.fire:
+                    mode = self.settings.get("auto_shutdown_mode", "shutdown")
+                    logger.info(f"Luna Auto-Shutdown executing: {mode}")
+                    if mode == "shutdown":
+                        subprocess.Popen(["shutdown", "/s", "/t", "0"])
+                    elif mode == "sleep":
+                        subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
 
             except Exception as e:
                 logger.error(f"Luna shutdown loop error: {e}")
@@ -1668,6 +1699,7 @@ class SentinelSupervisor:
                     settings.priority_mode = PriorityMode(self.settings.get("priority_mode", 0))
                 settings.save(force=True)
                 self.twitch_client = Twitch(settings)
+                apply_engine_flags(self.twitch_client, self.settings)
                 STATE_BRIDGE.add_log("INFO", _("sentinel", "engine_activated").format(count=len(settings.priority)))
                 await self.twitch_client.run()
             except asyncio.CancelledError:

@@ -2672,7 +2672,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
     try:
-        ok, message = updater.GitHubUpdater().apply_update_from_url(url)
+        ok, message = updater.GitHubUpdater()._install_update([url])
     finally:
         updater.PROJECT_DIR = saved_dir
         server.shutdown()
@@ -2687,7 +2687,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
     try:
-        ok, message = updater.GitHubUpdater().apply_update_from_url("http://127.0.0.1:9/none.zip")
+        ok, message = updater.GitHubUpdater()._install_update(["http://127.0.0.1:9/none.zip"])
     finally:
         updater.PROJECT_DIR = saved_dir
     assert ok is False and "Не удалось загрузить" in message, message
@@ -4261,6 +4261,298 @@ def test_keyboard_palette_help_farm_and_log_prefix():
     print("      Keyboard and log prefix: ALL PASS [OK]")
 
 
+def test_update_sources_and_token_scope():
+    print("[C01] Updates come from this repository only, the token goes nowhere else...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import io
+    import zipfile
+    import urllib.error
+    import urllib.request
+    import updater
+
+    repo = "MortuisVMain/Twitch-Drops-Sentinel"
+    good = [f"https://github.com/{repo}/releases/download/v9.9.9/Patch.zip",
+            f"https://api.github.com/repos/{repo}/releases/assets/123",
+            f"HTTPS://GitHub.com/{repo}/releases/download/v9.9.9/Patch.zip"]
+    bad = ["https://untrusted.example/Patch.zip",
+           f"https://github.com.evil.example/{repo}/releases/download/v1/p.zip",
+           f"https://evil.example/github.com/{repo}/releases/download/v1/p.zip",
+           f"https://github.com@evil.example/{repo}/releases/download/v1/p.zip",
+           f"https://evil.example\\@github.com/{repo}/releases/download/v1/p.zip",
+           f"http://github.com/{repo}/releases/download/v1/p.zip",
+           f"https://github.com:8443/{repo}/releases/download/v1/p.zip",
+           "https://github.com/someone/else/releases/download/v1/p.zip",
+           f"https://github.com/{repo}/archive/main.zip",
+           f"https://api.github.com/repos/{repo}/contents/x",
+           f"https://github.com/{repo}/releases/download/../../../../someone/else/p.zip",
+           "file:///C:/Windows/win.ini", "", None]
+    for url in good:
+        assert updater.is_trusted_release_url(url), f"must be accepted: {url}"
+    for url in bad:
+        assert not updater.is_trusted_release_url(url), f"must be refused: {url}"
+
+    # A fake network: records what was asked for and with which headers
+    work = SANDBOX / "update_source_check"
+    shutil.rmtree(work, ignore_errors=True)
+    install = work / "install"
+    (install / "core").mkdir(parents=True)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("core/new_module.py", "X = 1\n")
+    payload = buffer.getvalue()
+    requests = []
+
+    class _Resp(io.BytesIO):
+        headers = {"Content-Length": str(len(payload))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    class _Opener:
+        def open(self, req, timeout=None):
+            requests.append((req.full_url, dict(req.header_items())))
+            return _Resp(payload)
+
+    saved = updater.PROJECT_DIR, urllib.request.build_opener, updater.get_optional_github_token
+    updater.PROJECT_DIR = install
+    urllib.request.build_opener = lambda *a, **k: _Opener()
+    try:
+        updater.get_optional_github_token = lambda: "SYNTHETIC_TOKEN"
+        ok, message = updater.GitHubUpdater().apply_update_from_url("https://untrusted.example/Patch.zip")
+        assert not ok and requests == [], f"a foreign address must be refused before any request: {requests}, {message}"
+        ok, message = updater.GitHubUpdater().apply_update_from_url(good[0], "https://untrusted.example/asset")
+        assert not ok and requests == [], f"a foreign fallback address must be refused too: {requests}"
+
+        ok, message = updater.GitHubUpdater().apply_update_from_url(good[0])
+        assert ok, message
+        assert requests[-1][1].get("Authorization") == "Bearer SYNTHETIC_TOKEN", requests[-1]
+        assert (install / "core" / "new_module.py").exists()
+
+        requests.clear()
+        (install / "core" / "new_module.py").unlink()
+        updater.get_optional_github_token = lambda: ""
+        ok, message = updater.GitHubUpdater().apply_update_from_url(good[0])
+        assert ok and "Authorization" not in requests[-1][1], f"works without a token: {requests}"
+    finally:
+        updater.PROJECT_DIR, urllib.request.build_opener, updater.get_optional_github_token = saved
+
+    # Redirects: the token stays home, and a redirect cannot step down to plain http
+    handler = updater.SafeAuthRedirectHandler()
+    req = urllib.request.Request(good[1], headers={"Authorization": "Bearer SYNTHETIC_TOKEN"})
+    moved = handler.redirect_request(req, None, 302, "Found", {}, "https://objects.githubusercontent.com/x")
+    assert "Authorization" not in moved.headers, "the token must not follow a redirect to another host"
+    try:
+        handler.redirect_request(req, None, 302, "Found", {}, "http://objects.githubusercontent.com/x")
+        raise AssertionError("a redirect to plain http must fail")
+    except urllib.error.HTTPError:
+        pass
+    print("      Update sources: ALL PASS [OK]")
+
+
+def test_protected_files_survive_any_archive_path():
+    print("[C02] Archive paths are normalized before they are matched against user files...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import updater
+
+    root = SANDBOX / "archive_path_check"
+    shutil.rmtree(root, ignore_errors=True)
+    (root / "core").mkdir(parents=True)
+    wrapper = "Twitch Drops Sentinel v9"
+    protected = ["config.json", "./config.json", "core/../config.json", "CONFIG.JSON", "config.json.", "config.json ",
+                 ".\\config.json", "core\\..\\config.json", f"{wrapper}/config.json", f"{wrapper}/./config.json",
+                 "Trophies.md", "core/cookies.jar", "core/settings.json", "./core/settings.json", "core/sentinel_service.log",
+                 "sentinel_stdout.log", "data/installed_games.json", "data/./anything.json", "giveaways_engine/data/claims.json",
+                 "giveaways_engine/./data/claims.json", "GIVEAWAYS_ENGINE/DATA/claims.json", "config.json::$DATA", "C:config.json"]
+    for member in protected:
+        assert updater.archive_member_target(root, member) is None, f"must not be written: {member}"
+    for member in ("../evil.txt", "core/../../evil.txt", f"{wrapper}/../../evil.txt", "C:/Windows/evil.txt", "\\\\server\\share\\x"):
+        assert updater.archive_member_target(root, member) is None, f"escapes the install: {member}"
+    for member, expected in (("core/module.py", "core/module.py"), ("./core/module.py", "core/module.py"),
+                             (f"{wrapper}/dist/index.html", "dist/index.html"), ("TwitchDropsSentinel.update", "TwitchDropsSentinel.update")):
+        target = updater.archive_member_target(root, member)
+        assert target == (root / expected).resolve(), f"{member} -> {target}"
+    for folder in ("core/", f"{wrapper}/", "./"):
+        assert updater.archive_member_target(root, folder) is None, f"a folder entry writes nothing: {folder}"
+    print("      Archive paths: ALL PASS [OK]")
+
+
+def test_atomic_settings_write_keeps_the_old_file():
+    print("[C03] A failed settings write leaves the old file alone and says so...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import atomic_json
+
+    work = SANDBOX / "atomic_json_check"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    target = work / "config.json"
+    target.write_text('{"mine": 1}', encoding="utf-8")
+    try:
+        atomic_json.atomic_write_json(target, {"url": object()})
+        raise AssertionError("what cannot be serialized must fail")
+    except TypeError:
+        pass
+    assert target.read_text(encoding="utf-8") == '{"mine": 1}', "a failed dump must not touch the file"
+    saved = atomic_json.os.replace
+
+    def refuse(*a, **k):
+        raise PermissionError("locked")
+
+    atomic_json.os.replace = refuse
+    try:
+        atomic_json.atomic_write_json(target, {"new": 2})
+        raise AssertionError("a failed replace must reach the caller")
+    except PermissionError:
+        pass
+    finally:
+        atomic_json.os.replace = saved
+    assert target.read_text(encoding="utf-8") == '{"mine": 1}'
+    assert [f.name for f in work.iterdir()] == ["config.json"], "no temp file stays behind"
+    atomic_json.atomic_write_json(target, {"name": "кириллица"})
+    raw_text = target.read_bytes()
+    assert not raw_text.startswith(b"\xef\xbb\xbf") and json.loads(raw_text.decode("utf-8")) == {"name": "кириллица"}
+    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "from settings import default_settings" not in source, "reset must use the supervisor's defaults, not the engine's"
+    assert 'with open(CONFIG_FILE, "w"' not in source, "config.json must not be opened for writing before the data is ready"
+    print("      Atomic settings: ALL PASS [OK]")
+
+
+def test_profile_backup_is_complete():
+    print("[C04] The backup holds the real settings, keeps same-named files apart, reports what is missing...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import zipfile
+    import profile_backup
+
+    root = SANDBOX / "backup_check"
+    shutil.rmtree(root, ignore_errors=True)
+    (root / "core").mkdir(parents=True)
+    (root / "data").mkdir()
+    files = {"config.json": "{}", "core/settings.json": '{"engine": 1}', "data/settings.json": '{"legacy": 1}', "core/cookies.jar": "c",
+             "data/installed_games.json": "[]", "data/dimmer_state.json": "{}", "Trophies.md": "t"}
+    for rel, body in files.items():
+        (root / rel).write_text(body, encoding="utf-8")
+    entries = profile_backup.profile_entries(root, root / "core" / "settings.json", root / "core" / "cookies.jar")
+    out = root / "backup.zip"
+    missing = profile_backup.write_backup(out, entries)
+    assert missing == [], missing
+    with zipfile.ZipFile(out) as zf:
+        names = set(zf.namelist())
+        assert set(files) <= names, names
+        assert zf.read("core/settings.json") == b'{"engine": 1}' and zf.read("data/settings.json") == b'{"legacy": 1}', "same basename, both kept"
+        manifest = json.loads(zf.read("manifest.json"))
+        assert {e["path"] for e in manifest["files"]} == set(files) and manifest["format"] == 1, manifest
+    (root / "config.json").unlink()
+    (root / "data" / "dimmer_state.json").unlink()
+    missing = profile_backup.write_backup(out, entries)
+    assert missing == ["config.json"], f"only what is required counts as missing: {missing}"
+    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert '"status": "partial"' in source, "an incomplete backup must not read as a success"
+    print("      Profile backup: ALL PASS [OK]")
+
+
+def test_auto_shutdown_can_be_cancelled_and_engine_flags_apply():
+    print("[C05/C06] The countdown follows the setting every second; saved flags reach every engine...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import types
+    import auto_shutdown
+    import engine_flags
+
+    step = auto_shutdown.next_countdown
+    # Starts only when allowed and done
+    assert step(None, enabled=True, done=True) == auto_shutdown.Step(60, False, False)
+    assert step(None, enabled=False, done=True) == auto_shutdown.Step(None, False, False)
+    assert step(None, enabled=True, done=False) == auto_shutdown.Step(None, False, False)
+    # Switched off, or a new target appeared, at any second: cancelled, nothing fires
+    for left in (60, 30, 1):
+        assert step(left, enabled=False, done=True) == auto_shutdown.Step(None, False, True)
+        assert step(left, enabled=True, done=False) == auto_shutdown.Step(None, False, True)
+    # Allowed all the way down: exactly one action
+    left, fired = None, 0
+    for _second in range(120):
+        result = step(left, enabled=True, done=True)
+        left, fired = result.countdown, fired + result.fire
+        if result.fire:
+            break
+    assert fired == 1 and left is None and _second == 60, (fired, left, _second)
+
+    def drop(game, claimed):
+        return types.SimpleNamespace(is_claimed=claimed, campaign=types.SimpleNamespace(game=types.SimpleNamespace(name=game)))
+
+    def campaign(*drops):
+        return types.SimpleNamespace(timed_drops={i: d for i, d in enumerate(drops)})
+
+    done = auto_shutdown.priority_drops_done
+    assert done([campaign(drop("Rust", True))], ["rust"]), "all claimed"
+    assert not done([campaign(drop("Rust", True), drop("Rust", False))], ["Rust"]), "one left"
+    assert not done([campaign(drop("Other", True))], ["Rust"]), "nothing on the list means nothing finished"
+    assert not done([], ["Rust"]), "an empty inventory is no finish"
+    assert done([campaign(drop("Other", False)), campaign(drop("Rust", True))], ["Rust"]), "only priority games count"
+
+    client = types.SimpleNamespace(claim_channel_points_enabled=True, auto_claim_drops_enabled=True, streamer_watchdog_enabled=True)
+    engine_flags.apply_engine_flags(client, {"claim_channel_points": False, "auto_claim_drops": False, "streamer_watchdog_enabled": False})
+    assert (client.claim_channel_points_enabled, client.auto_claim_drops_enabled, client.streamer_watchdog_enabled) == (False, False, False)
+    engine_flags.apply_engine_flags(client, {})
+    assert (client.claim_channel_points_enabled, client.auto_claim_drops_enabled, client.streamer_watchdog_enabled) == (True, True, True), "defaults stay on"
+
+    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert source.count("apply_engine_flags(self.twitch_client, self.settings)") == 2, "start and save must share one path"
+    start = source.index("self.twitch_client = Twitch(settings)")
+    assert start < source.index("apply_engine_flags(self.twitch_client, self.settings)", start) < source.index("await self.twitch_client.run()", start), "flags before run()"
+    print("      Shutdown and flags: ALL PASS [OK]")
+
+
+def test_local_service_refuses_foreign_pages_and_resets_cleanly():
+    print("[C01/C03] Sandbox service: foreign web pages are refused, reset writes the supervisor's schema...")
+    import urllib.error
+
+    def call(path, method="GET", origin=None, body=None, host=None):
+        req = urllib.request.Request(BASE_URL + path, method=method, data=body)
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+        if origin:
+            req.add_header("Origin", origin)
+        if host:
+            req.add_header("Host", host)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.status, resp.headers, resp.read()
+        except urllib.error.HTTPError as err:
+            return err.code, err.headers, err.read()
+
+    code, headers, _body = call("/api/state", origin="https://evil.example")
+    assert code == 403 and "Access-Control-Allow-Origin" not in headers, f"a foreign page must not read the state: {code}"
+    code, _h, _body = call("/api/shutdown", "POST", origin="https://evil.example")
+    assert code == 403, f"a foreign page must not stop the service: {code}"
+    code, _h, _body = call("/api/state", origin="null")
+    assert code == 403, "an opaque origin is no local client"
+    code, headers, _body = call("/api/apply-update", "OPTIONS", origin="https://evil.example")
+    assert code == 403 and "Access-Control-Allow-Origin" not in headers, f"preflight: {code}"
+    code, _h, _body = call("/api/state", host="evil.example")
+    assert code == 403, f"DNS rebinding: a foreign Host must be refused, got {code}"
+
+    code, headers, _body = call("/api/state", origin="https://app.sentinel")
+    assert code == 200 and headers.get("Access-Control-Allow-Origin") == "https://app.sentinel", (code, dict(headers))
+    code, headers, _body = call("/api/state", origin="http://127.0.0.1:5173")
+    assert code == 200 and headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:5173", "the dev server"
+    code, _h, _body = call("/api/state")
+    assert code == 200, "the desktop shell sends no Origin"
+
+    # Refused by address before any metadata or network work
+    for url in ("https://untrusted.example/Patch.zip", "https://github.com.evil.example/MortuisVMain/Twitch-Drops-Sentinel/releases/download/v1/p.zip"):
+        code, _h, answer = call("/api/updates/apply", "POST", origin="https://app.sentinel", body=json.dumps({"download_url": url}).encode())
+        assert code == 400 and json.loads(answer)["status"] == "error", f"{url}: {code} {answer[:120]}"
+
+    code, _h, answer = call("/api/settings/reset", "POST", origin="https://app.sentinel", body=b"{}")
+    assert code == 200, answer[:300]
+    settings = json.loads(answer)["settings"]
+    assert "priority_games" in settings and "ui_theme" in settings and "twitch_url" not in settings and "exclude" not in settings, sorted(settings)[:12]
+    config = json.loads((SANDBOX / "config.json").read_text(encoding="utf-8"))
+    assert config["ui_theme"] == settings["ui_theme"], "the file and the answer must agree"
+    print("      Local service: ALL PASS [OK]")
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -4733,6 +5025,11 @@ if __name__ == "__main__":
         test_runner_finishes_an_interrupted_engine_install,
         test_built_page_embeds_its_font,
         test_keyboard_palette_help_farm_and_log_prefix,
+        test_update_sources_and_token_scope,
+        test_protected_files_survive_any_archive_path,
+        test_atomic_settings_write_keeps_the_old_file,
+        test_profile_backup_is_complete,
+        test_auto_shutdown_can_be_cancelled_and_engine_flags_apply,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,
         test_scheduler_query_that_hangs_is_killed_and_reaped,
@@ -4746,6 +5043,7 @@ if __name__ == "__main__":
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
         test_english_ui_covers_every_russian_string,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
+        test_local_service_refuses_foreign_pages_and_resets_cleanly,
         test_resolve_fgc_root_has_no_undefined_names,
         test_steam_login_window_fits_a_small_screen,
         test_concurrent_update_checks_share_one_request,
