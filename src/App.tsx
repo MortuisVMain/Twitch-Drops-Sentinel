@@ -1073,7 +1073,7 @@ export const App: React.FC = () => {
 
               <span className="version-chip version-pro" id="headerThemeBadge">
 
-                {sentinelState?.version || updateInfo?.local_version || 'v7.0'} <span className="relief-chip-full">{backdropType === '3d' ? '3D-RELIEF' : 'FLAT-2D'}</span><span className="relief-chip-short">{backdropType === '3d' ? '3D' : '2D'}</span>
+                {sentinelState?.version || updateInfo?.local_version || 'v7.0'}
 
               </span>
 
@@ -2156,7 +2156,7 @@ export const App: React.FC = () => {
 
                 <p className="text-xs text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '3.5.7'}
+                  Текущая версия: v{sentinelState.version || '3.5.8'}
 
                 </p>
 

@@ -80,15 +80,47 @@ export const campaignLabel = (s: CampaignState): string => {
     case 'done':
       return 'всё получено';
     default:
-      return 'нет кампании';
+      return s.reason || 'нет кампании'; // a listed but unfarmable campaign says why
   }
 };
 
-// Queue filter "only with campaigns": the order never changes, rows without a campaign are just hidden
+// Queue status filter: the order never changes, rows that do not match are just hidden.
+// "all" shows everything, including the finished rows (the dashboard folds those into their own group).
+export type QueueFilter = 'all' | 'available' | 'action' | 'none';
+
+const QUEUE_FILTER_KIND: Record<Exclude<QueueFilter, 'all'>, CampaignKind> = {
+  available: 'running',
+  action: 'link',
+  none: 'none',
+};
+
 export const queueView = <T extends { state: CampaignState }>(
   items: T[],
-  onlyWithCampaign: boolean
-): { visible: T[]; total: number; withCampaign: number } => {
-  const withCampaign = items.filter((item) => item.state.kind !== 'none').length;
-  return { visible: onlyWithCampaign ? items.filter((item) => item.state.kind !== 'none') : items, total: items.length, withCampaign };
+  filter: QueueFilter
+): { visible: T[]; total: number } => ({
+  visible: filter === 'all' ? items : items.filter((item) => item.state.kind === QUEUE_FILTER_KIND[filter]),
+  total: items.length,
+});
+
+// Header counters from the same rows. The game that is farming right now is not in the rows: it adds 1 to the
+// total and to "available", so the four parts always sum to the total.
+export const queueCounts = <T extends { state: CampaignState }>(
+  items: T[],
+  hasActiveGame: boolean
+): { total: number; available: number; needLink: number; finished: number; noCampaign: number } => {
+  const count = (kind: CampaignKind): number => items.filter((item) => item.state.kind === kind).length;
+  const active = hasActiveGame ? 1 : 0;
+  return {
+    total: items.length + active,
+    available: count('running') + active,
+    needLink: count('link'),
+    finished: count('done'),
+    noCampaign: count('none'),
+  };
+};
+
+// Stored filter -> value. The old "only with campaigns" switch hid rows of kind none only, which no new filter
+// reproduces except "all" (running rows stay visible), so a missing value and the legacy key both start as "all".
+export const parseQueueFilter = (stored: string | null): QueueFilter => {
+  return stored === 'available' || stored === 'action' || stored === 'none' ? stored : 'all';
 };

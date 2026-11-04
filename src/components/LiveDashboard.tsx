@@ -8,10 +8,11 @@ import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLog
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
-import { computeIdleInfo, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
-import { collapseLogs, withoutLevelPrefix } from '../utils/consoleLog';
+import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
+import { deadlineFacts } from '../utils/campaignFacts';
+import { collapseLogs, CONSOLE_COLLAPSED_KEY, filterLogs, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
-import { campaignLabel, getCampaignState, queueView, type CampaignState } from '../utils/campaignState';
+import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueView, type CampaignState, type QueueFilter } from '../utils/campaignState';
 
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
@@ -67,6 +68,20 @@ const getChannelName = (drop: ActiveDrop | null | undefined, watchingChannel?: s
 
 const safeLower = (val: any): string => {
   return typeof val === 'string' ? val.toLowerCase().trim() : '';
+};
+
+const QUEUE_FILTER_OPTIONS: Array<{ value: QueueFilter; label: string; hint: string }> = [
+  { value: 'all', label: 'Все', hint: 'Вся очередь, включая завершённые игры. Порядок очереди не меняется.' },
+  { value: 'available', label: 'Доступны', hint: 'Игры с идущей кампанией, которую можно фармить. Порядок очереди не меняется.' },
+  { value: 'action', label: 'Требуют действия', hint: 'Кампания есть, но нужно привязать аккаунт игры. Порядок очереди не меняется.' },
+  { value: 'none', label: 'Без кампаний', hint: 'Игры очереди, у которых сейчас нет кампании. Порядок очереди не меняется.' },
+];
+
+const QUEUE_FILTER_EMPTY: Record<QueueFilter, string> = {
+  all: 'Очередь кампаний пуста',
+  available: 'Нет игр с доступной кампанией',
+  action: 'Нет игр, которым нужна привязка',
+  none: 'Нет игр без кампании',
 };
 
 export const LiveDashboard: React.FC<LiveDashboardProps> = ({
@@ -382,26 +397,51 @@ const endingSoonGame = useMemo(() => {
     };
     return [...list].sort((x, y) => rank(x) - rank(y));
   }, [allGames, overrideFilter, endingSoonByGame, priorityList, trophies]);
-  const OVERRIDE_VISIBLE = 6;
+  // Idle hero: why nothing is being farmed right now, from data already in /api/state
+  const isIdle = !(activeDrop && activeGame);
+
+  // Console: one line while idle, full while farming; an explicit user choice ('1'/'0') always wins
+  const [consoleChoice, setConsoleChoice] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(CONSOLE_COLLAPSED_KEY);
+    } catch (err) {
+      console.warn('LiveDashboard: localStorage недоступен', err);
+      return null;
+    }
+  });
+  const consoleCollapsed = resolveConsoleCollapsed(consoleChoice, isIdle);
+  const toggleConsole = () => {
+    playClick();
+    const next = consoleCollapsed ? '0' : '1';
+    setConsoleChoice(next);
+    try {
+      localStorage.setItem(CONSOLE_COLLAPSED_KEY, next);
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить состояние консоли', err);
+    }
+  };
+
+  // The viewport is unmounted while collapsed: on expand, jump to the newest line again
+  useEffect(() => {
+    if (!consoleCollapsed && consoleViewportRef.current) consoleViewportRef.current.scrollTop = consoleViewportRef.current.scrollHeight;
+  }, [consoleCollapsed]);
+
+  // The height freed by a collapsed console goes to the off-queue block
+  const OVERRIDE_VISIBLE = consoleCollapsed ? 12 : 6;
   const overrideGames = overrideAll.slice(0, OVERRIDE_VISIBLE);
 
   // Filtered console logs
 const filteredLogs = useMemo(() => {
-    const base = logFilter === 'ALL'
-      ? safeRecentLogs
-      : safeRecentLogs.filter((l) => {
-          const cat = (l.level || l.category || '').toUpperCase();
-          if (logFilter === 'WATCH') return cat.includes('WATCH') || cat.includes('STREAM');
-          if (logFilter === 'CLAIM') return cat.includes('CLAIM') || cat.includes('DROP');
-          if (logFilter === 'CORE') return cat.includes('CORE') || cat.includes('SYS') || cat.includes('GUARD');
-          return true;
-        });
+    const base = filterLogs(safeRecentLogs, logFilter);
     // display only: progress spam and repeated lines are folded, "Copy" still takes the full journal
     return collapseLogs(base.slice(-200), { expandSync: logFilter === 'CORE' }).slice(-60);
   }, [safeRecentLogs, logFilter]);
+  // the collapsed line has no filter chips, so it always shows the newest event of the ALL view
+  const lastEvent = useMemo(() => {
+    const all = collapseLogs(filterLogs(safeRecentLogs, 'ALL').slice(-200));
+    return all[all.length - 1];
+  }, [safeRecentLogs]);
 
-  // Idle hero: why nothing is being farmed right now, from data already in /api/state
-  const isIdle = !(activeDrop && activeGame);
   const idleInfo = useMemo(
     () =>
       computeIdleInfo({
@@ -439,30 +479,28 @@ const filteredLogs = useMemo(() => {
       console.warn('LiveDashboard: не удалось сохранить состояние группы', err);
     }
   };
-  const [queueOnlyCampaigns, setQueueOnlyCampaigns] = useState<boolean>(() => {
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>(() => {
     try {
-      return localStorage.getItem('sentinel_queue_only_campaigns') === '1';
+      return parseQueueFilter(localStorage.getItem('sentinel_queue_filter'));
     } catch (err) {
       console.warn('LiveDashboard: localStorage недоступен', err);
-      return false;
+      return 'all';
     }
   });
-  const toggleQueueOnlyCampaigns = () => {
+  const changeQueueFilter = (next: QueueFilter) => {
     playClick();
-    const next = !queueOnlyCampaigns;
-    setQueueOnlyCampaigns(next);
+    setQueueFilter(next);
     try {
-      localStorage.setItem('sentinel_queue_only_campaigns', next ? '1' : '0');
+      localStorage.setItem('sentinel_queue_filter', next);
     } catch (err) {
       console.warn('LiveDashboard: не удалось сохранить фильтр очереди', err);
     }
   };
-  const queueShown = queueView(queueCampaigns, queueOnlyCampaigns);
+  const queueShown = queueView(queueCampaigns, queueFilter);
   const activeQueue = queueShown.visible.filter((item) => item.state.kind !== 'done');
   const finishedQueue = queueShown.visible.filter((item) => item.state.kind === 'done');
-  // the game that is farming right now has a campaign by definition
-  const queueTotalCount = queueShown.total + (activeGame ? 1 : 0);
-  const queueWithCampaignCount = queueShown.withCampaign + (activeGame ? 1 : 0);
+  // the game that is farming right now is not a row: it is counted as available
+  const queueStats = queueCounts(queueCampaigns, Boolean(activeGame));
 
   const renderQueueRow = (item: (typeof queueCampaigns)[number]) => (
                 <div
@@ -485,15 +523,21 @@ const filteredLogs = useMemo(() => {
                       onError={(e) => { const img = e.currentTarget; if (!retryCover(img, item.name)) img.style.display = 'none'; }}
                     />
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.name}{' '}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
+                        <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
                         {item.priorityIndex >= 0 && (
-                          <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
+                          <span
+                            className="tabular"
+                            role="img"
+                            title={`Место в очереди: ${item.priorityIndex + 1}`}
+                            aria-label={`Место в очереди: ${item.priorityIndex + 1}`}
+                            style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 'var(--fs-xs)', fontWeight: 700, lineHeight: 1.2, padding: '0 5px', borderRadius: '4px', border: '1px solid var(--border-subtle)', background: 'var(--bg-well)', color: 'var(--text-secondary)' }}
+                          >
                             #{item.priorityIndex + 1}
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div title={item.state.kind === 'none' ? item.state.reason : undefined} style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {item.state.kind === 'link' ? (
                           <button
                             className="queue-link-caption"
@@ -660,8 +704,18 @@ const filteredLogs = useMemo(() => {
         {/* LEFT COLUMN: ACTIVE CAMPAIGNS SHELF (420px) */}
         <section className="titanium-island dashboard-shelf-island" style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header" style={{ flexWrap: 'wrap', rowGap: '4px' }}>
-            <span className="tag">
-              <span className="led-dot" /> <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{queueTotalCount}</span> <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }} title="Сколько игр очереди сейчас имеют кампанию">(с кампаниями: {queueWithCampaignCount})</span></span>
+            <span className="tag" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '2px', maxWidth: '100%' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span className="led-dot" />
+                <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{`${queueStats.total} ${pluralRu(queueStats.total, 'игра', 'игры', 'игр')}`}</span></span>
+              </span>
+              <span style={{ display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--text-muted)' }}>
+                <span title="Игры очереди с идущей кампанией, которую можно фармить (вместе с игрой, которая фармится сейчас)">{`Доступно ${queueStats.available}`}</span>
+                {' · '}
+                <span title="Кампания есть, но аккаунт игры не привязан: фарм невозможен, пока вы его не привяжете">{`Нужна привязка ${queueStats.needLink}`}</span>
+                {' · '}
+                <span title="Игры очереди, где все награды уже получены">{`Завершено ${queueStats.finished}`}</span>
+              </span>
             </span>
 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {forcedGame ? (
@@ -676,20 +730,11 @@ const filteredLogs = useMemo(() => {
                   className="tactile-btn" 
                   style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => setShowFullCatalogModal(true)}
-                  title="Фарм вне очереди"
+                  title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
                 >
                   Выбрать игру для фарма ▾
                 </button>
               )}
-              <button
-                className={`tactile-btn ${queueOnlyCampaigns ? 'active-mint' : ''}`}
-                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
-                onClick={toggleQueueOnlyCampaigns}
-                aria-pressed={queueOnlyCampaigns}
-                title="Скрыть игры очереди, у которых сейчас нет кампании. Порядок очереди не меняется."
-              >
-                С кампаниями
-              </button>
               <button
                 className="tactile-btn active-mint"
                 style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
@@ -697,10 +742,29 @@ const filteredLogs = useMemo(() => {
                   playClick();
                   onUpdateSettings?.({ priority_mode: settings.priority_mode === 0 ? 1 : 0 });
                 }}
+                title={settings.priority_mode === 0
+                  ? 'Постоянная настройка: сейчас фармятся только игры из очереди. Нажмите, чтобы после них брать и другие игры с активными кампаниями'
+                  : 'Постоянная настройка: сначала игры из очереди, затем любые другие игры с активными кампаниями. Нажмите, чтобы фармить только очередь'}
               >
-                {settings.priority_mode === 0 ? '🎯 Только очередь ⇄' : '⚡ Очередь + любые ⇄'}
+                {settings.priority_mode === 0 ? '🎯 Режим: только очередь' : '⚡ Режим: очередь + любые'}
               </button>
             </div>
+          </div>
+
+          {/* QUEUE STATUS FILTER: view only, the real queue order and priority numbers never change */}
+          <div role="group" aria-label="Фильтр очереди по статусу" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
+            {QUEUE_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                className={`tactile-btn ${queueFilter === option.value ? 'active-mint' : ''}`}
+                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                onClick={() => changeQueueFilter(option.value)}
+                aria-pressed={queueFilter === option.value}
+                title={option.hint}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
 
           {/* GQL SEARCH INPUT & DROPDOWN */}
@@ -749,7 +813,7 @@ const filteredLogs = useMemo(() => {
           <div className="queue-scroll" id="queueContainer" style={{ minHeight: 0, flex: 1, overflowY: 'auto' }}>
             {queueShown.visible.length === 0 ? (
               <div className="text-center py-6 text-xs text-[var(--text-muted)]">
-                {queueCampaigns.length === 0 ? 'Очередь кампаний пуста' : 'Ни у одной игры очереди сейчас нет кампании'}
+                {queueCampaigns.length === 0 ? 'Очередь кампаний пуста' : QUEUE_FILTER_EMPTY[queueFilter]}
               </div>
             ) : (
               <>
@@ -789,6 +853,11 @@ const filteredLogs = useMemo(() => {
             {isIdle ? (
               <div className="idle-hero">
                 <h2 className="idle-hero-title" id="heroDropTitle">Ожидание кампаний</h2>
+                {connected && (
+                  <div className="idle-hero-extra tabular" style={hardware.is_paused ? { color: 'var(--led-amber)' } : undefined}>
+                    {hardware.is_paused ? 'Автосбор приостановлен' : 'Автосбор включён · Сейчас ожидает'}
+                  </div>
+                )}
                 <div className="idle-hero-reason">{idleInfo.reason}</div>
                 {idleInfo.extra && <div className="idle-hero-extra tabular">{idleInfo.extra}</div>}
                 {idleInfo.unlinked.slice(0, 3).map((u) => (
@@ -810,7 +879,7 @@ const filteredLogs = useMemo(() => {
                     className="tactile-btn active-mint"
                     style={{ minHeight: '28px' }}
                     onClick={() => { playClick(); setShowFullCatalogModal(true); }}
-                    title="Фарм вне очереди"
+                    title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
                   >
                     Выбрать игру для фарма
                   </button>
@@ -820,7 +889,7 @@ const filteredLogs = useMemo(() => {
                     onClick={scrollToOverride}
                     title="Перейти к блоку ручного фокуса"
                   >
-                    Фармить вне очереди
+                    Показать игры вне очереди
                   </button>
                 </div>
               </div>
@@ -1033,12 +1102,24 @@ const filteredLogs = useMemo(() => {
           </section>
 
           {/* MODULE 2: LIVE OPERATIONS & ACTION CONSOLE */}
-          <section className="titanium-island middle-console-island" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <section
+            className={`titanium-island middle-console-island${consoleCollapsed ? ' console-collapsed' : ''}`}
+            style={consoleCollapsed ? { flex: '0 0 auto', minHeight: 0, overflow: 'hidden' } : { flex: 1, minHeight: 0, overflow: 'hidden' }}
+          >
             <div className="engraved-header" style={{ marginBottom: '5px' }}>
               <span className="tag">
                 <span className="led-dot" /> <span title="Живая консоль операций и событий демона">КОНСОЛЬ</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <button
+                  className="node-chip"
+                  onClick={toggleConsole}
+                  aria-expanded={!consoleCollapsed}
+                  title={consoleCollapsed ? 'Развернуть консоль: полный журнал событий' : 'Свернуть консоль до одной строки с последним событием'}
+                >
+                  {consoleCollapsed ? '▸' : '▾'} Журнал
+                </button>
+                {!consoleCollapsed && (<>
                 <button
                   className={`node-chip ${logFilter === 'ALL' ? 'active' : ''}`}
                   onClick={() => { playClick(); setLogFilter('ALL'); }}
@@ -1063,6 +1144,7 @@ const filteredLogs = useMemo(() => {
                 >
                   Ядро
                 </button>
+                </>)}
                 <button
                   className="node-chip"
                   onClick={handleCopyLogs}
@@ -1073,6 +1155,29 @@ const filteredLogs = useMemo(() => {
               </div>
             </div>
 
+            {consoleCollapsed && (
+              <div className="obsidian-well console-last-event" id="mainConsoleLine" style={{ display: 'flex', gap: '8px', padding: '6px 10px', fontSize: 'var(--fs-xs)', minWidth: 0 }}>
+                {lastEvent ? (
+                  <>
+                    <span className="tabular" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                      [{lastEvent.log.time || lastEvent.log.timestamp || '00:00:00'}]
+                    </span>
+                    <span
+                      className="clip-1"
+                      style={{ color: 'var(--text-primary)', minWidth: 0, flex: 1 }}
+                      title={withoutLevelPrefix(lastEvent.log.message, (lastEvent.log.level || lastEvent.log.category || 'INFO').toUpperCase())}
+                    >
+                      {withoutLevelPrefix(lastEvent.log.message, (lastEvent.log.level || lastEvent.log.category || 'INFO').toUpperCase())}
+                      {lastEvent.count > 1 && <span className="tabular" style={{ color: 'var(--text-muted)', marginLeft: '6px' }}>×{lastEvent.count}</span>}
+                    </span>
+                  </>
+                ) : (
+                  <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Журнал операций ожидает входящих событий...</span>
+                )}
+              </div>
+            )}
+
+            {!consoleCollapsed && (
             <div 
               ref={consoleViewportRef} 
               onScroll={handleDashboardConsoleScroll}
@@ -1128,10 +1233,15 @@ const filteredLogs = useMemo(() => {
               )}
               <div ref={terminalEndRef} />
             </div>
+            )}
           </section>
 
           {/* MODULE 3: MANUAL FARM OVERRIDE */}
-          <section id="overrideSection" className="titanium-island" style={{ flexShrink: 0 }}>
+          <section
+            id="overrideSection"
+            className="titanium-island"
+            style={consoleCollapsed ? { flex: '1 1 auto', minHeight: 0, overflow: 'hidden' } : { flexShrink: 0 }}
+          >
             <div className="engraved-header" style={{ marginBottom: '4px' }}>
               <span className="tag">
                 <span className="led-dot amber" /> <span title="Фарм вне очереди (ручной фокус)">ВНЕ ОЧЕРЕДИ</span>
@@ -1168,7 +1278,7 @@ const filteredLogs = useMemo(() => {
               </div>
             </div>
 
-            <div className="override-scroll-grid" id="overrideGrid" style={{ maxHeight: 'none', overflow: 'visible' }}>
+            <div className="override-scroll-grid" id="overrideGrid" style={consoleCollapsed ? { maxHeight: 'none', overflowY: 'auto', flex: '1 1 auto' } : { maxHeight: 'none', overflow: 'visible' }}>
               {overrideGames.length === 0 ? (
                 <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
                   Нет подходящих кампаний для ручного переключения
@@ -1181,6 +1291,19 @@ const filteredLogs = useMemo(() => {
                     (g.total_drops && g.claimed_drops && g.claimed_drops >= g.total_drops) ||
                     (g.progress_percent !== undefined && g.progress_percent >= 100)
                   );
+                  // campaigns closing within a day: time left against the watching still needed (never a promise)
+                  const deadline = !isForced && !isFinished && endingSoonByGame.has(safeLower(g.name))
+                    ? deadlineFacts(g.drops_end_at, g.remaining_watch_minutes, Date.now())
+                    : null;
+                  let deadlineText: string | null = null; // the full wording, for the tooltip
+                  let deadlineShort: string | null = null; // what fits the pill's one line
+                  if (deadline && deadline.msLeft !== null) {
+                    const left = formatTimeLeft(deadline.msLeft);
+                    const watch = deadline.watchMinutes === null ? '' : formatTimeLeft(deadline.watchMinutes * 60000);
+                    if (deadline.watchMinutes === null) { deadlineText = `⏳ До конца ${left} · время просмотра неизвестно`; deadlineShort = `⏳ До конца ${left}`; }
+                    else if (deadline.verdict === 'late') { deadlineText = `⏳ Не успеть: до конца ${left}, смотреть ${watch}`; deadlineShort = `⏳ Не успеть: ${left}, смотреть ${watch}`; }
+                    else { deadlineText = `⏳ До конца ${left} · смотреть ${watch}`; deadlineShort = `⏳ ${left} · смотреть ${watch}`; }
+                  }
                   return (
                     <div
                       key={idx}
@@ -1199,15 +1322,19 @@ const filteredLogs = useMemo(() => {
                         <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.name}
                         </div>
-                        <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}>
-                          {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : endingSoonByGame.has(safeLower(g.name)) ? `⏳ сгорает через ${endingSoonByGame.get(safeLower(g.name))?.timeLeft}` : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
+                        <div
+                          className="tabular"
+                          title={deadlineText ? `${deadlineText}. Время до конца кампании и сколько ещё нужно смотреть. Гарантии нет: игры фармятся по очереди.` : undefined}
+                          style={{ fontSize: 'var(--fs-xs)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}
+                        >
+                          {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : endingSoonByGame.has(safeLower(g.name)) ? (deadlineShort ?? `⏳ сгорает через ${endingSoonByGame.get(safeLower(g.name))?.timeLeft}`) : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
                         </div>
                       </div>
                       <span
                         className="version-chip shrink-0"
                         style={{ color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : 'var(--led-mint)' }}
                       >
-                        {isForced ? 'FORCE' : isFinished ? '✓ СОБРАНО' : 'ФОКУС'}
+                        {isForced ? 'Сейчас · отменить' : isFinished ? '✓ СОБРАНО' : 'Собирать сейчас'}
                       </span>
                     </div>
                   );

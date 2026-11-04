@@ -62,3 +62,4 @@
 | **062** | [Scheduler Shown Active With No Task](./062-scheduler-task-never-created.md) | Giveaways Scheduler / Register-ScheduledTask / conhost --headless / Honest Missing State |
 | **063** | [No Update Badge Although a Newer Release Exists](./063-update-check-silent-in-tray.md) | Auto-Updater / Periodic Check in Tray / Failed Check vs Up to Date / GitHub Rate Limit / CREATE_NO_WINDOW |
 | **064** | [Local Service Access and Update Trust](./064-local-service-and-update-trust.md) | Local service / Origin and Host checks / update source / settings transaction / dimmer pending state | Refuse foreign pages, trust only this repository, save both settings files or neither, keep a monitor pending until the hardware settles |
+| **065** | [A Swallowed NameError Hid a Dangerous Default](./065-swallowed-nameerror-hid-dangerous-default.md) | load_settings / missing import shutil / DEBUG-level log / SUPERVISOR_DEFAULTS power-off / reset settings |

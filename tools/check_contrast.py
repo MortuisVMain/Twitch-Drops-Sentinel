@@ -1,6 +1,7 @@
 """Fails when a text token has less than 4.5:1 contrast on the surfaces of any theme in src/index.css.
 
 Usage: python tools/check_contrast.py [--suggest]
+Light themes also check the --led-* accents, which are used as text.
 Surfaces: --bg-chassis-base, --bg-island (solid layer, plus a 10% white lift for its gradient highlight), --bg-row, --bg-well.
 """
 import re
@@ -9,6 +10,7 @@ from pathlib import Path
 
 CSS = Path(__file__).resolve().parent.parent / "src" / "index.css"
 TEXT_TOKENS = ("--text-primary", "--text-secondary", "--text-muted", "--text-engraved")
+ACCENT_TOKENS = ("--led-mint", "--led-amber", "--led-cyan", "--led-rose")  # used as text; checked on light themes only
 SURFACES = ("--bg-chassis-base", "--bg-island", "--bg-row", "--bg-well")
 MIN_RATIO = 4.5
 
@@ -44,9 +46,12 @@ def ratio(a, b):
 
 def themes():
     css = CSS.read_text(encoding="utf-8")
+    root = {}
     for m in re.finditer(r"\n\s*((?::root, )?\[data-theme=\"([a-z-]+)\"\])\s*\{(.*?)\n\s*\}", css, re.S):
         tokens = dict(re.findall(r"(--[a-z-]+):\s*([^;]+);", m.group(3)))
-        yield m.group(2), tokens
+        if not root:
+            root = tokens  # first block is :root (titanium): themes inherit tokens they do not override
+        yield m.group(2), {**root, **tokens}
 
 
 def surfaces(tokens):
@@ -77,7 +82,7 @@ def main():
     for name, tokens in themes():
         surf = surfaces(tokens)
         dark = lum(surf["--bg-chassis-base"]) < 0.5
-        for tok in TEXT_TOKENS:
+        for tok in TEXT_TOKENS + (() if dark else ACCENT_TOKENS):
             col = parse_color(tokens[tok])
             worst = min(ratio(col, s) for s in surf.values())
             ok = worst >= MIN_RATIO

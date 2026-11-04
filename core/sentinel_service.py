@@ -18,6 +18,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -155,7 +156,7 @@ from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
-from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability
+from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from atomic_json import atomic_write_json
@@ -299,7 +300,7 @@ def normalize_game_name(name: str) -> str:
     return cleaned
 
 SUPERVISOR_DEFAULTS = {
-    "auto_shutdown_on_complete": True,
+    "auto_shutdown_on_complete": False,
     "auto_shutdown_mode": "shutdown",
     "pause_on_gaming": True,
     "pause_on_battery": True,
@@ -313,7 +314,7 @@ SUPERVISOR_DEFAULTS = {
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
-    "user_linked_games": ["Hunt: Showdown 1896"],
+    "user_linked_games": [],
     "excluded_games": [],
     "priority_mode": 0,  # 0 = PRIORITY_ONLY (farms strictly priority games)
     "games_to_pause": DEFAULT_GAMES_PROCESSES,
@@ -360,7 +361,7 @@ class SentinelSupervisor:
                 try:
                     shutil.copy2(default_template, CONFIG_FILE)
                 except Exception as exc:
-                    logger.debug("Failed copying default config template: %s", exc)
+                    logger.warning("Failed copying default config template: %s", exc)
 
         if CONFIG_FILE.exists():
             try:
@@ -692,8 +693,14 @@ class SentinelSupervisor:
                     g["claimed_drops"] = camp_claimed
                     if is_camp_finished:
                         g["progress_percent"] = 100.0
+                        g["remaining_watch_minutes"] = 0
                     else:
                         g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
+                        watch_left = campaign_remaining_watch_minutes(camp)
+                        if watch_left is not None:
+                            g["remaining_watch_minutes"] = watch_left
+                        else:
+                            g.pop("remaining_watch_minutes", None)  # catalog dicts are cached: no stale value from an earlier poll
                     if hasattr(camp, "allowed_channels") and camp.allowed_channels:
                         g["allowed_channels"] = [ch.name for ch in camp.allowed_channels]
                     try:
@@ -701,6 +708,7 @@ class SentinelSupervisor:
                     except Exception as exc:
                         logger.warning("Could not judge farmability of %s: %s", g.get("name"), exc, exc_info=True)
                 else:
+                    g.pop("remaining_watch_minutes", None)  # no campaign in the inventory now: drop a value cached from an earlier poll
                     if (
                         is_user_linked or
                         is_in_trophies or

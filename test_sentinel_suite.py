@@ -284,7 +284,8 @@ def test_core_service_api():
 
     # Test GET /api/v1/giveaways/state
     g_req = urllib.request.Request(BASE_URL + "/api/v1/giveaways/state")
-    with safe_urlopen(g_req, timeout=10.0) as res:
+    # the first answer may wait for the scheduler query, whose ceiling is SCHEDULER_QUERY_TIMEOUT_SECONDS (15 s)
+    with safe_urlopen(g_req, timeout=20.0) as res:
         assert res.status == 200
         g_res = json.loads(res.read().decode("utf-8"))
         assert "runner" in g_res and "stores" in g_res and "inventory" in g_res and "scheduler" in g_res
@@ -789,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.7", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.7") == (3, 5, 7)
+    assert __version__ == "3.5.8", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.8") == (3, 5, 8)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.7") > parse_version("3.5.6")
+    assert parse_version("v3.5.8") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -2289,7 +2290,7 @@ def test_shelf_facts_trophy_line_and_sync_age():
 
 
 def test_queue_filter_only_with_campaigns():
-    print("[audit F-039] Dashboard queue: 'only with campaigns' hides empty rows, keeps the order, counts honestly...")
+    print("[audit F-039] Dashboard queue: status filters hide rows, keep the order, counters add up, old setting migrates...")
     import shutil as _sh
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
     node = _sh.which("node")
@@ -2303,26 +2304,109 @@ def test_queue_filter_only_with_campaigns():
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
-        "import { queueView } from './campaignState.mjs';\n"
-        "const row = (name, kind) => ({ name, state: { kind, remaining: 0, linkUrl: null } });\n"
-        "const items = [row('A', 'running'), row('B', 'none'), row('C', 'link'), row('D', 'none'), row('E', 'done')];\n"
-        "const all = queueView(items, false);\n"
-        "const only = queueView(items, true);\n"
-        "const empty = queueView([row('X', 'none')], true);\n"
+        "import { queueView, queueCounts, parseQueueFilter } from './campaignState.mjs';\n"
+        "const row = (name, kind, idx) => ({ name, priorityIndex: idx, state: { kind, remaining: 0, linkUrl: null } });\n"
+        "const items = [row('A', 'running', 0), row('B', 'none', 1), row('C', 'link', 2), row('D', 'none', 3), row('E', 'done', 4), row('F', 'running', 5)];\n"
+        "const names = (f) => queueView(items, f).visible.map(i => i.name);\n"
+        "const prio = (f) => queueView(items, f).visible.map(i => i.priorityIndex);\n"
+        "const c0 = queueCounts(items, false);\n"
+        "const c1 = queueCounts(items, true);\n"
+        "const ce = queueCounts([], true);\n"
+        "const sum = (c) => c.available + c.needLink + c.finished + c.noCampaign;\n"
         "console.log(JSON.stringify({\n"
-        "  allNames: all.visible.map(i => i.name), allTotal: all.total, allWith: all.withCampaign,\n"
-        "  onlyNames: only.visible.map(i => i.name), onlyTotal: only.total, onlyWith: only.withCampaign,\n"
-        "  emptyVisible: empty.visible.length, emptyTotal: empty.total, emptyWith: empty.withCampaign,\n"
+        "  all: names('all'), available: names('available'), action: names('action'), none: names('none'),\n"
+        "  prioAll: prio('all'), prioAvailable: prio('available'), prioNone: prio('none'),\n"
+        "  total: queueView(items, 'none').total, c0, c1, ce, s0: sum(c0), s1: sum(c1), se: sum(ce),\n"
+        "  p: [parseQueueFilter(null), parseQueueFilter('available'), parseQueueFilter('none'), parseQueueFilter('action'),\n"
+        "      parseQueueFilter('all'), parseQueueFilter('bogus'), parseQueueFilter('')],\n"
         "}));\n", encoding="utf-8")
     run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
     d = json.loads(run.stdout)
-    assert d["allNames"] == ["A", "B", "C", "D", "E"] and d["allTotal"] == 5 and d["allWith"] == 3, d
-    assert d["onlyNames"] == ["A", "C", "E"], d            # order untouched, rows without a campaign hidden
-    assert d["onlyTotal"] == 5 and d["onlyWith"] == 3, d    # the header counter does not depend on the filter
-    assert d["emptyVisible"] == 0 and d["emptyTotal"] == 1 and d["emptyWith"] == 0, d
+    assert d["all"] == ["A", "B", "C", "D", "E", "F"], d        # "all" keeps the finished rows (the dashboard folds them into their own group)
+    assert d["available"] == ["A", "F"] and d["action"] == ["C"] and d["none"] == ["B", "D"], d
+    assert "E" not in d["available"] + d["action"] + d["none"], d   # finished rows only under "all"
+    assert d["prioAll"] == [0, 1, 2, 3, 4, 5] and d["prioAvailable"] == [0, 5] and d["prioNone"] == [1, 3], d   # real queue positions, never renumbered
+    assert d["total"] == 6, d                                    # the counter does not depend on the filter
+    assert d["c0"] == {"total": 6, "available": 2, "needLink": 1, "finished": 1, "noCampaign": 2}, d["c0"]
+    assert d["c1"] == {"total": 7, "available": 3, "needLink": 1, "finished": 1, "noCampaign": 2}, d["c1"]   # the farmed game: +1 total, +1 available
+    assert d["ce"] == {"total": 1, "available": 1, "needLink": 0, "finished": 0, "noCampaign": 0}, d["ce"]
+    assert d["s0"] == d["c0"]["total"] and d["s1"] == d["c1"]["total"] and d["se"] == d["ce"]["total"], d   # the parts always add up to the total
+    # no stored value starts as "all" (the legacy switch is not migrated: "action" would hide running games); a stored value wins; unknown falls back to "all"
+    assert d["p"] == ["all", "available", "none", "action", "all", "all", "all"], d["p"]
     dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
-    assert "sentinel_queue_only_campaigns" in dash and "(с кампаниями: {queueWithCampaignCount})" in dash
+    assert "sentinel_queue_filter" in dash and "sentinel_queue_only_campaigns" not in dash, "only the new key is used; the legacy key is neither read nor migrated"
+    assert "filterLogs(safeRecentLogs, 'ALL')" in dash, "[audit] the collapsed console line always takes the ALL view, not the chip-filtered one"
+    assert "toggleQueueOnlyCampaigns" not in dash and "(с кампаниями:" not in dash, "the old toggle and counter are gone"
+    assert 'role="group"' in dash and "aria-pressed={queueFilter ===" in dash, "filters are an accessible segmented group"
+    assert 'id="queueCount"' in dash
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_shelf_unclaimed_filter_uses_shared_campaign_state():
+    print("[audit F-039b] Shelf: 'Есть неполученные' counts running and link-needed campaigns through getCampaignState...")
+    shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "import { getCampaignState } from '../utils/campaignState'" in shelf, "one shared definition of the campaign state"
+    assert "'unclaimed'" in shelf and "🎁 Есть неполученные ({unclaimedCount})" in shelf
+    assert "kind === 'running' || kind === 'link'" in shelf, "finished and no-campaign games are not 'unclaimed'"
+    assert "Есть неполученные награды: кампания идёт и что-то ещё можно получить" in shelf
+
+
+def test_console_collapse_tray_filter_and_plain_labels():
+    print("[usability 2] Console: collapse decision, [TRAY] hidden outside Core, toggle is accessible; plain labels; honest empty collection...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: skipped)")
+        return
+    out_dir = SANDBOX / "console_view_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "consoleLog.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { resolveConsoleCollapsed as r, filterLogs, isTrayLine } from './consoleLog.mjs';\n"
+        "const L = (level, message) => ({ time: '10:00:00', level, message });\n"
+        "const logs = [L('INFO', '[TRAY] Icon: idle'), L('WATCH', 'Просмотр канала: abc'), L('CLAIM', 'Забран трофей'), L('SYS', 'Ядро запущено'),\n"
+        "              L('INFO', '[CORE] started'), L('INFO', 'Каталог собран: 10 игр'), L('INFO', '  [tray] Icon: farming')];\n"
+        "const msgs = (f) => filterLogs(logs, f).map(l => l.message);\n"
+        "console.log(JSON.stringify({\n"
+        "  noChoice: [r(null, true), r(null, false)],\n"
+        "  explicit: [r('1', true), r('1', false), r('0', true), r('0', false)],\n"
+        "  junk: [r('true', true), r('', false), r('2', true), r('yes', false)],\n"
+        "  all: msgs('ALL'), watch: msgs('WATCH'), claim: msgs('CLAIM'), core: msgs('CORE'),\n"
+        "  tray: [isTrayLine(L('INFO', '[TRAY] Icon: idle')), isTrayLine(L('INFO', '[CORE] x')), isTrayLine(L('INFO', 'Значок [TRAY] в трее')), isTrayLine(L('INFO', ''))],\n"
+        "}));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["noChoice"] == [True, False], d["noChoice"]                 # no choice: collapsed while idle, expanded while farming
+    assert d["explicit"] == [True, True, False, False], d["explicit"]    # an explicit choice wins either way
+    assert d["junk"] == [True, False, True, False], d["junk"]            # a junk stored value falls back to the default
+    assert d["all"] == ["Просмотр канала: abc", "Забран трофей", "Ядро запущено", "[CORE] started", "Каталог собран: 10 игр"], d["all"]   # [TRAY] hidden in "All"
+    assert d["watch"] == ["Просмотр канала: abc"] and d["claim"] == ["Забран трофей"], (d["watch"], d["claim"])
+    assert "[TRAY] Icon: idle" in d["core"] and "  [tray] Icon: farming" in d["core"], d["core"]   # "Core" shows them (the service logs them at INFO)
+    assert d["tray"] == [True, False, False, False], d["tray"]           # only a leading [TRAY]; other brackets untouched
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "aria-expanded={!consoleCollapsed}" in dash and "onClick={toggleConsole}" in dash, "the console toggle exposes aria-expanded"
+    assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice, isIdle)" in dash, "stored choice + idle state decide"
+    assert "console.warn('LiveDashboard: не удалось сохранить состояние консоли'" in dash, "a failed save is reported, not swallowed"
+    assert "safeRecentLogs.map((l) =>" in dash, "Copy still takes the untouched full journal"
+    assert "hardware.is_paused" in dash and "Автосбор включён · Сейчас ожидает" in dash and 'id="heroDropTitle">Ожидание кампаний' in dash, "idle hero states the farm switch"
+    for new in ("🎯 Режим: только очередь", "⚡ Режим: очередь + любые", "Показать игры вне очереди", "Собирать сейчас", "Сейчас · отменить"):
+        assert new in dash, new
+    for old in ("Только очередь ⇄", "Очередь + любые ⇄", "'ФОКУС'", "'FORCE'", "Фармить вне очереди\n"):
+        assert old not in dash, old
+    shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
+    assert "ВНЕ" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    assert "relief-chip" not in app and "relief-chip" not in css and "FLAT-2D" not in app, "the backdrop chip is gone from the header"
+    giv = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "claimedItems.length === 0 ? (" in giv and "Пока ничего не получено" in giv and "Подключите магазин, чтобы начать." in giv, "empty collection has its own text"
+    assert giv.index("Пока ничего не получено") < giv.index("Тайтлы не найдены по заданным критериям"), "'not found' stays for a search/filter that hides existing items"
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
@@ -2463,6 +2547,176 @@ def test_listed_but_unfarmable_campaign_never_reads_as_available():
     assert d["cut"]["reason"] == "Albion Online: \u0434\u0440\u043e\u043f\u044b \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u2014 campaign is not in the Twitch inventory", d["cut"]["reason"]
     assert d["cut"]["workableNames"] == []
     shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_short_window_console_minimum_leaves_the_collapsed_console_alone():
+    print("[usability] the short-window console minimum and the off-queue cap apply only while the console is expanded...")
+    css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    block = re.search(r"@media \(max-height: 800px\)\s*\{(.*?)\n  \}", css, re.S)
+    assert block, "the short-window block exists"
+    rules = block.group(1)
+    assert ".middle-console-island:not(.console-collapsed) {" in rules and "min-height: 8.5rem" in rules, "console minimum skips the collapsed console"
+    assert ".middle-console-island:not(.console-collapsed) ~ #overrideSection .override-scroll-grid {" in rules, "grid cap only while expanded"
+    assert not re.search(r"\.right-deck-col \.(middle-console-island|override-scroll-grid) \{", rules), "no unscoped rule is left"
+    print("      Collapsed console: PASS [OK]")
+
+
+def test_queue_row_shows_why_a_campaign_cannot_be_farmed():
+    print("[usability] a queued game with an unfarmable campaign shows the engine's reason as the row caption, in both languages...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if esbuild.exists() and node is not None:
+        out_dir = SANDBOX / "reason_caption_check"
+        out_dir.mkdir(exist_ok=True)
+        res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm",
+                              f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60)
+        assert res.returncode == 0, res.stderr
+        driver = out_dir / "driver.mjs"
+        driver.write_text(
+            "import { getCampaignState, campaignLabel } from './campaignState.mjs';\n"
+            "const g = (extra) => ({ id: 'a', name: 'Albion Online', has_drops: true, is_active_now: true, rewards_count: 2, is_account_connected: true, ...extra });\n"
+            "const label = (x) => campaignLabel(getCampaignState(x));\n"
+            "console.log(JSON.stringify({ cut: label(g({ farmable: false, not_farmable_reason: 'кампании нет в инвентаре Twitch' })), "
+            "noReason: label(g({ farmable: false })), none: label(undefined), running: label(g({ farmable: true })) }));\n",
+            encoding="utf-8")
+        run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert run.returncode == 0, run.stderr
+        d = json.loads(run.stdout)
+        assert d["cut"] == "кампании нет в инвентаре Twitch", d
+        assert d["noReason"] == "нет кампании" and d["none"] == "нет кампании", d
+        assert d["running"].startswith("идёт"), d
+        shutil.rmtree(out_dir, ignore_errors=True)
+    else:
+        print("      (node/esbuild not available: label check skipped)")
+    # every reason string the service can produce has an English translation
+    en = (WORKSPACE / "src" / "i18n" / "en" / "state.ts").read_text(encoding="utf-8")
+    sources = (WORKSPACE / "core" / "utils.py").read_text(encoding="utf-8") + (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    farmability = re.search(r"def campaign_farmability.*?(?=\ndef )", sources, re.S).group(0)
+    reasons = re.findall(r'return False, "([^"]+)"', farmability)
+    assert len(reasons) >= 4, reasons
+    reasons += re.findall(r'\["not_farmable_reason"\] = "([^"]+)"', sources)
+    for reason in reasons:
+        assert f"'{reason}':" in en, f"no English translation for the reason: {reason}"
+    row = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "title={item.state.kind === 'none' ? item.state.reason : undefined}" in row, "the full reason is in the row's title"
+    print("      Reason caption: PASS [OK]")
+
+
+def test_remaining_watch_minutes_helper_and_deadline_facts():
+    print("[usability 3] Deadline: the engine's remaining watch minutes reach the game dict; deadlineFacts compares them with the time left...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import logging
+    from datetime import datetime, timedelta, timezone
+    from inventory import DropsCampaign
+    from settings import Settings
+    from twitch import Twitch
+    from utils import campaign_remaining_watch_minutes as rem
+
+    class Args:
+        tray = False
+        log = False
+        dump = False
+        logging_level = 20
+        debug_ws = 0
+        debug_gql = 0
+
+    t = Twitch(Settings(Args()))   # real engine objects: DropsCampaign / TimedDrop built from GQL-shaped dicts
+    iso = lambda days: (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def drop(drop_id, required, current=0, claimed=False, after=(), ends=10):
+        return {
+            "id": drop_id, "name": drop_id, "requiredMinutesWatched": required,
+            "startAt": iso(-5), "endAt": iso(ends),
+            "benefitEdges": [{"benefit": {"id": drop_id + "_b", "name": drop_id, "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}],
+            "preconditionDrops": [{"id": p} for p in after],
+            "self": {"currentMinutesWatched": current, "isClaimed": claimed},
+        }
+
+    def camp(camp_id, drops):
+        return DropsCampaign(t, {"id": camp_id, "name": camp_id, "status": "ACTIVE", "game": {"id": 1, "displayName": "G"},
+                                 "startAt": iso(-5), "endAt": iso(10), "timeBasedDrops": drops}, {})
+
+    # a chain of two (60 -> 120) next to a parallel drop of 100: the longest chain wins, parallel drops overlap
+    chain = camp("rm-chain", [drop("a", 60), drop("b", 120, after=["a"]), drop("p", 100)])
+    assert rem(chain) == 180, rem(chain)
+    assert rem(camp("rm-chain-progress", [drop("a", 60, 50), drop("b", 120, after=["a"]), drop("p", 100)])) == 130
+    # a claimed predecessor counts 0
+    assert rem(camp("rm-claimed", [drop("a", 60, claimed=True), drop("b", 45, after=["a"])])) == 45
+    # an unclaimed drop that has already expired can never be earned: its 600 minutes must not count
+    expired = camp("rm-expired", [drop("ok", 60), drop("gone", 600, ends=-1)])
+    assert expired.remaining_minutes == 600 and rem(expired) == 60, "the engine property over-counts; the helper does not"
+    # an over-watched drop clamps to 0, also inside a chain
+    assert rem(camp("rm-over", [drop("a", 30, 50)])) == 0
+    assert rem(camp("rm-over-chain", [drop("a", 30, 50), drop("b", 40, after=["a"])])) == 40
+    # nothing earnable (all claimed, or no drops at all): unknown, not 0
+    assert rem(camp("rm-allclaimed", [drop("a", 30, claimed=True)])) is None
+    assert rem(camp("rm-empty", [])) is None
+    assert isinstance(rem(chain), int)
+    # a broken precondition id: unknown, and the warning is logged only once per campaign across polls
+    records = []
+    class Catch(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+    utils_logger = logging.getLogger("TwitchDrops")
+    handler = Catch(level=logging.WARNING)
+    utils_logger.addHandler(handler)
+    try:
+        broken = camp("rm-broken", [drop("a", 30, after=["ghost"])])
+        assert rem(broken) is None and rem(broken) is None
+        warned = [r for r in records if "remaining watch time unknown" in r.getMessage()]
+        assert len(warned) == 1 and warned[0].exc_info, "one warning with a traceback, not one per poll"
+    finally:
+        utils_logger.removeHandler(handler)
+    service = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "campaign_remaining_watch_minutes" in service and 'g["remaining_watch_minutes"]' in service, "the service adds the field next to progress_percent"
+    assert service.count('g.pop("remaining_watch_minutes", None)') == 2, "[audit] cached catalog dicts lose a stale value when it is unknown or the campaign is not in the inventory"
+
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if not esbuild.exists() or node is None:
+        print("      (node/esbuild not available: front half skipped)")
+        return
+    out_dir = SANDBOX / "deadline_facts_check"
+    out_dir.mkdir(exist_ok=True)
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignFacts.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import { deadlineFacts as f } from './campaignFacts.mjs';\n"
+        "const now = Date.parse('2026-11-04T10:00:00Z');\n"
+        "const at = (min) => new Date(now + min * 60000).toISOString();\n"
+        "console.log(JSON.stringify({\n"
+        "  enough: f(at(348), 120, now), late: f(at(60), 120, now), equal: f(at(120), 120, now), oneOver: f(at(120), 121, now),\n"
+        "  zero: f(at(60), 0, now), unknownWatch: f(at(60), undefined, now), nullWatch: f(at(60), null, now), nanWatch: f(at(60), NaN, now),\n"
+        "  negWatch: f(at(60), -5, now), badDate: f('not a date', 30, now), noDate: f(undefined, 30, now), emptyDate: f('', 30, now),\n"
+        "  past: f(at(-10), 30, now),\n"
+        "}));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["enough"] == {"msLeft": 348 * 60000, "watchMinutes": 120, "verdict": "enough"}, d["enough"]
+    assert d["late"]["verdict"] == "late" and d["late"]["watchMinutes"] == 120 and d["late"]["msLeft"] == 60 * 60000, d["late"]
+    assert d["equal"]["verdict"] == "enough", d["equal"]                    # exactly as much time as watching: not late
+    assert d["oneOver"]["verdict"] == "late", d["oneOver"]
+    assert d["zero"]["verdict"] == "enough" and d["zero"]["watchMinutes"] == 0, d["zero"]
+    for key in ("unknownWatch", "nullWatch", "nanWatch", "negWatch"):
+        assert d[key]["verdict"] == "unknown" and d[key]["watchMinutes"] is None and d[key]["msLeft"] == 60 * 60000, (key, d[key])   # an old payload without the field
+    for key in ("badDate", "noDate", "emptyDate"):
+        assert d[key]["verdict"] == "unknown" and d[key]["msLeft"] is None, (key, d[key])      # no usable end date: no verdict
+    assert d["past"]["verdict"] == "late", d["past"]
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+    board = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "deadlineFacts(" in board and "До конца" in board and "Не успеть:" in board and "время просмотра неизвестно" in board
+    assert "успеете" not in board, "a verdict of 'enough' is never promised"
+    ui_types = (WORKSPACE / "src" / "types.ts").read_text(encoding="utf-8")
+    assert "remaining_watch_minutes?: number" in ui_types
+    fixture = (WORKSPACE / "tools" / "ui_fixture.js").read_text(encoding="utf-8")
+    assert fixture.count("remaining_watch_minutes") >= 2, "the fixture shows enough, late and unknown"
+    print("      Deadline facts: PASS [OK]")
 
 
 def test_campaign_dates_line():
@@ -5203,6 +5457,51 @@ def test_review_fixes_in_the_service():
     print("      Review service fixes: PASS [OK]")
 
 
+def test_clean_install_copies_the_default_config_template():
+    print("[clean-install] load_settings copies config.default.json to config.json when config.json is missing...")
+    work = Path(tempfile.mkdtemp(prefix="clean_install_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy2(WORKSPACE / "config.default.json", work / "config.default.json")
+    assert not (work / "config.json").exists()
+    code = ("import sys; sys.path.insert(0, 'core'); import sentinel_service as s; "
+            "s.SentinelSupervisor.load_settings(None)")
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    created = work / "config.json"
+    assert created.exists(), "config.json was not created from config.default.json (missing shutil import?)"
+    assert json.loads(created.read_text(encoding="utf-8-sig")) == json.loads((work / "config.default.json").read_text(encoding="utf-8-sig"))
+    shutil.rmtree(work, ignore_errors=True)
+    print("      template copied on a clean install: PASS [OK]")
+
+
+def test_safe_defaults_power_off_and_linked_games():
+    print("[safe-defaults] power-off after farming is off and no linked games, also in the template and after reset...")
+    template = json.loads((WORKSPACE / "config.default.json").read_text(encoding="utf-8-sig"))
+    assert template.get("auto_shutdown_on_complete") is False, "config.default.json must ship with power-off off"
+    work = Path(tempfile.mkdtemp(prefix="safe_defaults_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    # a throwaway copy: the module resolves config.json next to core/, so the real file is never touched
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "class Fake:\n"
+        "    def __init__(self): self.settings = {'auto_shutdown_on_complete': True, 'user_linked_games': ['X']}\n"
+        "    def save_settings(self): pass\n"
+        "    async def broadcast_ws(self): pass\n"
+        "fake = Fake()\n"
+        "resp = asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None))\n"
+        "print(json.dumps({'defaults': [s.SUPERVISOR_DEFAULTS['auto_shutdown_on_complete'], s.SUPERVISOR_DEFAULTS['user_linked_games']],\n"
+        "                  'reset': [fake.settings['auto_shutdown_on_complete'], fake.settings['user_linked_games']], 'status': resp.status}))\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["defaults"] == [False, []], f"SUPERVISOR_DEFAULTS must not power off or link games: {got['defaults']}"
+    assert got["reset"] == [False, []] and got["status"] == 200, f"reset must yield power-off off: {got}"
+    assert not (work / "config.json").exists(), "the check must not write a config.json"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      safe defaults: PASS [OK]")
+
+
 def test_loading_states_of_giveaways_and_dimmer():
     print("[loading] Giveaways and Dimmer tell loading, failure and a real empty answer apart...")
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
@@ -5254,6 +5553,46 @@ def test_loading_states_of_giveaways_and_dimmer():
     for key in ("giveaways", "dimmer"):
         assert f"q.get('{key}')" in fixture, f"the fixture needs ?{key}=..."
     print("      Loading states: PASS [OK]")
+
+
+def test_small_controls_have_a_larger_invisible_click_area():
+    print("[usability] small controls get a taller click area through one shared rule, never wider...")
+    css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    selectors = (".tactile-btn", ".tab-btn", ".node-chip", ".claimed-tab-pill", ".chunky-cta", ".safety-guard-btn", ".cover-exclude-btn")
+    block = re.search(r"((?:[.\w-]+::before,\s*)+[.\w-]+::before)\s*\{([^}]*)\}", css)
+    assert block, "the shared ::before hit-area rule exists"
+    for sel in selectors:
+        assert f"{sel}::before" in block.group(1), f"{sel} is covered by the hit-area rule"
+    body = re.sub(r"\s+", " ", block.group(2))
+    assert "position: absolute" in body and "content: ''" in body, "an empty absolutely positioned strip"
+    assert "inset: calc(-1 * var(--hit-ext, 2px)) 0" in body, "grows vertically only (0 horizontally), 2 px = half of the 4 px row gap"
+    positioned = re.search(r"((?:\.[\w-]+,\s*)+\.[\w-]+)\s*\{\s*position: relative;\s*\}", css)
+    assert positioned, "the controls become the containing block of the strip"
+    for sel in selectors[:-1]:
+        assert sel in positioned.group(1), f"{sel} is positioned"
+    assert ".tab-btn.active::after" in css, "the active-tab underline keeps ::after, so the strip uses ::before"
+    print("      Hit areas: PASS [OK]")
+
+
+def test_text_colour_follows_the_theme():
+    print("[contrast] text takes the theme colour and passes 4.5:1 on its surface...")
+    run = subprocess.run([sys.executable, str(WORKSPACE / "tools" / "check_contrast.py")], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stdout[-800:]
+    css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    # Regression: text inherits its colour from body and .field-chassis. A colour transition on them (or `all`) leaves the
+    # first frame's dark-theme colour on every node without its own colour, e.g. light text on the Daylight queue rows.
+    for selector in (r"html, body \{", r"\n\s*body \{", r"\.field-chassis \{"):
+        block = re.search(selector + r"(.*?)\n\s*\}", css, re.S)
+        assert block, selector
+        transition = re.search(r"transition:([^;]*);", block.group(1))
+        if transition:
+            props = transition.group(1).replace("background-color", "").replace("border-color", "")
+            assert not re.search(r"\ball\b|\bcolor\b", props), f"{selector}: the inherited text colour must not animate: {transition.group(1)}"
+    assert re.search(r"\.field-chassis \{[^}]*\n\s*color: var\(--text-primary\)", css, re.S), "the chassis sets the theme text colour itself"
+    harness = (WORKSPACE / "tools" / "build_ui_harness.mjs").read_text(encoding="utf-8")
+    probe = (WORKSPACE / "tools" / "check_text_contrast.js").read_text(encoding="utf-8")
+    assert "check_text_contrast.js" in harness and "window.checkTextContrast" in probe, "the computed-colour probe ships with the harness"
+    print("      Text colour: PASS [OK]")
 
 
 if __name__ == "__main__":
@@ -5312,9 +5651,12 @@ if __name__ == "__main__":
         test_settings_modules_counter_matches_switches,
         test_shelf_facts_trophy_line_and_sync_age,
         test_queue_filter_only_with_campaigns,
+        test_shelf_unclaimed_filter_uses_shared_campaign_state,
+        test_console_collapse_tray_filter_and_plain_labels,
         test_toast_gate_dedup_switch_and_priming,
         test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,
         test_listed_but_unfarmable_campaign_never_reads_as_available,
+        test_remaining_watch_minutes_helper_and_deadline_facts,
         test_campaign_dates_line,
         test_cover_keeper_replaces_broken_and_missing_covers,
         test_cover_search_names_and_non_game_filter,
@@ -5363,6 +5705,12 @@ if __name__ == "__main__":
         test_dimmer_logic_and_shell_use_it,
         test_review_fixes_in_the_service,
         test_loading_states_of_giveaways_and_dimmer,
+        test_small_controls_have_a_larger_invisible_click_area,
+        test_clean_install_copies_the_default_config_template,
+        test_safe_defaults_power_off_and_linked_games,
+        test_text_colour_follows_the_theme,
+        test_short_window_console_minimum_leaves_the_collapsed_console_alone,
+        test_queue_row_shows_why_a_campaign_cannot_be_farmed,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

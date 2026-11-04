@@ -80,6 +80,8 @@ export const GIVEAWAYS: Record<string, string> = {
   '🔑 Войти в аккаунт': '🔑 Sign in to the account',
   'КОЛЛЕКЦИЯ ·': 'COLLECTION ·',
   'Тайтлы не найдены по заданным критериям': 'No titles match the given criteria',
+  'Пока ничего не получено': 'Nothing claimed yet',
+  'Подключите магазин, чтобы начать.': 'Connect a store to get started.',
   'ПЛАНИРОВЩИК': 'SCHEDULER',
   'Дни автосбора:': 'Auto-claim days:',
   'Журнал пуст — появится после первого автосбора': 'The log is empty — it appears after the first auto-claim',

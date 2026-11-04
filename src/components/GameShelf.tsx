@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
+import { getCampaignState } from '../utils/campaignState';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
@@ -123,7 +124,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const { playClick } = useTactileAudio();
 
   // 1. All useState hooks declared cleanly at the top to prevent TDZ errors
-  const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed' | 'unclaimed'>('all');
   const [removedKeys, setRemovedKeys] = useState<string[]>(ignoredGames || []);
   const [showTrophyVault, setShowTrophyVault] = useState<boolean>(() => {
     try {
@@ -348,6 +349,12 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     return new Set([...removedKeys, ...(ignoredGames || [])].map(k => k.toLowerCase().trim()));
   }, [removedKeys, ignoredGames]);
 
+  // Something is still left to claim: the same campaign state the dashboard queue uses, "running" or "needs a link" (not "done")
+  const hasUnclaimed = (game: GameItem): boolean => {
+    const { kind } = getCampaignState(game, trophies, isTitleMatch);
+    return kind === 'running' || kind === 'link';
+  };
+
   // 4. Filter games based on active tab and search
   const filteredGames = useMemo(() => {
     if (activeFilter === 'removed' || filterMode === 'removed') {
@@ -426,6 +433,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       if (activeFilter === 'all' || filterMode === 'drops') {
         return isCampaignRunning(g);
       }
+      if (activeFilter === 'unclaimed') {
+        return hasUnclaimed(g);
+      }
       if (activeFilter === 'priority') {
         return priorityList.includes(g.name);
       }
@@ -444,7 +454,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     }
 
     return activeFilter === 'all' ? sortCampaigns(list, sortMode, seenAtOpen) : list;
-  }, [games, priorityList, excludedList, excludedSet, allRemovedLower, activeFilter, searchQuery, claimedTrophiesByGame, sortMode, seenAtOpen]);
+  }, [games, trophies, priorityList, excludedList, excludedSet, allRemovedLower, activeFilter, searchQuery, claimedTrophiesByGame, sortMode, seenAtOpen]);
 
   const installedCount = useMemo(() => games.filter(g => g.is_installed).length, [games]);
   const visibleRunning = useMemo(
@@ -452,6 +462,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     [games, excludedSet, excludedList, allRemovedLower]
   );
   const dropsCount = visibleRunning.length;
+  const unclaimedCount = useMemo(
+    () => games.filter((g) => hasUnclaimed(g) && !excludedSet.has(g.name) && !excludedList.includes(g.name) && !allRemovedLower.has(g.name.toLowerCase())).length,
+    [games, trophies, excludedSet, excludedList, allRemovedLower]
+  );
   // remember what has been shown, so the next visit can mark newcomers
   useEffect(() => {
     if (visibleRunning.length === 0) return;
@@ -586,7 +600,14 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           >
             🔥 Активные кампании ({dropsCount})
           </button>
-          <button 
+          <button
+            className={`tactile-btn ${activeFilter === 'unclaimed' ? 'active-mint' : ''}`}
+            onClick={() => { playClick(); setActiveFilter('unclaimed'); }}
+            title="Есть неполученные награды: кампания идёт и что-то ещё можно получить"
+          >
+            🎁 Есть неполученные ({unclaimedCount})
+          </button>
+          <button
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('priority'); }}
           >
@@ -1080,7 +1101,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   </div>
                 )}
 
-                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (СТАНДАРТ) / QUEUE (ОЧЕРЕДЬ) / FORCE #1 (СЕЙЧАС #1) */}
+                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (ВНЕ очереди) / QUEUE (ОЧЕРЕДЬ) / FORCE #1 (СЕЙЧАС #1) */}
                 <div className="rocker-3p" data-mode={isForced ? "FORCE #1" : isInPriority ? "QUEUE" : "IDLE"}>
                   <span 
                     className={`r-step ${!isInPriority && !isForced ? 'idle' : ''}`}
@@ -1090,9 +1111,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       if (isForced && onCancelForceFarm) onCancelForceFarm();
                       if (isInPriority) onRemoveFromPriority(game.name);
                     }}
-                    title="Стандартный сбор: фармить по очереди общего каталога без приоритета"
+                    title="Не в очереди: игра убирается из очереди приоритетов. Она фармится только в режиме «очередь + любые», после игр очереди"
                   >
-                    СТАНДАРТ
+                    ВНЕ
                   </span>
                   <span 
                     className={`r-step ${isInPriority && !isForced ? 'queue' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -1106,7 +1127,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       if (isForced && onCancelForceFarm) onCancelForceFarm();
                       if (!isInPriority) onAddToPriority(game.name);
                     }}
-                    title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : 'Приоритетная очередь: фармить раньше обычных игр'}
+                    title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : 'В очереди: игра фармится раньше игр не из очереди, в порядке очереди'}
                   >
                     ОЧЕРЕДЬ
                   </span>
@@ -1125,7 +1146,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         if (onForceFarm) onForceFarm(game.name);
                       }
                     }}
-                    title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : isForced ? 'Нажмите для отмены принудительного фарма' : 'Фармить прямо сейчас: наивысший приоритет #1'}
+                    title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : isForced ? 'Нажмите для отмены принудительного фарма' : 'Собирать сейчас: игра встаёт первой поверх очереди, пока вы не отмените или не получены все её награды'}
                   >
                     СЕЙЧАС #1
                   </span>

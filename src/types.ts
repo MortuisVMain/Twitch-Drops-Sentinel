@@ -63,6 +63,7 @@ export interface GameItem {
   allowed_channels?: string[];
   farmable?: boolean; // the engine's own verdict: can this campaign be farmed now
   not_farmable_reason?: string;
+  remaining_watch_minutes?: number; // minutes of watching still needed for everything left; absent when the engine does not know
 }
 
 export interface TrophyItem {

@@ -508,6 +508,45 @@ def trophies_show_completed(journal_text: str, game_name: str, campaign_name: st
     return all(any(str(drop).lower() in line for line in claimed_lines) for drop in drop_names)
 
 
+_WATCH_ESTIMATE_WARNED: set = set()
+
+
+def campaign_remaining_watch_minutes(camp) -> int | None:
+    """Minutes of watching still needed to get what can still be earned in a campaign, or None when unknown.
+    Only drops that can still be earned before the campaign ends count (the engine's _can_earn_within, plus drops
+    awaiting their claim and later links of a precondition chain); expired or impossible ones are ignored. Independent drops accrue together, so the answer
+    is the longest chain: own minutes (never below 0) plus the longest chain of the drops it needs (claimed ones are 0).
+    An estimate: a drop that starts later is treated as parallel. Logs a failure once per campaign (runs every poll)."""
+    try:
+        now = datetime.now(timezone.utc)
+        drops = list(camp.drops)
+        counted = {d.id for d in drops if d._can_earn_within(camp.ends_at)}
+        grew = True
+        while grew:  # also: a drop watched in full that awaits its claim (0 left), and a later link whose predecessor is unclaimed
+            grew = False
+            for d in drops:
+                if d.id in counted or d.is_claimed or d.ends_at <= now or d.starts_at >= camp.ends_at:
+                    continue
+                waits_for_claim = d.required_minutes > 0 and d.remaining_minutes <= 0
+                chained = bool(d.precondition_drops) and all(
+                    camp.timed_drops[pid].is_claimed or pid in counted for pid in d.precondition_drops)
+                if waits_for_claim or chained:
+                    counted.add(d.id)
+                    grew = True
+
+        def chain(drop) -> int:
+            own = 0 if drop.is_claimed else max(0, drop.remaining_minutes)
+            return own + max((chain(camp.timed_drops[pid]) for pid in drop.precondition_drops), default=0)
+
+        return max((chain(d) for d in drops if d.id in counted), default=None)
+    except Exception as exc:
+        key = getattr(camp, "id", None) or getattr(camp, "name", "?")
+        if key not in _WATCH_ESTIMATE_WARNED:
+            _WATCH_ESTIMATE_WARNED.add(key)
+            logger.warning("Campaign %s: remaining watch time unknown: %s", getattr(camp, "name", "?"), exc, exc_info=True)
+        return None
+
+
 def campaign_farmability(camp, horizon: timedelta = timedelta(hours=1)) -> tuple:
     """(farmable, reason) for a campaign the engine knows. The same test that decides wanted_games
     (can_earn_within the next hour), plus a human reason when it fails, so the UI never has to guess."""
