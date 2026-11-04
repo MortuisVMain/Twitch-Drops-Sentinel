@@ -654,7 +654,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 className={`claimed-tab-pill ${filterStore === 'all' ? 'active' : ''}`}
                 onClick={() => setFilterStore('all')}
               >
-                Все ({storeCounts['all'] || 0})
+                {noData ? 'Все' : `Все (${storeCounts['all'] || 0})`}
               </button>
               {STORES.filter(s => (storeCounts[s.id] || 0) > 0).map(s => (
                 <button

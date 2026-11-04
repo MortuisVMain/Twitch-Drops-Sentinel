@@ -3,6 +3,7 @@
 // Query: ?lang=ru|en&scale=100|115|130 are written to localStorage before the app starts.
 // ?giveaways=slow|empty|500|500once|failafter|neterror|badshape and ?dimmer=slow|empty|none steer the loading states: slow answers after 8 s, empty is a real empty answer,
 // 500once fails the first request only (retry works), failafter fails every poll after the first, badshape answers {}; dimmer none never gets a message from the shell.
+// ?theme=light|titanium|... picks the interface theme (light is Daylight).
 // ?update=1 serves an available update, so the header shows its widest state (update button).
 // ?readiness=clean serves a clean machine for the giveaways readiness window (default: everything ready); ?readiness=error makes the check fail.
 (function () {
@@ -10,6 +11,7 @@
   try {
     if (q.get('lang')) localStorage.setItem('sentinel_ui_lang', q.get('lang'));
     if (q.get('scale')) localStorage.setItem('sentinel_ui_text_scale', q.get('scale'));
+    if (q.get('theme')) localStorage.setItem('sentinel_theme', q.get('theme'));
   } catch (e) { /* storage blocked: defaults apply */ }
 
   var LONG = [
