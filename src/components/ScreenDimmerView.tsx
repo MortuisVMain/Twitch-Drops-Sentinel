@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DisplayMonitor } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { DIMMER_HOST_TIMEOUT_MS, dimmerPhase } from '../utils/dataLoad';
 
 interface ScreenDimmerViewProps {
   onBackToDashboard?: () => void;
@@ -57,6 +58,17 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
   const { playClick } = useTactileAudio();
 
   const [monitors, setMonitors] = useState<DisplayMonitor[]>([]);
+  // The shell sends the list as a message: until the first one arrives "no monitors" would be a guess
+  const [hostReceived, setHostReceived] = useState<boolean>(false);
+  const [hostTimedOut, setHostTimedOut] = useState<boolean>(false);
+  const [scanAttempt, setScanAttempt] = useState<number>(0);
+  const phase = dimmerPhase(hostReceived, hostTimedOut);
+  useEffect(() => {
+    if (hostReceived) return;
+    setHostTimedOut(false);
+    const timer = setTimeout(() => setHostTimedOut(true), DIMMER_HOST_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [hostReceived, scanAttempt]);
   const [masterBrightness, setMasterBrightness] = useState<number>(75);
   const [isBlackout, setIsBlackout] = useState<boolean>(false);
   const [soloScreenIdx, setSoloScreenIdx] = useState<number | null>(null);
@@ -143,6 +155,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
   const handleWebviewMessage = useCallback((event: any) => {
     const msg = event.data || event;
     if (msg?.type === 'DIMMER_STATE_CHANGED' && msg.state) {
+      setHostReceived(true);
       // Ironclad interaction shield: if user is actively touching wheel, dragging dial, or moving sliders,
       // completely ignore incoming messages to eliminate jumping back and forth!
       if (isInteractingRef.current) {
@@ -479,6 +492,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
 
   const handleScanHardware = () => {
     playClick();
+    setScanAttempt((n) => n + 1);
     sendDimmerCommand('SCAN_MONITORS');
     addBusLog('🔄 Опрашиваю мониторы: читаю их реальную яркость...', 'info');
     if (showToast) showToast('🔄 Опрос физических дисплеев выполнен');
@@ -590,7 +604,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 🔄 Опрос
               </button>
               <span className="metric-badge" style={{ fontSize: 'var(--fs-xs)', padding: '2px 6px' }}>
-                {monitors.length ? `${monitors.length} ${monitors.length === 1 ? 'монитор' : monitors.length < 5 ? 'монитора' : 'мониторов'}` : 'мониторы не найдены'}
+                {monitors.length ? `${monitors.length} ${monitors.length === 1 ? 'монитор' : monitors.length < 5 ? 'монитора' : 'мониторов'}` : phase === 'waiting' ? 'загрузка…' : phase === 'timeout' ? 'нет данных' : 'мониторы не найдены'}
               </span>
             </div>
           </div>
@@ -603,8 +617,15 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             }}
           >
             {monitors.length === 0 && (
-              <div className="obsidian-well" role="status" style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
-                Список мониторов появится после подключения к локальному сервису.
+              <div className="obsidian-well" role="status" aria-busy={phase === 'waiting'} style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
+                {phase === 'waiting' && (
+                  <>
+                    <span className="sk-bar" aria-hidden="true" style={{ display: 'block', width: '60%', height: '0.9em', marginBottom: '6px' }} />
+                    Ждём список мониторов от приложения…
+                  </>
+                )}
+                {phase === 'timeout' && 'Приложение не прислало список мониторов. В обычном браузере так и бывает: диммер управляет экранами только внутри приложения. Нажмите «Опрос», чтобы спросить ещё раз.'}
+                {phase === 'ready' && 'Мониторы не найдены. Проверьте, что дисплеи включены, и нажмите «Опрос».'}
               </div>
             )}
             {monitors.map((mon, idx) => {
@@ -1206,7 +1227,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-mint)' }}>
           <span className="led-dot" style={{ width: '5px', height: '5px' }}></span>
-          <span title="Подробности: управление идёт через DDC/CI, DXVA2 и WMI">{monitors.length > 0 ? 'Мониторы готовы' : 'Мониторы не найдены'}</span>
+          <span title="Подробности: управление идёт через DDC/CI, DXVA2 и WMI">{monitors.length > 0 ? 'Мониторы готовы' : phase === 'waiting' ? 'Ждём список мониторов' : phase === 'timeout' ? 'Нет данных от приложения' : 'Мониторы не найдены'}</span>
         </div>
       </div>
     </div>

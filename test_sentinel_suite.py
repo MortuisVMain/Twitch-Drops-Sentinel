@@ -5203,6 +5203,59 @@ def test_review_fixes_in_the_service():
     print("      Review service fixes: PASS [OK]")
 
 
+def test_loading_states_of_giveaways_and_dimmer():
+    print("[loading] Giveaways and Dimmer tell loading, failure and a real empty answer apart...")
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    if not esbuild.exists() or shutil.which("node") is None:
+        print("      (node/esbuild not available: pure-function part skipped)")
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="load_check_", dir=SANDBOX))
+        res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "dataLoad.ts"), "--bundle", "--format=esm",
+                              f"--outfile={out_dir / 'dataLoad.mjs'}"], capture_output=True, text=True, timeout=60, shell=os.name == "nt")
+        assert res.returncode == 0, res.stderr
+        driver = out_dir / "driver.mjs"
+        driver.write_text(
+            "import * as L from './dataLoad.mjs';\n"
+            "const data = { runner: { state: 'idle' }, stores: {}, inventory: [] };\n"
+            "const first = L.initialLoad();\n"
+            "const err = L.loadFailed(first, 'http', 500);\n"
+            "const stale = L.loadFailed(L.loadOk(data), 'network');\n"
+            "console.log(JSON.stringify({\n"
+            "  first: [first.phase, first.data], err: [err.phase, err.data, err.failure, err.status],\n"
+            "  stale: [stale.phase, stale.data === data, stale.failure, L.hasStaleData(stale)],\n"
+            "  recovered: [L.loadOk(data).failure, L.hasStaleData(L.loadOk(data))],\n"
+            "  retryErr: L.loadRetry(err).phase, retryStale: [L.loadRetry(stale).phase, L.loadRetry(stale).data === data],\n"
+            "  shapes: [{}, null, 5, [], { runner: {} }, { runner: { state: 3 } }, { runner: { state: 'idle' }, stores: [] },\n"
+            "           { runner: { state: 'idle' }, inventory: {} }, { runner: { state: 'idle' } }, data].map(L.isGiveawaysState),\n"
+            "  dimmer: [L.dimmerPhase(false, false), L.dimmerPhase(false, true), L.dimmerPhase(true, false), L.dimmerPhase(true, true)],\n"
+            "  texts: ['http', 'network', 'shape'].map((f) => L.failureText(f)),\n"
+            "}));\n", encoding="utf-8")
+        run = subprocess.run(["node", str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=30)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        assert run.returncode == 0, run.stderr[-800:]
+        d = json.loads(run.stdout)
+        assert d["first"] == ["loading", None], d
+        assert d["err"] == ["error", None, "http", 500], d
+        assert d["stale"] == ["ready", True, "network", True], f"a failed poll keeps the data on screen: {d}"
+        assert d["recovered"] == [None, False], d
+        assert d["retryErr"] == "loading" and d["retryStale"] == ["ready", True], "a retry shows the skeleton only when there is nothing to show"
+        assert d["shapes"] == [False, False, False, False, False, False, False, False, True, True], d["shapes"]
+        assert d["dimmer"] == ["waiting", "timeout", "ready", "ready"], d
+        assert all(d["texts"]) and len(set(d["texts"])) == 3, d["texts"]
+
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    assert "isGiveawaysState(" in view and "setData(" not in view, "the answer's shape is checked before it is used"
+    assert "load.phase" in view and "Повторить" in view, "skeleton, error text and retry"
+    fetch_state = view.split("const fetchState", 1)[1].split("useEffect(", 1)[0]
+    assert "catch {" not in fetch_state and fetch_state.count("console.error(") >= 2, "failures are logged with context, not swallowed"
+    dimmer = (WORKSPACE / "src" / "components" / "ScreenDimmerView.tsx").read_text(encoding="utf-8")
+    assert "dimmerPhase(" in dimmer and "DIMMER_HOST_TIMEOUT_MS" in dimmer, "the dimmer waits for the shell, with a timeout"
+    fixture = (WORKSPACE / "tools" / "ui_fixture.js").read_text(encoding="utf-8")
+    for key in ("giveaways", "dimmer"):
+        assert f"q.get('{key}')" in fixture, f"the fixture needs ?{key}=..."
+    print("      Loading states: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5309,6 +5362,7 @@ if __name__ == "__main__":
         test_giveaways_empty_store_choice_starts_nothing,
         test_dimmer_logic_and_shell_use_it,
         test_review_fixes_in_the_service,
+        test_loading_states_of_giveaways_and_dimmer,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

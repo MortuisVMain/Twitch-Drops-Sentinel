@@ -1,6 +1,8 @@
 // Offline fixture for UI checks: stubs fetch/EventSource with a populated state (long names on purpose) so
 // screens can be inspected without the local service. Inlined into a COPY of dist/index.html by build_ui_harness.mjs.
 // Query: ?lang=ru|en&scale=100|115|130 are written to localStorage before the app starts.
+// ?giveaways=slow|empty|500|500once|failafter|neterror|badshape and ?dimmer=slow|empty|none steer the loading states: slow answers after 8 s, empty is a real empty answer,
+// 500once fails the first request only (retry works), failafter fails every poll after the first, badshape answers {}; dimmer none never gets a message from the shell.
 // ?update=1 serves an available update, so the header shows its widest state (update button).
 // ?readiness=clean serves a clean machine for the giveaways readiness window (default: everything ready); ?readiness=error makes the check fail.
 (function () {
@@ -108,12 +110,27 @@
   }
   var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.6', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.6', remote_version: '3.5.6', error: null };
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
+  var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
+  function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+    if (path === '/api/v1/giveaways/state' && gMode) {
+      gCalls += 1;
+      if (gMode === '500' || (gMode === '500once' && gCalls === 1) || (gMode === 'failafter' && gCalls > 1)) return failing(500);
+      if (gMode === 'neterror') return Promise.reject(new TypeError('Failed to fetch'));
+      var gBody = gMode === 'badshape' ? {} : gMode === 'empty'
+        ? { runner: { state: 'idle', activeStores: [], pid: null, startedAt: null, headless: true }, scheduler: giveaways.scheduler, stores: {}, inventory: [], recentLogs: [], lastLogFile: null, fgcInstalled: true, totalClaimed: 0 }
+        : giveaways;
+      var gReply = { ok: true, status: 200, json: function () { return Promise.resolve(gBody); }, text: function () { return Promise.resolve(JSON.stringify(gBody)); } };
+      return gMode === 'slow' ? new Promise(function (res) { setTimeout(function () { res({ ok: true, status: 200, json: function () { return Promise.resolve(giveaways); }, text: function () { return Promise.resolve(''); } }); }, SLOW_MS); }) : Promise.resolve(gReply);
+    }
     var body = path === '/api/v1/giveaways/readiness' ? readinessBody(q.get('readiness'), /[?&]quick=1/.test(String(url))) : routes[path] || { status: 'ok' };
     if (path === '/api/v1/giveaways/readiness' && q.get('readiness') === 'error') return Promise.resolve({ ok: false, status: 500, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } });
     // the dimmer normally gets its state from the WebView2 host: replay it as a window message
-    if (path === '/api/v1/dimmer/state') setTimeout(function () { window.postMessage({ type: 'DIMMER_STATE_CHANGED', state: dimmer }, '*'); }, 30);
+    if (path === '/api/v1/dimmer/state' && dMode !== 'none') {
+      var dState = dMode === 'empty' ? Object.assign({}, dimmer, { monitors: [] }) : dimmer;
+      setTimeout(function () { window.postMessage({ type: 'DIMMER_STATE_CHANGED', state: dState }, '*'); }, dMode === 'slow' ? SLOW_MS : 30);
+    }
     return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(body); }, text: function () { return Promise.resolve(JSON.stringify(body)); } });
   };
   window.EventSource = function () { this.addEventListener = function () {}; this.close = function () {}; };

@@ -8,6 +8,7 @@ import {
   SentinelSettings
 } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { initialLoad, loadOk, loadFailed, loadRetry, hasStaleData, isGiveawaysState, failureText, type LoadState } from '../utils/dataLoad';
 import { loginAttemptSucceeded, loginHintVisible } from '../utils/loginAttempt';
 import { useGiveawaysReadiness } from '../hooks/useGiveawaysReadiness';
 import { GiveawaysReadiness } from './GiveawaysReadiness';
@@ -96,8 +97,10 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 }) => {
   const [readinessOpen, setReadinessOpen] = useState(false);
   const readiness = useGiveawaysReadiness(readinessOpen);
-  const [data, setData] = useState<GiveawaysStateResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [load, setLoad] = useState<LoadState<GiveawaysStateResponse>>(initialLoad);
+  const data = load.data;
+  const isLoading = load.phase === 'loading'; // only until the first answer: the 5 s poll never brings the skeleton back
+  const noData = data === null;
   const [isClaiming, setIsClaiming] = useState(false);
   const [headless, setHeadless] = useState<boolean>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('sentinel_giveaways_headless') : null;
@@ -133,23 +136,32 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   const fetchState = async (force = false) => {
     try {
       const res = await fetch(`http://127.0.0.1:28492/api/v1/giveaways/state?force_refresh=${force ? '1' : '0'}`);
-      if (res.ok) {
-        const json: GiveawaysStateResponse = await res.json();
-        setData(json);
-        if (json.runner.state === 'running' || json.runner.state === 'aborting') {
-          setIsClaiming(true);
-        } else {
-          setIsClaiming(false);
-        }
-        if (json.recentLogs && json.recentLogs.length > 0 && logs.length === 0) {
-          setLogs(json.recentLogs);
-        }
+      if (!res.ok) {
+        console.error('Giveaways state: the service answered with an error', res.status);
+        setLoad((prev) => loadFailed(prev, 'http', res.status));
+        return;
+      }
+      const json: unknown = await res.json();
+      if (!isGiveawaysState(json)) {
+        console.error('Giveaways state: unexpected answer shape (the runner is missing)', json);
+        setLoad((prev) => loadFailed(prev, 'shape'));
+        return;
+      }
+      const state = json as GiveawaysStateResponse;
+      setLoad(loadOk(state));
+      setIsClaiming(state.runner.state === 'running' || state.runner.state === 'aborting');
+      if (state.recentLogs && state.recentLogs.length > 0 && logs.length === 0) {
+        setLogs(state.recentLogs);
       }
     } catch (e) {
-      console.error('Failed to fetch giveaways state:', e);
-    } finally {
-      setIsLoading(false);
+      console.error('Giveaways state: the request failed or the answer is not JSON', e);
+      setLoad((prev) => loadFailed(prev, 'network'));
     }
+  };
+
+  const retryLoad = () => {
+    setLoad((prev) => loadRetry(prev));
+    void fetchState(true);
   };
 
   useEffect(() => {
@@ -496,7 +508,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       </div>
 
       {/* 7 Store Pods Grid (.stores-7-grid) 1-to-1 with SPEC */}
-      <div className="stores-7-grid" style={{ flexShrink: 0 }}>
+      <div className="stores-7-grid" style={{ flexShrink: 0 }} aria-busy={isLoading}>
+        {isLoading && <span className="sr-only" role="status" data-overflow-ok>Загрузка данных раздач…</span>}
         {STORES.map((store) => {
           const isSelected = selectedStores.includes(store.id);
           const storeData = data?.stores ? (data.stores as any)[store.id] : null;
@@ -523,7 +536,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '2px 6px', flexWrap: 'wrap' }}>
                 <span className="tabular" style={{ fontSize: 'var(--fs-lg)', fontWeight: 800, color: !isAuthed ? 'var(--text-muted)' : 'inherit' }}>
-                  {count}
+                  {isLoading ? <span className="sk-bar" aria-hidden="true" style={{ width: '1.2em', height: '0.9em' }} /> : noData ? '—' : count}
                 </span>
                 <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                   {store.badge}
@@ -532,12 +545,20 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
               <div style={{ fontSize: 'var(--fs-xs)', display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
                 <span className={`led-dot ${!isAuthed ? 'off' : ''}`}></span>
-                <span
-                  style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  title={isAuthed ? `Вы вошли как ${accountName}` : 'Нужно войти в аккаунт магазина'}
-                >
-                  {isAuthed ? accountName : '⚠ Требуется вход'}
-                </span>
+                {isLoading ? (
+                  <span className="sk-bar" aria-hidden="true" style={{ flex: 1, height: '0.9em' }} />
+                ) : noData ? (
+                  <span style={{ color: 'var(--text-muted)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title="Служба не прислала данные">
+                    Нет данных
+                  </span>
+                ) : (
+                  <span
+                    style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={isAuthed ? `Вы вошли как ${accountName}` : 'Нужно войти в аккаунт магазина'}
+                  >
+                    {isAuthed ? accountName : '⚠ Требуется вход'}
+                  </span>
+                )}
                 {isAuthed && (
                   <button
                     className="tactile-btn"
@@ -554,7 +575,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 )}
               </div>
 
-              {!isAuthed && (
+              {isLoading && <span className="sk-bar" aria-hidden="true" style={{ height: '24px', width: '100%' }} />}
+              {!isAuthed && !noData && (
                 <button
                   className="tactile-btn active-mint"
                   style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%', justifyContent: 'center' }}
@@ -587,6 +609,19 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         onEnableScheduler={handleToggleScheduler}
       />
 
+      {(load.failure !== null) && (
+        <div className="titanium-island" role={hasStaleData(load) ? 'status' : 'alert'} style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '10px', color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
+          <span style={{ minWidth: 0 }}>
+            ⚠ {failureText(load.failure)}{' '}
+            {load.failure === 'http' && load.status ? <>Код ответа: {load.status}. </> : null}
+            {hasStaleData(load) ? 'Показаны последние полученные данные.' : 'Данные раздач недоступны.'}
+          </span>
+          <button className="tactile-btn" style={{ minHeight: '22px', flexShrink: 0 }} onClick={() => { playClick(); retryLoad(); }}>
+            Повторить
+          </button>
+        </div>
+      )}
+
       {actionError && (
         <div className="titanium-island" role="alert" style={{ flexShrink: 0, color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
           ⚠ {actionError}
@@ -608,7 +643,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header" style={{ marginBottom: '8px', flexShrink: 0 }}>
             <span className="tag">
-              <span className="led-dot"></span> <span title="Коллекция забранных игр и UE5-ассетов">КОЛЛЕКЦИЯ · {claimedItems.length}</span>
+              <span className="led-dot"></span> <span title="Коллекция забранных игр и UE5-ассетов">КОЛЛЕКЦИЯ · {noData ? '…' : claimedItems.length}</span>
             </span>
           </div>
 
@@ -645,7 +680,21 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
           {/* Compact Tiles Grid */}
           <div className="claimed-compact-grid" style={{ flex: '0 1 auto' }}>
-            {filteredClaimedItems.length > 0 ? (
+            {isLoading ? (
+              [0, 1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="claimed-compact-card" aria-hidden="true">
+                  <span className="sk-bar" style={{ width: '28px', height: '28px', flexShrink: 0 }} />
+                  <div className="claimed-card-body" style={{ gap: '6px' }}>
+                    <span className="sk-bar" style={{ width: '40%', height: '0.8em' }} />
+                    <span className="sk-bar" style={{ width: '85%', height: '0.9em' }} />
+                  </div>
+                </div>
+              ))
+            ) : noData ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', gridColumn: '1 / -1' }}>
+                Коллекция недоступна: служба не прислала данные
+              </div>
+            ) : filteredClaimedItems.length > 0 ? (
               filteredClaimedItems.map((item) => {
                 const storeMeta = STORES.find(s => s.id === item.store) || STORES[0];
                 const dateStr = formatClaimDate(item.claimedAt || (item as any).claimed_at, item.timestampMs);

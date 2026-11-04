@@ -1087,6 +1087,14 @@
     overflow-y: hidden;
   }
 
+  /* Placeholder bar for data that has not arrived yet; keeps the layout of the real content */
+  .sk-bar {
+    display: inline-block; border-radius: 6px; background: var(--bg-well, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06)); animation: skPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes skPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .sk-bar { animation: none; } }
+
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
