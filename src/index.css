@@ -759,8 +759,6 @@
   }
   .brand-name-full { display: inline; white-space: nowrap; }
   .brand-name-short { display: none; white-space: nowrap; }
-  .relief-chip-full { display: inline; }
-  .relief-chip-short { display: none; }
 
   .version-chip {
     font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 700;
@@ -888,8 +886,6 @@
   @container hdr (max-width: 73em) {
     .brand-name-full { display: none !important; }
     .brand-name-short { display: inline !important; }
-    .relief-chip-full { display: none !important; }
-    .relief-chip-short { display: inline !important; }
     .tab-btn { padding: 0 5px !important; font-size: var(--fs-xs) !important; gap: 2.5px !important; }
     .brand-title h1 { font-size: var(--fs-xs) !important; }
     .header-actions { gap: 2.5px !important; }
@@ -935,6 +931,16 @@
   .tactile-btn.active-mint { border-color: var(--led-mint); color: var(--led-mint); }
   .tactile-btn.active-amber { border-color: var(--led-amber); color: var(--led-amber); }
   .tactile-btn.danger-hover:hover { border-color: var(--led-rose); color: var(--led-rose); }
+
+  /* Larger click area without a larger look: an invisible strip grows the hit box vertically by --hit-ext on each side
+     (never sideways: neighbours in a row sit 3-4 px apart). 2 px is half of the smallest vertical gap (4 px) between
+     controls, so two stacked controls meet but never overlap. ::before because .tab-btn.active already uses ::after.
+     Clipped (not extended) where the control itself has overflow: hidden (PiP action bar). */
+  .tactile-btn, .tab-btn, .node-chip, .claimed-tab-pill, .chunky-cta, .safety-guard-btn { position: relative; }
+  .tactile-btn::before, .tab-btn::before, .node-chip::before, .claimed-tab-pill::before,
+  .chunky-cta::before, .safety-guard-btn::before, .cover-exclude-btn::before {
+    content: ''; position: absolute; inset: calc(-1 * var(--hit-ext, 2px)) 0;
+  }
 
   /* 3-SECTION STUDIO DROPDOWN (THEMES + 3D + 2D + INTENSITY SLIDER) */
   .theme-dropdown-wrap { position: relative; flex-shrink: 0 !important; }
@@ -1456,6 +1462,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.2px;
     transition: all 0.15s ease;
   }
+  .r-step[data-state="IDLE"] { flex-grow: 0.6; } /* the short label gives its width to the other two */
   .r-step.idle { background: var(--bg-row-hover); color: var(--text-primary); }
   .r-step.queue { background: var(--led-mint); color: var(--cta-text); }
   .r-step.force { background: var(--led-amber); color: var(--cta-text); }
@@ -1799,6 +1806,7 @@
     .dashboard-shelf-island { height: auto; max-height: none; min-height: 22rem; }
     .right-deck-col { height: auto; overflow: visible; order: -1; }
     .right-deck-col .middle-console-island { flex: none !important; min-height: 16rem !important; }
+    .right-deck-col .middle-console-island.console-collapsed { min-height: 0 !important; }
     .chrono-hero-grid { grid-template-columns: auto auto minmax(0, 1fr); }
     .chrono-hero-grid > .streamer-viewfinder { grid-column: 1 / -1; }
   }

@@ -739,6 +739,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                   </div>
                 );
               })
+            ) : claimedItems.length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', gridColumn: '1 / -1' }}>
+                Пока ничего не получено
+                {!STORES.some((s) => Boolean((data?.stores as any)?.[s.id]?.account)) && <span> Подключите магазин, чтобы начать.</span>}
+              </div>
             ) : (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)', gridColumn: '1 / -1' }}>
                 Тайтлы не найдены по заданным критериям

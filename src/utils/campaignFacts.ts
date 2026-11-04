@@ -102,6 +102,24 @@ export const campaignFacts = (g: GameItem, opts: FactsOptions): CampaignFacts =>
   };
 };
 
+export type DeadlineVerdict = 'enough' | 'late' | 'unknown';
+
+export interface DeadlineFacts {
+  msLeft: number | null; // until the campaign ends; null without a usable end date
+  watchMinutes: number | null; // watching still needed; null when the engine did not report it
+  verdict: DeadlineVerdict; // 'late' only when both are known and watching needs more time than is left
+}
+
+// 'enough' is never a promise: games are farmed one at a time, so it only means the deadline alone does not rule it out
+export const deadlineFacts = (endAtIso: string | undefined, remainingWatchMin: number | null | undefined, now: number): DeadlineFacts => {
+  const end = endAtIso ? new Date(endAtIso).getTime() : NaN;
+  const msLeft = Number.isNaN(end) ? null : end - now;
+  const watchMinutes =
+    typeof remainingWatchMin === 'number' && Number.isFinite(remainingWatchMin) && remainingWatchMin >= 0 ? remainingWatchMin : null;
+  if (msLeft === null || watchMinutes === null) return { msLeft, watchMinutes, verdict: 'unknown' };
+  return { msLeft, watchMinutes, verdict: watchMinutes * 60000 > msLeft ? 'late' : 'enough' };
+};
+
 const formatStamp = (iso: string): string | null => {
   const at = new Date(iso).getTime();
   if (Number.isNaN(at)) return null;

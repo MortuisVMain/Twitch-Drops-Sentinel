@@ -19,13 +19,22 @@
     'Pokémon Trading Card Game Live', 'World of Warships: Legends', 'Call of Duty: Black Ops Cold War Zombies', 'Escape from Tarkov: Arena',
     'Лига Легенд: Wild Rift (русская версия)', 'Mount & Blade II: Bannerlord', 'Dead by Daylight', 'Apex Legends', 'Marvel Rivals', 'Fortnite',
   ];
+  // Three off-queue campaigns end within a day, relative to the page load, one per deadline verdict:
+  // enough (5h48m left, 2h to watch), late (1h left, 2h to watch), unknown (no remaining_watch_minutes in the payload).
+  var SOON = { 4: [348, 120], 5: [60, 120], 6: [540, undefined] };
   var games = LONG.map(function (name, i) {
-    return {
+    var soon = SOON[i];
+    var game = {
       id: 'g' + i, name: name, is_installed: i % 3 === 0, has_drops: i % 4 !== 3, category: 'Game',
       drops_start_at: '2026-10-20T10:00:00Z', drops_end_at: '2026-11-0' + (2 + (i % 6)) + 'T20:00:00Z', is_active_now: i % 4 !== 3,
       rewards_count: 3 + i, is_account_connected: i % 2 === 0, is_finished: false, progress_percent: (i * 7) % 100,
       claimed_drops: i % 4, total_drops: 4 + (i % 3), farmable: true, allowed_channels: [],
     };
+    if (soon) {
+      game.drops_end_at = new Date(Date.now() + soon[0] * 60000).toISOString();
+      if (soon[1] !== undefined) game.remaining_watch_minutes = soon[1];
+    }
+    return game;
   });
   var state = {
     version: '3.5.7', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',

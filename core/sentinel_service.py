@@ -155,7 +155,7 @@ from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
-from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability
+from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from atomic_json import atomic_write_json
@@ -692,8 +692,14 @@ class SentinelSupervisor:
                     g["claimed_drops"] = camp_claimed
                     if is_camp_finished:
                         g["progress_percent"] = 100.0
+                        g["remaining_watch_minutes"] = 0
                     else:
                         g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
+                        watch_left = campaign_remaining_watch_minutes(camp)
+                        if watch_left is not None:
+                            g["remaining_watch_minutes"] = watch_left
+                        else:
+                            g.pop("remaining_watch_minutes", None)  # catalog dicts are cached: no stale value from an earlier poll
                     if hasattr(camp, "allowed_channels") and camp.allowed_channels:
                         g["allowed_channels"] = [ch.name for ch in camp.allowed_channels]
                     try:
@@ -701,6 +707,7 @@ class SentinelSupervisor:
                     except Exception as exc:
                         logger.warning("Could not judge farmability of %s: %s", g.get("name"), exc, exc_info=True)
                 else:
+                    g.pop("remaining_watch_minutes", None)  # no campaign in the inventory now: drop a value cached from an earlier poll
                     if (
                         is_user_linked or
                         is_in_trophies or

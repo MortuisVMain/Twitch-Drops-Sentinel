@@ -123,3 +123,25 @@ export const collapseLogs = (logs: SentinelLogEntry[], options: CollapseOptions 
   }
   return out;
 };
+
+export type ConsoleFilter = 'ALL' | 'WATCH' | 'CLAIM' | 'CORE';
+
+/** Tray-icon chatter ("[TRAY] Icon: idle"): technical noise, kept only in the "Core" filter. */
+export const isTrayLine = (l: SentinelLogEntry): boolean => /^\s*\[TRAY\]/i.test(String(l.message));
+
+/** Lines the chosen console filter shows. The service logs [TRAY] lines at INFO level, so "Core" takes them by text. */
+export const filterLogs = (logs: SentinelLogEntry[], filter: ConsoleFilter): SentinelLogEntry[] =>
+  logs.filter((l) => {
+    const cat = (l.level || l.category || '').toUpperCase();
+    if (filter === 'CORE') return cat.includes('CORE') || cat.includes('SYS') || cat.includes('GUARD') || isTrayLine(l);
+    if (isTrayLine(l)) return false;
+    if (filter === 'WATCH') return cat.includes('WATCH') || cat.includes('STREAM');
+    if (filter === 'CLAIM') return cat.includes('CLAIM') || cat.includes('DROP');
+    return true;
+  });
+
+export const CONSOLE_COLLAPSED_KEY = 'sentinel_console_collapsed';
+
+/** An explicit user choice ('1' collapsed, '0' expanded) always wins; with none (or junk) the console is collapsed while idle. */
+export const resolveConsoleCollapsed = (stored: string | null, isIdle: boolean): boolean =>
+  stored === '1' ? true : stored === '0' ? false : isIdle;
