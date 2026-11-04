@@ -4536,6 +4536,8 @@ def test_local_service_refuses_foreign_pages_and_resets_cleanly():
     assert code == 200 and headers.get("Access-Control-Allow-Origin") == "https://app.sentinel", (code, dict(headers))
     code, headers, _body = call("/api/state", origin="http://127.0.0.1:5173")
     assert code == 200 and headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:5173", "the dev server"
+    code, _h, _body = call("/api/state", origin="http://127.0.0.1:9999")
+    assert code == 403, "only the shell and the dev-server ports may talk to the service"
     code, _h, _body = call("/api/state")
     assert code == 200, "the desktop shell sends no Origin"
 
@@ -5025,7 +5027,7 @@ def test_giveaways_empty_store_choice_starts_nothing():
         return outcome, spawned
 
     _MISSING = object()
-    for bad in ([], ["nope", "unknown"], "epic", {"epic": 1}, 5):
+    for bad in ([], ["nope", "unknown"], "epic", {"epic": 1}, 5, [["steam"]], [None, 3]):
         outcome, spawned = run(bad)
         assert outcome == ("refused", "Не выбран ни один магазин."), (bad, outcome)
         assert not spawned, f"{bad!r} must not start a single process, got {spawned}"
@@ -5080,6 +5082,103 @@ def test_dimmer_logic_and_shell_use_it():
     shutdown = form.split("private void ShutdownBackend()", 1)[1][:400]
     assert ".CancelAll()" in shutdown, "C11: closing drops waiting writes"
     print("      MainForm uses the dimmer logic: PASS [OK]")
+
+
+def test_review_fixes_in_the_service():
+    print("[review 7-12] Settings roll back together, no repeat shutdown, strict release URLs and origins...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import auto_shutdown
+    import local_access
+    import settings_transaction as st
+    import updater
+
+    # 8 (C05): a shutdown that already fired does not start again while the conditions stay the same
+    step = auto_shutdown.next_countdown
+    fired = step(1, True, True)
+    assert fired.fire and fired.fired, fired
+    again = step(fired.countdown, True, True, fired=fired.fired)
+    assert again.countdown is None and not again.fire and again.fired, f"no second countdown after a fire: {again}"
+    new_target = step(None, True, False, fired=True)
+    assert not new_target.fired and not new_target.cancelled, new_target
+    restart = step(new_target.countdown, True, True, fired=new_target.fired)
+    assert restart.countdown == auto_shutdown.COUNTDOWN_SECONDS, "a new target and a new finish may fire again"
+    assert not step(None, False, True, fired=True).fired, "switching the setting off resets it"
+
+    # 9 (C01): an encoded dot is no dot, a query or fragment is not part of a release asset address
+    repo = "MortuisVMain/Twitch-Drops-Sentinel"
+    for url in (f"https://github.com/{repo}/releases/download/%2e%2e/%2e%2e/x/p.zip", f"https://github.com/{repo}/releases/download/..%2fx/p.zip",
+                f"https://github.com/{repo}/releases/download/v1/p.zip?x=1", f"https://github.com/{repo}/releases/download/v1/p.zip#f",
+                f"https://api.github.com/repos/{repo}/releases/assets/123%2f..%2f1"):
+        assert not updater.is_trusted_release_url(url), f"must be refused: {url}"
+    for url in (f"https://github.com/{repo}/releases/download/v1/Patch.zip", f"https://api.github.com/repos/{repo}/releases/assets/123"):
+        assert updater.is_trusted_release_url(url), f"must pass: {url}"
+
+    # 11: the shell's own origin and the two dev-server ports only
+    for origin in ("https://app.sentinel", "http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:4173", "http://localhost:4173", None):
+        assert local_access.origin_allowed(origin), origin
+    for origin in ("http://localhost:9999", "http://127.0.0.1:28492", "http://localhost", "https://localhost:5173", "null", "https://evil.example"):
+        assert not local_access.origin_allowed(origin), origin
+
+    # 7 (C03): either both files and the memory change, or none does
+    d = Path(tempfile.mkdtemp(prefix="txn_", dir=SANDBOX))
+    cfg, eng, new_file = d / "config.json", d / "settings.json", d / "later.json"
+    cfg.write_text('{"a": 1}', encoding="utf-8")
+    eng.write_text('{"e": 1}', encoding="utf-8")
+
+    def write_cfg():
+        cfg.write_text('{"a": 2}', encoding="utf-8")
+
+    def write_eng_half():
+        eng.write_text('{"e": ', encoding="utf-8")
+        raise OSError("disk full")
+
+    def write_new():
+        new_file.write_text("x", encoding="utf-8")
+        raise OSError("disk full")
+
+    try:
+        st.save_transaction([cfg, eng, new_file], [write_cfg, write_eng_half, write_new])
+        raise AssertionError("the failure must reach the caller")
+    except OSError:
+        pass
+    assert cfg.read_text(encoding="utf-8") == '{"a": 1}' and eng.read_text(encoding="utf-8") == '{"e": 1}', "both files keep their old content"
+    st.save_transaction([cfg, eng, new_file], [write_cfg, lambda: eng.write_text('{"e": 2}', encoding="utf-8")])
+    assert cfg.read_text(encoding="utf-8") == '{"a": 2}' and eng.read_text(encoding="utf-8") == '{"e": 2}'
+    try:
+        st.save_transaction([cfg, eng, new_file], [write_new])
+    except OSError:
+        pass
+    assert not new_file.exists(), "a file that did not exist before does not exist after a failed save"
+
+    settings = {"x": 1, "l": [1]}
+    same = settings
+
+    def mutate(s):
+        s["x"] = 2
+        s["l"].append(2)
+
+    def refusing_save():
+        raise OSError("disk full")
+
+    try:
+        st.apply_change(settings, mutate, refusing_save)
+        raise AssertionError("the failure must reach the caller")
+    except OSError:
+        pass
+    assert settings is same and settings == {"x": 1, "l": [1]}, f"memory returns to the old state in place: {settings}"
+    st.apply_change(settings, mutate, lambda: None)
+    assert settings == {"x": 2, "l": [1, 2]}
+    shutil.rmtree(d, ignore_errors=True)
+
+    source = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "save_transaction(" in source.split("def save_settings", 1)[1].split("def load_trophies", 1)[0], "save_settings writes both files in one transaction"
+    for name in ("handle_post_settings", "handle_reset_settings", "handle_add_game_directory", "handle_remove_game_directory"):
+        body = source.split(f"async def {name}", 1)[1].split("\n    async def ", 1)[0]
+        assert "apply_change(" in body, f"{name} must roll the memory back when saving fails"
+    # 10: nothing follows the final return of the CORS middleware
+    cors = source.split("async def cors_middleware", 1)[1].split("def get_app_version", 1)[0]
+    assert 'Access-Control-Allow-Origin"] = "*"' not in cors, "the old wildcard block is dead code"
+    print("      Review service fixes: PASS [OK]")
 
 
 if __name__ == "__main__":
@@ -5187,6 +5286,7 @@ if __name__ == "__main__":
         test_settings_changes_send_only_the_changed_fields,
         test_giveaways_empty_store_choice_starts_nothing,
         test_dimmer_logic_and_shell_use_it,
+        test_review_fixes_in_the_service,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

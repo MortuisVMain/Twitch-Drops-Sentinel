@@ -160,6 +160,7 @@ from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
+from settings_transaction import apply_change, save_transaction
 from engine_flags import apply_engine_flags
 from local_access import host_allowed, origin_allowed
 from profile_backup import profile_entries, write_backup
@@ -345,6 +346,7 @@ class SentinelSupervisor:
             "gpu_percent": 8,
         }
         self.luna_countdown: Optional[int] = None
+        self.luna_fired = False
         self.giveaways = GiveawaysOrchestrator()
         self.dimmer = DimmerController()
         self.app.on_shutdown.append(self._on_app_shutdown)
@@ -428,11 +430,11 @@ class SentinelSupervisor:
         priority_mode_val = int(self.settings.get("priority_mode", 0))
         set_native_toasts(self.settings.get("native_toasts", True))
 
-        # 2. Save supervisor configuration
-        atomic_write_json(CONFIG_FILE, self.settings)
+        # 2-3. Supervisor config and DevilXD engine settings.json (full type serialization): both or neither
+        def write_supervisor():
+            atomic_write_json(CONFIG_FILE, self.settings)
 
-        # 3. Save DevilXD engine settings.json with full type serialization
-        try:
+        def write_engine():
             devilxd_settings = json_load(SETTINGS_PATH, devilxd_default_settings)
             devilxd_settings["priority"] = deduped_priority
             devilxd_settings["exclude"] = set(exclude_list)
@@ -440,11 +442,13 @@ class SentinelSupervisor:
                 devilxd_settings["priority_mode"] = PriorityMode(priority_mode_val)
             except Exception:
                 devilxd_settings["priority_mode"] = PriorityMode.ENDING_SOONEST
-
             json_save(SETTINGS_PATH, devilxd_settings, sort=True)
             logger.info(f"Synchronized {len(deduped_priority)} priority games (mode={priority_mode_val}) into {SETTINGS_PATH.name}")
+
+        try:
+            save_transaction([CONFIG_FILE, SETTINGS_PATH], [write_supervisor, write_engine])
         except Exception as e:
-            logger.error(f"Failed to save DevilXD settings.json: {e}", exc_info=True)
+            logger.error(f"Failed to save settings, the previous files were restored: {e}", exc_info=True)
             raise
 
         # 4. Notify active Twitch client
@@ -596,28 +600,6 @@ class SentinelSupervisor:
             raise ex
 
         allow(response.headers)
-        return response
-        try:
-            response = await handler(request)
-        except web.HTTPException as ex:
-            ex.headers["Access-Control-Allow-Origin"] = "*"
-            ex.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-            ex.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-            raise ex
-        except Exception as err:
-            logger.error(f"Unhandled exception in request {request.path}: {err}", exc_info=True)
-            ex = web.HTTPInternalServerError(
-                text=json.dumps({"error": str(err)}, ensure_ascii=False),
-                content_type="application/json"
-            )
-            ex.headers["Access-Control-Allow-Origin"] = "*"
-            ex.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-            ex.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-            raise ex
-
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     def get_app_version(self) -> str:
@@ -841,8 +823,7 @@ class SentinelSupervisor:
                 data["priority_games"] = [g for g in norm_p if not (g in seen or seen.add(g))]
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
-            self.settings.update(data)
-            self.save_settings()
+            apply_change(self.settings, lambda current: current.update(data), self.save_settings)
             if "language" in data:
                 self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
@@ -1157,13 +1138,11 @@ class SentinelSupervisor:
 
     async def handle_reset_settings(self, request: web.Request) -> web.Response:
         try:
-            previous = self.settings
-            self.settings = copy.deepcopy(SUPERVISOR_DEFAULTS)
-            try:
-                self.save_settings()
-            except Exception:
-                self.settings = previous
-                raise
+            def to_defaults(current):
+                current.clear()
+                current.update(copy.deepcopy(SUPERVISOR_DEFAULTS))
+
+            apply_change(self.settings, to_defaults, self.save_settings)
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
@@ -1327,8 +1306,7 @@ class SentinelSupervisor:
             norm_path = str(p.resolve())
             if norm_path not in dirs:
                 dirs.append(norm_path)
-                self.settings["game_directories"] = dirs
-                self.save_settings()
+                apply_change(self.settings, lambda current: current.__setitem__("game_directories", list(dirs)), self.save_settings)
                 logger.info(f"Added custom game directory: {norm_path}")
             installed = await self.scanner.scan_all_async(dirs)
             CAMPAIGNS_FETCHER.refresh_installed_games()
@@ -1344,8 +1322,7 @@ class SentinelSupervisor:
             folder_path = str(data.get("path", "")).strip()
             dirs = list(self.settings.get("game_directories", []))
             dirs = [d for d in dirs if d.lower() != folder_path.lower()]
-            self.settings["game_directories"] = dirs
-            self.save_settings()
+            apply_change(self.settings, lambda current: current.__setitem__("game_directories", list(dirs)), self.save_settings)
             logger.info(f"Removed custom game directory: {folder_path}")
             installed = await self.scanner.scan_all_async(dirs)
             CAMPAIGNS_FETCHER.refresh_installed_games()
@@ -1650,8 +1627,9 @@ class SentinelSupervisor:
                 enabled = bool(self.settings.get("auto_shutdown_on_complete", False))
                 done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []))
                 was_counting = self.luna_countdown is not None
-                step = next_countdown(self.luna_countdown, enabled, done)
+                step = next_countdown(self.luna_countdown, enabled, done, self.luna_fired)
                 self.luna_countdown = step.countdown
+                self.luna_fired = step.fired
                 if step.cancelled:
                     logger.info(f"Luna Auto-Shutdown cancelled: enabled={enabled}, all priority drops claimed={done}")
                     send_windows_toast("Luna Auto-Shutdown 🌙", "Автовыключение отменено.")

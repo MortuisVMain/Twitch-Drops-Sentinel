@@ -70,8 +70,8 @@ def is_trusted_release_url(url: Any) -> bool:
     if parsed.scheme.lower() != "https" or parsed.username or parsed.password or port not in (None, 443):
         return False
     host = (parsed.hostname or "").lower()
-    if "/../" in parsed.path or parsed.path.endswith("/.."):
-        return False
+    if "%" in parsed.path or "?" in url or "#" in url or "/../" in parsed.path or parsed.path.endswith("/.."):
+        return False  # an encoded dot is a dot, and a release asset address has no query or fragment
     if host == "github.com":
         return parsed.path.startswith(f"/{TRUSTED_RELEASE_REPO}/releases/download/")
     if host == "api.github.com":

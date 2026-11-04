@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 APP_ORIGIN = "https://app.sentinel"  # the WebView2 virtual host
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
+DEV_ORIGINS = {f"http://{host}:{port}" for host in LOOPBACK_HOSTS for port in (5173, 4173)}  # the Vite dev and preview servers
 
 
 def origin_allowed(origin: Optional[str]) -> bool:
@@ -15,11 +16,7 @@ def origin_allowed(origin: Optional[str]) -> bool:
         return True
     if origin == APP_ORIGIN:
         return True
-    try:
-        parsed = urlsplit(origin)
-    except ValueError:
-        return False
-    return parsed.scheme in ("http", "https") and (parsed.hostname or "") in LOOPBACK_HOSTS
+    return origin in DEV_ORIGINS
 
 
 def host_allowed(host: Optional[str]) -> bool:

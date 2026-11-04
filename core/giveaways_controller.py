@@ -599,7 +599,7 @@ class GiveawaysOrchestrator:
         if stores is None:
             valid_stores = list(DEFAULT_CLAIM_STORES)
         else:
-            valid_stores = [s for s in stores if s in STORE_FILE_MAP] if isinstance(stores, list) else []
+            valid_stores = [s for s in stores if isinstance(s, str) and s in STORE_FILE_MAP] if isinstance(stores, list) else []
             if not valid_stores:
                 raise web.HTTPBadRequest(
                     text=json.dumps({"detail": "Не выбран ни один магазин."}, ensure_ascii=False),
