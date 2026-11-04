@@ -233,6 +233,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       return;
     }
 
+    if (selectedStores.length === 0) {
+      setActionError('Не выбран ни один магазин.');
+      return;
+    }
+
     setIsClaiming(true);
     setActionError(null);
     try {

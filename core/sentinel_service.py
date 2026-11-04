@@ -1419,7 +1419,7 @@ class SentinelSupervisor:
             body = await request.json()
         except Exception:
             body = {}
-        stores = body.get("stores", ["epic", "gog", "steam", "fab", "unity"])
+        stores = body.get("stores")
         headless = body.get("headless", True)
         res = await self.giveaways.start_claim(stores=stores, headless=headless)
         return web.json_response(res)

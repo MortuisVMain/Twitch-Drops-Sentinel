@@ -4962,6 +4962,93 @@ def test_settings_changes_send_only_the_changed_fields():
     print("      Partial settings: PASS [OK]")
 
 
+def test_giveaways_empty_store_choice_starts_nothing():
+    print("[audit C09] Giveaways: an empty or unknown store choice is refused, a missing one means the defaults...")
+    import asyncio
+    import types
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    from aiohttp import web
+
+    class _Out:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _Proc:
+        pid = 778
+        returncode = None
+
+        def __init__(self):
+            self.stdout = _Out()
+
+        async def wait(self):
+            return 0
+
+    engine = Path(tempfile.mkdtemp(prefix="c09_", dir=SANDBOX))
+    (engine / "runner.js").write_text("", encoding="utf-8")
+    (engine / "node_modules" / "patchright").mkdir(parents=True)
+
+    def run(stores):
+        spawned = []
+
+        async def fake_exec(*args, **kwargs):
+            spawned.append(args)
+            return _Proc()
+
+        async def no_scheduler(force=False):
+            return {"state": "Ready"}
+
+        async def no_monitor(proc):
+            return None
+
+        orch = gc.GiveawaysOrchestrator()
+        orch._query_scheduler = no_scheduler
+        orch._monitor_process = no_monitor
+        saved = (gc.resolve_fgc_root, gc.shutil.which, asyncio.create_subprocess_exec, gc.engine_installed)
+        gc.resolve_fgc_root = lambda: engine
+        gc.shutil.which = lambda name, *a, **k: name
+        gc.engine_installed = lambda d: True
+        asyncio.create_subprocess_exec = fake_exec
+        try:
+            async def go():
+                try:
+                    res = await orch.start_claim(stores) if stores is not _MISSING else await orch.start_claim()
+                    return ("started", res["stores"])
+                except web.HTTPBadRequest as exc:
+                    return ("refused", json.loads(exc.text)["detail"])
+            outcome = asyncio.run(go())
+        finally:
+            gc.resolve_fgc_root, gc.shutil.which, asyncio.create_subprocess_exec, gc.engine_installed = saved
+        return outcome, spawned
+
+    _MISSING = object()
+    for bad in ([], ["nope", "unknown"], "epic", {"epic": 1}, 5):
+        outcome, spawned = run(bad)
+        assert outcome == ("refused", "Не выбран ни один магазин."), (bad, outcome)
+        assert not spawned, f"{bad!r} must not start a single process, got {spawned}"
+    outcome, spawned = run(["gog", "nope"])
+    assert outcome == ("started", ["gog"]) and len(spawned) == 1 and spawned[0][-1] == "gog", (outcome, spawned)
+    outcome, spawned = run(None)
+    assert outcome[0] == "started" and outcome[1] == list(gc.DEFAULT_CLAIM_STORES), outcome
+    outcome, spawned = run(_MISSING)
+    assert outcome[0] == "started" and outcome[1] == list(gc.DEFAULT_CLAIM_STORES), outcome
+    shutil.rmtree(engine, ignore_errors=True)
+
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    handler = service.split("async def handle_giveaways_claim", 1)[1].split("async def handle_giveaways_abort", 1)[0]
+    assert 'body.get("stores")' in handler and '"epic", "gog"' not in handler, "the handler must pass the choice through untouched"
+    view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    claim = view.split("const handleClaimAll", 1)[1].split("\n  };", 1)[0]
+    assert claim.index("selectedStores.length === 0") > claim.index("abort"), "stopping stays possible with no store selected"
+    assert "Не выбран ни один магазин." in view or "giveaways.noStoreSelected" in view
+    state_handler = view.split("sse.addEventListener('state'", 1)[1].split("});", 1)[0]
+    assert "fetchState(false)" in state_handler and "setData(" not in state_handler, "C08: a state event only triggers a re-read, it never replaces the data"
+    print("      Empty store choice: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5065,6 +5152,7 @@ if __name__ == "__main__":
         test_concurrent_update_checks_share_one_request,
         test_scheduled_run_that_never_finished_is_reported_as_failed,
         test_settings_changes_send_only_the_changed_fields,
+        test_giveaways_empty_store_choice_starts_nothing,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

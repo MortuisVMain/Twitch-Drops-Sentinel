@@ -17,6 +17,8 @@ export const GIVEAWAYS: Record<string, string> = {
   'Воскресенье — еженедельный свип': 'Sunday — weekly sweep',
   'Недавно': 'Recently',
   'Не удалось запустить сборщик': 'Could not start the claimer',
+  'Не выбран ни один магазин.': 'No store is selected.',
+  'Не удалось сохранить настройку': 'Could not save the setting',
   'Ошибка сети при запуске': 'Network error on start',
   'Не удалось открыть окно входа': 'Could not open the sign-in window',
   'Уже идёт сбор или вход в другой магазин. Дождитесь конца или остановите его.': 'A claim or another store sign-in is already running. Wait for it to finish or stop it.',

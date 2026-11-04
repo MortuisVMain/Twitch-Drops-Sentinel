@@ -594,7 +594,17 @@ class GiveawaysOrchestrator:
             "totalClaimed": sum(s.get("claimedCount", 0) for s in stores.values()),
         }
 
-    async def start_claim(self, stores: List[str], headless: bool = True, switch_account: bool = False) -> dict:
+    async def start_claim(self, stores: Optional[List[str]] = None, headless: bool = True, switch_account: bool = False) -> dict:
+        """stores=None means the default stores; an explicit empty or fully unknown choice is refused before anything starts."""
+        if stores is None:
+            valid_stores = list(DEFAULT_CLAIM_STORES)
+        else:
+            valid_stores = [s for s in stores if s in STORE_FILE_MAP] if isinstance(stores, list) else []
+            if not valid_stores:
+                raise web.HTTPBadRequest(
+                    text=json.dumps({"detail": "Не выбран ни один магазин."}, ensure_ascii=False),
+                    content_type="application/json",
+                )
         if self.engine_install_state()["running"]:
             raise web.HTTPConflict(reason="Идёт установка браузерного движка. Дождитесь её конца.")
         async with self._lock:
@@ -608,10 +618,6 @@ class GiveawaysOrchestrator:
             runner_file = fgc_dir / "runner.js"
             if not runner_file.is_file() and not cmd_file.is_file():
                 raise web.HTTPNotFound(reason=f"Модуль раздач не найден по пути {fgc_dir}")
-
-            valid_stores = [s for s in stores if s in STORE_FILE_MAP]
-            if not valid_stores:
-                valid_stores = list(DEFAULT_CLAIM_STORES)
 
             if runner_file.is_file():
                 # Node.js is not bundled (the browser engine is installed on first use): say so instead of crashing
