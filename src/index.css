@@ -1850,7 +1850,7 @@
   @media (max-height: 800px) {
     @container stage (width > 64em) and (width > 800px) {
       .right-deck-col { overflow-y: auto !important; overflow-x: hidden !important; }
-      .right-deck-col .middle-console-island { flex: 1 0 auto !important; min-height: 8.5rem !important; }
-      .right-deck-col .override-scroll-grid { max-height: 4.7rem !important; overflow-y: auto !important; }
+      .right-deck-col .middle-console-island:not(.console-collapsed) { flex: 1 0 auto !important; min-height: 8.5rem !important; }
+      .right-deck-col .middle-console-island:not(.console-collapsed) ~ #overrideSection .override-scroll-grid { max-height: 4.7rem !important; overflow-y: auto !important; }
     }
   }
