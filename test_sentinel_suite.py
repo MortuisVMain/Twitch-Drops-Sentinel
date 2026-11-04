@@ -284,7 +284,8 @@ def test_core_service_api():
 
     # Test GET /api/v1/giveaways/state
     g_req = urllib.request.Request(BASE_URL + "/api/v1/giveaways/state")
-    with safe_urlopen(g_req, timeout=10.0) as res:
+    # the first answer may wait for the scheduler query, whose ceiling is SCHEDULER_QUERY_TIMEOUT_SECONDS (15 s)
+    with safe_urlopen(g_req, timeout=20.0) as res:
         assert res.status == 200
         g_res = json.loads(res.read().decode("utf-8"))
         assert "runner" in g_res and "stores" in g_res and "inventory" in g_res and "scheduler" in g_res
