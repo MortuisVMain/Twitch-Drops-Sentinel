@@ -614,8 +614,8 @@ namespace TwitchDropsSentinel
         {
 
             _brightnessDebouncer = new BrightnessDebouncer(
-                ct => Task.Delay(100, ct),
-                (id, level) => { lock (_brightnessDebounceLock) { SetHardwareBrightness(id, level); } },
+                (span, ct) => Task.Delay(span, ct),
+                (id, level) => { lock (_brightnessDebounceLock) { return SetHardwareBrightness(id, level); } },
                 ex => LogDesktopError("запись яркости монитора", ex));
 
             _startMinimized = startMinimized;
@@ -1116,6 +1116,8 @@ namespace TwitchDropsSentinel
             _isShuttingDown = true;
 
             _brightnessDebouncer.CancelAll();
+            _hardwareCts.Cancel();
+            try { _blackoutMute.Exit(() => AudioEndpointController.SetMute(false)); } catch (Exception ex) { LogDesktopError("возврат звука при закрытии", ex); }
 
             try
 
@@ -1517,11 +1519,15 @@ namespace TwitchDropsSentinel
 
                     {
 
-                        using var reader = new StreamReader(stream);
-
-                        string html = await reader.ReadToEndAsync();
-
-                        _webView.CoreWebView2.NavigateToString(html);
+                        // NavigateToString gives the page an opaque origin that the service refuses: serve it from the same virtual host
+                        string fallbackFolder = Path.Combine(Path.GetTempPath(), "TwitchDropsSentinel_ui");
+                        Directory.CreateDirectory(fallbackFolder);
+                        using (var file = File.Create(Path.Combine(fallbackFolder, "index.html")))
+                        {
+                            await stream.CopyToAsync(file);
+                        }
+                        _webView.CoreWebView2.SetVirtualHostNameToFolderMapping("app.sentinel", fallbackFolder, CoreWebView2HostResourceAccessKind.Allow);
+                        _webView.CoreWebView2.Navigate($"https://app.sentinel/index.html?v={DateTime.UtcNow.Ticks}");
 
                     }
 
@@ -1747,11 +1753,13 @@ namespace TwitchDropsSentinel
                         string monId = root.TryGetProperty("monitorId", out var mProp) ? mProp.GetString() ?? "master" : "master";
                         int level = root.TryGetProperty("level", out var lProp) ? lProp.GetInt32() : 75;
                         int clamped = Math.Clamp(level, 0, 100);
+                        var allMons = GetHardwareMonitors();
+                        monId = MonitorIds.Resolve(monId, allMons.Select(m => m.Id).ToList());
 
                         if (monId == "master")
                         {
                             _masterBrightness = clamped;
-                            foreach (var m in GetHardwareMonitors())
+                            foreach (var m in allMons)
                             {
                                 _monitorBrightnessMap[m.Id] = clamped;
                             }
@@ -1759,10 +1767,9 @@ namespace TwitchDropsSentinel
                         else
                         {
                             _monitorBrightnessMap[monId] = clamped;
-                            var allMons = GetHardwareMonitors();
                             if (allMons.Count > 0)
                             {
-                                var vals = allMons.Select(m => _monitorBrightnessMap.ContainsKey(m.Id) ? _monitorBrightnessMap[m.Id] : m.CurrentBrightness);
+                                var vals = allMons.Select(m => _monitorBrightnessMap.TryGetValue(m.Id, out int known) ? known : m.CurrentBrightness);
                                 _masterBrightness = (int)Math.Round(vals.Average());
                             }
                         }
@@ -2411,7 +2418,7 @@ else
 
                 SetUltraDark(false);
 
-                SetHardwareBrightness("master", 75);
+                _ = SetHardwareBrightness("master", 75);
 
                 m.Result = (IntPtr)1;
 
@@ -3182,8 +3189,8 @@ else
 
         private int? _soloBlackoutIndex = null;
 
-        private readonly Dictionary<string, int> _monitorBrightnessMap = new();
-        private readonly Dictionary<string, int> _baselineBrightnessMap = new();
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _monitorBrightnessMap = new();
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _baselineBrightnessMap = new();
 
         private bool _muteAudioOnBlackout = false;
 
@@ -3205,6 +3212,7 @@ else
         private static readonly System.Threading.SemaphoreSlim _i2cHardwareBusLock = new System.Threading.SemaphoreSlim(1, 1);
 
         private readonly BrightnessDebouncer _brightnessDebouncer;
+        private readonly CancellationTokenSource _hardwareCts = new();
 
 
 
@@ -3295,11 +3303,7 @@ else
                     string id = $"DDC_{validDdcIndex}_{desc}";
                     int currentBri = BrightnessReading.Resolve(_monitorBrightnessMap, id, (int)cur, _masterBrightness, explicitRefresh, _brightnessDebouncer.IsPending(id));
 
-                    int baselineBri = currentBri;
-                    if (_baselineBrightnessMap.ContainsKey(id))
-                        baselineBri = _baselineBrightnessMap[id];
-                    else
-                        _baselineBrightnessMap[id] = currentBri;
+                    int baselineBri = _baselineBrightnessMap.GetOrAdd(id, currentBri);
 
                     list.Add(new NativeMonitorInfo
                     {
@@ -3380,7 +3384,7 @@ else
                             IsPrimary = false,
 
                             IsLaptopInternal = true,
-                            BaselineBrightness = _baselineBrightnessMap.ContainsKey(id) ? _baselineBrightnessMap[id] : bri,
+                            BaselineBrightness = _baselineBrightnessMap.TryGetValue(id, out int savedBaseline) ? savedBaseline : bri,
 
                             CurrentBrightness = bri,
 
@@ -3654,9 +3658,9 @@ else
             var targets = new List<int>();
             foreach (var m in monitors)
             {
-                int targetBri = _baselineBrightnessMap.ContainsKey(m.Id) ? _baselineBrightnessMap[m.Id] : m.CurrentBrightness;
+                int targetBri = _baselineBrightnessMap.TryGetValue(m.Id, out int savedBaseline) ? savedBaseline : m.CurrentBrightness;
                 _monitorBrightnessMap[m.Id] = targetBri;
-                SetHardwareBrightness(m.Id, targetBri);
+                _ = SetHardwareBrightness(m.Id, targetBri);
                 targets.Add(targetBri);
             }
             if (targets.Count > 0)
@@ -3666,7 +3670,7 @@ else
             NotifyWebviewDimmerState();
         }
 
-        private void SetHardwareBrightness(string monitorId, int level)
+        private Task SetHardwareBrightness(string monitorId, int level)
 
         {
 
@@ -3674,29 +3678,7 @@ else
 
             var allMons = GetHardwareMonitors();
 
-            if (monitorId == "disp-primary" || monitorId == "0")
-
-            {
-
-                if (allMons.Count > 0) monitorId = allMons[0].Id;
-
-            }
-
-            else if (monitorId == "disp-secondary" || monitorId == "1")
-
-            {
-
-                if (allMons.Count > 1) monitorId = allMons[1].Id;
-
-            }
-
-            else if (int.TryParse(monitorId, out int mIdx) && mIdx >= 0 && mIdx < allMons.Count)
-
-            {
-
-                monitorId = allMons[mIdx].Id;
-
-            }
+            monitorId = MonitorIds.Resolve(monitorId, allMons.Select(m => m.Id).ToList());
 
             if (monitorId == "master")
 
@@ -3706,15 +3688,12 @@ else
 
                 var mons = GetHardwareMonitors();
 
+                var writes = new List<Task>();
                 foreach (var m in mons)
-
                 {
-
-                    SetHardwareBrightness(m.Id, clamped);
-
+                    writes.Add(SetHardwareBrightness(m.Id, clamped));
                 }
-
-                return;
+                return Task.WhenAll(writes);
 
             }
 
@@ -3726,11 +3705,13 @@ else
 
             // Run in background task to avoid blocking WebView2 UI thread (serialized via SemaphoreSlim to protect I2C bus)
 
-            Task.Run(async () =>
+            return Task.Run(async () =>
 
             {
 
-                if (!await _i2cHardwareBusLock.WaitAsync(300)) return;
+                // Wait for the bus as long as it takes (the last value must arrive); only closing the app stops the wait
+                try { await _i2cHardwareBusLock.WaitAsync(_hardwareCts.Token); }
+                catch (OperationCanceledException) { return; }
 
                 try
 
@@ -3883,7 +3864,7 @@ else
 
                 var monitors = GetHardwareMonitors(explicitRefresh);
 
-                if (explicitRefresh && monitors.Count > 0)
+                if (explicitRefresh && !_isBlackout && monitors.Count > 0)
                 {
                     // The poll shows what the hardware reports; the saved baseline is not touched
                     _masterBrightness = (int)Math.Round(monitors.Average(m => m.CurrentBrightness));

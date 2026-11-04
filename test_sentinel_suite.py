@@ -5072,7 +5072,17 @@ def test_dimmer_logic_and_shell_use_it():
 
     form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
     assert "new BrightnessDebouncer(" in form and "_brightnessDebounceCts" not in form, "C11: writes go through the per-monitor debouncer"
-    assert "Task.Delay(100, " in form and "LogDesktopError(" in form.split("new BrightnessDebouncer(", 1)[1][:600], "C11: 100 ms window, errors logged"
+    assert "Task.Delay(span, ct)" in form and "LogDesktopError(" in form.split("new BrightnessDebouncer(", 1)[1][:600], "C11: injected delay, errors logged"
+    assert "WaitAsync(300)" not in form and "WaitAsync(_hardwareCts.Token)" in form, "review 1: a write waits for the bus, it is not thrown away after 300 ms"
+    assert "return SetHardwareBrightness(id, level);" in form, "review 1: the debouncer sees the write task"
+    assert form.count("MonitorIds.Resolve(") >= 2, "review 2: the page's id is resolved before the cache and the debouncer"
+    assert "ConcurrentDictionary<string, int> _monitorBrightnessMap" in form and "ConcurrentDictionary<string, int> _baselineBrightnessMap" in form, "review 3"
+    assert "ContainsKey(" not in form, "review 3: no check-then-read on the shared maps"
+    assert "explicitRefresh && !_isBlackout && monitors.Count > 0" in form, "review 5: no master recount during a blackout"
+    assert "_blackoutMute.Exit(" in form.split("private void ShutdownBackend()", 1)[1][:900], "review 6: closing returns the sound directly"
+    assert "NavigateToString(html)" not in form and "TwitchDropsSentinel_ui" in form, "fallback page: a mapped host, never an opaque origin"
+    csproj = (WORKSPACE / "desktop" / "TwitchDropsSentinel.csproj").read_text(encoding="utf-8")
+    assert r'EmbeddedResource Include="..\dist\index.html"' in csproj, "the fallback page is embedded"
     assert form.count("BrightnessReading.Resolve(") >= 2, "C10: both the DDC and the WMI branch resolve through BrightnessReading"
     assert "GetHardwareMonitors(bool explicitRefresh = false)" in form
     assert 'NotifyWebviewDimmerState(explicitRefresh: true)' in form.split('action == "SCAN_MONITORS"', 1)[1][:200], "C10: the poll asks the hardware"

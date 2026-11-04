@@ -10,22 +10,27 @@ void Check(bool ok, string what)
 string Fmt(List<(string, int)> w) => string.Join(",", w.Select(x => $"{x.Item1}={x.Item2}"));
 
 // A debounce window that ends only when Tick() is called; cancelling the token cancels the wait like Task.Delay does.
-var waiters = new List<(TaskCompletionSource<bool> Tcs, CancellationToken Token)>();
-Task ManualWait(CancellationToken token)
+var waiters = new List<(TaskCompletionSource<bool> Tcs, CancellationToken Token, TimeSpan Span)>();
+Task ManualWait(TimeSpan span, CancellationToken token)
 {
     var tcs = new TaskCompletionSource<bool>();
     token.Register(() => tcs.TrySetCanceled(token));
-    waiters.Add((tcs, token));
+    waiters.Add((tcs, token, span));
     return tcs.Task;
 }
-void Tick()
+// Ends the waiting windows (and settle times unless settle is false) now; reverse = in the opposite order to how they started
+void Tick(bool reverse = false, bool settle = true)
 {
-    var now = waiters.ToList();
-    waiters.Clear();
-    foreach (var w in now) w.Tcs.TrySetResult(true);
+    do
+    {
+        var now = waiters.Where(w => settle || w.Span == BrightnessDebouncer.DebounceWindow).ToList();
+        foreach (var w in now) waiters.Remove(w);
+        if (reverse) now.Reverse();
+        foreach (var w in now) w.Tcs.TrySetResult(true);
+    } while (settle && waiters.Count > 0); // a finished write starts its settle time: end that too
 }
 
-(BrightnessDebouncer D, List<(string, int)> Writes, List<Exception> Errors) NewDebouncer(Func<string, int, bool>? failOn = null)
+(BrightnessDebouncer D, List<(string, int)> Writes, List<Exception> Errors) NewDebouncer(Func<string, int, bool>? failOn = null, Func<string, int, Task>? slow = null)
 {
     waiters.Clear();
     var writes = new List<(string, int)>();
@@ -34,6 +39,7 @@ void Tick()
     {
         if (failOn != null && failOn(id, lvl)) throw new InvalidOperationException("bus error");
         writes.Add((id, lvl));
+        return slow != null ? slow(id, lvl) : Task.CompletedTask;
     }, errors.Add);
     return (d, writes, errors);
 }
@@ -94,6 +100,41 @@ void Tick()
     bool disposed;
     try { _ = token.WaitHandle; disposed = false; } catch (ObjectDisposedException) { disposed = true; }
     Check(disposed, "the token source of a finished write is disposed");
+}
+
+{
+    // master first, then a single value; their timers end in the opposite order: the single value must still come second
+    var (d, w, _) = NewDebouncer();
+    d.Post("master", 50); d.Post("A", 60);
+    Tick(reverse: true, settle: false);
+    Check(Fmt(w) == "master=50,A=60", $"the timers end in reverse order: the single value is still applied after master ({Fmt(w)})");
+    Tick();
+}
+{
+    // pending lasts until the write has finished, then for the settle time
+    var gate = new TaskCompletionSource();
+    var (d, w, _) = NewDebouncer(slow: (id, lvl) => gate.Task);
+    d.Post("A", 10);
+    Tick(settle: false);
+    Check(w.Count == 1 && d.IsPending("A"), "still pending while the write itself runs");
+    gate.SetResult();
+    Check(d.IsPending("A"), "still pending during the settle time after the write");
+    Tick();
+    Check(!d.IsPending("A"), "not pending once the settle time is over");
+}
+{
+    var (d, w, _) = NewDebouncer();
+    d.Post("A", 10);
+    Tick(settle: false);
+    d.CancelAll(); Tick();
+    Check(!d.IsPending("A"), "CancelAll also ends a settling monitor");
+}
+{
+    var ids = new List<string> { "DDC_0_Dell", "DDC_1_LG" };
+    Check(MonitorIds.Resolve("0", ids) == "DDC_0_Dell" && MonitorIds.Resolve("disp-primary", ids) == "DDC_0_Dell", "0 and disp-primary are the first monitor");
+    Check(MonitorIds.Resolve("1", ids) == "DDC_1_LG" && MonitorIds.Resolve("disp-secondary", ids) == "DDC_1_LG", "1 and disp-secondary are the second monitor");
+    Check(MonitorIds.Resolve("master", ids) == "master" && MonitorIds.Resolve("DDC_1_LG", ids) == "DDC_1_LG", "master and real ids stay");
+    Check(MonitorIds.Resolve("5", ids) == "5" && MonitorIds.Resolve("disp-secondary", new List<string> { "x" }) == "disp-secondary", "out of range stays as it is");
 }
 
 // C12: sound before and after a blackout

@@ -3,19 +3,29 @@ namespace TwitchDropsSentinel;
 /// <summary>
 /// Smooths brightness writes per monitor: a newer value for the same monitor replaces the waiting one,
 /// values for different monitors never cancel each other. The key "master" (as in SET_BRIGHTNESS) replaces every waiting write.
-/// A value posted after a master is applied after it. Hardware access and time are injected.
+/// A value posted while a master is waiting is applied strictly after it, whatever order the timers fire in.
+/// A monitor stays pending until its write has finished plus a settle time (DDC reports the old value for a while).
+/// Hardware access and time are injected.
 /// </summary>
 public sealed class BrightnessDebouncer
 {
     public const string MasterKey = "master";
+    public static readonly TimeSpan DebounceWindow = TimeSpan.FromMilliseconds(100);
+    public static readonly TimeSpan SettleTime = TimeSpan.FromMilliseconds(500);
 
-    private readonly Func<CancellationToken, Task> _wait;
-    private readonly Action<string, int> _apply;
+    private sealed class Entry
+    {
+        public readonly CancellationTokenSource Cts = new();
+        public readonly TaskCompletionSource Applied = new(); // done when the write ran, was cancelled or failed
+    }
+
+    private readonly Func<TimeSpan, CancellationToken, Task> _wait;
+    private readonly Func<string, int, Task> _apply;
     private readonly Action<Exception> _onError;
     private readonly object _gate = new();
-    private readonly Dictionary<string, CancellationTokenSource> _pending = new();
+    private readonly Dictionary<string, Entry> _pending = new();
 
-    public BrightnessDebouncer(Func<CancellationToken, Task> wait, Action<string, int> apply, Action<Exception> onError)
+    public BrightnessDebouncer(Func<TimeSpan, CancellationToken, Task> wait, Func<string, int, Task> apply, Action<Exception> onError)
     {
         _wait = wait;
         _apply = apply;
@@ -24,19 +34,24 @@ public sealed class BrightnessDebouncer
 
     public void Post(string monitorId, int level)
     {
-        var cts = new CancellationTokenSource();
+        var entry = new Entry();
+        Entry? master = null;
         lock (_gate)
         {
             if (monitorId == MasterKey)
                 CancelAllLocked();
-            else if (_pending.TryGetValue(monitorId, out var old))
-                old.Cancel();
-            _pending[monitorId] = cts;
+            else
+            {
+                if (_pending.TryGetValue(monitorId, out var old))
+                    old.Cts.Cancel();
+                _pending.TryGetValue(MasterKey, out master);
+            }
+            _pending[monitorId] = entry;
         }
-        _ = RunAsync(monitorId, level, cts);
+        _ = RunAsync(monitorId, level, entry, master);
     }
 
-    /// <summary>True while a write for this monitor (or a master write) waits for its window or is being applied.</summary>
+    /// <summary>True while a write for this monitor (or a master write) waits for its window, is being applied or settles.</summary>
     public bool IsPending(string monitorId)
     {
         lock (_gate)
@@ -51,19 +66,22 @@ public sealed class BrightnessDebouncer
 
     private void CancelAllLocked()
     {
-        foreach (var cts in _pending.Values)
-            cts.Cancel();
+        foreach (var entry in _pending.Values)
+            entry.Cts.Cancel();
         _pending.Clear();
     }
 
     // Each run owns its source and disposes it when it ends; others only Cancel() it.
-    private async Task RunAsync(string monitorId, int level, CancellationTokenSource cts)
+    private async Task RunAsync(string monitorId, int level, Entry entry, Entry? master)
     {
+        var token = entry.Cts.Token;
         try
         {
             try
             {
-                await _wait(cts.Token).ConfigureAwait(false);
+                await _wait(DebounceWindow, token).ConfigureAwait(false);
+                if (master != null)
+                    await master.Applied.Task.ConfigureAwait(false); // never before the master that was posted earlier
             }
             catch (OperationCanceledException)
             {
@@ -74,10 +92,25 @@ public sealed class BrightnessDebouncer
                 ReportError(ex);
                 return;
             }
-            if (cts.IsCancellationRequested) return;
+            if (token.IsCancellationRequested) return;
             try
             {
-                _apply(monitorId, level);
+                await _apply(monitorId, level).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                ReportError(ex);
+            }
+            finally
+            {
+                entry.Applied.TrySetResult();
+            }
+            try
+            {
+                await _wait(SettleTime, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
@@ -86,12 +119,13 @@ public sealed class BrightnessDebouncer
         }
         finally
         {
+            entry.Applied.TrySetResult();
             lock (_gate)
             {
-                if (_pending.TryGetValue(monitorId, out var current) && ReferenceEquals(current, cts))
+                if (_pending.TryGetValue(monitorId, out var current) && ReferenceEquals(current, entry))
                     _pending.Remove(monitorId);
             }
-            cts.Dispose();
+            entry.Cts.Dispose();
         }
     }
 
@@ -104,25 +138,32 @@ public sealed class BrightnessDebouncer
 /// <summary>Remembers the sound state only on the way into a blackout, so a repeated blackout cannot overwrite it.</summary>
 public sealed class BlackoutMuteMemory
 {
+    private readonly object _gate = new();
     private bool _inBlackout;
     private bool _wasMuted;
 
     /// <summary>A failed read throws and leaves the memory untouched: that is not an entry into a blackout.</summary>
     public void Enter(Func<bool> isMuted, Action mute)
     {
-        if (_inBlackout) return;
-        bool muted = isMuted();
-        _wasMuted = muted;
-        _inBlackout = true;
-        mute();
+        lock (_gate)
+        {
+            if (_inBlackout) return;
+            bool muted = isMuted();
+            _wasMuted = muted;
+            _inBlackout = true;
+            mute();
+        }
     }
 
     /// <summary>Returns the sound only when the blackout muted it, i.e. it was not muted before.</summary>
     public void Exit(Action unmute)
     {
-        if (!_inBlackout) return;
-        _inBlackout = false;
-        if (!_wasMuted) unmute();
+        lock (_gate)
+        {
+            if (!_inBlackout) return;
+            _inBlackout = false;
+            if (!_wasMuted) unmute();
+        }
     }
 }
 
@@ -133,7 +174,7 @@ public static class BrightnessReading
     /// A normal read keeps the cache (the optimistic value of the last command);
     /// an explicit poll takes the hardware value unless a write is pending; a failed read (null) never replaces a known value.
     /// </summary>
-    public static int Resolve(Dictionary<string, int> cache, string id, int? hardware, int fallback, bool explicitRefresh, bool writePending)
+    public static int Resolve(IDictionary<string, int> cache, string id, int? hardware, int fallback, bool explicitRefresh, bool writePending)
     {
         if (!cache.TryGetValue(id, out int known))
         {
@@ -147,5 +188,21 @@ public static class BrightnessReading
             return hardware.Value;
         }
         return known;
+    }
+}
+
+public static class MonitorIds
+{
+    /// <summary>
+    /// The real id for what the page sends: "master" stays, "disp-primary"/"0" and "disp-secondary"/"1" or any in-range index
+    /// become the id at that position, anything else is taken as it is. One monitor must have one key.
+    /// </summary>
+    public static string Resolve(string raw, IReadOnlyList<string> realIds)
+    {
+        if (raw == BrightnessDebouncer.MasterKey) return raw;
+        if (raw == "disp-primary") return realIds.Count > 0 ? realIds[0] : raw;
+        if (raw == "disp-secondary") return realIds.Count > 1 ? realIds[1] : raw;
+        if (int.TryParse(raw, out int index) && index >= 0 && index < realIds.Count) return realIds[index];
+        return raw;
     }
 }
