@@ -9,7 +9,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 - Buttons say what they do in plainer words, including the queue-only / queue-and-any rocker. The FLAT-2D chip is gone, and the tray lines appear only in Core.
 - Cards for games outside the queue show how much time is left and how much watching is still needed.
 - A queued campaign that cannot be farmed now says why.
-- An empty collection explains itself instead of showing a blank space. Small controls have slightly larger click areas.
+- An empty collection now says nothing was claimed yet, instead of "No titles match". Small controls have slightly larger click areas.
 - Text on the light themes is readable again, and the console stays readable in the smallest window.
 - A clean install now gets the default settings, and power-off after farming is off by default, also after "Reset settings". Existing settings are not changed.
 
