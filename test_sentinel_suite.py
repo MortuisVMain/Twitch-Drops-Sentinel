@@ -5203,6 +5203,23 @@ def test_review_fixes_in_the_service():
     print("      Review service fixes: PASS [OK]")
 
 
+def test_clean_install_copies_the_default_config_template():
+    print("[clean-install] load_settings copies config.default.json to config.json when config.json is missing...")
+    work = Path(tempfile.mkdtemp(prefix="clean_install_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy2(WORKSPACE / "config.default.json", work / "config.default.json")
+    assert not (work / "config.json").exists()
+    code = ("import sys; sys.path.insert(0, 'core'); import sentinel_service as s; "
+            "s.SentinelSupervisor.load_settings(None)")
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    created = work / "config.json"
+    assert created.exists(), "config.json was not created from config.default.json (missing shutil import?)"
+    assert json.loads(created.read_text(encoding="utf-8-sig")) == json.loads((work / "config.default.json").read_text(encoding="utf-8-sig"))
+    shutil.rmtree(work, ignore_errors=True)
+    print("      template copied on a clean install: PASS [OK]")
+
+
 def test_loading_states_of_giveaways_and_dimmer():
     print("[loading] Giveaways and Dimmer tell loading, failure and a real empty answer apart...")
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
@@ -5363,6 +5380,7 @@ if __name__ == "__main__":
         test_dimmer_logic_and_shell_use_it,
         test_review_fixes_in_the_service,
         test_loading_states_of_giveaways_and_dimmer,
+        test_clean_install_copies_the_default_config_template,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
