@@ -613,6 +613,11 @@ namespace TwitchDropsSentinel
 
         {
 
+            _brightnessDebouncer = new BrightnessDebouncer(
+                ct => Task.Delay(100, ct),
+                (id, level) => { lock (_brightnessDebounceLock) { SetHardwareBrightness(id, level); } },
+                ex => LogDesktopError("запись яркости монитора", ex));
+
             _startMinimized = startMinimized;
 
             Text = "Twitch Drops Sentinel";
@@ -1109,6 +1114,8 @@ namespace TwitchDropsSentinel
         {
 
             _isShuttingDown = true;
+
+            _brightnessDebouncer.CancelAll();
 
             try
 
@@ -1823,7 +1830,7 @@ namespace TwitchDropsSentinel
                     }
                     else if (action == "SCAN_MONITORS")
                     {
-                        NotifyWebviewDimmerState();
+                        NotifyWebviewDimmerState(explicitRefresh: true);
                     }
                 }
 
@@ -3180,7 +3187,7 @@ else
 
         private bool _muteAudioOnBlackout = false;
 
-        private bool _wasMutedBeforeBlackout = false;
+        private readonly BlackoutMuteMemory _blackoutMute = new();
 
         private readonly List<UltraDarkOverlayForm> _activeUltraDarkForms = new();
 
@@ -3197,7 +3204,7 @@ else
         private static readonly object _brightnessDebounceLock = new object();
         private static readonly System.Threading.SemaphoreSlim _i2cHardwareBusLock = new System.Threading.SemaphoreSlim(1, 1);
 
-        private static System.Threading.CancellationTokenSource? _brightnessDebounceCts;
+        private readonly BrightnessDebouncer _brightnessDebouncer;
 
 
 
@@ -3228,7 +3235,7 @@ else
 
 
 
-        private List<NativeMonitorInfo> GetHardwareMonitors()
+        private List<NativeMonitorInfo> GetHardwareMonitors(bool explicitRefresh = false)
 
         {
 
@@ -3286,12 +3293,7 @@ else
                     string desc = (mon.szPhysicalMonitorDescription ?? "").Trim();
                     if (string.IsNullOrEmpty(desc)) desc = $"Display {validDdcIndex + 1}";
                     string id = $"DDC_{validDdcIndex}_{desc}";
-                    int currentBri = (int)cur;
-
-                    if (!_monitorBrightnessMap.ContainsKey(id))
-                        _monitorBrightnessMap[id] = currentBri;
-                    else
-                        currentBri = _monitorBrightnessMap[id];
+                    int currentBri = BrightnessReading.Resolve(_monitorBrightnessMap, id, (int)cur, _masterBrightness, explicitRefresh, _brightnessDebouncer.IsPending(id));
 
                     int baselineBri = currentBri;
                     if (_baselineBrightnessMap.ContainsKey(id))
@@ -3349,25 +3351,19 @@ else
 
                         string name = obj["InstanceName"]?.ToString() ?? $"InternalPanel_{idx}";
 
-                        int bri = _masterBrightness;
+                        int? hardware = null;
 
                         if (obj["CurrentBrightness"] != null)
 
                         {
 
-                            bri = Convert.ToInt32(obj["CurrentBrightness"]);
+                            hardware = Convert.ToInt32(obj["CurrentBrightness"]);
 
                         }
 
                         string id = $"WMI_{name}";
 
-                        if (!_monitorBrightnessMap.ContainsKey(id))
-
-                            _monitorBrightnessMap[id] = bri;
-
-                        else
-
-                            bri = _monitorBrightnessMap[id];
+                        int bri = BrightnessReading.Resolve(_monitorBrightnessMap, id, hardware, _masterBrightness, explicitRefresh, _brightnessDebouncer.IsPending(id));
 
 
 
@@ -3432,15 +3428,7 @@ else
 
                     string id = $"DISP_{i}_{s.DeviceName}";
 
-                    int bri = _masterBrightness;
-
-                    if (!_monitorBrightnessMap.ContainsKey(id))
-
-                        _monitorBrightnessMap[id] = bri;
-
-                    else
-
-                        bri = _monitorBrightnessMap[id];
+                    int bri = BrightnessReading.Resolve(_monitorBrightnessMap, id, null, _masterBrightness, explicitRefresh, _brightnessDebouncer.IsPending(id));
 
 
 
@@ -3484,27 +3472,7 @@ else
 
         {
 
-            _brightnessDebounceCts?.Cancel();
-
-            _brightnessDebounceCts = new System.Threading.CancellationTokenSource();
-
-            var token = _brightnessDebounceCts.Token;
-
-            Task.Delay(100, token).ContinueWith(t =>
-
-            {
-
-                if (t.IsCanceled) return;
-
-                lock (_brightnessDebounceLock)
-
-                {
-
-                    SetHardwareBrightness(monitorId, level);
-
-                }
-
-            }, TaskScheduler.Default);
+            _brightnessDebouncer.Post(monitorId, level);
 
         }
 
@@ -3905,7 +3873,7 @@ else
 
 
 
-        private void NotifyWebviewDimmerState()
+        private void NotifyWebviewDimmerState(bool explicitRefresh = false)
 
         {
 
@@ -3913,7 +3881,13 @@ else
 
             {
 
-                var monitors = GetHardwareMonitors();
+                var monitors = GetHardwareMonitors(explicitRefresh);
+
+                if (explicitRefresh && monitors.Count > 0)
+                {
+                    // The poll shows what the hardware reports; the saved baseline is not touched
+                    _masterBrightness = (int)Math.Round(monitors.Average(m => m.CurrentBrightness));
+                }
 
                 var stateObj = new
 
@@ -4047,7 +4021,7 @@ else
 
                         {
 
-                            try { _wasMutedBeforeBlackout = AudioEndpointController.GetIsMuted(); AudioEndpointController.SetMute(true); } catch (Exception ex) { LogDesktopError("выключение звука при блэкауте", ex); }
+                            try { _blackoutMute.Enter(AudioEndpointController.GetIsMuted, () => AudioEndpointController.SetMute(true)); } catch (Exception ex) { LogDesktopError("выключение звука при блэкауте", ex); }
 
                         }
 
@@ -4083,11 +4057,10 @@ else
 
                     {
 
-                        if (_muteAudioOnBlackout && !_wasMutedBeforeBlackout)
-
+                        // Returns the sound only if this blackout muted it (the memory is empty otherwise)
                         {
 
-                            try { AudioEndpointController.SetMute(false); } catch (Exception ex) { LogDesktopError("возврат звука после блэкаута", ex); }
+                            try { _blackoutMute.Exit(() => AudioEndpointController.SetMute(false)); } catch (Exception ex) { LogDesktopError("возврат звука после блэкаута", ex); }
 
                         }
 

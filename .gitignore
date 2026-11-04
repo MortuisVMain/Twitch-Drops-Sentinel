@@ -81,3 +81,5 @@ giveaways_engine/data/browser/
 giveaways_engine/data/screenshots/
 giveaways_engine/data/*.log
 
+tools/dimmer_logic_check/bin/
+tools/dimmer_logic_check/obj/

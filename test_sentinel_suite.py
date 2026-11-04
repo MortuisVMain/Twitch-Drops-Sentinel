@@ -5049,6 +5049,39 @@ def test_giveaways_empty_store_choice_starts_nothing():
     print("      Empty store choice: PASS [OK]")
 
 
+def test_dimmer_logic_and_shell_use_it():
+    print("[audit C10-C12] Dimmer: per-monitor debounce, explicit poll, blackout sound memory (no hardware)...")
+    sdks = ""
+    if shutil.which("dotnet"):
+        sdks = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True, timeout=60).stdout
+    if not any(line.startswith("10.") for line in sdks.splitlines()):
+        print("      SKIP: the dimmer logic check needs the .NET SDK 10 (dotnet run); the source checks below still run")
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="dimmer_check_", dir=SANDBOX))
+        proj = WORKSPACE / "tools" / "dimmer_logic_check" / "DimmerLogicCheck.csproj"
+        res = subprocess.run(
+            ["dotnet", "run", "--project", str(proj), "-c", "Release", "-o", str(out_dir / "bin"),
+             f"-p:BaseIntermediateOutputPath={out_dir / 'obj'}{os.sep}", f"-p:MSBuildProjectExtensionsPath={out_dir / 'obj'}{os.sep}"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        assert res.returncode == 0, (res.stdout + res.stderr)[-1500:]
+        assert "ALL DIMMER CHECKS PASSED" in res.stdout, res.stdout[-800:]
+        print("      Dimmer logic check (dotnet run): PASS [OK]")
+
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert "new BrightnessDebouncer(" in form and "_brightnessDebounceCts" not in form, "C11: writes go through the per-monitor debouncer"
+    assert "Task.Delay(100, " in form and "LogDesktopError(" in form.split("new BrightnessDebouncer(", 1)[1][:600], "C11: 100 ms window, errors logged"
+    assert form.count("BrightnessReading.Resolve(") >= 2, "C10: both the DDC and the WMI branch resolve through BrightnessReading"
+    assert "GetHardwareMonitors(bool explicitRefresh = false)" in form
+    assert 'NotifyWebviewDimmerState(explicitRefresh: true)' in form.split('action == "SCAN_MONITORS"', 1)[1][:200], "C10: the poll asks the hardware"
+    wmi = form.split("// 2. WMI Monitors", 1)[1].split("// 3. Fallback", 1)[0]
+    assert "int? hardware = null" in wmi and "int bri = _masterBrightness;" not in wmi, "C10: a missing WMI value is null, not the master level"
+    assert "BlackoutMuteMemory" in form and "_wasMutedBeforeBlackout" not in form, "C12: the sound is remembered on entry only"
+    shutdown = form.split("private void ShutdownBackend()", 1)[1][:400]
+    assert ".CancelAll()" in shutdown, "C11: closing drops waiting writes"
+    print("      MainForm uses the dimmer logic: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5153,6 +5186,7 @@ if __name__ == "__main__":
         test_scheduled_run_that_never_finished_is_reported_as_failed,
         test_settings_changes_send_only_the_changed_fields,
         test_giveaways_empty_store_choice_starts_nothing,
+        test_dimmer_logic_and_shell_use_it,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
