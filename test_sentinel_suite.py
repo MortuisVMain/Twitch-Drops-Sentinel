@@ -5491,6 +5491,27 @@ def test_small_controls_have_a_larger_invisible_click_area():
     print("      Hit areas: PASS [OK]")
 
 
+def test_text_colour_follows_the_theme():
+    print("[contrast] text takes the theme colour and passes 4.5:1 on its surface...")
+    run = subprocess.run([sys.executable, str(WORKSPACE / "tools" / "check_contrast.py")], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stdout[-800:]
+    css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    # Regression: text inherits its colour from body and .field-chassis. A colour transition on them (or `all`) leaves the
+    # first frame's dark-theme colour on every node without its own colour, e.g. light text on the Daylight queue rows.
+    for selector in (r"html, body \{", r"\n\s*body \{", r"\.field-chassis \{"):
+        block = re.search(selector + r"(.*?)\n\s*\}", css, re.S)
+        assert block, selector
+        transition = re.search(r"transition:([^;]*);", block.group(1))
+        if transition:
+            props = transition.group(1).replace("background-color", "").replace("border-color", "")
+            assert not re.search(r"\ball\b|\bcolor\b", props), f"{selector}: the inherited text colour must not animate: {transition.group(1)}"
+    assert re.search(r"\.field-chassis \{[^}]*\n\s*color: var\(--text-primary\)", css, re.S), "the chassis sets the theme text colour itself"
+    harness = (WORKSPACE / "tools" / "build_ui_harness.mjs").read_text(encoding="utf-8")
+    probe = (WORKSPACE / "tools" / "check_text_contrast.js").read_text(encoding="utf-8")
+    assert "check_text_contrast.js" in harness and "window.checkTextContrast" in probe, "the computed-colour probe ships with the harness"
+    print("      Text colour: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5603,6 +5624,7 @@ if __name__ == "__main__":
         test_loading_states_of_giveaways_and_dimmer,
         test_small_controls_have_a_larger_invisible_click_area,
         test_clean_install_copies_the_default_config_template,
+        test_text_colour_follows_the_theme,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

@@ -127,11 +127,11 @@
     --border-main: rgba(0, 0, 0, 0.14);
     --border-subtle: rgba(0, 0, 0, 0.08);
     --led-mint-core: #10B981;
-    --led-mint: #059669;
+    --led-mint: #046A4B;
     --led-amber-core: #FF5500;
-    --led-amber: #EA580C;
-    --led-cyan: #0284C7;
-    --led-rose: #DC2626;
+    --led-amber: #A13D08;
+    --led-cyan: #026395;
+    --led-rose: #B72020;
     --text-primary: #141518;
     --text-secondary: #4B505B;
     --text-muted: #545A68;
@@ -283,7 +283,7 @@
     --led-mint-core: #3F74EA;
     --led-mint: #2457D6;
     --led-amber-core: #F26B50;
-    --led-amber: #E2553B;
+    --led-amber: #AC412D;
     --led-cyan: #0369A1;
     --led-rose: #BE123C;
     --text-primary: #10151C;
@@ -361,7 +361,7 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    transition: background-color 0.35s ease, color 0.35s ease;
+    transition: background-color 0.35s ease; /* no colour transition: children inherit this text colour */
   }
 
   #root {
@@ -404,7 +404,8 @@
     position: relative;
     border: 1px solid var(--border-main);
     overflow: hidden;
-    transition: border-radius 0.2s ease, all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    color: var(--text-primary);
+    transition: border-radius 0.2s ease, background-color 0.35s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1), padding 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   body.window-maximized .field-chassis {
