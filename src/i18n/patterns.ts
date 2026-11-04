@@ -155,6 +155,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Установлен (.+), нужен Node\.js (\d+) или новее$/, '$1 is installed, Node.js $2 or newer is required'],
   [/^Состояние не распознано: (.+)$/, 'Status not recognised: $1'],
   [/^Не удалось установить: (.+)$/, 'Could not install: $1'],
+  [/^Установка завершилась с ошибкой: (.+)$/, 'The installation ended with an error: $1'],
   [/^Включено магазинов: (\d+)$/, 'Stores turned on: $1'],
   [/^Вход подтверждён: (.+)$/, 'Sign-in confirmed: $1'],
   [/^Дни: (.+)$/, 'Days: $1'],

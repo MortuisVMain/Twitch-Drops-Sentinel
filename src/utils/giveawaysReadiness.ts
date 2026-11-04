@@ -86,11 +86,15 @@ const engineText = (item: ReadinessItem, ctx: TextContext): ItemText => {
   const title = 'Браузерный движок';
   const install = ctx.engineInstall;
   // The engine can be in place while Chromium did not download: the service says so in the same field
-  if (item.status === 'ok') return { title, lines: nonEmpty(['Установлен', install?.error ?? null]) };
+  if (item.status === 'ok') return { title, lines: nonEmpty(['Установлен', install?.error ? `Установка завершилась с ошибкой: ${install.error}` : null]) };
   if (install?.running) return { title, lines: ['Устанавливается…'] };
   const base = item.action ? 'Не установлен. Скачивается один раз' : 'Не установлен. Сначала нужен Node.js';
   return { title, lines: nonEmpty([base, install?.error ? `Не удалось установить: ${install.error}` : null]) };
 };
+
+/** The status the window shows: a working engine with an install error is a warning, not a clean ok */
+export const itemStatus = (item: ReadinessItem, engineInstall?: { running: boolean; error: string | null }): ReadinessStatus =>
+  item.id === 'engine' && item.status === 'ok' && engineInstall && !engineInstall.running && engineInstall.error ? 'warning' : item.status;
 
 const browserText = (item: ReadinessItem): ItemText => {
   const title = 'Браузер для магазинов';
@@ -185,7 +189,7 @@ export const buildReport = (
     out.push('', tr(group.title));
     for (const item of groups[group.id]) {
       const text = itemText(item, reportCtx);
-      out.push(`[${tr(statusLabel(item.status))}] ${tr(text.title)}: ${text.lines.map((line) => scrubPaths(tr(line))).join('; ')}`);
+      out.push(`[${tr(statusLabel(itemStatus(item, resp.engineInstall)))}] ${tr(text.title)}: ${text.lines.map((line) => scrubPaths(tr(line))).join('; ')}`);
     }
   }
   return out.join('\n');

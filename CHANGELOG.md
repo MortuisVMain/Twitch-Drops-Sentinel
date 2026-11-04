@@ -10,6 +10,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 - Cards for games outside the queue show how much time is left and how much watching is still needed.
 - A queued campaign that cannot be farmed now says why.
 - An empty collection now says nothing was claimed yet, instead of "No titles match". Small controls have slightly larger click areas.
+- The game shelf no longer repeats the account link status under the poster. The readiness window shows an engine install error as a warning, and an error raised while it is open appears there instead of on the tab afterwards.
 - Text on the light themes is readable again, and the console stays readable in the smallest window.
 - A clean install now gets the default settings, and power-off after farming is off by default, also after "Reset settings". Existing settings are not changed.
 
