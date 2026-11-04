@@ -3069,6 +3069,8 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  report, pathReport, bad, strange, unknownId, installing, failed,\n"
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
+        "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.8'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -3091,7 +3093,9 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     assert d["installing"]["lines"] == ["Устанавливается…"] and "EPERM" in " ".join(d["failed"]["lines"])
     assert d["todo"] == 3 and d["todoNone"] == 0 and d["todoWarnOnly"] == 0, "only `todo` items count as steps left"
     assert any("D:2023-11-14" in line for line in d["epochLogin"]["lines"]), f"the service sends confirmedAt as epoch ms: {d['epochLogin']}"
-    assert "Chromium warning" in d["engineWarned"]["lines"], f"the install warning must show on a ready engine: {d['engineWarned']}"
+    assert "Установка завершилась с ошибкой: Chromium warning" in d["engineWarned"]["lines"], f"the install error must show on a ready engine: {d['engineWarned']}"
+    assert d["engineStatus"] == ["warning", "todo", "ok", "ok", "ok"], "an install error on a working engine is a warning, never a todo"
+    assert "[Внимание]" in d["warnReport"] and "EPERM" in d["warnReport"], d["warnReport"]
     assert d["groups"] == {"main": ["module", "node", "engine", "browser", "selection"], "logins": ["login", "login"],
                            "sites": ["site", "site"], "scheduler": ["scheduler"]}, d["groups"]
     assert d["sitesOk"] is True and d["sitesMixed"] is False and d["sitesEmpty"] is False
@@ -3104,6 +3108,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     assert "INSTALL_POLL_MS = 5000" in hook and "if (!windowOpen || !installing) return;" in hook, "poll only while the window is open and the engine installs"
     assert "?quick=1" in hook and "useEffect(() => { check(true); }, [check]);" in hook and "check(true, true), INSTALL_POLL_MS" in hook, \
         "the check on tab open and the install poll are quick: no store sites"
+    assert "readinessErrorAtOpen" in view and "!readinessOpen" in view, "an action error raised while the window is open shows in it and does not wait on the tab"
     assert hook.count("setInterval") == 1, "no other timer-driven polling: every check opens the store sites"
     assert view.count("setInterval") == 1 and "useGiveawaysReadiness(" in view, "the view adds no timer of its own"
     shutil.rmtree(out_dir, ignore_errors=True)

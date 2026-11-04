@@ -7,7 +7,7 @@ import { uiLocale, translate } from '../i18n';
 import { copyText } from '../utils/loginCode';
 import { ReadinessFailure } from '../hooks/useGiveawaysReadiness';
 import {
-  READINESS_GROUPS, actionLabel, allSitesOk, buildReport, countTodo, groupItems, itemText, safeUrl, statusLabel, summaryText,
+  READINESS_GROUPS, actionLabel, allSitesOk, buildReport, countTodo, groupItems, itemStatus, itemText, safeUrl, statusLabel, summaryText,
   TextContext,
 } from '../utils/giveawaysReadiness';
 
@@ -115,18 +115,19 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
 
   const renderRow = (item: ReadinessItem, key: string) => {
     const text = itemText(item, ctx);
+    const status = itemStatus(item, data?.engineInstall);
     const installing = item.action?.kind === 'install_engine' && Boolean(data?.engineInstall.running);
     return (
       <li key={key} style={rowStyle}>
-        <StatusIcon status={item.status} />
+        <StatusIcon status={status} />
         <div style={{ flex: '1 1 240px', minWidth: 0, overflowWrap: 'anywhere' }}>
           <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--text-primary)' }}>{text.title}</div>
           {text.lines.map((line, i) => (
             <div key={i} style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{line}</div>
           ))}
         </div>
-        <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, padding: '1px 8px', borderRadius: 999, border: `1px solid ${STATUS_COLOR[item.status] ?? 'var(--border-main)'}`, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-          {statusLabel(item.status)}
+        <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, padding: '1px 8px', borderRadius: 999, border: `1px solid ${STATUS_COLOR[status] ?? 'var(--border-main)'}`, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+          {statusLabel(status)}
         </span>
         {item.action && item.status !== 'ok' && (
           <button

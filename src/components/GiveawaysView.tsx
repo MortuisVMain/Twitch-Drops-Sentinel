@@ -96,6 +96,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   appVersion = '',
 }) => {
   const [readinessOpen, setReadinessOpen] = useState(false);
+  const readinessErrorAtOpen = useRef<string | null>(null);
   const readiness = useGiveawaysReadiness(readinessOpen);
   const [load, setLoad] = useState<LoadState<GiveawaysStateResponse>>(initialLoad);
   const data = load.data;
@@ -479,7 +480,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             className="tactile-btn"
-            onClick={() => { playClick(); setReadinessOpen(true); }}
+            onClick={() => { playClick(); readinessErrorAtOpen.current = actionError; setReadinessOpen(true); }}
             title="Что уже готово для раздач и что осталось сделать"
             aria-haspopup="dialog"
           >
@@ -595,7 +596,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
       <GiveawaysReadiness
         isOpen={readinessOpen}
-        onClose={() => setReadinessOpen(false)}
+        onClose={() => {
+          setReadinessOpen(false);
+          // An error raised while the window was open was shown in it: it does not wait on the tab afterwards
+          if (actionError !== readinessErrorAtOpen.current) setActionError(null);
+        }}
         data={readiness.data}
         loading={readiness.loading}
         failure={readiness.failure}
@@ -622,7 +627,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         </div>
       )}
 
-      {actionError && (
+      {actionError && !readinessOpen && (
         <div className="titanium-island" role="alert" style={{ flexShrink: 0, color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
           ⚠ {actionError}
         </div>

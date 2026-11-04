@@ -1002,15 +1002,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: subtitleColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {subtitle}
                   </div>
-                  {(facts.timeLeft || facts.drops || facts.link) && (
+                  {(facts.timeLeft || facts.drops) && (
                     <div className="campaign-facts">
                       {facts.timeLeft && <span className={facts.urgent ? 'warn' : ''} title="Сколько осталось до конца кампании">⏱ {facts.timeLeft}</span>}
                       {facts.drops && <span title="Сколько дропов осталось получить">🎁 {facts.drops}</span>}
-                      {facts.link && (
-                        <span className={facts.link === 'linked' ? 'ok' : 'warn'} title={facts.link === 'linked' ? 'Аккаунт Twitch привязан к игре' : 'Нужно привязать аккаунт игры'}>
-                          {facts.link === 'linked' ? '✓ привязан' : '⚠ нужна привязка'}
-                        </span>
-                      )}
                     </div>
                   )}
                   {dates && (
