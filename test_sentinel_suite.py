@@ -2548,6 +2548,60 @@ def test_listed_but_unfarmable_campaign_never_reads_as_available():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def test_short_window_console_minimum_leaves_the_collapsed_console_alone():
+    print("[usability] the short-window console minimum and the off-queue cap apply only while the console is expanded...")
+    css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
+    block = re.search(r"@media \(max-height: 800px\)\s*\{(.*?)\n  \}", css, re.S)
+    assert block, "the short-window block exists"
+    rules = block.group(1)
+    assert ".middle-console-island:not(.console-collapsed) {" in rules and "min-height: 8.5rem" in rules, "console minimum skips the collapsed console"
+    assert ".middle-console-island:not(.console-collapsed) ~ #overrideSection .override-scroll-grid {" in rules, "grid cap only while expanded"
+    assert not re.search(r"\.right-deck-col \.(middle-console-island|override-scroll-grid) \{", rules), "no unscoped rule is left"
+    print("      Collapsed console: PASS [OK]")
+
+
+def test_queue_row_shows_why_a_campaign_cannot_be_farmed():
+    print("[usability] a queued game with an unfarmable campaign shows the engine's reason as the row caption, in both languages...")
+    import shutil as _sh
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    node = _sh.which("node")
+    if esbuild.exists() and node is not None:
+        out_dir = SANDBOX / "reason_caption_check"
+        out_dir.mkdir(exist_ok=True)
+        res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm",
+                              f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60)
+        assert res.returncode == 0, res.stderr
+        driver = out_dir / "driver.mjs"
+        driver.write_text(
+            "import { getCampaignState, campaignLabel } from './campaignState.mjs';\n"
+            "const g = (extra) => ({ id: 'a', name: 'Albion Online', has_drops: true, is_active_now: true, rewards_count: 2, is_account_connected: true, ...extra });\n"
+            "const label = (x) => campaignLabel(getCampaignState(x));\n"
+            "console.log(JSON.stringify({ cut: label(g({ farmable: false, not_farmable_reason: 'кампании нет в инвентаре Twitch' })), "
+            "noReason: label(g({ farmable: false })), none: label(undefined), running: label(g({ farmable: true })) }));\n",
+            encoding="utf-8")
+        run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert run.returncode == 0, run.stderr
+        d = json.loads(run.stdout)
+        assert d["cut"] == "кампании нет в инвентаре Twitch", d
+        assert d["noReason"] == "нет кампании" and d["none"] == "нет кампании", d
+        assert d["running"].startswith("идёт"), d
+        shutil.rmtree(out_dir, ignore_errors=True)
+    else:
+        print("      (node/esbuild not available: label check skipped)")
+    # every reason string the service can produce has an English translation
+    en = (WORKSPACE / "src" / "i18n" / "en" / "state.ts").read_text(encoding="utf-8")
+    sources = (WORKSPACE / "core" / "utils.py").read_text(encoding="utf-8") + (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    farmability = re.search(r"def campaign_farmability.*?(?=\ndef )", sources, re.S).group(0)
+    reasons = re.findall(r'return False, "([^"]+)"', farmability)
+    assert len(reasons) >= 4, reasons
+    reasons += re.findall(r'\["not_farmable_reason"\] = "([^"]+)"', sources)
+    for reason in reasons:
+        assert f"'{reason}':" in en, f"no English translation for the reason: {reason}"
+    row = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "title={item.state.kind === 'none' ? item.state.reason : undefined}" in row, "the full reason is in the row's title"
+    print("      Reason caption: PASS [OK]")
+
+
 def test_remaining_watch_minutes_helper_and_deadline_facts():
     print("[usability 3] Deadline: the engine's remaining watch minutes reach the game dict; deadlineFacts compares them with the time left...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -5625,6 +5679,8 @@ if __name__ == "__main__":
         test_small_controls_have_a_larger_invisible_click_area,
         test_clean_install_copies_the_default_config_template,
         test_text_colour_follows_the_theme,
+        test_short_window_console_minimum_leaves_the_collapsed_console_alone,
+        test_queue_row_shows_why_a_campaign_cannot_be_farmed,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

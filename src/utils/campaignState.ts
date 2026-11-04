@@ -80,7 +80,7 @@ export const campaignLabel = (s: CampaignState): string => {
     case 'done':
       return 'всё получено';
     default:
-      return 'нет кампании';
+      return s.reason || 'нет кампании'; // a listed but unfarmable campaign says why
   }
 };
 

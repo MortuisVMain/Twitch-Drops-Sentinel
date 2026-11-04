@@ -537,7 +537,7 @@ const filteredLogs = useMemo(() => {
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div title={item.state.kind === 'none' ? item.state.reason : undefined} style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {item.state.kind === 'link' ? (
                           <button
                             className="queue-link-caption"
