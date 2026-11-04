@@ -3907,6 +3907,13 @@ def test_giveaways_readiness_says_what_is_left():
         assert items[("engine", None)]["action"] == {"kind": "install_engine"}, items
         (engine / "node_modules" / "patchright").mkdir(parents=True)
 
+        # An install that was cut short: the folder is there, the engine is not ready and can be installed again
+        marker = engine / "data" / gc.ENGINE_INCOMPLETE_MARK
+        marker.write_text("", encoding="utf-8")
+        report, items = check()
+        assert items[("engine", None)]["status"] == "todo" and items[("engine", None)]["action"] == {"kind": "install_engine"}, items
+        marker.unlink()
+
         # A store signed out after an earlier login
         (engine / "data" / "sessions.json").write_text(json.dumps({"steam": {"account": None}, "gog": {"account": "me2", "confirmedAt": 1}}), encoding="utf-8")
         report, items = check()
@@ -3923,6 +3930,13 @@ def test_giveaways_readiness_says_what_is_left():
         config.write_text("{ not json", encoding="utf-8")
         report, items = check()
         assert items[("selection", None)]["params"]["reason"] == "config_broken" and not report["ready"], items
+        for broken in ({"giveaways_selected_stores": None}, {"giveaways_selected_stores": "steam"}):
+            config.write_text(json.dumps(broken), encoding="utf-8")
+            report, items = check()
+            assert items[("selection", None)]["params"]["reason"] == "config_broken", f"runner.js cancels the run on {broken}: {items}"
+        config.write_text(json.dumps({"giveaways_selected_stores": [["steam"], "gog", 7]}), encoding="utf-8")
+        report, items = check()
+        assert items[("selection", None)]["params"]["stores"] == ["gog"], "odd entries are skipped, as runner.js does"
         config.write_bytes(b"\xef\xbb\xbf" + json.dumps({"giveaways_selected_stores": ["gog"]}).encode())
         report, items = check()
         assert items[("selection", None)]["status"] == "ok" and ("login", "gog") in items, "a config saved with a BOM still counts"
@@ -3965,6 +3979,117 @@ def test_giveaways_readiness_says_what_is_left():
     print("      Giveaways readiness: ALL PASS [OK]")
 
 
+def test_hanging_node_version_is_killed():
+    print("[readiness] A node --version that hangs does not stay behind...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    class _Hung:
+        returncode = None
+        killed = False
+
+        async def communicate(self):
+            await asyncio.sleep(3600)
+
+        def kill(self):
+            self.killed = True
+            self.returncode = 1
+
+        async def wait(self):
+            return self.returncode
+
+    hung = _Hung()
+
+    async def fake_exec(*args, **kwargs):
+        return hung
+
+    saved = gc.asyncio.create_subprocess_exec, gc.NODE_VERSION_TIMEOUT_SECONDS
+    gc.asyncio.create_subprocess_exec, gc.NODE_VERSION_TIMEOUT_SECONDS = fake_exec, 0.01
+    try:
+        try:
+            asyncio.run(gc.read_node_version("node"))
+            raise AssertionError("a hung probe must time out")
+        except asyncio.TimeoutError:
+            pass
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.NODE_VERSION_TIMEOUT_SECONDS = saved
+    assert hung.killed, "every check would leave another node process behind"
+    print("      Node probe: ALL PASS [OK]")
+
+
+def test_engine_install_error_without_json_is_kept():
+    print("[readiness] An install failure without a JSON body still reaches the window...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    from aiohttp import web
+
+    async def scenario():
+        orch = gc.GiveawaysOrchestrator()
+
+        async def plain_failure(fgc_dir):
+            raise web.HTTPConflict(reason="plain reason")
+        orch._install_engine = plain_failure
+        await orch._run_engine_install()
+        return orch.engine_install_state()
+
+    state = asyncio.run(scenario())
+    assert state["error"], f"the failure was lost: {state}"
+    print("      Install error text: ALL PASS [OK]")
+
+
+def test_runner_finishes_an_interrupted_engine_install():
+    print("[readiness] runner.js retries an engine install that was cut short...")
+    node = shutil.which("node")
+    if not node:
+        print("      SKIP: Node.js is missing, the runner cannot be started")
+        return
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    engine = Path(tempfile.mkdtemp(prefix="runner_install_", dir=SANDBOX))
+    (engine / "dist").mkdir()
+    (engine / "data").mkdir()
+    (engine / "node_modules" / "patchright").mkdir(parents=True)
+    shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+    shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
+    (engine / "dist" / "gog.mjs").write_text("console.log('STORE gog');", encoding="utf-8")
+    bin_dir = engine / "fakebin"
+    bin_dir.mkdir()
+    (bin_dir / "npm.cmd").write_text("@echo npm ran>> \"%~dp0calls.txt\"\r\n@exit /b %FAKE_NPM%\r\n", encoding="ascii")
+    (bin_dir / "npx.cmd").write_text("@echo npx ran>> \"%~dp0calls.txt\"\r\n@exit /b %FAKE_NPX%\r\n", encoding="ascii")
+    marker = engine / "data" / gc.ENGINE_INCOMPLETE_MARK
+    config = engine / "config.json"
+    config.write_text(json.dumps({"giveaways_selected_stores": ["gog"]}), encoding="utf-8")
+
+    def run(npm, npx="0"):
+        env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "FAKE_NPM": npm, "FAKE_NPX": npx}
+        res = subprocess.run([node, "runner.js", "--scheduled", "--config", str(config)], cwd=engine, env=env,
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        calls = bin_dir / "calls.txt"
+        ran = calls.read_text(encoding="ascii") if calls.is_file() else ""
+        calls.unlink(missing_ok=True)
+        return res, ran
+
+    # An old install: no mark, nothing is reinstalled
+    res, ran = run("0")
+    assert ran == "" and "STORE gog" in res.stdout, (ran, res.stdout[-400:])
+
+    # The mark is left by an install that was cut short: the run finishes the install
+    marker.write_text("", encoding="utf-8")
+    res, ran = run("0")
+    assert "npm ran" in ran and not marker.exists() and "STORE gog" in res.stdout, (ran, res.stdout[-400:])
+
+    # npm fails: the run stops and the mark stays
+    marker.write_text("", encoding="utf-8")
+    res, ran = run("1")
+    assert res.returncode == 1 and marker.exists() and "STORE gog" not in res.stdout, (res.returncode, res.stdout[-400:])
+
+    # Chromium fails: Chrome or Edge can still do the work, so the run goes on
+    marker.write_text("", encoding="utf-8")
+    res, ran = run("0", "1")
+    assert not marker.exists() and "STORE gog" in res.stdout, (ran, res.stdout[-400:])
+    print("      Runner install: ALL PASS [OK]")
+
+
 def test_engine_install_button_does_not_start_a_claim():
     print("[readiness] Installing the browser engine runs on its own and reports a failure...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -3991,7 +4116,7 @@ def test_engine_install_button_does_not_start_a_claim():
     gc.resolve_fgc_root = lambda: engine
     gc.shutil.which = lambda name, *a, **k: rf"C:\nodejs\{name}"
 
-    def run(npm_code, slow=False):
+    def run(npm_code, slow=False, chromium_code=0):
         calls = []
 
         async def fake_exec(*args, **kwargs):
@@ -4008,6 +4133,8 @@ def test_engine_install_button_does_not_start_a_claim():
                     await asyncio.sleep(0.05)
                 (engine / "node_modules" / "patchright").mkdir(parents=True, exist_ok=True)
                 return _Proc(npm_code)
+            if "npx" in args:
+                return _Proc(chromium_code)
             return _Proc(0)
 
         async def scenario():
@@ -4040,6 +4167,19 @@ def test_engine_install_button_does_not_start_a_claim():
         shutil.rmtree(engine / "node_modules")
         state = run(1, slow=True)
         assert not state["running"] and state["error"], f"a failed install must be reported: {state}"
+
+        # npm left the folder behind: not installed, and the next attempt runs instead of skipping
+        assert (engine / "node_modules" / "patchright").is_dir(), "the gate needs the half-finished folder"
+        assert not gc.engine_installed(engine), "a failed npm install must not count as installed"
+        state = run(0, slow=True)
+        assert state["error"] is None and gc.engine_installed(engine), f"the retry must finish the install: {state}"
+
+        # Chromium did not download: the engine works with Chrome or Edge, but the user is told
+        shutil.rmtree(engine / "node_modules")
+        state = run(0, slow=True, chromium_code=1)
+        assert gc.engine_installed(engine), "npm succeeded, the engine is there"
+        assert state["error"] and "Chromium" in state["error"], f"a failed browser download must be reported: {state}"
+        assert not (engine / "data" / gc.ENGINE_INCOMPLETE_MARK).exists(), "only npm decides whether the engine is complete"
 
         # Without npm the button explains itself, nothing starts
         gc.shutil.which = lambda name, *a, **k: None
@@ -4530,6 +4670,9 @@ if __name__ == "__main__":
         test_switch_account_forgets_only_that_store,
         test_giveaways_readiness_says_what_is_left,
         test_engine_install_button_does_not_start_a_claim,
+        test_hanging_node_version_is_killed,
+        test_engine_install_error_without_json_is_kept,
+        test_runner_finishes_an_interrupted_engine_install,
         test_built_page_embeds_its_font,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,

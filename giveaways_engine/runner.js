@@ -183,15 +183,22 @@ function runStore(storeKey, headless) {
 
 // A scheduled run has nobody to press "Claim", so the first one on a fresh install sets up the browser engine itself
 function ensureBrowserEngine() {
-  if (fs.existsSync(path.join(__dirname, 'node_modules', 'patchright'))) return true;
+  // npm creates the folder before it finishes: the mark tells an install that was cut short (same file in giveaways_controller.py)
+  const incompleteMark = path.join(__dirname, 'data', '.engine-install-incomplete');
+  if (fs.existsSync(path.join(__dirname, 'node_modules', 'patchright')) && !fs.existsSync(incompleteMark)) return true;
+  fs.mkdirSync(path.dirname(incompleteMark), { recursive: true });
+  fs.writeFileSync(incompleteMark, '');
   console.log('[SENTINEL] Установка браузерного движка раздач...');
-  for (const command of ['npm install', 'npx patchright install chromium']) {
-    const { status } = spawnSync(command, { cwd: __dirname, shell: true, stdio: childOutput, windowsHide: true, timeout: ENGINE_SETUP_TIMEOUT_MS });
-    if (status !== 0) {
-      console.error(`[SENTINEL] ✕ Команда "${command}" завершилась с кодом ${status}.`);
-      return false;
-    }
+  const run = command => spawnSync(command, { cwd: __dirname, shell: true, stdio: childOutput, windowsHide: true }).status;
+  const npm = run('npm install');
+  if (npm !== 0) {
+    console.error(`[SENTINEL] ✕ Команда "npm install" завершилась с кодом ${npm}.`);
+    return false;
   }
+  fs.rmSync(incompleteMark, { force: true });
+  // Chrome or Edge can do the work without it: src/browser.js falls back on them and downloads Chromium as a last resort
+  const chromium = run('npx patchright install chromium');
+  if (chromium !== 0) console.warn(`[SENTINEL] ⚠ Chromium не скачался (код ${chromium}), будут использованы Chrome или Edge.`);
   return true;
 }
 

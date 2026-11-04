@@ -79,12 +79,12 @@ def _selection() -> Tuple[List[str], Optional[str]]:
         return [], "config_broken"
     if config.get("giveaways_enabled") is False:
         return [], "disabled"
-    selected = config.get("giveaways_selected_stores")
-    if selected is None:
+    if "giveaways_selected_stores" not in config:
         return list(gc.DEFAULT_CLAIM_STORES), None
+    selected = config["giveaways_selected_stores"]
     if not isinstance(selected, list):
         return [], "config_broken"
-    known = list(dict.fromkeys(s for s in selected if s in gc.STORE_FILE_MAP))
+    known = list(dict.fromkeys(s for s in selected if isinstance(s, str) and s in gc.STORE_FILE_MAP))
     return known, (None if known else "none_selected")
 
 
@@ -129,7 +129,7 @@ async def check_readiness(orchestrator: gc.GiveawaysOrchestrator, full: bool = T
     """full=False is the quick check: no store site is asked and the Task Scheduler answer may come from the 2 minute cache."""
     fgc_dir = gc.resolve_fgc_root()
     module_ok = (fgc_dir / "runner.js").is_file()
-    engine_ok = (fgc_dir / "node_modules" / "patchright").is_dir()
+    engine_ok = gc.engine_installed(fgc_dir)
     stores, selection_problem = await asyncio.to_thread(_selection)
 
     (node_item, node_ok), sched, (store_meta, _), browser, site_items = await asyncio.gather(

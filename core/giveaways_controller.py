@@ -42,6 +42,7 @@ FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
 CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
 TASK_NAME = "FreeGamesClaimerStudio"
+ENGINE_INCOMPLETE_MARK = ".engine-install-incomplete"  # in the engine's data/: written before npm install, removed when it succeeded
 SESSIONS_FILE = "sessions.json"  # store -> last login state the engine saw: {account, confirmedAt} or {account: null}
 
 STORE_FILE_MAP: Dict[str, str] = {
@@ -102,19 +103,31 @@ def _scheduler_refusal(error: type[web.HTTPException], detail: str) -> web.HTTPE
     return error(text=json.dumps({"detail": detail}, ensure_ascii=False), content_type="application/json")
 
 
+def engine_installed(fgc_dir: Path) -> bool:
+    """npm creates the folder before it finishes, so an install cut short leaves the folder and the mark."""
+    return (fgc_dir / "node_modules" / "patchright").is_dir() and not (fgc_dir / "data" / ENGINE_INCOMPLETE_MARK).exists()
+
+
 async def read_node_version(node: str) -> str:
     proc = await asyncio.create_subprocess_exec(
         node, "--version",
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         creationflags=0x08000000
     )
-    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=NODE_VERSION_TIMEOUT_SECONDS)
+    stdout, _ = await GiveawaysOrchestrator._communicate_or_kill(proc, NODE_VERSION_TIMEOUT_SECONDS)
     return stdout.decode("utf-8", errors="replace").strip()
 
 
 def node_major(version: str) -> Optional[int]:
     found = re.match(r"v(\d+)\.", version)
     return int(found.group(1)) if found else None
+
+
+def _refusal_text(error: web.HTTPException) -> str:
+    try:
+        return json.loads(error.text)["detail"]
+    except (TypeError, ValueError, KeyError):
+        return error.reason
 
 
 def _task_action(node: str) -> Tuple[str, str]:
@@ -643,8 +656,11 @@ class GiveawaysOrchestrator:
     async def _install_engine(self, fgc_dir: Path) -> None:
         """Installs the browser engine if it is missing; raises with an explanation for the user when npm fails."""
         patchright_dir = fgc_dir / "node_modules" / "patchright"
-        if not patchright_dir.is_dir():
+        if not engine_installed(fgc_dir):
             logger.warning("Giveaways browser engine missing. Executing automatic 'npm install'...")
+            incomplete_mark = fgc_dir / "data" / ENGINE_INCOMPLETE_MARK
+            incomplete_mark.parent.mkdir(parents=True, exist_ok=True)
+            incomplete_mark.write_text("", encoding="utf-8")
             self._broadcast("log", {
                 "line": "[SENTINEL] Установка браузерного движка раздач (npm install)... Пожалуйста, подождите...",
                 "ts": datetime.now(timezone.utc).isoformat()
@@ -677,6 +693,12 @@ class GiveawaysOrchestrator:
                 creationflags=0x08000000
             )
             await self._wait_or_kill(br_proc, "patchright install")
+            incomplete_mark.unlink(missing_ok=True)
+            if br_proc.returncode != 0:  # None: killed after the timeout. The engine still runs on Chrome or Edge
+                logger.warning(f"Chromium download failed with exit code {br_proc.returncode}")
+                self._engine_install_error = ("Движок установлен, но браузер Chromium не скачался. "
+                                              "Магазины откроются в Chrome или Edge, если они есть.")
+                self._broadcast("log", {"line": f"[SENTINEL] {self._engine_install_error}", "ts": datetime.now(timezone.utc).isoformat()})
 
     def engine_install_state(self) -> dict:
         task = self._engine_install_task
@@ -699,7 +721,7 @@ class GiveawaysOrchestrator:
             async with self._lock:
                 await self._install_engine(resolve_fgc_root())
         except web.HTTPException as e:
-            self._engine_install_error = json.loads(e.text)["detail"]
+            self._engine_install_error = _refusal_text(e)
             logger.error(f"Giveaways engine install failed: {self._engine_install_error}")
         except Exception as e:
             self._engine_install_error = "Не удалось установить браузерный движок. Подробности в журнале сервиса."
