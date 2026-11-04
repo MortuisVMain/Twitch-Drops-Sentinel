@@ -2,6 +2,17 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.8] - 2026-11-04
+- The queue shows how many games are available, need action, have no campaign or are finished, with filters for each status. The position now has its own badge.
+- The game shelf can show only campaigns with unclaimed rewards.
+- The idle screen separates the service state from the last result. The console can be collapsed to a single line with the latest event.
+- Buttons say what they do in plainer words, including the queue-only / queue-and-any rocker. The FLAT-2D chip is gone, and the tray lines appear only in Core.
+- Cards for games outside the queue show how much time is left and how much watching is still needed.
+- A queued campaign that cannot be farmed now says why.
+- An empty collection explains itself instead of showing a blank space. Small controls have slightly larger click areas.
+- Text on the light themes is readable again, and the console stays readable in the smallest window.
+- A clean install now gets the default settings, and power-off after farming is off by default, also after "Reset settings". Existing settings are not changed.
+
 ## [3.5.7] - 2026-11-04
 - The Giveaways and Dimmer tabs tell loading, failure and an empty answer apart, instead of showing "Sign in required" or "No monitors" before the data arrives.
 - New "Check readiness" window on the Giveaways tab: what is ready, what is left, and buttons to fix it.

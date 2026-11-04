@@ -37,7 +37,7 @@
     return game;
   });
   var state = {
-    version: '3.5.7', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.5.8', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
@@ -119,7 +119,7 @@
     var remaining = items.filter(function (it) { return it.status === 'todo'; }).length;
     return { ready: remaining === 0, remaining: remaining, checkedAt: '2026-11-03T12:00:00Z', full: !quick, engineInstall: { running: false, error: null }, items: items };
   }
-  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.7', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.7', remote_version: '3.5.7', error: null };
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.8', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.8', remote_version: '3.5.8', error: null };
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
