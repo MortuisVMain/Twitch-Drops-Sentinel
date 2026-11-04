@@ -5600,6 +5600,59 @@ def test_text_colour_follows_the_theme():
     print("      Text colour: PASS [OK]")
 
 
+def test_diagnostic_report_shows_the_real_drop_and_a_readable_journal():
+    print("[report] the diagnostic report reads the keys add_drop writes and folds the journal tail...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from sentinel_service import generate_sanitized_diagnostic_report
+    from gui_headless import STATE_BRIDGE
+    settings = {"priority_games": ["Fake Game"], "game_directories": []}
+    hw = {"cpu_percent": 1, "on_battery": False, "is_gaming": False}
+    logs = [{"time": "00:00:01", "level": "CLAIM", "message": "[CLAIM] [CORE] Drop received"},
+            {"time": "00:00:02", "level": "INFO", "message": "[INFO] [TRAY] Icon ready"},
+            {"time": "00:00:03", "level": "WATCH", "message": "[WATCH] [CORE] Watching fake_streamer"},
+            {"time": "00:00:04", "level": "STATUS", "message": "[STATUS] [STATUS] Adding campaigns (1/3)"}]
+    logs += [{"time": f"00:01:{n:02d}", "level": "STATUS", "message": f"[STATUS] [STATUS] Adding campaigns ({n}/3)"} for n in (2, 3)]
+    logs += [{"time": "00:02:00", "level": "INFO", "message": "login oauth:abcdef0123456789 token=SECRET123"}]
+    logs += [{"time": f"00:03:{n:02d}", "level": "INFO", "message": f"Heartbeat {n}"} for n in range(60)]
+    saved = (STATE_BRIDGE.active_drop, STATE_BRIDGE.recent_logs, STATE_BRIDGE.watching_channel)
+
+    def report(drop, entries):
+        STATE_BRIDGE.active_drop, STATE_BRIDGE.recent_logs = drop, entries
+        return generate_sanitized_diagnostic_report(settings, hw)
+
+    try:
+        # the same dict add_drop writes: `name` and `progress_percent`, not `drop_name` and `progress`
+        drop = {"name": "Fake Reward", "game": "Fake Game", "current_minutes": 144, "required_minutes": 180, "progress_percent": 80}
+        text = report(drop, logs[:7])
+        print("      --- sample (fake data) ---\n" + "\n".join("      | " + ln for ln in text.splitlines()[12:30]))
+        assert "Active Drop Name: Fake Reward" in text, text
+        assert "Progress: 144 / 180 min (80%)" in text, text
+        assert "Active Drop Game: Fake Game" in text
+        # one level per line; other brackets stay
+        assert "[STATUS] [STATUS]" not in text and "[CLAIM] [CLAIM]" not in text
+        assert "[CLAIM] [CORE] Drop received" in text
+        assert "[INFO] [TRAY] Icon ready" in text
+        assert "[WATCH] [CORE] Watching fake_streamer" in text
+        # a run of counter lines becomes its last line
+        assert text.count("Adding campaigns") == 1 and "[STATUS] Adding campaigns (3/3)" in text, text
+        # sanitizing still runs on every line
+        assert "abcdef0123456789" not in text and "SECRET123" not in text and "oauth:[REDACTED]" in text and "token=[REDACTED]" in text
+        # nothing is farmed: no crash, readable text
+        empty = report(None, [])
+        assert "Active Drop Name: None" in empty and "Progress: no active drop" in empty and "[No logs recorded yet]" in empty, empty
+        # unknown required time must not divide or crash
+        zero = report({"name": "Zero", "game": "G", "current_minutes": 5, "required_minutes": 0, "progress_percent": 0}, [])
+        assert "Progress: 5 / 0 min (0%)" in zero, zero
+        # the tail is taken after folding, so folded lines do not push others out of the 40 kept
+        many = [{"time": "t", "level": "STATUS", "message": f"[STATUS] Adding ({n}/99)"} for n in range(1, 100)]
+        many = [{"time": "t", "level": "INFO", "message": f"Keep {n}"} for n in range(39)] + many
+        tail = report(None, many)
+        assert "Keep 0" in tail and "Adding (99/99)" in tail and "Adding (98/99)" not in tail, tail
+    finally:
+        STATE_BRIDGE.active_drop, STATE_BRIDGE.recent_logs, STATE_BRIDGE.watching_channel = saved
+    print("      Diagnostic report: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5716,6 +5769,7 @@ if __name__ == "__main__":
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
+        test_diagnostic_report_shows_the_real_drop_and_a_readable_journal,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
