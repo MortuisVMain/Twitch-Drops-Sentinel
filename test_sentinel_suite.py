@@ -5960,6 +5960,30 @@ def test_channel_point_chest_uses_the_real_login_state():
         assert calls[1]["variables"]["input"] == {"claimID": "claim-1", "channelID": "777"}, calls[1]
         assert STATE_BRIDGE.channel_points_earned == earned + 50
 
+        nested = {"data": {"community": {"channel": {"self": {"communityPoints": {"availableClaim": {"id": "claim-2"}}}}}}}
+        client, calls = make(logged_in=True, reply=[nested, {"data": {}}])
+        assert asyncio.run(claim(client, channel)) == 50 and calls[1]["variables"]["input"]["claimID"] == "claim-2", "the full query's nested reply is read too"
+
+        # a Twitch service error makes gql_request retry for a long time: the watch loop must not wait for it
+        real_wait_for = asyncio.wait_for
+        waited = []
+
+        async def short_wait_for(awaitable, timeout):
+            waited.append(timeout)
+            return await real_wait_for(awaitable, 0.01)
+
+        async def hanging_request(query):
+            await asyncio.sleep(30)
+
+        client, calls = make(logged_in=True, reply=chest)
+        client.gql_request = hanging_request
+        twitch.asyncio.wait_for = short_wait_for
+        try:
+            assert asyncio.run(claim(client, channel)) == 0, "a hanging request ends the check"
+        finally:
+            twitch.asyncio.wait_for = real_wait_for
+        assert waited == [15], f"the chest check has a time limit: {waited}"
+
         client, calls = make(logged_in=False, reply=chest)
         assert asyncio.run(claim(client, channel)) == 0 and calls == [], "logged out: no request (a request would start the login flow)"
         client, calls = make(logged_in=True, enabled=False, reply=chest)

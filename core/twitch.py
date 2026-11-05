@@ -1694,9 +1694,15 @@ class Twitch:
             query = GQL_QUERIES["ChannelPointsContext"].with_variables(
                 {"channelLogin": str(login)}
             )
-            resp = await self.gql_request(query)
+            # gql_request keeps retrying on Twitch service errors; this runs inside the watch loop, which must not wait for it
+            resp = await asyncio.wait_for(self.gql_request(query), timeout=15)
             data = resp.get("data", {}) if isinstance(resp, dict) else {}
             comm_points = data.get("communityPoints")
+            if comm_points is None:  # the shape of the full persisted query
+                node = data
+                for key in ("community", "channel", "self", "communityPoints"):
+                    node = node.get(key) if isinstance(node, dict) else None
+                comm_points = node
             if not isinstance(comm_points, dict):
                 self._warn_points_once(f"ChannelPointsContext reply has no communityPoints (data keys: {sorted(data) if isinstance(data, dict) else type(data).__name__}); chest claiming is not working")
                 return 0
