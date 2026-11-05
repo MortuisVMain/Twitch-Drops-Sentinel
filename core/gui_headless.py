@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from time import time
 from datetime import datetime
 from pathlib import Path
@@ -68,6 +69,15 @@ TOAST_SCRIPT = (
 )
 
 
+TOAST_TEXT_LIMIT = 256
+
+
+def _toast_text(value) -> str:
+    """Campaign text for a toast: control characters out (a line break and a tab stay), cut to TOAST_TEXT_LIMIT characters."""
+    text = "".join(ch for ch in str(value) if ch in "\n\t" or unicodedata.category(ch) != "Cc")
+    return text[:TOAST_TEXT_LIMIT]
+
+
 def send_windows_toast(title: str, message: str):
     """Sends a native Windows 10/11 toast via PowerShell WinRT.
 
@@ -77,8 +87,8 @@ def send_windows_toast(title: str, message: str):
     import base64
     encoded_ps = base64.b64encode(TOAST_SCRIPT.encode("utf-16le")).decode("ascii")
     env = dict(os.environ)
-    env["SENTINEL_TOAST_TITLE"] = str(title).replace("\x00", "")
-    env["SENTINEL_TOAST_MESSAGE"] = str(message).replace("\x00", "")
+    env["SENTINEL_TOAST_TITLE"] = _toast_text(title)
+    env["SENTINEL_TOAST_MESSAGE"] = _toast_text(message)
     try:
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],

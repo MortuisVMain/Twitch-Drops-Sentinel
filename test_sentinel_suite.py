@@ -5645,6 +5645,37 @@ def test_toast_text_never_enters_the_powershell_script():
     print("      Toast injection: PASS [OK]")
 
 
+def test_toast_text_is_short_and_free_of_control_characters():
+    print("[security] Toasts: title and message are cut to 256 characters and lose control characters before the environment...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import gui_headless
+
+    captured = []
+
+    class _Stub:
+        def __init__(self, args, **kwargs):
+            captured.append(kwargs.get("env") or {})
+
+    real_popen = gui_headless.subprocess.Popen
+    gui_headless.subprocess.Popen = _Stub
+    try:
+        gui_headless.send_windows_toast("T" * 5000, "M" * 300 + "\u0001tail")
+        gui_headless.send_windows_toast("a\u0001b\u0007c\u001bd\u0085e\x00f\r", "line1\nline2\tcol\u0001")
+        gui_headless.send_windows_toast(12345, None)
+    finally:
+        gui_headless.subprocess.Popen = real_popen
+
+    assert len(captured) == 3
+    big = captured[0]
+    assert big["SENTINEL_TOAST_TITLE"] == "T" * 256, "an oversize title is cut to 256 characters"
+    assert big["SENTINEL_TOAST_MESSAGE"] == "M" * 256, "an oversize message is cut to 256 characters"
+    clean = captured[1]
+    assert clean["SENTINEL_TOAST_TITLE"] == "abcdef", repr(clean["SENTINEL_TOAST_TITLE"])
+    assert clean["SENTINEL_TOAST_MESSAGE"] == "line1\nline2\tcol", "U+0001 goes, a line break and a tab stay"
+    assert captured[2]["SENTINEL_TOAST_TITLE"] == "12345" and captured[2]["SENTINEL_TOAST_MESSAGE"] == "None"
+    print("      Toast text limits: PASS [OK]")
+
+
 def test_coro_unless_closed_cancels_its_children_with_the_caller():
     print("[engine] coro_unless_closed: cancelling the caller cancels both children; results, errors and close still behave...")
     import asyncio
@@ -6297,6 +6328,7 @@ if __name__ == "__main__":
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
         test_toast_text_never_enters_the_powershell_script,
+        test_toast_text_is_short_and_free_of_control_characters,
         test_toast_text_is_short_and_free_of_control_characters,
         test_coro_unless_closed_cancels_its_children_with_the_caller,
         test_shell_opens_only_checked_web_links,
