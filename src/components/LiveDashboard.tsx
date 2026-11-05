@@ -7,6 +7,7 @@ import {
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
+import { CartridgeCover } from './GameShelf';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
@@ -1278,9 +1279,9 @@ const filteredLogs = useMemo(() => {
               </div>
             </div>
 
-            <div className="override-scroll-grid" id="overrideGrid" style={consoleCollapsed ? { maxHeight: 'none', overflowY: 'auto', flex: '1 1 auto' } : { maxHeight: 'none', overflow: 'visible' }}>
+            <div className={`override-scroll-grid ${consoleCollapsed ? 'is-poster' : 'is-compact'}`} id="overrideGrid" style={consoleCollapsed ? { maxHeight: 'none', overflowY: 'auto', flex: '1 1 auto' } : { maxHeight: 'none', overflow: 'visible' }}>
               {overrideGames.length === 0 ? (
-                <div style={{ gridColumn: 'span 3', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
+                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
                   Нет подходящих кампаний для ручного переключения
                 </div>
               ) : (
@@ -1318,6 +1319,9 @@ const filteredLogs = useMemo(() => {
                       }}
                       title={isForced ? 'Нажмите для отмены ручного режима' : isFinished ? `${g.name}: все награды уже получены (100%)` : `Переключить фарм на ${g.name}`}
                     >
+                      <div className="override-cover">
+                        <CartridgeCover name={g.name} boxArt={g.box_art} compact={!consoleCollapsed} />
+                      </div>
                       <div>
                         <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.name}

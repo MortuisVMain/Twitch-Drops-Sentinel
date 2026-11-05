@@ -28,3 +28,5 @@ In Twitch Drops Sentinel v7.0, two usability issues were identified in Picture-i
 - `test_sentinel_suite.py`: 36/36 verification gates passed with exit code 0.
 - `smoke_test_exe.py`: Verified `TwitchDropsSentinel.exe` boots and runs cleanly.
 - Release distribution archives rebuilt and verified clean.
+
+> **Later change:** the 560×275 size above is out of date. The current mini-window size and its single definition are described in [067](067-pip-clipping-and-grayscale-text.md).

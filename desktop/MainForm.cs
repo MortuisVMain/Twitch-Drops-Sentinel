@@ -407,6 +407,15 @@ namespace TwitchDropsSentinel
 
         private bool _isPipMode = false;
 
+        private bool _wasMaximizedBeforePip;
+
+        // Mini-window size in DIP: the one place it is defined (tools/check_pip_layout.cjs reads PipWidthDip / PipHeightDip from here)
+        private const int PipWidthDip = 560, PipHeightDip = 247, PipMinWidthDip = 320, PipMinHeightDip = 150;
+
+        private static Size PipSize(float dpiScale) => new Size((int)Math.Round(PipWidthDip * dpiScale), (int)Math.Round(PipHeightDip * dpiScale));
+
+        private static Size PipMinSize(float dpiScale) => new Size((int)Math.Round(PipMinWidthDip * dpiScale), (int)Math.Round(PipMinHeightDip * dpiScale));
+
 
 
         private class WindowStateConfig
@@ -447,6 +456,27 @@ namespace TwitchDropsSentinel
 
 
 
+        // A saved window rectangle is usable only when at least 200x200 px of it lies on a connected screen.
+        private static bool IsVisibleOnAnyScreen(Rectangle bounds)
+
+        {
+
+            foreach (var screen in Screen.AllScreens)
+
+            {
+
+                Rectangle intersection = Rectangle.Intersect(screen.WorkingArea, bounds);
+
+                if (intersection.Width >= 200 && intersection.Height >= 200) return true;
+
+            }
+
+            return false;
+
+        }
+
+
+
         private void LoadWindowState()
 
         {
@@ -471,29 +501,7 @@ namespace TwitchDropsSentinel
 
                         Rectangle savedBounds = new Rectangle(state.X, state.Y, state.Width, state.Height);
 
-                        bool isVisibleOnAnyScreen = false;
-
-                        foreach (var screen in Screen.AllScreens)
-
-                        {
-
-                            Rectangle intersection = Rectangle.Intersect(screen.WorkingArea, savedBounds);
-
-                            if (intersection.Width >= 200 && intersection.Height >= 200)
-
-                            {
-
-                                isVisibleOnAnyScreen = true;
-
-                                break;
-
-                            }
-
-                        }
-
-
-
-                        if (isVisibleOnAnyScreen)
+                        if (IsVisibleOnAnyScreen(savedBounds))
 
                         {
 
@@ -557,9 +565,10 @@ namespace TwitchDropsSentinel
 
 
 
-                bool isMaximized = (WindowState == FormWindowState.Maximized);
+                // In PiP the window is the small mini-window: persist the state it will return to, never the PiP bounds.
+                bool isMaximized = _isPipMode ? _wasMaximizedBeforePip : (WindowState == FormWindowState.Maximized);
 
-                Rectangle boundsToSave = isMaximized ? RestoreBounds : Bounds;
+                Rectangle boundsToSave = _isPipMode ? _savedBoundsBeforePip : (isMaximized ? RestoreBounds : Bounds);
 
 
 
@@ -697,7 +706,7 @@ namespace TwitchDropsSentinel
 
             ResizeEnd += (s, e) => SaveWindowState();
 
-            Move += (s, e) => { if (WindowState == FormWindowState.Normal) SaveWindowState(); };
+            Move += (s, e) => { if (WindowState == FormWindowState.Normal && !_isPipMode) SaveWindowState(); };
 
 
 
@@ -1917,6 +1926,9 @@ namespace TwitchDropsSentinel
 
                     {
 
+                        // A repeated request (page reload, renderer recovery) must not overwrite the saved pre-PiP state.
+                        if (enabled == _isPipMode) return;
+
                         if (enabled)
 
                         {
@@ -1925,7 +1937,9 @@ namespace TwitchDropsSentinel
 
                             this.Padding = Padding.Empty;
 
-                            if (WindowState == FormWindowState.Maximized) WindowState = FormWindowState.Normal;
+                            _wasMaximizedBeforePip = WindowState == FormWindowState.Maximized;
+
+                            if (_wasMaximizedBeforePip) WindowState = FormWindowState.Normal;
 
                             _savedBoundsBeforePip = this.Bounds;
 
@@ -1935,9 +1949,9 @@ namespace TwitchDropsSentinel
 
                             if (dpiScale < 1.0f) dpiScale = 1.0f;
 
-                            this.MinimumSize = new Size((int)Math.Round(320 * dpiScale), (int)Math.Round(150 * dpiScale));
+                            this.MinimumSize = PipMinSize(dpiScale);
 
-                            this.Size = new Size((int)Math.Round(560 * dpiScale), (int)Math.Round(210 * dpiScale));
+                            this.Size = PipSize(dpiScale);
 
                             this.TopMost = true;
 
@@ -1953,19 +1967,23 @@ namespace TwitchDropsSentinel
 
                             this.FormBorderStyle = FormBorderStyle.None;
 
-                            float dpiScale = this.DeviceDpi / 96f;
-
-                            if (dpiScale < 1.0f) dpiScale = 1.0f;
-
-                            this.MinimumSize = new Size((int)Math.Round(1000 * dpiScale), (int)Math.Round(650 * dpiScale));
-
                             this.TopMost = false;
 
-                            if (_savedBoundsBeforePip.Width >= 1000)
+                            if (_savedBoundsBeforePip.Width >= 1000 && IsVisibleOnAnyScreen(_savedBoundsBeforePip))
 
                             {
 
+                                // No minimum while moving, so a restore onto a monitor with another DPI cannot be clamped;
+                                // the minimum is derived from the DPI the window ends up on.
+                                this.MinimumSize = Size.Empty;
+
                                 this.Bounds = _savedBoundsBeforePip;
+                                // A move across DPI replaces the size with the scaled one Windows suggests; the window is on the right monitor now, so apply it again.
+                                if (this.Bounds != _savedBoundsBeforePip) this.Bounds = _savedBoundsBeforePip;
+
+                                float restoredScale = Math.Max(1.0f, this.DeviceDpi / 96f);
+
+                                this.MinimumSize = new Size((int)Math.Round(1000 * restoredScale), (int)Math.Round(650 * restoredScale));
 
                             }
 
@@ -1973,15 +1991,40 @@ namespace TwitchDropsSentinel
 
                             {
 
+                                float dpiScale = Math.Max(1.0f, this.DeviceDpi / 96f);
+
+                                this.MinimumSize = new Size((int)Math.Round(1000 * dpiScale), (int)Math.Round(650 * dpiScale));
+
                                 this.Size = new Size((int)Math.Round(1400 * dpiScale), (int)Math.Round(920 * dpiScale));
 
                                 this.CenterToScreen();
 
                             }
 
+                            if (_wasMaximizedBeforePip)
+
+                            {
+
+                                _wasMaximizedBeforePip = false;
+
+                                WindowState = FormWindowState.Maximized;
+
+                            }
+
                         }
 
                     }));
+
+                }
+
+                else if (type == "SET_TOPMOST")
+
+                {
+
+                    bool enabled = root.GetProperty("enabled").GetBoolean();
+
+                    // Only the PiP bar posts this; outside PiP the window is never topmost.
+                    this.BeginInvoke(new Action(() => { if (_isPipMode) this.TopMost = enabled; }));
 
                 }
 
@@ -2558,9 +2601,9 @@ else
 
                             {
 
-                                mmi.ptMinTrackSize.x = (int)Math.Round(320 * dpiScale);
+                                mmi.ptMinTrackSize.x = PipMinSize(dpiScale).Width;
 
-                                mmi.ptMinTrackSize.y = (int)Math.Round(150 * dpiScale);
+                                mmi.ptMinTrackSize.y = PipMinSize(dpiScale).Height;
 
                             }
 
@@ -2610,7 +2653,7 @@ else
 
                 {
 
-                    this.MinimumSize = new Size((int)Math.Round(320 * newDpiScale), (int)Math.Round(150 * newDpiScale));
+                    this.MinimumSize = PipMinSize(newDpiScale);
 
                     try
 
@@ -2618,9 +2661,9 @@ else
 
                         RECT rect = Marshal.PtrToStructure<RECT>(m.LParam);
 
-                        int targetW = (int)Math.Round(560 * newDpiScale);
+                        int targetW = PipSize(newDpiScale).Width;
 
-                        int targetH = (int)Math.Round(210 * newDpiScale);
+                        int targetH = PipSize(newDpiScale).Height;
 
 
 
@@ -2764,9 +2807,9 @@ else
 
                         float currentDpiScale = Math.Max(1.0f, currentDpi / 96f);
 
-                        int expectedW = (int)Math.Round(560 * currentDpiScale);
+                        int expectedW = PipSize(currentDpiScale).Width;
 
-                        int expectedH = (int)Math.Round(210 * currentDpiScale);
+                        int expectedH = PipSize(currentDpiScale).Height;
 
 
 

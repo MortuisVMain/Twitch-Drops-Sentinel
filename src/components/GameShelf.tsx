@@ -31,7 +31,8 @@ interface GameShelfProps {
   lastSyncAt?: number | null;
 }
 
-const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, boxArt }) => {
+// compact: a thumbnail-sized cover (the fallback drops its caption and shrinks the initials)
+export const CartridgeCover: React.FC<{ name: string; boxArt?: string; compact?: boolean }> = ({ name, boxArt, compact = false }) => {
   const sources = useMemo(() => resolveGameBoxArtSources(name, [boxArt]), [name, boxArt]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -59,19 +60,21 @@ const CartridgeCover: React.FC<{ name: string; boxArt?: string }> = ({ name, box
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: '6px',
+          gap: compact ? 0 : '6px',
           fontFamily: 'var(--font-ui)',
           color: 'var(--led-mint)',
           letterSpacing: '0.04em',
           userSelect: 'none'
         }}
       >
-        <span style={{ fontSize: 'var(--fs-xl)', fontWeight: 900, textShadow: '0 0 16px rgba(115, 187, 165, 0.35)' }}>
+        <span style={{ fontSize: compact ? 'var(--fs-sm)' : 'var(--fs-xl)', fontWeight: 900, textShadow: compact ? undefined : '0 0 16px rgba(115, 187, 165, 0.35)' }}>
           {initials}
         </span>
-        <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-          NO POSTER
-        </span>
+        {!compact && (
+          <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+            NO POSTER
+          </span>
+        )}
       </div>
     );
   }
@@ -875,20 +878,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   }}
                 >
                   <CartridgeCover name={game.name} boxArt={game.box_art} />
-                  {!isExcluded && !isRemoved && (
-                    <button
-                      className="cover-exclude-btn"
-                      title="Скрыть / в исключения"
-                      aria-label="Исключить"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        playClick();
-                        onAddToExcluded(game.name);
-                      }}
-                    >
-                      <span aria-hidden="true">🚫</span><span className="lbl">Исключить</span>
-                    </button>
-                  )}
                   {isLinked && isDropActive && (
                     <div 
                       onClick={(e) => {
@@ -898,7 +887,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       }}
                       style={{
                         position: 'absolute',
-                        top: '34px',
+                        top: '6px',
                         right: '6px',
                         maxWidth: 'calc(100% - 12px)',
                         padding: '2px 6px',
@@ -930,7 +919,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     <div
                       style={{
                         position: 'absolute',
-                        top: '34px',
+                        top: '6px',
                         right: '6px',
                         maxWidth: 'calc(100% - 12px)',
                         display: 'flex',
@@ -1078,6 +1067,18 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     ) : <div />}
 
                     <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <button
+                        className="cover-exclude-btn"
+                        title="Скрыть / в исключения"
+                        aria-label="Исключить"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playClick();
+                          onAddToExcluded(game.name);
+                        }}
+                      >
+                        <span aria-hidden="true">🚫</span>
+                      </button>
                       {game.is_installed && (
                         <button
                           className="node-chip"

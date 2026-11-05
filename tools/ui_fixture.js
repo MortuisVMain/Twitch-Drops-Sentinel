@@ -6,6 +6,7 @@
 // ?theme=light|titanium|... picks the interface theme (light is Daylight).
 // ?update=1 serves an available update, so the header shows its widest state (update button).
 // ?readiness=clean serves a clean machine for the giveaways readiness window (default: everything ready); ?readiness=error makes the check fail.
+// ?pip=short serves short game/reward/channel names, ?pip=idle serves no active drop and no channel (default: the long names above), for the mini-window checks (tools/check_pip_layout.cjs).
 (function () {
   var q = new URLSearchParams(location.search);
   try {
@@ -61,6 +62,13 @@
     }),
     recent_logs: [{ time: '12:00:00', level: 'INFO', message: 'Фарм начат: ' + LONG[0] + ' на канале extraordinarilylongchannelname', category: 'farm' }],
   };
+  if (q.get('pip') === 'short') {
+    Object.assign(state.active_drop, { name: 'Gold Skin', game: 'Rust', channel_name: 'rustfan' });
+    state.watching_channel = 'rustfan';
+  } else if (q.get('pip') === 'idle') {
+    state.active_drop = null;
+    state.watching_channel = null;
+  }
   var dimmer = {
     monitors: [0, 1, 2].map(function (n) {
       return { id: 'm' + n, name: 'Dell UltraSharp U3224KB 32-inch 6K Display #' + n, device_name: '\\\\.\\DISPLAY' + (n + 1), is_primary: n === 0,

@@ -5619,7 +5619,7 @@ def test_small_controls_have_a_larger_invisible_click_area():
     assert "inset: calc(-1 * var(--hit-ext, 2px)) 0" in body, "grows vertically only (0 horizontally), 2 px = half of the 4 px row gap"
     positioned = re.search(r"((?:\.[\w-]+,\s*)+\.[\w-]+)\s*\{\s*position: relative;\s*\}", css)
     assert positioned, "the controls become the containing block of the strip"
-    for sel in selectors[:-1]:
+    for sel in selectors:
         assert sel in positioned.group(1), f"{sel} is positioned"
     assert ".tab-btn.active::after" in css, "the active-tab underline keeps ::after, so the strip uses ::before"
     print("      Hit areas: PASS [OK]")

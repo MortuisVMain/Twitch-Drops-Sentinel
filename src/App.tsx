@@ -418,6 +418,7 @@ export const App: React.FC = () => {
     const nextPip = !isPipMode;
 
     setIsPipMode(nextPip);
+    setIsTopMost(nextPip);
 
     const wv = (window as any).chrome?.webview;
 
@@ -991,19 +992,24 @@ export const App: React.FC = () => {
 
       {/* LAYER 1A: 3D NORMAL-LIT CANVAS ENGINE */}
 
-      <LiquidCanvas 
+      {/* The mini window mounts no backdrop: crisp (LCD) text and zero GPU use; leaving PiP remounts both. */}
+      {!isPipMode && (
 
-        backdropType={backdropType as any} 
+        <LiquidCanvas 
 
-        reliefMode={reliefMode as any} 
+          backdropType={backdropType as any} 
 
-        themeId={theme} 
+          reliefMode={reliefMode as any} 
 
-        opacity={reliefOpacity} 
+          themeId={theme} 
 
-      />
+          opacity={reliefOpacity} 
 
-      <PhotoBackdrop photoId={backdropType === 'photo' ? reliefMode : null} themeId={theme} opacity={reliefOpacity} />
+        />
+
+      )}
+
+      <PhotoBackdrop photoId={backdropType === 'photo' && !isPipMode ? reliefMode : null} themeId={theme} opacity={reliefOpacity} />
 
 
 
@@ -1519,59 +1525,19 @@ export const App: React.FC = () => {
 
 
           <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-
-              <span className="version-chip">
-
-                {activeDrop?.game || 'STANDBY'} • ЭТАП 2/3
-
+            <div className="pip-info-row">
+              <span className="version-chip pip-chip" title={activeDrop?.game || 'STANDBY'}>
+                {activeDrop?.game || 'STANDBY'}
               </span>
-
-              <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
-
+              <span className="tabular pip-channel" title={sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}>
                 📡 {sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}
-
               </span>
-
             </div>
-
-
-
-            <div className="pip-marquee-box">
-
-              <span className="pip-marquee-text scrolling">
-
-                {activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}
-
-              </span>
-
+            <div className="pip-reward" title={activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}>
+              {activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}
             </div>
-
-
-
-            <div className="pip-led-20">
-
-              {Array.from({ length: 20 }).map((_, idx) => (
-
-                <div 
-
-                  key={idx} 
-
-                  className={`pip-led-cell ${idx < Math.round((progressPct / 100) * 20) ? 'lit' : ''}`}
-
-                />
-
-              ))}
-
-            </div>
-
           </div>
-
         </div>
-
-
-
 
         <div className="pip-action-bar">
 
