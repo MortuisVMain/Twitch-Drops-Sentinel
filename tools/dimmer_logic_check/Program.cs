@@ -193,5 +193,33 @@ void Tick(bool reverse = false, bool settle = true)
     Check(BrightnessReading.Resolve(cache, "b", null, 75, false, false) == 75 && cache["b"] == 75, "first read without hardware takes the fallback");
 }
 
+// External links: only absolute http(s) may reach ShellExecute
+{
+    string Open(string? raw) => ExternalLinkPolicy.TryGetOpenable(raw, out var uri) ? uri : "<refused>";
+    Check(Open("http://example.com/a?b=1") == "http://example.com/a?b=1", "http is opened");
+    Check(Open("https://www.twitch.tv/directory") == "https://www.twitch.tv/directory", "https is opened");
+    Check(Open("HTTPS://Example.com/x") == "https://example.com/x", "upper-case scheme is opened, normalized");
+    Check(Open("HTTP://example.com") == "http://example.com/", "upper-case HTTP is opened");
+    Check(Open("file:///C:/Windows/System32/calc.exe") == "<refused>", "file: is refused");
+    Check(Open("ms-msdt:/id PCWDiagnostic /skip force /param \"IT_BrowseForFile=x\"") == "<refused>", "ms-msdt: is refused");
+    Check(Open("search-ms:query=x&crumb=location:\\\\host\\share") == "<refused>", "search-ms: is refused");
+    Check(Open("javascript:alert(1)") == "<refused>", "javascript: is refused");
+    Check(Open("steam://run/1") == "<refused>", "a custom protocol is refused");
+    Check(Open("/relative/path") == "<refused>", "a relative path is refused");
+    Check(Open("relative.html") == "<refused>", "a bare name is refused");
+    Check(Open("") == "<refused>", "an empty string is refused");
+    Check(Open(null) == "<refused>", "null is refused");
+    Check(Open("   ") == "<refused>", "blanks are refused");
+    Check(Open("\\\\server\\share\\file.exe") == "<refused>", "a UNC path is refused");
+    Check(Open("//server/share/file.exe") == "<refused>", "a scheme-relative UNC form is refused");
+    Check(Open("C:\\Windows\\System32\\calc.exe") == "<refused>", "a drive path is refused");
+    Check(Open("https://") == "<refused>", "https:// with no host is refused");
+    Check(Open("http:///x") == "<refused>", "http:/// with no host is refused");
+    Check(Open(" https://example.com") == "<refused>", "a leading space is refused");
+    Check(Open("https://example.com ") == "<refused>", "a trailing space is refused");
+    Check(Open("https://example.com/\n") == "<refused>", "a control character is refused");
+    Check(Open("https:example.com") == "<refused>", "https: without // is refused");
+}
+
 Console.WriteLine(failures == 0 ? "ALL DIMMER CHECKS PASSED" : $"{failures} DIMMER CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;

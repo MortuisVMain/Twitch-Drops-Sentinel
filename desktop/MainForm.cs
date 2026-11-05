@@ -1435,7 +1435,7 @@ namespace TwitchDropsSentinel
 
                     {
 
-                        Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                        OpenExternalLink(args.Uri, "NewWindowRequested");
 
                     }
 
@@ -3612,6 +3612,22 @@ else
                 }
             }
             catch (Exception ex) { LogDesktopError("загрузка baseline яркости", ex); }
+        }
+
+        /// <summary>Hands a link from the page to the default browser. Only absolute http(s) goes to the shell; anything else is logged and dropped.</summary>
+        private static void OpenExternalLink(string? raw, string source)
+        {
+            if (!ExternalLinkPolicy.TryGetOpenable(raw, out var uri))
+            {
+                string shown = new string((raw ?? "").Where(c => !char.IsControl(c)).Take(200).ToArray());
+                LogDesktopError("external link refused (" + source + ")", new InvalidOperationException("not an absolute http(s) address: " + shown));
+                return;
+            }
+            try
+            {
+                Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            }
+            catch (Exception ex) { LogDesktopError("open external link (" + source + ")", ex); }
         }
 
         private static void LogDesktopError(string context, Exception ex)

@@ -5640,6 +5640,19 @@ def test_toast_text_never_enters_the_powershell_script():
     print("      Toast injection: PASS [OK]")
 
 
+def test_shell_opens_only_checked_web_links():
+    print("[security] Shell: links from the page reach ShellExecute only through ExternalLinkPolicy...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    logic = (WORKSPACE / "desktop" / "DimmerLogic.cs").read_text(encoding="utf-8")
+    assert "class ExternalLinkPolicy" in logic and "UriSchemeHttps" in logic, "the policy lives in the file the check tool compiles"
+    assert "ExternalLinkPolicy.TryGetOpenable" in form, "the shell asks the policy"
+    shell_calls = re.findall(r"Process\.Start\(new ProcessStartInfo\((?!\s*\{)[^;]*UseShellExecute = true", form)
+    for call in shell_calls:
+        assert "args.Uri" not in call, "NewWindowRequested must not pass the page's address to the shell directly"
+    assert re.search(r'OpenExternalLink\(args\.Uri, "NewWindowRequested"\)', form), "NewWindowRequested uses the checked opener"
+    print("      Shell link policy: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5757,6 +5770,7 @@ if __name__ == "__main__":
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
         test_toast_text_never_enters_the_powershell_script,
+        test_shell_opens_only_checked_web_links,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
