@@ -6663,6 +6663,349 @@ var html_game_list = (games, statsSummary = null) => {
   return statsSummary ? `${list}<br><br><b>${escapeHtml(statsSummary)}</b>` : list;
 };
 
+// src/checkout.js
+var CURRENCY = "\\p{Sc}";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
+var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
+var CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
+var CHARGE_SOFT = /(?<![\p{L}\d])(?:pay|then|due)(?![\p{L}\d])|per month|\/\s?month|в месяц/iu;
+var CHARGE_LINE_MAX = 160;
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
+var hasNonZeroDigit = (text) => /[1-9]/.test(text);
+var hasNonZeroAmount = (text) => [...String(text).matchAll(new RegExp(AMOUNT, "gu"))].some((m) => hasNonZeroDigit(m[0]));
+var isChargeLine = (line) => line.length <= CHARGE_LINE_MAX && (CHARGE_STRICT.test(line) && hasNonZeroDigit(line) || CHARGE_SOFT.test(line) && hasNonZeroAmount(line));
+var orderTotalState = (text, { freeWord = false } = {}) => {
+  const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let state = "unknown";
+  let unreadable = false;
+  if (lines.some(isChargeLine)) return "paid";
+  for (const [i, line] of lines.entries()) {
+    const match = TOTAL_LINE.exec(line);
+    if (!match) continue;
+    if (NOT_THE_PRICE.test(match[2].split(/\d/)[0])) continue;
+    const amount = match[2] || lines[i + 1] || "";
+    if (hasNonZeroDigit(amount)) return "paid";
+    if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
+      state = "free";
+    } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
+      unreadable = true;
+    }
+  }
+  return unreadable ? "unknown" : state;
+};
+var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
+var readPageText = async (source) => {
+  try {
+    const text = typeof source.evaluate === "function" ? await source.evaluate(() => document.body.innerText) : await source.locator("body").innerText({ timeout: 5e3 });
+    return typeof text === "string" ? text : "";
+  } catch (err) {
+    console.warn(`Cannot read the checkout page: ${err.message}`);
+    return "";
+  }
+};
+var settledOrderState = async (source, { timer = source, tries = 20, freeWord = false } = {}) => {
+  let zeroChecks = 0;
+  let last = "unknown";
+  for (let i = 0; i < tries && zeroChecks < 3; i++) {
+    last = orderTotalState(await readPageText(source), { freeWord });
+    zeroChecks = last === "free" ? zeroChecks + 1 : 0;
+    if (zeroChecks < 3) await timer.waitForTimeout(1e3);
+  }
+  return zeroChecks === 3 ? "free" : last;
+};
+var refusal = (status, reason) => ({ refused: true, clicked: false, status, reason });
+var CLICK_TIMEOUT = 2e3;
+var pinElement = async (locator, timeout = 5e3) => {
+  if (typeof locator?.elementHandle !== "function") return { target: locator, release: async () => {
+  } };
+  const handle = await locator.elementHandle({ timeout });
+  return { target: handle, release: () => Promise.resolve(handle.dispose?.()).catch(() => {
+  }) };
+};
+var readLabel = async (target) => String(await target.innerText({ timeout: 2e3 })).trim();
+var clickPinned = async (target, label, clickOptions) => {
+  let again;
+  try {
+    again = await readLabel(target);
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot read the button right before the click: ${err.message}`);
+  }
+  if (again !== label || hasPaidAmount(again)) return refusal(NOT_FREE, `the button changed right before the click: "${label}" is now "${again}"`);
+  try {
+    await target.click({ ...clickOptions, timeout: CLICK_TIMEOUT });
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `the click did not go through (${String(err.message).split(/\r?\n/)[0]}): check the game by hand`);
+  }
+  return { refused: false, clicked: true, label };
+};
+var clickOnlyIfFree = async (button, source, { timer = source, tries = 10, clickOptions } = {}) => {
+  let pin;
+  try {
+    pin = await pinElement(button);
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot find the order button: ${err.message}`);
+  }
+  try {
+    let label;
+    try {
+      label = await readLabel(pin.target);
+    } catch (err) {
+      return refusal(TOTAL_UNKNOWN, `cannot read the order button: ${err.message}`);
+    }
+    if (!label) return refusal(TOTAL_UNKNOWN, "the order button has no text");
+    if (hasPaidAmount(label)) return refusal(NOT_FREE, `the order button names a price: "${label}"`);
+    const state = await settledOrderState(source, { timer, tries, freeWord: true });
+    if (state !== "free") {
+      return refusal(state === "paid" ? NOT_FREE : TOTAL_UNKNOWN, state === "paid" ? `the order total is not zero (button: "${label}")` : `the page does not clearly say the order is free (button: "${label}")`);
+    }
+    const last = orderTotalState(await readPageText(source), { freeWord: true });
+    if (last !== "free") return refusal(last === "paid" ? NOT_FREE : TOTAL_UNKNOWN, `the total changed right before the order (button: "${label}")`);
+    return await clickPinned(pin.target, label, clickOptions);
+  } finally {
+    await pin.release();
+  }
+};
+var scopedSource = (locator, timer) => ({
+  evaluate: () => locator.first().innerText({ timeout: 5e3 }),
+  waitForTimeout: (ms) => timer.waitForTimeout(ms)
+});
+
+// src/orders.js
+var BUTTON = "button:not([disabled]):not(:has(.payment-loading--loading))";
+var buttonsWith = (texts) => texts.map((text) => `${BUTTON}:has-text("${text}")`).join(", ");
+var DISMISS_SELECTOR = buttonsWith(["Continue", "\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C", "View Product", "Agree", "Accept", "\u041F\u0440\u0438\u043D\u044F\u0442\u044C", "\u0421\u043E\u0433\u043B\u0430\u0441\u0435\u043D", "I understand"]);
+var ORDER_SELECTOR = buttonsWith(["Yes, buy now", "Place Order", "\u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0437\u0430\u043A\u0430\u0437", "Add to library", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0443"]);
+var DISMISS_LABEL = /^(?:continue|продолжить|view product|agree|i agree|accept|i accept|принять|согласен|i understand)$/i;
+var ORDER_WORDS = /pay|buy|order|purchase|place|checkout|library|оплат|купить|заказ|библиотек/i;
+var classifyModalLabel = (label) => {
+  const text = String(label ?? "").replace(/\s+/g, " ").trim();
+  if (!text || /\d/.test(text) || ORDER_WORDS.test(text)) return "refuse";
+  return DISMISS_LABEL.test(text) ? "dismiss" : "refuse";
+};
+var ORDER_DIALOG = '[role="dialog"], [aria-modal="true"], dialog, #webPurchaseContainer';
+var PAGE_ORDER_LABEL = /^(?:place order|add to library|оформить заказ|добавить в библиотеку)$/i;
+var CTA_SELECTOR = 'button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"]';
+var FREE_GET_LABEL = /^(?:get|получить)$/i;
+var recordRefusal = (dbEntry, notifyItem, result) => {
+  console.error(`  Not ordering (${result.status}): ${result.reason}`);
+  dbEntry.status = result.status;
+  notifyItem.status = result.status;
+};
+var PROMOTIONS_URL = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US";
+var HUNDRED_OFF = /^[-−–]\s?100\s?%$/u;
+var FREE_WORD2 = /^(?:free|бесплатно)\.?$/iu;
+var slugFromUrl = (url) => {
+  try {
+    const parts = new URL(url).pathname.split("/").filter(Boolean);
+    return parts.length ? decodeURIComponent(parts[parts.length - 1]).toLowerCase() : "";
+  } catch {
+    return "";
+  }
+};
+var freePromoSlugs = (elements, now = Date.now()) => {
+  const slugs = /* @__PURE__ */ new Set();
+  for (const el of Array.isArray(elements) ? elements : []) {
+    if (el?.price?.totalPrice?.discountPrice !== 0) continue;
+    const offers = (el.promotions?.promotionalOffers ?? []).flatMap((group) => group?.promotionalOffers ?? []);
+    if (!offers.some((offer) => Date.parse(offer?.startDate) <= now && now < Date.parse(offer?.endDate))) continue;
+    const names = [el.productSlug, el.urlSlug, ...(el.catalogNs?.mappings ?? []).map((m) => m?.pageSlug), ...(el.offerMappings ?? []).map((m) => m?.pageSlug)];
+    for (const name of names) {
+      const key = String(name ?? "").split(/[/?#]/)[0].trim().toLowerCase();
+      if (key) slugs.add(key);
+    }
+  }
+  return slugs;
+};
+var fetchFreePromoSlugs = async (fetchImpl = fetch, now = Date.now()) => {
+  try {
+    const res = await fetchImpl(PROMOTIONS_URL, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }, signal: AbortSignal.timeout(1e4) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const elements = (await res.json())?.data?.Catalog?.searchStore?.elements;
+    if (!Array.isArray(elements)) throw new Error("the list has an unexpected shape");
+    return freePromoSlugs(elements, now);
+  } catch (err) {
+    console.warn(`  Cannot read Epic's free promotions list (${err.message}): a "Get" then needs the price block of the page to say free.`);
+    return null;
+  }
+};
+var promoFreeForPage = (slugs, url) => slugs instanceof Set ? slugs.has(slugFromUrl(url)) : null;
+var getEvidence = ({ promoFree = null, priceBlock = "" } = {}) => {
+  const block = String(priceBlock ?? "");
+  if (orderTotalState(block, { freeWord: true }) === "paid") return { state: "paid", reason: "the price block next to the button shows a charge" };
+  const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const percent = lines.some((line) => HUNDRED_OFF.test(line));
+  const word = lines.some((line) => FREE_WORD2.test(line));
+  const priced = lines.some(hasNonZeroAmount);
+  if (promoFree === true) {
+    if (priced && !percent && !word) return { state: "unknown", reason: "Epic lists the game at 0, but the page shows a price with no free mark" };
+    return { state: "free", source: "promotions-list", reason: "Epic's promotions list has this game at 0" };
+  }
+  if (percent || word && !priced) return { state: "free", source: "price-block", reason: "the price block says free" };
+  return { state: "unknown", reason: "neither Epic's promotions list nor the price block next to the button says this game is free" };
+};
+var readPriceBlock = async (target) => {
+  if (typeof target?.evaluate !== "function") return "";
+  try {
+    const text = await target.evaluate((el) => {
+      let block = el;
+      for (let i = 0; i < 4; i++) {
+        const up = block.parentElement;
+        if (!up || (up.innerText || "").length > 500) break;
+        block = up;
+      }
+      return block.innerText || "";
+    });
+    return typeof text === "string" ? text : "";
+  } catch (err) {
+    console.warn(`  Cannot read the price block: ${err.message}`);
+    return "";
+  }
+};
+var clickGetIfFree = async (button, label, page2, { promoFree = null } = {}) => {
+  const earlier = String(label ?? "").trim();
+  if (!earlier) return refusal(TOTAL_UNKNOWN, "the purchase button has no text");
+  if (!FREE_GET_LABEL.test(earlier) || hasPaidAmount(earlier)) return refusal(NOT_FREE, `the purchase button says "${earlier}", not a free "Get"`);
+  let pin;
+  try {
+    pin = await pinElement(button);
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot find the purchase button: ${err.message}`);
+  }
+  try {
+    let now;
+    try {
+      now = await readLabel(pin.target);
+    } catch (err) {
+      return refusal(TOTAL_UNKNOWN, `cannot read the purchase button: ${err.message}`);
+    }
+    if (!FREE_GET_LABEL.test(now) || hasPaidAmount(now)) return refusal(NOT_FREE, `the purchase button now says "${now}", not a free "Get"`);
+    if (orderTotalState(await readPageText(page2), { freeWord: true }) === "paid") return refusal(NOT_FREE, "the page shows a paid total");
+    const evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    if (evidence.state !== "free") return refusal(evidence.state === "paid" ? NOT_FREE : TOTAL_UNKNOWN, evidence.reason);
+    console.log(`  Free confirmed (${evidence.source}): ${evidence.reason}`);
+    return await clickPinned(pin.target, now, { delay: 11 });
+  } finally {
+    await pin.release();
+  }
+};
+var modalRefusal = (label) => !label || !/\d/.test(label) && !ORDER_WORDS.test(label) ? refusal(TOTAL_UNKNOWN, `a dialog button ("${label}") is not on the list of harmless ones and was not clicked`) : refusal(NOT_FREE, `a dialog button ("${label}") may place an order and was not clicked`);
+var dismissModal = async (dismiss, log) => {
+  let pin;
+  try {
+    pin = await pinElement(dismiss);
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot find the dialog button: ${err.message}`);
+  }
+  try {
+    let label;
+    try {
+      label = await readLabel(pin.target);
+    } catch (err) {
+      return refusal(TOTAL_UNKNOWN, `cannot read the dialog button: ${err.message}`);
+    }
+    if (classifyModalLabel(label) !== "dismiss") return modalRefusal(label);
+    log(`  Dismissing modal: "${label}"...`);
+    const result = await clickPinned(pin.target, label);
+    return result.refused && result.status === NOT_FREE ? result : null;
+  } finally {
+    await pin.release();
+  }
+};
+var settleModals = async (page2, { attempts = 10, log = console.log } = {}) => {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    await page2.waitForTimeout(500);
+    const dismiss = page2.locator(DISMISS_SELECTOR).first();
+    if (await dismiss.isVisible().catch(() => false)) {
+      const refused = await dismissModal(dismiss, log);
+      if (refused) return refused;
+      await page2.waitForTimeout(1e3);
+      continue;
+    }
+    const order = page2.locator(ORDER_SELECTOR).first();
+    if (!await order.isVisible().catch(() => false)) break;
+    const result = await clickOnlyIfFree(order, page2);
+    if (result.refused) return result;
+    log(`  Clicked order button: "${result.label}"`);
+    await page2.waitForTimeout(1e3);
+  }
+  return { refused: false, clicked: false };
+};
+var clickExactLabel = async (locator, labelRe, clickOptions = {}) => {
+  let pin;
+  try {
+    pin = await pinElement(locator, 3e3);
+  } catch {
+    return false;
+  }
+  try {
+    const label = await readLabel(pin.target);
+    if (!labelRe.test(label) || hasPaidAmount(label)) return false;
+    return !(await clickPinned(pin.target, label, clickOptions)).refused;
+  } catch (err) {
+    console.warn(`  Not clicking "${labelRe}": ${err.message}`);
+    return false;
+  } finally {
+    await pin.release();
+  }
+};
+var EU_ACCEPT = /^(?:i accept|i agree|принять)$/i;
+var EULA_ACCEPT = /^(?:accept|принять)$/i;
+var PIN_CONTINUE = /^(?:continue|продолжить)$/i;
+var acceptEuAgreement = async (scope, source, { timeout = 4e3 } = {}) => {
+  try {
+    const button = scope.locator(BUTTON).filter({ hasText: EU_ACCEPT }).first();
+    try {
+      await button.waitFor({ state: "visible", timeout });
+    } catch {
+      return false;
+    }
+    if (orderTotalState(await readPageText(source), { freeWord: true }) === "paid") {
+      console.error("  Not accepting: the page shows a paid total.");
+      return false;
+    }
+    return await clickExactLabel(button, EU_ACCEPT);
+  } catch (err) {
+    console.warn(`  EU agreement not accepted: ${err.message}`);
+    return false;
+  }
+};
+var acceptEulaIfShown = async (page2, { timeout = 3e3 } = {}) => {
+  try {
+    await page2.locator("text=/end user license agreement/i").first().waitFor({ timeout });
+  } catch {
+    return false;
+  }
+  console.log("  Accept End User License Agreement (only needed once)");
+  await page2.locator("input#agree").first().check({ timeout: 2e3 }).catch((err) => console.warn(`  Cannot tick the agreement: ${err.message}`));
+  return clickExactLabel(page2.locator("button").filter({ hasText: EULA_ACCEPT }).first(), EULA_ACCEPT);
+};
+var enterParentalPin = async (frame, pin, { timeout = 2500, notify: notify2 = () => {
+} } = {}) => {
+  try {
+    await frame.locator(".payment-pin-code").first().waitFor({ timeout });
+  } catch {
+    return false;
+  }
+  if (!pin) {
+    console.error("  EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
+    notify2("epic-games: EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
+    return false;
+  }
+  await frame.locator("input.payment-pin-code__input").first().pressSequentially(String(pin), { timeout: 3e3 });
+  return clickExactLabel(frame.locator("button").filter({ hasText: PIN_CONTINUE }).first(), PIN_CONTINUE, { delay: 11 });
+};
+var pageOrderTarget = (page2) => {
+  const orderButtons = page2.locator(BUTTON).filter({ hasText: PAGE_ORDER_LABEL });
+  const dialog = page2.locator(ORDER_DIALOG).filter({ has: orderButtons }).first();
+  return { button: dialog.locator(BUTTON).filter({ hasText: PAGE_ORDER_LABEL }).first(), source: scopedSource(dialog, page2) };
+};
+
 // epic-games.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "epic-games", ...a);
 var URL_CLAIM = "https://store.epicgames.com/en-US/free-games";
@@ -6838,6 +7181,7 @@ try {
   const urls = urlSlugs.map((s) => "https://store.epicgames.com" + s);
   console.log(`Free games:
   ${urls.map((u) => pastelBlue(u)).join("\n  ")}`);
+  const promoSlugs = await fetchFreePromoSlugs();
   for (const url of urls) {
     if (cfg.time) console.time("claim game");
     await ensureAgeCookies(context);
@@ -6846,7 +7190,8 @@ try {
       const btn = document.querySelector('button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"]') || Array.from(document.querySelectorAll("button")).find((b) => /(get|получить|in library|в библиотеке|requires base game)/i.test(b.textContent));
       return btn && btn.textContent.trim().length > 0 && btn.textContent.trim() != "Loading";
     });
-    const purchaseBtn = page.locator('button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"], button:has-text("Get"), button:has-text("\u041F\u043E\u043B\u0443\u0447\u0438\u0442\u044C"), button:has-text("In Library"), button:has-text("\u0412 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0435")').first();
+    const ctaBtn = page.locator(CTA_SELECTOR).first();
+    const purchaseBtn = await ctaBtn.count() ? ctaBtn : page.locator('button:has-text("Get"), button:has-text("\u041F\u043E\u043B\u0443\u0447\u0438\u0442\u044C"), button:has-text("In Library"), button:has-text("\u0412 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0435")').first();
     const btnText = (await purchaseBtn.innerText()).toLowerCase().trim();
     const continueLoc = page.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"), button:has-text("View Product"), button:has-text("I Understand")');
     if (await continueLoc.count() > 0) {
@@ -6927,7 +7272,7 @@ try {
     }
     const game_id = page.url().split("/").pop();
     const existedInDb = db.data[user][game_id];
-    db.data[user][game_id] ||= { title, time: datetime(), url: page.url() };
+    db.data[user][game_id] ||= { title, time: datetime(), url: page.url(), status: "failed" };
     console.log("Current free game:", lavender(title));
     if (bundle_includes) console.log("  This bundle includes:", bundle_includes);
     const notify_game = { title, url, status: "failed" };
@@ -6936,91 +7281,97 @@ try {
       console.log(pastelGreen("  Already in library! Nothing to claim."));
       if (!existedInDb) await notify(`Game already in library: ${url}`);
       notify_game.status = "existed";
-      db.data[user][game_id].status ||= "existed";
-      if (db.data[user][game_id].status.startsWith("failed")) db.data[user][game_id].status = "manual";
+      const entry = db.data[user][game_id];
+      if (!existedInDb || !entry.status) entry.status = "existed";
+      else if (entry.status.startsWith("failed")) entry.status = "manual";
     } else if (btnText == "requires base game" || /requires base game|требуется базовая игра/i.test(btnText)) {
       console.log("  Requires base game! Nothing to claim.");
       notify_game.status = "requires base game";
-      db.data[user][game_id].status ||= "failed:requires-base-game";
-      const baseUrl = "https://store.epicgames.com" + await page.locator('a:has-text("Overview")').getAttribute("href");
-      console.log("  Base game:", pastelBlue(baseUrl));
-      urls.push(baseUrl);
-      urls.push(url);
+      if (!db.data[user][game_id].status || db.data[user][game_id].status === "failed") db.data[user][game_id].status = "failed:requires-base-game";
+      console.log("  The base game is not queued automatically. Claim it first, then run again.");
     } else {
-      console.log("  Not in library yet! Click", btnText);
-      await purchaseBtn.click({ delay: 11 });
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await page.waitForTimeout(500);
-        const warningBtn = page.locator('button:not([disabled]):not(:has(.payment-loading--loading)):has-text("Continue"), button:not([disabled]):has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C"), button:not([disabled]):has-text("View Product"), button:not([disabled]):has-text("Yes, buy now"), button:not([disabled]):has-text("Agree"), button:not([disabled]):has-text("Accept"), button:not([disabled]):has-text("I understand"), button:not([disabled]):has-text("Place Order"), button:not([disabled]):has-text("\u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0437\u0430\u043A\u0430\u0437"), button:not([disabled]):has-text("Add to library"), button:not([disabled]):has-text("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0443")').first();
-        if (await warningBtn.isVisible().catch(() => false)) {
-          const warningBtnText = await warningBtn.innerText().catch(() => "");
-          console.log(`  Dismissing modal / clicking order button: "${warningBtnText.trim()}"...`);
-          await warningBtn.click().catch(() => {
-          });
-          await page.waitForTimeout(1e3);
-        } else {
-          break;
-        }
+      const getResult = await clickGetIfFree(ctaBtn, btnText, page, { promoFree: promoFreeForPage(promoSlugs, page.url()) });
+      if (getResult.refused) {
+        recordRefusal(db.data[user][game_id], notify_game, getResult);
+        if (cfg.time) console.timeEnd("claim game");
+        continue;
       }
-      page.locator(':has-text("end user license agreement")').waitFor({ timeout: 5e3 }).then(async () => {
-        console.log("  Accept End User License Agreement (only needed once)");
-        await page.locator("input#agree").check().catch(() => {
-        });
-        await page.locator('button:has-text("Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")').click().catch(() => {
-        });
-      }).catch((_) => {
-      });
+      console.log("  Not in library yet! Clicked", btnText);
+      const modalResult = await settleModals(page);
+      if (modalResult.refused) {
+        recordRefusal(db.data[user][game_id], notify_game, modalResult);
+        if (cfg.time) console.timeEnd("claim game");
+        continue;
+      }
+      await acceptEulaIfShown(page);
       const checkoutIframeSelector = '#webPurchaseContainer iframe:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="/purchase"]:not([src*="hcaptcha"]):not([title*="hCaptcha"]), iframe[src*="checkout"]:not([src*="hcaptcha"]):not([title*="hCaptcha"])';
       let iframe = null;
       try {
         await page.waitForSelector(checkoutIframeSelector, { state: "attached", timeout: 8e3 });
         iframe = page.frameLocator(checkoutIframeSelector).first();
-        if (await iframe.locator(':has-text("unavailable in your region"), :has-text("\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0432\u0430\u0448\u0435\u043C \u0440\u0435\u0433\u0438\u043E\u043D\u0435")').count() > 0) {
-          console.error("  This product is unavailable in your region!");
-          db.data[user][game_id].status = notify_game.status = "unavailable-in-region";
+      } catch (err) {
+        if (err?.name !== "TimeoutError") {
+          console.error(`  Failed while waiting for the checkout frame: ${err.message}`);
+          db.data[user][game_id].status = notify_game.status = "failed";
           if (cfg.time) console.timeEnd("claim game");
           continue;
         }
-        iframe.locator(".payment-pin-code").waitFor().then(async () => {
-          if (!cfg.eg_parentalpin) {
-            console.error("  EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
-            notify("epic-games: EG_PARENTALPIN not set. Need to enter Parental Control PIN manually.");
+      }
+      let euAccept = Promise.resolve(false);
+      if (iframe) {
+        try {
+          if (await iframe.locator(':has-text("unavailable in your region"), :has-text("\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E \u0432 \u0432\u0430\u0448\u0435\u043C \u0440\u0435\u0433\u0438\u043E\u043D\u0435")').count() > 0) {
+            console.error("  This product is unavailable in your region!");
+            db.data[user][game_id].status = notify_game.status = "unavailable-in-region";
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
           }
-          await iframe.locator("input.payment-pin-code__input").first().pressSequentially(cfg.eg_parentalpin);
-          await iframe.locator('button:has-text("Continue"), button:has-text("\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C")').click({ delay: 11 });
-        }).catch((_) => {
-        });
-        if (cfg.debug) await page.pause();
-        if (cfg.dryrun) {
-          console.log("  DRYRUN=1 -> Skip order!");
-          notify_game.status = "skipped";
-          if (cfg.time) console.timeEnd("claim game");
-          continue;
-        }
-        const checkoutBtn = iframe.locator("button:not(:has(.payment-loading--loading))").filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
-        await checkoutBtn.waitFor({ state: "visible", timeout: 25e3 });
-        await checkoutBtn.click({ delay: 50 });
-        const btnAgree = iframe.locator('button:has-text("I Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")');
-        btnAgree.waitFor().then(() => btnAgree.click()).catch((_) => {
-        });
-        const captcha = iframe.locator("#h_captcha_challenge_checkout_free_prod iframe");
-        captcha.waitFor().then(async () => {
-          console.error("  Got hcaptcha challenge! Lost trust due to too many login attempts? You can solve the captcha in the browser or get a new IP address.");
-          await notify(`epic-games: got captcha challenge for.
+          await enterParentalPin(iframe, cfg.eg_parentalpin, { notify });
+          if (cfg.debug) await page.pause();
+          if (cfg.dryrun) {
+            console.log("  DRYRUN=1 -> Skip order!");
+            notify_game.status = "skipped";
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
+          }
+          const checkoutBtn = iframe.locator("button:not(:has(.payment-loading--loading))").filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
+          await checkoutBtn.waitFor({ state: "visible", timeout: 25e3 });
+          const iframeOrder = await clickOnlyIfFree(checkoutBtn, iframe, { timer: page, clickOptions: { delay: 50 } });
+          if (iframeOrder.refused) {
+            recordRefusal(db.data[user][game_id], notify_game, iframeOrder);
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
+          }
+          euAccept = acceptEuAgreement(iframe, iframe);
+          const captcha = iframe.locator("#h_captcha_challenge_checkout_free_prod iframe");
+          captcha.waitFor().then(async () => {
+            console.error("  Got hcaptcha challenge! Lost trust due to too many login attempts? You can solve the captcha in the browser or get a new IP address.");
+            await notify(`epic-games: got captcha challenge for.
 Game link: ${url}`);
-        }).catch((_) => {
-        });
-        iframe.locator('.payment__errors:has-text("Failed to challenge captcha, please try again later.")').waitFor().then(async () => {
-          console.error("  Failed to challenge captcha, please try again later.");
-          await notify("epic-games: failed to challenge captcha. Please check.");
-        }).catch((_) => {
-        });
-        page.locator('iframe[src*="arkose"], iframe[src*="talon"], iframe[title*="arkose"]').waitFor({ timeout: 5e3 }).then(async () => {
-          console.warn('  Got Arkose captcha challenge! Please run "ClaimGames.cmd --show --claim epic" to complete it in browser once.');
-          await notify(`epic-games: got Arkose captcha challenge for ${title}. Run with SHOW=1 to solve it.`);
-        }).catch((_) => {
-        });
-      } catch (_iframeTimeout) {
+          }).catch((_) => {
+          });
+          iframe.locator('.payment__errors:has-text("Failed to challenge captcha, please try again later.")').waitFor().then(async () => {
+            console.error("  Failed to challenge captcha, please try again later.");
+            await notify("epic-games: failed to challenge captcha. Please check.");
+          }).catch((_) => {
+          });
+          page.locator('iframe[src*="arkose"], iframe[src*="talon"], iframe[title*="arkose"]').waitFor({ timeout: 5e3 }).then(async () => {
+            console.warn('  Got Arkose captcha challenge! Please run "ClaimGames.cmd --show --claim epic" to complete it in browser once.');
+            await notify(`epic-games: got Arkose captcha challenge for ${title}. Run with SHOW=1 to solve it.`);
+          }).catch((_) => {
+          });
+        } catch (err) {
+          await euAccept;
+          if (err?.name === "TimeoutError") {
+            console.log(`  The checkout frame showed no order button in time (${String(err.message).split("\n")[0]}).`);
+          } else {
+            console.error(`  Failed in the checkout frame: ${err.message}`);
+            db.data[user][game_id].status = notify_game.status = "failed";
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
+          }
+        }
+      } else {
         console.log("  No checkout iframe detected \u2014 using new Epic direct claim flow...");
         if (cfg.dryrun) {
           console.log("  DRYRUN=1 -> Skip order!");
@@ -7028,17 +7379,29 @@ Game link: ${url}`);
           if (cfg.time) console.timeEnd("claim game");
           continue;
         }
+        const { button: pageOrderBtn, source: dialogText } = pageOrderTarget(page);
+        let pageOrderShown = true;
         try {
-          const pageOrderBtn = page.locator([
-            "button:not(:has(.payment-loading--loading)):not([disabled])"
-          ].join(", ")).filter({ hasText: /Place Order|Add to library|Добавить в библиотеку|Оформить заказ|Order Now|Get Now|Claim/i }).first();
           await pageOrderBtn.waitFor({ state: "visible", timeout: 8e3 });
-          console.log("  Found page-level order button, clicking...");
-          await pageOrderBtn.click({ delay: 50 });
-          const btnAgreeEl = page.locator('button:has-text("I Accept"), button:has-text("\u041F\u0440\u0438\u043D\u044F\u0442\u044C")');
-          btnAgreeEl.waitFor({ timeout: 3e3 }).then(() => btnAgreeEl.click()).catch((_) => {
-          });
-        } catch (_noPageBtn) {
+        } catch (err) {
+          if (err?.name !== "TimeoutError") {
+            console.error(`  Failed while looking for the order dialog: ${err.message}`);
+            db.data[user][game_id].status = notify_game.status = "failed";
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
+          }
+          pageOrderShown = false;
+        }
+        if (pageOrderShown) {
+          console.log("  Found page-level order button...");
+          const pageOrder = await clickOnlyIfFree(pageOrderBtn, dialogText, { clickOptions: { delay: 50 } });
+          if (pageOrder.refused) {
+            recordRefusal(db.data[user][game_id], notify_game, pageOrder);
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
+          }
+          euAccept = acceptEuAgreement(page, page);
+        } else {
           console.log("  No page-level order button \u2014 waiting for direct In Library transition...");
         }
       }
@@ -7053,8 +7416,7 @@ Game link: ${url}`);
           page.locator("text=Is Epic Games Launcher installed?").waitFor({ state: "attached" }),
           page.locator("text=\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0435 \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0443 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 Epic Games").waitFor({ state: "attached" }),
           page.locator("text=Your order is complete").waitFor({ state: "attached" }),
-          page.locator("text=Claim").waitFor({ state: "detached" }),
-          // button disappears after claim
+          // (no "Claim button detached": a missing element proves nothing and resolved almost at once)
           page.waitForFunction(() => {
             const btn = document.querySelector('button[data-testid="purchase-cta-button"], button[class*="sidebarBuyButton"]') || Array.from(document.querySelectorAll("button")).find((b) => /(in library|в библиотеке)/i.test(b.textContent));
             return btn && /in library|в библиотеке/i.test(btn.textContent);
@@ -7073,11 +7435,12 @@ Game link: ${url}`);
         console.log("  Claimed successfully!");
       } catch (e) {
         console.log(e);
-        console.error("  Failed to claim! To avoid captchas try to get a new IP address.");
+        console.error("  Could not confirm the claim (no proof that the game is in the library)! To avoid captchas try to get a new IP address; if the game is yours, the next run marks it.");
         const p2 = screenshot("failed", `${game_id}_${filenamify(datetime())}.png`);
         await page.screenshot({ path: p2, fullPage: true });
-        db.data[user][game_id].status = "failed";
+        db.data[user][game_id].status = "failed:unconfirmed";
       }
+      await euAccept;
       notify_game.status = db.data[user][game_id].status;
       const p = screenshot(`${game_id}.png`);
       if (!existsSync(p)) await page.screenshot({ path: p, fullPage: false });
@@ -7092,7 +7455,7 @@ Game link: ${url}`);
   if (error.message && process.exitCode != 130) notify(`epic-games failed: ${error.message.split("\n")[0]}`);
 } finally {
   await db.write();
-  if (notify_games.filter((g) => g.status == "claimed" || g.status == "failed").length) {
+  if (notify_games.filter((g) => g.status == "claimed" || String(g.status).startsWith("failed")).length) {
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`epic-games (${user}):<br>${html_game_list(notify_games, statsSummary)}`);
   }

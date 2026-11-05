@@ -249,7 +249,7 @@ try {
           await page.waitForTimeout(1000);
 
           // Submit final checkout
-          const payBtn = page.locator([
+          const payLocator = page.locator([
             'button[type="submit"]:not([disabled])',
             'button.btn:visible',
             'button:has-text("Pay now")',
@@ -261,8 +261,10 @@ try {
             'button:has-text("Подтвердить")',
           ].join(', ')).filter({ hasText: /pay|complete|confirm|order|оплат|подтверд|заказ|немедленно/i }).first();
 
-          await payBtn.scrollIntoViewIfNeeded().catch(() => {});
-          if (!(await payBtn.isVisible())) {
+          await payLocator.scrollIntoViewIfNeeded().catch(() => {});
+          // Pinned: the element that is checked below is the very element that is clicked, not whatever the locator finds later
+          const payBtn = await payLocator.elementHandle({ timeout: 5000 }).catch(() => null);
+          if (!payBtn || !(await payBtn.isVisible())) {
             throw new Error('Checkout confirmation button not visible');
           }
 
@@ -272,8 +274,12 @@ try {
             throw new Error(`Safety guard tripped right before the order (button: "${buttonText}"). Aborting checkout to prevent accidental charges.`);
           }
 
+          // and once more right before the click: the same label, a short click timeout
+          if ((await payBtn.innerText().catch(() => null))?.trim() !== buttonText.trim()) {
+            throw new Error(`The checkout button changed right before the order (was "${buttonText}"). Aborting checkout to prevent accidental charges.`);
+          }
           console.log('    Submitting final order...');
-          await payBtn.click();
+          await payBtn.click({ timeout: 2000 });
 
           // Wait for order confirmation
           let orderConfirmed = false;

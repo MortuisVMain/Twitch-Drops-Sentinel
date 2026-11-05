@@ -4,6 +4,8 @@
 import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
+import { clickOnlyIfFree } from './src/checkout.js';
+import { clickBuyNowIfFree, isFreeListing, recordRefusal } from './src/orders.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'fab', ...a);
 
@@ -101,9 +103,8 @@ try {
     });
 
     for (const r of searchData.results || []) {
-      // Pick promotional 100% discount or limited-time assets
-      const isPromo = r.priceTier?.isPromotional || r.priceTier?.discountPercentage === 100;
-      if (isPromo && !assetMap.has(r.uid)) {
+      // Only a 100% discount is free; the order itself is still checked at the checkout
+      if (isFreeListing(r) && !assetMap.has(r.uid)) {
         assetMap.set(r.uid, {
           uid: r.uid,
           title: r.title,
@@ -175,7 +176,13 @@ try {
           throw new Error('Buy now button not visible');
         }
 
-        await buyBtn.click();
+        // Buy now only opens the checkout; the order is placed (or refused) below, from the total in the checkout frame
+        const buyResult = await clickBuyNowIfFree(buyBtn, page);
+        if (buyResult.refused) {
+          recordRefusal(db.data[user][asset.uid], notifyItem, buyResult);
+          dbFab.data[user][asset.uid].status = buyResult.status;
+          continue;
+        }
         await page.waitForTimeout(2000);
 
         // Specific checkout/purchase iframe selector (avoids strict mode violation with hCaptcha iframes)
@@ -184,7 +191,14 @@ try {
         const checkoutFrame = page.frameLocator(frameSelector).first();
         const addBtn = checkoutFrame.locator('button:has-text("Add to library"), button:has-text("Add to Library"), button:has-text("Place Order")').first();
         await addBtn.waitFor({ timeout: 15000 });
-        await addBtn.click();
+        // The total is read from inside the checkout frame; a paid, unreadable or missing total never reaches the click
+        const orderResult = await clickOnlyIfFree(addBtn, checkoutFrame, { timer: page });
+        if (orderResult.refused) {
+          recordRefusal(db.data[user][asset.uid], notifyItem, orderResult);
+          dbFab.data[user][asset.uid].status = orderResult.status;
+          await page.screenshot({ path: screenshot('failed', `${filenamify(asset.title)}_${filenamify(datetime())}.png`) }).catch(() => {});
+          continue;
+        }
 
         // Verification loop
         let confirmed = false;

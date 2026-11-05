@@ -74,6 +74,26 @@ DAY_BITS: Dict[str, int] = {
     "Saturday": 64,
 }
 
+def owned_status(entry: dict) -> Optional[str]:
+    """'claimed' or 'existed' for a game the account owns; None for anything else.
+
+    A refused order ("failed:not-free"), a failure, a skip or a status nobody knows must never be listed as claimed.
+    An entry without a status key comes from an older engine, which wrote no status for a claim; it still counts as
+    claimed. The current engine writes a status for every entry it creates (Epic, Fab and Unity start at "failed"), so
+    a game that was only opened, skipped or refused never reads as owned. A status that is present is never defaulted:
+    anything not listed above, an empty one included, is not owned.
+    """
+    status = entry.get("status", "claimed")
+    if not isinstance(status, str):
+        return None
+    status = status.strip().lower()
+    if status == "claimed" or status.startswith("claimed "):  # Prime: "claimed and redeemed"
+        return "claimed"
+    if status in ("existed", "manual"):  # manual: it failed once, the account owns it now
+        return "existed"
+    return None
+
+
 def bitmask_to_days(mask: Optional[int]) -> List[str]:
     if mask is None:
         return ["Tuesday", "Friday", "Sunday"]
@@ -495,7 +515,9 @@ class GiveawaysOrchestrator:
                             for slug, entry in games.items():
                                 if not isinstance(entry, dict):
                                     continue
-                                status = entry.get("status", "claimed")
+                                status = owned_status(entry)
+                                if status is None:
+                                    continue
                                 if status == "claimed":
                                     claimed_cnt += 1
                                 else:
@@ -527,7 +549,7 @@ class GiveawaysOrchestrator:
                                     "claimedAt": iso_str,
                                     "timestampMs": ts_ms,
                                     "url": entry.get("url", ""),
-                                    "status": status if status in ("claimed", "existed") else "claimed",
+                                    "status": status,
                                 })
                 except (OSError, json.JSONDecodeError) as e:
                     logger.warning(f"Error reading FGC data file {fpath}: {e}")

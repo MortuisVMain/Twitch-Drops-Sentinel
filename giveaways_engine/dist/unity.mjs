@@ -5421,18 +5421,25 @@ var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
 var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
 var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
+var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
+var CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
+var CHARGE_SOFT = /(?<![\p{L}\d])(?:pay|then|due)(?![\p{L}\d])|per month|\/\s?month|в месяц/iu;
+var CHARGE_LINE_MAX = 160;
 var hasNonZeroDigit = (text) => /[1-9]/.test(text);
-var orderTotalState = (text) => {
+var hasNonZeroAmount = (text) => [...String(text).matchAll(new RegExp(AMOUNT, "gu"))].some((m) => hasNonZeroDigit(m[0]));
+var isChargeLine = (line) => line.length <= CHARGE_LINE_MAX && (CHARGE_STRICT.test(line) && hasNonZeroDigit(line) || CHARGE_SOFT.test(line) && hasNonZeroAmount(line));
+var orderTotalState = (text, { freeWord = false } = {}) => {
   const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let state = "unknown";
   let unreadable = false;
+  if (lines.some(isChargeLine)) return "paid";
   for (const [i, line] of lines.entries()) {
     const match = TOTAL_LINE.exec(line);
     if (!match) continue;
-    if (NOT_THE_PRICE.test(match[2])) continue;
+    if (NOT_THE_PRICE.test(match[2].split(/\d/)[0])) continue;
     const amount = match[2] || lines[i + 1] || "";
     if (hasNonZeroDigit(amount)) return "paid";
-    if (WHOLE_AMOUNT.test(amount)) {
+    if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
       state = "free";
     } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
       unreadable = true;
@@ -5441,18 +5448,26 @@ var orderTotalState = (text) => {
   return unreadable ? "unknown" : state;
 };
 var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
-var readPageText = (page2) => page2.evaluate(() => document.body.innerText).catch((err) => {
-  console.warn(`Cannot read the checkout page: ${err.message}`);
-  return "";
-});
-var waitForFreeOrder = async (page2) => {
-  let zeroChecks = 0;
-  for (let i = 0; i < 20 && zeroChecks < 3; i++) {
-    zeroChecks = orderTotalState(await readPageText(page2)) === "free" ? zeroChecks + 1 : 0;
-    if (zeroChecks < 3) await page2.waitForTimeout(1e3);
+var readPageText = async (source) => {
+  try {
+    const text = typeof source.evaluate === "function" ? await source.evaluate(() => document.body.innerText) : await source.locator("body").innerText({ timeout: 5e3 });
+    return typeof text === "string" ? text : "";
+  } catch (err) {
+    console.warn(`Cannot read the checkout page: ${err.message}`);
+    return "";
   }
-  return zeroChecks === 3;
 };
+var settledOrderState = async (source, { timer = source, tries = 20, freeWord = false } = {}) => {
+  let zeroChecks = 0;
+  let last = "unknown";
+  for (let i = 0; i < tries && zeroChecks < 3; i++) {
+    last = orderTotalState(await readPageText(source), { freeWord });
+    zeroChecks = last === "free" ? zeroChecks + 1 : 0;
+    if (zeroChecks < 3) await timer.waitForTimeout(1e3);
+  }
+  return zeroChecks === 3 ? "free" : last;
+};
+var waitForFreeOrder = async (page2) => await settledOrderState(page2) === "free";
 
 // unity.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "unity", ...a);
@@ -5644,7 +5659,7 @@ try {
             });
           });
           await page.waitForTimeout(1e3);
-          const payBtn = page.locator([
+          const payLocator = page.locator([
             'button[type="submit"]:not([disabled])',
             "button.btn:visible",
             'button:has-text("Pay now")',
@@ -5655,17 +5670,21 @@ try {
             'button:has-text("\u0417\u0430\u043F\u043B\u0430\u0442\u0438\u0442\u044C \u043D\u0435\u043C\u0435\u0434\u043B\u0435\u043D\u043D\u043E")',
             'button:has-text("\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C")'
           ].join(", ")).filter({ hasText: /pay|complete|confirm|order|оплат|подтверд|заказ|немедленно/i }).first();
-          await payBtn.scrollIntoViewIfNeeded().catch(() => {
+          await payLocator.scrollIntoViewIfNeeded().catch(() => {
           });
-          if (!await payBtn.isVisible()) {
+          const payBtn = await payLocator.elementHandle({ timeout: 5e3 }).catch(() => null);
+          if (!payBtn || !await payBtn.isVisible()) {
             throw new Error("Checkout confirmation button not visible");
           }
           const buttonText = await payBtn.innerText().catch(() => "");
           if (orderTotalState(await readPageText(page)) !== "free" || hasPaidAmount(buttonText)) {
             throw new Error(`Safety guard tripped right before the order (button: "${buttonText}"). Aborting checkout to prevent accidental charges.`);
           }
+          if ((await payBtn.innerText().catch(() => null))?.trim() !== buttonText.trim()) {
+            throw new Error(`The checkout button changed right before the order (was "${buttonText}"). Aborting checkout to prevent accidental charges.`);
+          }
           console.log("    Submitting final order...");
-          await payBtn.click();
+          await payBtn.click({ timeout: 2e3 });
           let orderConfirmed = false;
           for (let i = 0; i < 25; i++) {
             await page.waitForTimeout(1e3);
