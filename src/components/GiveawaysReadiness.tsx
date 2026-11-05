@@ -7,8 +7,8 @@ import { uiLocale, translate } from '../i18n';
 import { copyText } from '../utils/loginCode';
 import { ReadinessFailure } from '../hooks/useGiveawaysReadiness';
 import {
-  READINESS_GROUPS, actionLabel, allSitesOk, buildReport, countTodo, groupItems, itemStatus, itemText, safeUrl, statusLabel, summaryText,
-  TextContext,
+  READINESS_GROUPS, actionLabel, allSitesOk, browserChoiceOf, browserNeedsFreshSignIn, browserOptions, buildReport, countTodo, groupItems, itemStatus,
+  itemText, safeUrl, statusLabel, summaryText, TextContext,
 } from '../utils/giveawaysReadiness';
 
 interface GiveawaysReadinessProps {
@@ -25,6 +25,8 @@ interface GiveawaysReadinessProps {
   onSignIn: (store: StoreId) => void;
   onEnableGiveaways: () => void | Promise<void>;
   onEnableScheduler: () => void | Promise<void>;
+  onSetBrowser: (browser: string) => void | Promise<unknown>;
+  browserBusy: boolean;
 }
 
 const FAILURE_TEXT: Record<ReadinessFailure, string> = {
@@ -113,6 +115,36 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
     setCopyState(ok ? 'done' : 'failed');
   };
 
+  const renderBrowserPicker = (item: ReadinessItem) => {
+    const choice = browserChoiceOf(item);
+    const needsSignIn = data ? browserNeedsFreshSignIn(choice, data.items) : false;
+    return (
+      <div style={{ flex: '1 1 100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px' }}>
+          <label htmlFor="readiness-browser" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-secondary)' }}>Браузер для входа и сбора</label>
+          <select
+            id="readiness-browser"
+            className="tactile-btn"
+            value={choice}
+            disabled={props.browserBusy || busy}
+            aria-describedby={needsSignIn ? 'readiness-browser-note' : undefined}
+            onChange={(e) => { void props.onSetBrowser(e.target.value); }}
+            style={{ minHeight: 36, maxWidth: '100%', justifyContent: 'flex-start', cursor: props.browserBusy ? 'wait' : 'pointer' }}
+          >
+            {browserOptions(item).map((option) => (
+              <option key={option.id} value={option.id} style={{ background: 'var(--bg-chassis-base)', color: 'var(--text-primary)' }}>{option.text}</option>
+            ))}
+          </select>
+        </div>
+        {needsSignIn && (
+          <p id="readiness-browser-note" style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.45 }}>
+            В этом браузере нужно войти в магазины заново: вход хранится отдельно для каждого браузера.
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const renderRow = (item: ReadinessItem, key: string) => {
     const text = itemText(item, ctx);
     const status = itemStatus(item, data?.engineInstall);
@@ -138,6 +170,7 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
             {installing ? 'Устанавливается…' : actionLabel(item.action)}
           </button>
         )}
+        {item.id === 'browser' && renderBrowserPicker(item)}
       </li>
     );
   };

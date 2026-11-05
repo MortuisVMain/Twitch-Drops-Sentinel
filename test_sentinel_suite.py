@@ -790,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.13", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.13") == (3, 5, 13)
+    assert __version__ == "3.5.14", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.14") == (3, 5, 14)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.13") > parse_version("3.5.6")
+    assert parse_version("v3.5.14") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -3104,7 +3104,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.13'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.14'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -6429,6 +6429,343 @@ def test_diagnostic_report_shows_the_real_drop_and_a_readable_journal():
     print("      Diagnostic report: PASS [OK]")
 
 
+def test_giveaways_browser_choice_in_the_service():
+    print("[browser-choice] Giveaways: the setting, the environment of a run, the readiness options, one record of sign-ins per browser...")
+    import logging
+    import types
+    from aiohttp import web
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    import giveaways_readiness as gr
+    import sentinel_service as svc
+
+    work = Path(tempfile.mkdtemp(prefix="browser_choice_", dir=SANDBOX))
+    engine, home, config = work / "engine", work / "home", work / "config.json"
+    (engine / "data").mkdir(parents=True)
+    (engine / "runner.js").write_text("", encoding="utf-8")
+    (engine / "node_modules" / "patchright").mkdir(parents=True)
+    home.mkdir()
+    env_keys = ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")
+    saved = (gc.CONFIG_FILE, gc.resolve_fgc_root, gc.shutil.which, gc.asyncio.create_subprocess_exec, gc.engine_installed,
+             {k: os.environ.get(k) for k in env_keys})
+    gc.CONFIG_FILE, gc.resolve_fgc_root = config, (lambda: engine)
+    gc.engine_installed = lambda d: True
+    gc.shutil.which = lambda name, *a, **k: name
+    for key in env_keys:
+        os.environ[key] = str(home)
+
+    warnings = []
+    log_handler = logging.Handler()
+    log_handler.emit = lambda record: warnings.append(record.getMessage()) if record.levelno >= logging.WARNING else None
+    logging.getLogger("sentinel.giveaways").addHandler(log_handler)
+
+    def write_config(body):
+        config.write_text(body if isinstance(body, str) else json.dumps(body), encoding="utf-8")
+
+    try:
+        # The setting: auto when missing or wrong (a wrong value is named once), the four known values as they are
+        assert gc.read_browser_setting() == "auto", "no config yet"
+        for body, expected in (({}, "auto"), ({"giveaways_browser": "auto"}, "auto"), ({"giveaways_browser": "chrome"}, "chrome"),
+                               ({"giveaways_browser": "msedge"}, "msedge"), ({"giveaways_browser": "chromium"}, "chromium"),
+                               ({"giveaways_browser": " MSEDGE "}, "msedge")):
+            write_config(body)
+            assert gc.read_browser_setting() == expected, (body, gc.read_browser_setting())
+        assert not warnings, warnings
+        for bad in ("firefox", "edge", "", 5, ["chrome"], None):
+            write_config({"giveaways_browser": bad})
+            assert gc.read_browser_setting() == "auto", bad
+        write_config("{ not json")
+        assert gc.read_browser_setting() == "auto"
+        config.write_bytes(b"\xef\xbb\xbf" + json.dumps({"giveaways_browser": "msedge"}).encode())
+        assert gc.read_browser_setting() == "msedge", "a config saved with a BOM still counts"
+        assert any("firefox" in w for w in warnings), f"an invalid value must be named in the log: {warnings}"
+        before = len(warnings)
+        write_config({"giveaways_browser": "firefox"})
+        gc.read_browser_setting()
+        gc.read_browser_setting()
+        assert len(warnings) == before, "the same wrong value is reported once, not on every poll of the state"
+        assert [gc.parse_browser(v) for v in ("chrome", "Edge", "msedge", None, 3)] == ["chrome", None, "msedge", None, None]
+
+        # A manual run (claim, sign-in, switch account) gets the choice in its environment
+        class _Out:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class _Proc:
+            pid = 779
+            returncode = None
+            stdout = _Out()
+
+            async def wait(self):
+                return 0
+
+        spawned = []
+
+        async def fake_exec(*args, **kwargs):
+            spawned.append(kwargs.get("env"))
+            return _Proc()
+
+        async def idle_scheduler(force=False):
+            return {"state": "Ready"}
+
+        async def no_monitor(proc):
+            return None
+
+        def orchestrator():
+            orch = gc.GiveawaysOrchestrator()
+            orch._query_scheduler, orch._monitor_process = idle_scheduler, no_monitor
+            return orch
+
+        gc.asyncio.create_subprocess_exec = fake_exec
+        for body, expected in (({"giveaways_browser": "msedge"}, "msedge"), ({"giveaways_browser": "chromium"}, "chromium"),
+                               ({"giveaways_browser": "firefox"}, "auto"), ({}, "auto")):
+            write_config(body)
+            spawned.clear()
+            asyncio.run(orchestrator().start_claim(["gog"]))
+            assert spawned[-1]["FGC_BROWSER"] == expected, (body, spawned)
+            assert "FGC_SWITCH_ACCOUNT" not in spawned[-1]
+        write_config({"giveaways_browser": "msedge"})
+        asyncio.run(orchestrator().start_auth("steam", switch_account=True))
+        assert spawned[-1]["FGC_BROWSER"] == "msedge" and spawned[-1]["FGC_SWITCH_ACCOUNT"] == "steam", "sign-in and switch use the same browser"
+
+        # Changing the browser: refused while anything is running, written when idle
+        class _Request:
+            def __init__(self, body):
+                self.body = body
+
+            async def json(self):
+                if isinstance(self.body, Exception):
+                    raise self.body
+                return self.body
+
+        settings = {"giveaways_browser": "auto"}
+        written = []
+
+        def save():
+            written.append(dict(settings))
+            config.write_text(json.dumps(settings), encoding="utf-8")
+
+        def call(body, orch):
+            fake = types.SimpleNamespace(giveaways=orch, settings=settings, save_settings=save)
+            try:
+                response = asyncio.run(svc.SentinelSupervisor.handle_giveaways_browser(fake, _Request(body)))
+                return response.status, json.loads(response.text)
+            except web.HTTPException as exc:
+                return exc.status, json.loads(exc.text) if exc.text else {}
+
+        for bad in ({"browser": "firefox"}, {"browser": "brave"}, {"browser": "edge"}, {"browser": ""}, {"browser": 5}, {"browser": ["chrome"]},
+                    {}, [], "chrome", ValueError("not json")):
+            status, body = call(bad, orchestrator())
+            assert status == 400 and body.get("detail"), (bad, status, body)
+        assert not written and settings == {"giveaways_browser": "auto"}, "a refused value must change nothing"
+
+        busy = orchestrator()
+        busy._proc = types.SimpleNamespace(returncode=None, pid=1)
+        status, body = call({"browser": "msedge"}, busy)
+        assert status == 409 and "сбор" in body["detail"].lower(), (status, body)
+        installing = orchestrator()
+        installing._engine_install_task = types.SimpleNamespace(done=lambda: False)
+        status, body = call({"browser": "msedge"}, installing)
+        assert status == 409 and "установка" in body["detail"].lower(), (status, body)
+        task_running = orchestrator()
+
+        async def scheduler_running(force=False):
+            return {"state": "Running"}
+        task_running._query_scheduler = scheduler_running
+        status, body = call({"browser": "msedge"}, task_running)
+        assert status == 409, (status, body)
+        assert not written and settings == {"giveaways_browser": "auto"}, "a refused change must write nothing"
+
+        status, body = call({"browser": "msedge"}, orchestrator())
+        assert status == 200 and body == {"status": "ok", "browser": "msedge"}, (status, body)
+        assert settings["giveaways_browser"] == "msedge" and json.loads(config.read_text(encoding="utf-8"))["giveaways_browser"] == "msedge"
+        assert svc.SUPERVISOR_DEFAULTS.get("giveaways_browser") == "auto", "a fresh install starts on auto"
+
+        # Readiness: the options are the installed browsers, a chosen browser that is gone is a step left
+        chrome = home / "Google" / "Chrome" / "Application"
+        edge = home / "Microsoft" / "Edge" / "Application"
+
+        def check(body):
+            write_config(body)
+            gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True)
+            report = asyncio.run(gr.check_readiness(gc.GiveawaysOrchestrator(), full=False))
+            return report, next(i for i in report["items"] if i["id"] == "browser")
+
+        report, item = check({"giveaways_browser": "auto"})
+        assert item["status"] == "warning" and item["params"]["found"] is None and item["params"]["options"] == ["auto", "chromium"], item
+        assert item["params"]["choice"] == "auto" and item["params"]["chromiumInstalled"] is False, item
+        chrome.mkdir(parents=True)
+        (chrome / "chrome.exe").write_text("", encoding="utf-8")
+        report, item = check({})
+        assert item["status"] == "ok" and item["params"]["found"] == "chrome" and item["params"]["options"] == ["auto", "chrome", "chromium"], item
+        assert item["params"]["choice"] == "auto" and item["params"]["reason"] is None, item
+        report, item = check({"giveaways_browser": "firefox"})
+        assert item["params"]["choice"] == "auto", "an invalid value is shown as auto"
+        report, item = check({"giveaways_browser": "msedge"})
+        assert item["status"] == "todo" and item["params"]["reason"] == "selected_missing" and item["params"]["choice"] == "msedge", item
+        assert "msedge" not in item["params"]["options"] and report["remaining"] >= 1 and not report["ready"], (item, report["remaining"])
+        edge.mkdir(parents=True)
+        (edge / "msedge.exe").write_text("", encoding="utf-8")
+        report, item = check({"giveaways_browser": "msedge"})
+        assert item["status"] == "ok" and item["params"]["reason"] is None and item["params"]["options"] == ["auto", "chrome", "msedge", "chromium"], item
+        report, item = check({"giveaways_browser": "chromium"})
+        assert item["status"] == "warning" and item["params"]["reason"] == "will_download", item
+        (home / "ms-playwright" / "chromium-1234").mkdir(parents=True)
+        report, item = check({"giveaways_browser": "chromium"})
+        assert item["status"] == "ok" and item["params"]["chromiumInstalled"] is True, item
+        report, item = check({"giveaways_browser": "chrome"})
+        assert item["status"] == "ok" and item["params"]["found"] == "chrome", item
+
+        # Sign-ins: sessions.json is the record of chrome and auto and stays as it is; every other browser has its own
+        gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True)
+        data = engine / "data"
+        (data / "sessions.json").write_text(json.dumps({"steam": {"account": "me", "confirmedAt": 5}, "gog": {"account": None}}), encoding="utf-8")
+        (data / "epic-games.json").write_text(json.dumps({"old@example.com": {"g1": {"status": "claimed", "title": "G", "time": "2026-01-01 10:00:00"}}}), encoding="utf-8")
+        original = {f.name: f.read_bytes() for f in data.iterdir()}
+
+        def stores(browser):
+            write_config({"giveaways_browser": browser})
+            meta, _ = gc.GiveawaysOrchestrator()._read_inventory_sync(True)
+            return meta
+
+        for browser in ("auto", "chrome"):
+            meta = stores(browser)
+            assert meta["steam"]["account"] == "me" and meta["steam"]["loginConfirmedAt"] == 5, (browser, meta["steam"])
+            assert meta["gog"]["account"] is None
+            assert meta["epic"]["account"] == "old@example.com", "old installs: claimed games still name the account when no sign-in was recorded"
+        for browser, name in (("msedge", "sessions-msedge.json"), ("chromium", "sessions-chromium.json")):
+            meta = stores(browser)
+            assert all(m["account"] is None and m["loginConfirmedAt"] is None for m in meta.values()), \
+                f"a browser that never signed in must not show a signed-in store: {browser} {meta}"
+            (data / name).write_text(json.dumps({"gog": {"account": f"{browser}-me", "confirmedAt": 9}}), encoding="utf-8")
+            meta = stores(browser)
+            assert meta["gog"]["account"] == f"{browser}-me" and meta["gog"]["loginConfirmedAt"] == 9, meta["gog"]
+            assert meta["steam"]["account"] is None, "sign-ins of another browser do not count"
+        assert {n: b for n, b in ((f.name, f.read_bytes()) for f in data.iterdir()) if n in original} == original, "the existing files must stay byte for byte"
+
+        # Switching without a forced refresh must not serve the other browser's cards from the cache
+        orch = gc.GiveawaysOrchestrator()
+        write_config({"giveaways_browser": "auto"})
+        assert orch._read_inventory_sync()[0]["steam"]["account"] == "me"
+        write_config({"giveaways_browser": "msedge"})
+        assert orch._read_inventory_sync()[0]["steam"]["account"] is None, "the cache follows the browser"
+        write_config({"giveaways_browser": "auto"})
+        assert orch._read_inventory_sync()[0]["steam"]["account"] == "me"
+    finally:
+        logging.getLogger("sentinel.giveaways").removeHandler(log_handler)
+        gc.CONFIG_FILE, gc.resolve_fgc_root, gc.shutil.which, gc.asyncio.create_subprocess_exec, gc.engine_installed = saved[:5]
+        for key, value in saved[5].items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(work, ignore_errors=True)
+    print("      Browser choice (service): PASS [OK]")
+
+
+def test_giveaways_browser_choice_in_the_runner_and_engine():
+    print("[browser-choice] Giveaways runner: manual and scheduled runs both hand the choice to the store scripts; engine unit tests...")
+    node = shutil.which("node")
+    if not node:
+        print("      SKIP: Node.js is missing, the runner and the engine tests cannot run")
+        return
+    res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "browser_choice.test.mjs")],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    assert res.returncode == 0, f"engine tests failed:\n{res.stdout[-2500:]}\n{res.stderr[-800:]}"
+
+    engine = Path(tempfile.mkdtemp(prefix="sentinel_browser_run_")) / "движок"
+    try:
+        (engine / "dist").mkdir(parents=True)
+        (engine / "node_modules" / "patchright").mkdir(parents=True)
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)
+        shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
+        (engine / "dist" / "epic-games.mjs").write_text("console.log('BROWSER=' + process.env.FGC_BROWSER);", encoding="utf-8")
+        config, log = engine / "config.json", engine / "giveaways_scheduled.log"
+
+        def scheduled(env_browser=None):
+            env = {k: v for k, v in os.environ.items() if k != "FGC_BROWSER"}
+            if env_browser is not None:
+                env["FGC_BROWSER"] = env_browser
+            result = subprocess.run([node, "runner.js", "--scheduled", "--config", str(config), "--log", str(log)],
+                                    cwd=str(engine), capture_output=True, text=True, encoding="utf-8", timeout=60, env=env)
+            return result.returncode, log.read_text(encoding="utf-8")
+
+        def manual(env_browser=None):
+            env = {k: v for k, v in os.environ.items() if k != "FGC_BROWSER"}
+            if env_browser is not None:
+                env["FGC_BROWSER"] = env_browser
+            result = subprocess.run([node, "runner.js", "--headless", "--claim", "epic"], cwd=str(engine), capture_output=True,
+                                    text=True, encoding="utf-8", timeout=60, env=env)
+            return result.returncode, result.stdout
+
+        for value, expected in (("msedge", "msedge"), ("chromium", "chromium"), ("chrome", "chrome"), ("auto", "auto"), (None, "auto"), ("firefox", "auto")):
+            config.write_text(json.dumps({"giveaways_selected_stores": ["epic"], **({} if value is None else {"giveaways_browser": value})}), encoding="utf-8")
+            code, text = scheduled(env_browser="chrome" if value == "msedge" else None)
+            assert code == 0 and f"BROWSER={expected}" in text, (value, code, text)
+            if value == "firefox":
+                assert "firefox" in text, "a wrong value is named in the scheduled log"
+        config.unlink()
+        code, text = scheduled()
+        assert code == 0 and "BROWSER=auto" in text, (code, text)
+
+        # A manual run takes the choice the app put in the environment; without one it is auto
+        for value, expected in (("msedge", "msedge"), ("chromium", "chromium"), (None, "auto"), ("bogus", "auto")):
+            code, text = manual(env_browser=value)
+            assert code == 0 and f"BROWSER={expected}" in text, (value, code, text)
+    finally:
+        shutil.rmtree(engine.parent, ignore_errors=True)
+
+    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    if not esbuild.exists():
+        print("      (esbuild not available: the texts were not checked)")
+        return
+    out_dir = SANDBOX / "browser_choice_ui_check"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir()
+    res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "giveawaysReadiness.ts"), "--bundle", "--format=esm",
+                          f"--outfile={out_dir / 'giveawaysReadiness.mjs'}"], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    driver = out_dir / "driver.mjs"
+    driver.write_text(
+        "import * as R from './giveawaysReadiness.mjs';\n"
+        "const ctx = { storeName: (id) => id, formatDate: () => 'D' };\n"
+        "const it = (status, params) => ({ id: 'browser', status, params, action: null });\n"
+        "const base = { found: 'chrome', options: ['auto', 'chrome', 'chromium'], chromiumInstalled: false };\n"
+        "const text = (status, params) => R.itemText(it(status, { ...base, ...params }), ctx).lines.join(' | ');\n"
+        "const bad = [];\n"
+        "for (const choice of ['auto', 'chrome', 'msedge', 'chromium']) for (const reason of [null, 'selected_missing', 'will_download']) for (const status of ['ok', 'todo', 'warning', 'info']) {\n"
+        "  const t = R.itemText(it(status, { ...base, choice, reason }), ctx);\n"
+        "  const all = [t.title, ...t.lines];\n"
+        "  if (!t.lines.length || all.some((s) => !s.trim() || /undefined|null|NaN|\\[object/.test(s))) bad.push([choice, reason, status, all]);\n"
+        "}\n"
+        "console.log(JSON.stringify({ bad,\n"
+        "  edge: text('ok', { choice: 'msedge', reason: null }), missing: text('todo', { choice: 'chrome', reason: 'selected_missing' }),\n"
+        "  download: text('warning', { choice: 'chromium', reason: 'will_download' }), auto: text('ok', { choice: 'auto', reason: null }),\n"
+        "  legacy: R.itemText(it('ok', { found: 'edge' }), ctx).lines.join(' | '),\n"
+        "  label: [R.browserOptionLabel('auto'), R.browserOptionLabel('chrome'), R.browserOptionLabel('msedge'), R.browserOptionLabel('chromium')],\n"
+        "  signInNote: [R.browserNeedsFreshSignIn('msedge', [{ id: 'login', status: 'todo', params: {}, action: null }]),\n"
+        "    R.browserNeedsFreshSignIn('msedge', [{ id: 'login', status: 'ok', params: {}, action: null }]),\n"
+        "    R.browserNeedsFreshSignIn('chrome', [{ id: 'login', status: 'todo', params: {}, action: null }]),\n"
+        "    R.browserNeedsFreshSignIn('auto', []), R.browserNeedsFreshSignIn('chromium', [])],\n"
+        "}));\n", encoding="utf-8")
+    run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert run.returncode == 0, run.stderr
+    d = json.loads(run.stdout)
+    assert d["bad"] == [], f"every choice/reason/status must give a text: {d['bad']}"
+    assert "Microsoft Edge" in d["edge"] and "Google Chrome" in d["missing"] and "не найден" in d["missing"], d
+    assert "Chromium" in d["download"] and "скачается" in d["download"], d["download"]
+    assert "Chrome" in d["auto"], d["auto"]
+    assert "Edge" in d["legacy"], "an answer without the new fields (an older service) still reads"
+    assert d["label"] == ["Автовыбор", "Google Chrome", "Microsoft Edge", "Встроенный Chromium"], d["label"]
+    assert d["signInNote"] == [True, False, False, False, True], d["signInNote"]
+    shutil.rmtree(out_dir, ignore_errors=True)
+    print("      Browser choice (runner, engine, texts): PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -6540,6 +6877,8 @@ if __name__ == "__main__":
         test_scheduler_log_file_is_a_file_that_exists_and_an_interrupted_run_is_named,
         test_settings_changes_send_only_the_changed_fields,
         test_giveaways_empty_store_choice_starts_nothing,
+        test_giveaways_browser_choice_in_the_service,
+        test_giveaways_browser_choice_in_the_runner_and_engine,
         test_dimmer_logic_and_shell_use_it,
         test_review_fixes_in_the_service,
         test_loading_states_of_giveaways_and_dimmer,

@@ -54,16 +54,41 @@ async def _node_item() -> Tuple[dict, bool]:
     return _item("node", "ok", {"reason": None, "version": version, **required}), True
 
 
-def _browser_found() -> Optional[str]:
-    """The browsers the engine tries, in its order; Chromium is what `patchright install` downloads."""
+def _installed_browsers() -> Dict[str, bool]:
+    """Which browsers the engine can start, by its own ids; Chromium is what `patchright install` downloads."""
     roots = [os.environ.get(k) for k in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")]
-    for name, relative in (("chrome", Path("Google/Chrome/Application/chrome.exe")), ("edge", Path("Microsoft/Edge/Application/msedge.exe"))):
-        if any(root and (Path(root) / relative).is_file() for root in roots):
-            return name
+    found = {}
+    for name, relative in (("chrome", Path("Google/Chrome/Application/chrome.exe")), ("msedge", Path("Microsoft/Edge/Application/msedge.exe"))):
+        found[name] = any(root and (Path(root) / relative).is_file() for root in roots)
     local = os.environ.get("LOCALAPPDATA")
-    if local and any((Path(local) / "ms-playwright").glob("chromium-*")):
-        return "chromium"
+    found["chromium"] = bool(local and any((Path(local) / "ms-playwright").glob("chromium-*")))
+    return found
+
+
+def _browser_found() -> Optional[str]:
+    """The browser "auto" would use, in the engine's order."""
+    installed = _installed_browsers()
+    for name, label in (("chrome", "chrome"), ("msedge", "edge"), ("chromium", "chromium")):
+        if installed[name]:
+            return label
     return None
+
+
+def _browser_item(installed: Dict[str, bool], choice: str) -> dict:
+    """The browser for sign-in and claims. Chromium is always offered: the engine downloads it on first use (`npx patchright install chromium`)."""
+    found = _browser_found()
+    options = ["auto"] + [name for name in ("chrome", "msedge") if installed[name]] + ["chromium"]
+    params = {"found": found, "choice": choice, "options": options, "chromiumInstalled": installed["chromium"], "reason": None}
+    if choice == "auto":
+        return _item("browser", "ok" if found else "warning", params)
+    if choice == "chromium":
+        if installed["chromium"]:
+            return _item("browser", "ok", params)
+        return _item("browser", "warning", {**params, "reason": "will_download"})
+    if installed[choice]:
+        return _item("browser", "ok", params)
+    # An explicit choice is never replaced by another browser: the run fails, so this is a step left
+    return _item("browser", "todo", {**params, "reason": "selected_missing"})
 
 
 def _selection() -> Tuple[List[str], Optional[str]]:
@@ -132,11 +157,11 @@ async def check_readiness(orchestrator: gc.GiveawaysOrchestrator, full: bool = T
     engine_ok = gc.engine_installed(fgc_dir)
     stores, selection_problem = await asyncio.to_thread(_selection)
 
-    (node_item, node_ok), sched, (store_meta, _), browser, site_items = await asyncio.gather(
+    (node_item, node_ok), sched, (store_meta, _), installed, site_items = await asyncio.gather(
         _node_item(),
         orchestrator._query_scheduler(force=full),
         asyncio.to_thread(orchestrator._read_inventory_sync, True),
-        asyncio.to_thread(_browser_found),
+        asyncio.to_thread(_installed_browsers),
         _site_items(stores) if full else asyncio.sleep(0, result=[]),
     )
 
@@ -145,7 +170,7 @@ async def check_readiness(orchestrator: gc.GiveawaysOrchestrator, full: bool = T
         _item("module", "ok" if module_ok else "todo", {"path": str(fgc_dir)}),
         node_item,
         _item("engine", "ok" if engine_ok else "todo", action=({"kind": "install_engine"} if node_ok and not engine_ok else None)),
-        _item("browser", "ok" if browser else "warning", {"found": browser}),
+        _browser_item(installed, gc.read_browser_setting()),
         _item("selection", "todo" if selection_problem else "ok", {"reason": selection_problem, "stores": stores}, selection_action),
     ]
     for store in stores:

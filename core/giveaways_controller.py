@@ -45,6 +45,10 @@ CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
 TASK_NAME = "FreeGamesClaimerStudio"
 ENGINE_INCOMPLETE_MARK = ".engine-install-incomplete"  # in the engine's data/: written before npm install, removed when it succeeded
 SESSIONS_FILE = "sessions.json"  # store -> last login state the engine saw: {account, confirmedAt} or {account: null}
+# The browser that signs in and claims ("giveaways_browser" in config.json). Each browser has its own profile and so its own record
+# of sign-ins; sessions.json stays that of "auto" and "chrome" (the profile that existed before the choice did), so nothing is migrated.
+BROWSER_CHOICES = ("auto", "chrome", "msedge", "chromium")
+SESSIONS_FILE_BY_BROWSER = {"msedge": "sessions-msedge.json", "chromium": "sessions-chromium.json"}
 
 STORE_FILE_MAP: Dict[str, str] = {
     "epic": "epic-games.json",
@@ -74,6 +78,40 @@ DAY_BITS: Dict[str, int] = {
     "Friday": 32,
     "Saturday": 64,
 }
+
+def parse_browser(value) -> Optional[str]:
+    """One of BROWSER_CHOICES (case and surrounding spaces ignored, as the engine does), or None for anything else."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    return value if value in BROWSER_CHOICES else None
+
+
+_warned_browser_values: Set[str] = set()
+
+
+def read_browser_setting() -> str:
+    """The saved browser choice. Missing, unreadable or unknown means "auto"; an unknown value is named once in the log."""
+    try:
+        config = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return "auto"  # the readiness check and the runner already report a config that cannot be read
+    raw = config.get("giveaways_browser") if isinstance(config, dict) else None
+    if raw is None:
+        return "auto"
+    browser = parse_browser(raw)
+    if browser is None:
+        key = repr(raw)
+        if key not in _warned_browser_values:
+            _warned_browser_values.add(key)
+            logger.warning(f"Unknown giveaways_browser {raw!r} in {CONFIG_FILE.name}: running as 'auto'. Valid values: {', '.join(BROWSER_CHOICES)}.")
+        return "auto"
+    return browser
+
+
+def sessions_file_name(browser: str) -> str:
+    return SESSIONS_FILE_BY_BROWSER.get(browser, SESSIONS_FILE)
+
 
 def owned_status(entry: dict) -> Optional[str]:
     """'claimed' or 'existed' for a game the account owns; None for anything else.
@@ -253,6 +291,7 @@ class GiveawaysOrchestrator:
         self._file_mtimes: Dict[str, float] = {}
         self._cached_inventory: List[dict] = []
         self._cached_stores: Dict[str, dict] = {}
+        self._cached_browser: Optional[str] = None
         self._scheduler_cache: Tuple[float, dict] = (0.0, {})
 
     def _broadcast(self, event_type: str, data: dict) -> None:
@@ -482,8 +521,8 @@ class GiveawaysOrchestrator:
             logger.info(f"Updated scheduler {TASK_NAME} days to: {valid_days}")
             return await self._query_scheduler(force=True)
 
-    def _read_sessions(self, data_dir: Path) -> Dict[str, dict]:
-        fpath = data_dir / SESSIONS_FILE
+    def _read_sessions(self, data_dir: Path, file_name: str = SESSIONS_FILE) -> Dict[str, dict]:
+        fpath = data_dir / file_name
         if not fpath.is_file():
             return {}
         try:
@@ -500,12 +539,16 @@ class GiveawaysOrchestrator:
         data_dir = fgc_dir / "data"
         changed = force
         current_mtimes: Dict[str, float] = {}
-        sessions_path = data_dir / SESSIONS_FILE
+        browser = read_browser_setting()
+        sessions_name = sessions_file_name(browser)
+        if self._cached_browser != browser:
+            changed = True  # the cards follow the browser: another browser has other sign-ins
+        sessions_path = data_dir / sessions_name
         if sessions_path.is_file():
-            current_mtimes[SESSIONS_FILE] = sessions_path.stat().st_mtime
-            if self._file_mtimes.get(SESSIONS_FILE) != current_mtimes[SESSIONS_FILE]:
+            current_mtimes[sessions_name] = sessions_path.stat().st_mtime
+            if self._file_mtimes.get(sessions_name) != current_mtimes[sessions_name]:
                 changed = True
-        elif SESSIONS_FILE in self._file_mtimes:
+        elif sessions_name in self._file_mtimes:
             changed = True
         for store, filename in STORE_FILE_MAP.items():
             fpath = data_dir / filename
@@ -522,7 +565,9 @@ class GiveawaysOrchestrator:
 
         inventory: List[dict] = []
         stores_meta: Dict[str, dict] = {}
-        sessions = self._read_sessions(data_dir)
+        sessions = self._read_sessions(data_dir, sessions_name)
+        # Only the profile that existed before the choice did can have signed in without a record: for it the claimed games still name the account
+        shared_profile = sessions_name == SESSIONS_FILE
 
         for store, filename in STORE_FILE_MAP.items():
             fpath = data_dir / filename
@@ -598,12 +643,13 @@ class GiveawaysOrchestrator:
                 "dbFileExists": exists,
                 # A login counts without any claimed game. Claimed games only name the account while the engine has not
                 # reported this store yet (older installs): after a sign-out they must not bring the old account back.
-                "account": (session.get("account") or None) if session else (accounts[0] if (accounts and total_items > 0) else None),
+                "account": (session.get("account") or None) if session else (accounts[0] if (shared_profile and accounts and total_items > 0) else None),
                 "loginConfirmedAt": session.get("confirmedAt") if session else None,
             }
 
         inventory.sort(key=lambda x: x["timestampMs"], reverse=True)
         self._file_mtimes = current_mtimes
+        self._cached_browser = browser
         self._cached_stores = stores_meta
         self._cached_inventory = inventory
         return stores_meta, inventory
@@ -702,7 +748,7 @@ class GiveawaysOrchestrator:
                 *args,
                 cwd=str(fgc_dir),
                 stdin=asyncio.subprocess.DEVNULL,  # a service started from a console would make the engine wait for a terminal
-                env={**os.environ, "FGC_SWITCH_ACCOUNT": valid_stores[0]} if switch_account else None,
+                env=self._child_env(valid_stores[0] if switch_account else None),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 creationflags=0x08000000  # CREATE_NO_WINDOW
@@ -710,6 +756,28 @@ class GiveawaysOrchestrator:
             self._broadcast("state", {"state": "running", "pid": self._proc.pid, "stores": valid_stores})
             asyncio.create_task(self._monitor_process(self._proc))
             return {"status": "started", "pid": self._proc.pid, "stores": valid_stores}
+
+    @staticmethod
+    def _child_env(switch_store: Optional[str]) -> dict:
+        """Sign-in, switch account and claims all start here, so they all get the same browser; scheduled runs read config.json themselves."""
+        env = {**os.environ, "FGC_BROWSER": read_browser_setting()}
+        if switch_store:
+            env["FGC_SWITCH_ACCOUNT"] = switch_store
+        return env
+
+    async def change_browser(self, browser: str, write) -> dict:
+        """Changing the browser while a run or an install uses the profile would split one run across two browsers: refused then.
+        `write` saves the choice; it runs under the same lock as start_claim, so no run can slip in between the check and the save."""
+        if self.engine_install_state()["running"]:
+            raise _scheduler_refusal(web.HTTPConflict, "Идёт установка браузерного движка. Дождитесь её конца и смените браузер.")
+        async with self._lock:
+            if self._proc and self._proc.returncode is None:
+                raise _scheduler_refusal(web.HTTPConflict, "Идёт сбор раздач или вход в магазин. Дождитесь конца и смените браузер.")
+            sched = await self._query_scheduler(force=True)
+            if sched.get("state") == "Running":
+                raise _scheduler_refusal(web.HTTPConflict, "Автосбор работает в фоне прямо сейчас. Дождитесь конца и смените браузер.")
+            write()
+        return {"status": "ok", "browser": browser}
 
     async def _install_engine(self, fgc_dir: Path) -> None:
         """Installs the browser engine if it is missing; raises with an explanation for the user when npm fails."""

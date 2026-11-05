@@ -612,6 +612,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
         onSignIn={(store) => handleStoreAuth(store)}
         onEnableGiveaways={async () => { await onUpdateSettings?.({ giveaways_enabled: true }); }}
         onEnableScheduler={handleToggleScheduler}
+        onSetBrowser={async (browser) => { if (await readiness.setBrowser(browser)) await fetchState(true); }}
+        browserBusy={readiness.browserBusy}
       />
 
       {(load.failure !== null) && (

@@ -6,6 +6,7 @@
 // ?theme=light|titanium|... picks the interface theme (light is Daylight).
 // ?update=1 serves an available update, so the header shows its widest state (update button).
 // ?readiness=clean serves a clean machine for the giveaways readiness window (default: everything ready); ?readiness=error makes the check fail.
+// ?browser=auto|chrome|msedge|chromium is the browser chosen in the readiness window (default auto); ?browsers=edge-only offers auto, Edge and Chromium only; ?browserstate=missing makes the chosen browser missing; ?browserpost=refuse answers the change with 409. Posts land in window.__browserPosts. A choice other than auto/chrome starts with no sign-ins (its own profile).
 // ?service=slow|down makes fetch of /api/state and /api/updates/check reject (the local service is not up yet): slow for the first 5 s, then it answers; down always. Startup states: tools/check_startup_states.cjs.
 // ?grace=<ms> shortens the start grace period of the connection check (the app reads window.__SENTINEL_START_GRACE_MS, which only this fixture sets).
 // ?pip=short serves short game/reward/channel names, ?pip=idle serves no active drop and no channel (default: the long names above), for the mini-window checks (tools/check_pip_layout.cjs).
@@ -42,7 +43,7 @@
     return game;
   });
   var state = {
-    version: '3.5.13', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.5.14', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
@@ -109,6 +110,16 @@
   }
   // Readiness window: statuses and data only (the interface writes the text). Default = ready, clean = a fresh PC
   var STORE_IDS = ['epic', 'gog', 'steam', 'fab', 'unity', 'itch', 'prime'];
+  var browserChoice = q.get('browser') || 'auto';
+  window.__browserPosts = [];
+  function browserItem(clean) {
+    var missing = q.get('browserstate') === 'missing' && browserChoice !== 'auto';
+    var options = q.get('browsers') === 'edge-only' ? ['auto', 'msedge', 'chromium'] : ['auto', 'chrome', 'msedge', 'chromium'];
+    if (missing) options = options.filter(function (id) { return id !== browserChoice; });
+    var params = { found: clean ? null : 'edge', choice: browserChoice, options: options, chromiumInstalled: q.get('browsers') !== 'edge-only', reason: missing ? 'selected_missing' : null };
+    var status = missing ? 'todo' : clean && browserChoice === 'auto' ? 'warning' : 'ok';
+    return { id: 'browser', status: status, params: params, action: null };
+  }
   function readinessBody(kind, quick) {
     var clean = kind === 'clean';
     var items = [
@@ -116,11 +127,12 @@
       clean ? { id: 'node', status: 'todo', params: { reason: 'missing', version: null, required: 20 }, action: { kind: 'open_url', url: 'https://nodejs.org' } }
             : { id: 'node', status: 'ok', params: { reason: null, version: 'v20.18.0', required: 20 }, action: null },
       clean ? { id: 'engine', status: 'todo', params: {}, action: null } : { id: 'engine', status: 'ok', params: {}, action: null },
-      clean ? { id: 'browser', status: 'warning', params: { found: null }, action: null } : { id: 'browser', status: 'ok', params: { found: 'edge' }, action: null },
+      browserItem(clean),
       { id: 'selection', status: 'ok', params: { reason: null, stores: STORE_IDS }, action: null },
     ];
+    var freshProfile = browserChoice === 'msedge' || browserChoice === 'chromium';
     STORE_IDS.forEach(function (id) {
-      items.push(clean ? { id: 'login', status: 'todo', params: {}, action: { kind: 'sign_in', store: id }, store: id }
+      items.push(clean || freshProfile ? { id: 'login', status: 'todo', params: {}, action: { kind: 'sign_in', store: id }, store: id }
         : { id: 'login', status: 'ok', params: { account: 'long.account.name.number@example.com', confirmedAt: Date.parse('2026-10-30T18:20:00Z') }, action: null, store: id });
     });
     if (!quick) STORE_IDS.forEach(function (id, i) {
@@ -131,12 +143,19 @@
     var remaining = items.filter(function (it) { return it.status === 'todo'; }).length;
     return { ready: remaining === 0, remaining: remaining, checkedAt: '2026-11-03T12:00:00Z', full: !quick, engineInstall: { running: false, error: null }, items: items };
   }
-  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.13', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.13', remote_version: '3.5.13', error: null };
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.14', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.14', remote_version: '3.5.14', error: null };
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
-  window.fetch = function (url) {
+  window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+    if (path === '/api/v1/giveaways/browser' && init && init.method === 'POST') {
+      var posted = JSON.parse(init.body);
+      window.__browserPosts.push(posted);
+      if (q.get('browserpost') === 'refuse') return failing(409);
+      browserChoice = posted.browser;
+      return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok', browser: browserChoice }); }, text: function () { return Promise.resolve('{}'); } });
+    }
     if ((path === '/api/state' || path === '/api/updates/check') && (serviceMode === 'down' || (serviceMode === 'slow' && Date.now() < serviceUpAt))) return Promise.reject(new TypeError('Failed to fetch'));
     if (path === '/api/v1/giveaways/state' && gMode) {
       gCalls += 1;

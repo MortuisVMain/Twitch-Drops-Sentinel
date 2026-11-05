@@ -4920,6 +4920,78 @@ var require_main = __commonJS({
 // src/browser.js
 import fs from "fs";
 import path from "path";
+
+// src/browser_choice.js
+var BROWSER_IDS = ["auto", "chrome", "msedge", "chromium"];
+var LABELS = { auto: "\u0430\u0432\u0442\u043E\u0432\u044B\u0431\u043E\u0440", chrome: "Google Chrome", msedge: "Microsoft Edge", chromium: "\u0432\u0441\u0442\u0440\u043E\u0435\u043D\u043D\u044B\u0439 Chromium" };
+var browserLabel = (browser) => LABELS[browser] ?? browser;
+var resolveBrowserChoice = (env2) => {
+  const raw = env2.FGC_BROWSER;
+  const value = typeof raw == "string" ? raw.trim().toLowerCase() : "";
+  if (!value) return { browser: "auto", invalid: null };
+  if (BROWSER_IDS.includes(value)) return { browser: value, invalid: null };
+  return { browser: "auto", invalid: raw };
+};
+var profileDirName = (browser) => ({ msedge: "browser-msedge", chromium: "browser-chromium" })[browser] ?? "browser";
+var profileDir = (env2, dataDir2) => env2.BROWSER_DIR || dataDir2(profileDirName(resolveBrowserChoice(env2).browser));
+var sessionsFileName = (browser) => ({ msedge: "sessions-msedge.json", chromium: "sessions-chromium.json" })[browser] ?? "sessions.json";
+var BrowserUnavailableError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "BrowserUnavailableError";
+  }
+};
+var isChannelError = (error) => {
+  const message = String(error?.message ?? "");
+  return message.includes("Chromium distribution") || message.includes("not found") || message.includes("Executable doesn't exist") || message.includes("Cannot find") || message.toLowerCase().includes("channel");
+};
+var withoutChannel = (options) => {
+  const copy = { ...options };
+  delete copy.channel;
+  return copy;
+};
+var launchBundled = async (launch, options, install, log) => {
+  try {
+    return await launch(withoutChannel(options));
+  } catch (error) {
+    if (!String(error?.message ?? "").includes("Executable doesn't exist")) throw error;
+    log.log('[INFO] Bundled Chromium binary not found. Automatically running "npx patchright install chromium"...');
+    await install();
+    return launch(withoutChannel(options));
+  }
+};
+var launchWithFallback = async (launch, options, platform, install, log) => {
+  try {
+    return await launch(options);
+  } catch (error) {
+    if (!options.channel || !isChannelError(error)) throw error;
+    log.warn(`[WARN] Browser channel "${options.channel}" is not available on this system.`);
+    if (platform == "win32" && options.channel !== "msedge") {
+      try {
+        log.log("[INFO] Attempting fallback to Microsoft Edge (msedge)...");
+        return await launch({ ...options, channel: "msedge" });
+      } catch {
+      }
+    }
+    log.log("[INFO] Falling back to bundled Patchright Chromium...");
+    return launchBundled(launch, options, install, log);
+  }
+};
+var launchWithPolicy = async ({ launch, options, browser, platform, install, log }) => {
+  if (browser == "chromium") return launchBundled(launch, options, install, log);
+  if (browser == "auto") return launchWithFallback(launch, options, platform, install, log);
+  try {
+    return await launch({ ...options, channel: browser });
+  } catch (error) {
+    if (!isChannelError(error)) throw error;
+    const firstLine = String(error.message).split("\n")[0];
+    const message = `[SENTINEL] \u2715 \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \xAB${browserLabel(browser)}\xBB, \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439 \u0434\u043B\u044F \u0440\u0430\u0437\u0434\u0430\u0447 (${firstLine}). \u0414\u0440\u0443\u0433\u043E\u0439 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u043D\u0435 \u043F\u043E\u0434\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F. \u0421\u043C\u0435\u043D\u0438\u0442\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u0432 \u043E\u043A\u043D\u0435 \xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0433\u043E\u0442\u043E\u0432\u043D\u043E\u0441\u0442\u044C\xBB \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0420\u0430\u0437\u0434\u0430\u0447\u0438\xBB.`;
+    log.error(message);
+    throw new BrowserUnavailableError(message);
+  }
+};
+
+// src/browser.js
 var STORE_LOGIN_COOKIES = {
   epic: /(^|\.)epicgames\.com$/,
   gog: /(^|\.)gog\.com$/,
@@ -4960,14 +5032,14 @@ var minimizeWindow = async (context2) => {
     }
   }
 };
-var launchContext = async (cfg2, options) => {
+var launchContext = async (cfg2, options, deps = {}) => {
   const engine = ENGINES[cfg2.automation];
   if (!engine) {
     throw new Error(`Unknown AUTOMATION "${cfg2.automation}". Supported values: ${Object.keys(ENGINES).join(", ")}.`);
   }
   let module;
   try {
-    module = await import(engine.package);
+    module = await (deps.importEngine ?? ((name) => import(name)))(engine.package);
   } catch (error) {
     if (error?.code == "ERR_MODULE_NOT_FOUND") {
       throw new Error(`Browser automation "${cfg2.automation}" is not installed. Install it with: ${engine.install}`);
@@ -5008,42 +5080,22 @@ var launchContext = async (cfg2, options) => {
       }
     }
   }
-  let context2;
-  const launch = (opts) => browser.launchPersistentContext(cfg2.dir.browser, opts);
-  try {
-    context2 = await launch(options);
-  } catch (error) {
-    const isChannelError = options.channel && (error.message.includes("Chromium distribution") || error.message.includes("not found") || error.message.includes("Executable doesn't exist") || error.message.includes("Cannot find") || error.message.toLowerCase().includes("channel"));
-    if (isChannelError) {
-      console.warn(`[WARN] Browser channel "${options.channel}" is not available on this system.`);
-      if (process.platform === "win32" && options.channel !== "msedge") {
-        try {
-          console.log("[INFO] Attempting fallback to Microsoft Edge (msedge)...");
-          context2 = await launch({ ...options, channel: "msedge" });
-        } catch {
-        }
-      }
-      if (!context2) {
-        console.log("[INFO] Falling back to bundled Patchright Chromium...");
-        const fallbackOpts = { ...options };
-        delete fallbackOpts.channel;
-        try {
-          context2 = await launch(fallbackOpts);
-        } catch (bundledError) {
-          if (bundledError.message.includes("Executable doesn't exist")) {
-            console.log('[INFO] Bundled Chromium binary not found. Automatically running "npx patchright install chromium"...');
-            const { execSync } = await import("child_process");
-            execSync("npx patchright install chromium", { stdio: "inherit" });
-            context2 = await launch(fallbackOpts);
-          } else {
-            throw bundledError;
-          }
-        }
-      }
-    } else {
-      throw error;
-    }
+  const choice = resolveBrowserChoice(process.env);
+  if (choice.invalid !== null) {
+    console.warn(`[WARN] Unknown browser "${choice.invalid}" in FGC_BROWSER (giveaways_browser): running as "auto". Valid values: ${BROWSER_IDS.join(", ")}.`);
   }
+  const launch = (opts) => browser.launchPersistentContext(cfg2.dir.browser, opts);
+  const context2 = await launchWithPolicy({
+    launch,
+    options,
+    browser: choice.browser,
+    platform: process.platform,
+    install: async () => {
+      const { execSync } = await import("child_process");
+      execSync("npx patchright install chromium", { stdio: "inherit" });
+    },
+    log: console
+  });
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") await minimizeWindow(context2);
   const switching = process.env.FGC_SWITCH_ACCOUNT;
   if (switching) {
@@ -5777,8 +5829,8 @@ var cfg = {
   // apprise notification title
   get dir() {
     return {
-      browser: process.env.BROWSER_DIR || dataDir("browser"),
-      // for multiple accounts or testing
+      browser: profileDir(process.env, dataDir),
+      // data/browser, data/browser-<choice> for FGC_BROWSER; BROWSER_DIR wins (multiple accounts, testing)
       screenshots: process.env.SCREENSHOTS_DIR || dataDir("screenshots")
       // set to 0 to disable screenshots
     };
@@ -5849,18 +5901,20 @@ var loginHint = () => {
   if (process.stdin.isTTY) return "Press ESC to skip the prompts if you want to login in the browser (not possible in headless mode).";
   return cfg.headless ? "[SENTINEL] \u0412\u0445\u043E\u0434 \u0432 \u043C\u0430\u0433\u0430\u0437\u0438\u043D \u043D\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D: \u043D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u0412\u043E\u0439\u0442\u0438 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\xBB \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0420\u0430\u0437\u0434\u0430\u0447\u0438\xBB." : `[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430. \u0415\u0441\u043B\u0438 \u043E\u043A\u043D\u0430 \u043D\u0435 \u0432\u0438\u0434\u043D\u043E, \u043D\u0430\u0439\u0434\u0438\u0442\u0435 \u0435\u0433\u043E \u043D\u0430 \u043F\u0430\u043D\u0435\u043B\u0438 \u0437\u0430\u0434\u0430\u0447. \u041D\u0430 \u0432\u0445\u043E\u0434 \u0435\u0441\u0442\u044C ${cfg.login_timeout / 6e4} \u043C\u0438\u043D.`;
 };
+var sessionsFile = () => sessionsFileName(resolveBrowserChoice(process.env).browser);
 var writeSession = async (store, entry) => {
   try {
-    const sessions = await jsonDb("sessions.json", {}).catch((error) => {
+    const file = sessionsFile();
+    const sessions = await jsonDb(file, {}).catch((error) => {
       if (!(error instanceof SyntaxError)) throw error;
-      console.error(`[SENTINEL] Replacing damaged sessions.json: ${error.message}`);
-      rmSync(dataDir("sessions.json"), { force: true });
-      return jsonDb("sessions.json", {});
+      console.error(`[SENTINEL] Replacing damaged ${file}: ${error.message}`);
+      rmSync(dataDir(file), { force: true });
+      return jsonDb(file, {});
     });
     sessions.data[store] = entry;
     await sessions.write();
   } catch (error) {
-    console.error(`[SENTINEL] Could not save the login state of ${store} to sessions.json: ${error.message}`);
+    console.error(`[SENTINEL] Could not save the login state of ${store} to ${sessionsFile()}: ${error.message}`);
   }
 };
 var markSignedIn = (store, account) => writeSession(store, { account, confirmedAt: Date.now() });

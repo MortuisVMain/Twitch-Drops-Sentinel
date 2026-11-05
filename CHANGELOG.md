@@ -2,6 +2,10 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.14] - 2026-11-06
+- Giveaways: choose the browser for sign-in and claims in the readiness window: automatic (as before), Chrome, Edge or the built-in Chromium. A chosen browser is never silently replaced by another.
+- Each browser keeps its own sign-ins: after switching to Edge or Chromium, sign in to the stores once more. Your current Chrome sign-ins stay as they are.
+
 ## [3.5.13] - 2026-11-05
 - Giveaways: Fab and Epic free games are claimed again. Versions 3.5.9 to 3.5.12 refused them: nothing was charged, but free games were missed. An order still needs a clear zero in the checkout. Checked with real claims.
 - When Epic asks to sign in again after Get, the log says so at once.
