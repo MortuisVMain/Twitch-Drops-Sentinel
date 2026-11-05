@@ -2926,7 +2926,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
     try:
-        ok, message = updater.GitHubUpdater()._install_update([url])
+        ok, message = updater.GitHubUpdater()._install_update([url], {url: hashlib.sha256(patch.read_bytes()).hexdigest()})
     finally:
         updater.PROJECT_DIR = saved_dir
         server.shutdown()
@@ -2941,7 +2941,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
     try:
-        ok, message = updater.GitHubUpdater()._install_update(["http://127.0.0.1:9/none.zip"])
+        ok, message = updater.GitHubUpdater()._install_update(["http://127.0.0.1:9/none.zip"], {"http://127.0.0.1:9/none.zip": "0" * 64})
     finally:
         updater.PROJECT_DIR = saved_dir
     assert ok is False and "Не удалось загрузить" in message, message
@@ -4582,9 +4582,14 @@ def test_update_sources_and_token_scope():
         def __exit__(self, *exc):
             self.close()
 
+    metadata = json.dumps({"tag_name": "v9.9.9", "assets": [{
+        "name": "Patch.zip", "browser_download_url": good[0], "digest": "sha256:" + hashlib.sha256(payload).hexdigest()}]}).encode("utf-8")
+
     class _Opener:
         def open(self, req, timeout=None):
             requests.append((req.full_url, dict(req.header_items())))
+            if req.full_url.endswith("/releases/tags/v9.9.9"):
+                return _Resp(metadata)
             return _Resp(payload)
 
     saved = updater.PROJECT_DIR, urllib.request.build_opener, updater.get_optional_github_token
@@ -5666,6 +5671,162 @@ def test_devtools_are_off_in_release_builds():
     print("      DevTools gate: PASS [OK]")
 
 
+def test_update_archive_is_checked_against_the_published_sha256():
+    print("[security] Updater: the archive is hashed and compared with the GitHub digest before anything is extracted...")
+    import io
+    import json as _json
+    import types
+    import urllib.error
+    import zipfile
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import updater
+
+    repo = updater.TRUSTED_RELEASE_REPO
+    page = f"https://github.com/{repo}/releases/latest"
+    download_url = f"https://github.com/{repo}/releases/download/v9.9.9/Patch_9.9.9.zip"
+    api_url = f"https://api.github.com/repos/{repo}/releases/assets/123"
+    tag_url = f"https://api.github.com/repos/{repo}/releases/tags/v9.9.9"
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("core/new_module.py", "X = 1\n")
+        zf.writestr("core/version.py", '__version__ = "9.9.9"\n')
+    payload = buffer.getvalue()
+    good = "sha256:" + hashlib.sha256(payload).hexdigest()
+    other = "sha256:" + hashlib.sha256(b"something else").hexdigest()
+
+    def listing(*assets):
+        return {"tag_name": "v9.9.9", "assets": list(assets)}
+
+    def asset(name, digest, url_id=123):
+        record = {"name": name, "url": f"https://api.github.com/repos/{repo}/releases/assets/{url_id}",
+                  "browser_download_url": f"https://github.com/{repo}/releases/download/v9.9.9/{name}"}
+        if digest is not None:
+            record["digest"] = digest
+        return record
+
+    class _Resp(io.BytesIO):
+        def __init__(self, body):
+            super().__init__(body)
+            self.headers = {"Content-Length": str(len(body))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    def fresh_install(name):
+        work = SANDBOX / name
+        shutil.rmtree(work, ignore_errors=True)
+        install = work / "install"
+        (install / "core").mkdir(parents=True)
+        (install / "data").mkdir()
+        (install / "core" / "version.py").write_text('__version__ = "3.3.4"\n', encoding="utf-8")
+        (install / "config.json").write_text('{"keep": true}', encoding="utf-8")
+        (install / "core" / "cookies.jar").write_text("SYNTHETIC-SESSION", encoding="utf-8")
+        return work, install
+
+    def snapshot(root):
+        files = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()}
+        dirs = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_dir())
+        return files, dirs
+
+    def run(release, token="", urls=(download_url,), fail_metadata=False):
+        """Applies an update against a fake GitHub; returns (ok, message, requests, install_snapshot_before, after)."""
+        work, install = fresh_install("update_digest_check")
+        before = snapshot(install)
+        requests = []
+
+        class _Opener:
+            def open(self, req, timeout=None):
+                requests.append((req.full_url, dict(req.header_items())))
+                if req.full_url == tag_url:
+                    if fail_metadata:
+                        raise urllib.error.HTTPError(req.full_url, 403, "rate limit exceeded", {}, None)
+                    return _Resp(_json.dumps(release).encode("utf-8"))
+                if req.full_url == api_url:
+                    if dict(req.header_items()).get("Accept") == "application/octet-stream":
+                        return _Resp(payload)
+                    record = next((a for a in release["assets"] if a["url"] == api_url), None)
+                    if fail_metadata or record is None:
+                        raise urllib.error.HTTPError(req.full_url, 404, "not found", {}, None)
+                    return _Resp(_json.dumps(record).encode("utf-8"))
+                if req.full_url == download_url:
+                    return _Resp(payload)
+                raise AssertionError(f"unexpected request {req.full_url}")
+
+        saved = updater.PROJECT_DIR, updater.CACHE_FILE, updater.urllib.request.build_opener, updater.get_optional_github_token
+        updater.PROJECT_DIR = install
+        updater.CACHE_FILE = work / "cache.json"
+        updater.urllib.request.build_opener = lambda *a, **k: _Opener()
+        updater.get_optional_github_token = lambda: token
+        try:
+            ok, message = updater.GitHubUpdater().apply_update_from_url(urls[0], urls[1] if len(urls) > 1 else None)
+        finally:
+            updater.PROJECT_DIR, updater.CACHE_FILE, updater.urllib.request.build_opener, updater.get_optional_github_token = saved
+        after = snapshot(install)
+        shutil.rmtree(work, ignore_errors=True)
+        return ok, message, requests, before, after
+
+    def downloads(requests):
+        return [url for url, headers in requests
+                if url == download_url or (url == api_url and headers.get("Accept") == "application/octet-stream")]
+
+    # right hash: installs, and the digest of the asset itself is the one used (not the sibling's)
+    ok, message, requests, before, after = run(listing(asset("Other.zip", other, 7), asset("Patch_9.9.9.zip", good)))
+    assert ok, message
+    assert after[0]["core/new_module.py"] and after[0]["config.json"] == before[0]["config.json"], "installed, user data kept"
+    assert after[0]["core/cookies.jar"] == before[0]["core/cookies.jar"]
+    assert any(url == tag_url for url, _ in requests), "the digest comes from the release metadata"
+
+    # right hash, addressed through the API asset url
+    ok, message, *_ = run(listing(asset("Patch_9.9.9.zip", good)), urls=(api_url,))
+    assert ok, message
+
+    # wrong hash: refused, files byte-identical, no second address tried, the message names the page
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", other)), urls=(download_url, api_url))
+    assert ok is False and page in message and "Контрольная сумма" in message, message
+    assert before == after, "a mismatching archive must leave every file and folder as it was"
+    assert downloads(requests) == [download_url], f"a mismatch is not a network error, no retry on the other address: {requests}"
+
+    # digest missing: refused before any download
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", None)))
+    assert ok is False and page in message, message
+    assert before == after and downloads(requests) == [], "no digest, no download, nothing touched"
+
+    # a digest published for another asset name is not accepted
+    ok, message, requests, before, after = run(listing(asset("Other.zip", good, 7)))
+    assert ok is False and page in message, message
+    assert before == after and downloads(requests) == []
+    # same digest on an asset whose address differs by one character
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zi", good, 8)))
+    assert ok is False and before == after and downloads(requests) == []
+
+    # malformed digests
+    for bad in ("sha256:zzzz", "sha256:" + "a" * 63, "sha256:" + "a" * 65, "md5:" + "a" * 32, "a" * 64, "", "sha256:", "sha256: " + "a" * 64, 123):
+        ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", bad)))
+        assert ok is False and page in message, f"{bad!r}: {message}"
+        assert before == after and downloads(requests) == [], f"malformed digest {bad!r} must refuse"
+
+    # GitHub unreachable or rate limited: refused with the same pointer, nothing downloaded
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", good)), fail_metadata=True)
+    assert ok is False and page in message, message
+    assert before == after and downloads(requests) == []
+
+    # token: sent to the API metadata request, absent for anonymous users
+    _, _, requests, _, _ = run(listing(asset("Patch_9.9.9.zip", good)), token="SYNTHETIC_TOKEN")
+    assert dict(requests[0][1]).get("Authorization") == "Bearer SYNTHETIC_TOKEN", requests[0]
+    _, _, requests, _, _ = run(listing(asset("Patch_9.9.9.zip", good)), token="")
+    assert "Authorization" not in requests[0][1], "anonymous check sends no Authorization"
+
+    # parse_sha256_digest itself
+    assert updater.parse_sha256_digest(good) == good[7:]
+    assert updater.parse_sha256_digest("SHA256:" + "A" * 64) == "a" * 64
+    assert updater.parse_sha256_digest(None) is None and updater.parse_sha256_digest(5) is None
+    print("      Update archive digest: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5785,6 +5946,7 @@ if __name__ == "__main__":
         test_toast_text_never_enters_the_powershell_script,
         test_shell_opens_only_checked_web_links,
         test_devtools_are_off_in_release_builds,
+        test_update_archive_is_checked_against_the_published_sha256,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

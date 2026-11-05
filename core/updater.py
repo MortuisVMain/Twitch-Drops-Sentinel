@@ -11,6 +11,7 @@ Handles:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -77,6 +78,24 @@ def is_trusted_release_url(url: Any) -> bool:
     if host == "api.github.com":
         return parsed.path.startswith(f"/repos/{TRUSTED_RELEASE_REPO}/releases/assets/")
     return False
+
+
+RELEASES_PAGE_URL = f"https://github.com/{TRUSTED_RELEASE_REPO}/releases/latest"
+_SHA256_RE = re.compile(r"[0-9a-fA-F]{64}")
+_ASSET_API_PATH_RE = re.compile(rf"/repos/{re.escape(TRUSTED_RELEASE_REPO)}/releases/assets/[0-9]+")
+_ASSET_DOWNLOAD_PATH_RE = re.compile(rf"/{re.escape(TRUSTED_RELEASE_REPO)}/releases/download/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)")
+DIGEST_UNAVAILABLE_MESSAGE = ("Не удалось получить контрольную сумму обновления от GitHub, поэтому установка отменена, файлы не изменены. "
+                              f"Скачайте обновление вручную: {RELEASES_PAGE_URL}")
+DIGEST_MISMATCH_MESSAGE = ("Контрольная сумма скачанного архива не совпадает с опубликованной на GitHub, поэтому установка отменена, файлы не изменены. "
+                           f"Скачайте обновление вручную: {RELEASES_PAGE_URL}")
+
+
+def parse_sha256_digest(value: Any) -> Optional[str]:
+    """The hex of a GitHub asset digest ('sha256:<64 hex>'); anything else, including another algorithm, is None."""
+    if not isinstance(value, str) or not value.startswith(("sha256:", "SHA256:")):
+        return None
+    hex_part = value[len("sha256:"):]
+    return hex_part.lower() if _SHA256_RE.fullmatch(hex_part) else None
 
 
 def _is_protected(rel_path: str) -> bool:
@@ -416,15 +435,58 @@ class GitHubUpdater:
         return result
 
     def apply_update_from_url(self, download_url: str, asset_api_url: Optional[str] = None) -> tuple[bool, str]:
-        """Installs a release asset of this repository; any other address is refused before a request is made."""
+        """Installs a release asset of this repository; any other address is refused before a request is made.
+        The archive must also match the SHA-256 GitHub publishes for that very asset, or nothing is installed."""
         urls = [download_url] + ([asset_api_url] if asset_api_url and asset_api_url != download_url else [])
         untrusted = [u for u in urls if not is_trusted_release_url(u)]
         if untrusted:
             logger.warning(f"Update refused, not a release of {TRUSTED_RELEASE_REPO}: {untrusted}")
             return False, "Некорректная ссылка на скачивание обновления."
-        return self._install_update(urls)
+        token = get_optional_github_token()
+        opener = urllib.request.build_opener(SafeAuthRedirectHandler)
+        expected: dict[str, str] = {}
+        for url in urls:
+            digest = self._resolve_expected_sha256(url, token, opener)
+            if digest is None:
+                logger.error("Update refused: no usable SHA-256 published for %s", url)
+                return False, DIGEST_UNAVAILABLE_MESSAGE
+            expected[url] = digest
+        return self._install_update(urls, expected)
 
-    def _install_update(self, urls_to_try: list[str]) -> tuple[bool, str]:
+    @staticmethod
+    def _resolve_expected_sha256(url: str, token: str, opener) -> Optional[str]:
+        """The SHA-256 GitHub publishes for exactly this asset of the trusted repository, or None for any doubt."""
+        parts = urlsplit(url)
+        if (parts.hostname or "").lower() == "api.github.com" and _ASSET_API_PATH_RE.fullmatch(parts.path):
+            metadata_url, tag, name = url, None, None
+        else:
+            match = _ASSET_DOWNLOAD_PATH_RE.fullmatch(parts.path) if (parts.hostname or "").lower() == "github.com" else None
+            if not match:
+                return None
+            tag, name = match.groups()
+            metadata_url = f"https://api.github.com/repos/{TRUSTED_RELEASE_REPO}/releases/tags/{tag}"
+        headers = {"User-Agent": "TwitchDropsSentinel-Updater/3.1", "Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            with opener.open(urllib.request.Request(metadata_url, headers=headers), timeout=8) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            logger.warning("Could not read the release metadata %s: %s", metadata_url, exc, exc_info=True)
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if tag is None:
+            record = payload if payload.get("url") == url else None
+        else:
+            assets = payload.get("assets")
+            records = [a for a in assets if isinstance(a, dict) and a.get("browser_download_url") == url and a.get("name") == name] \
+                if payload.get("tag_name") == tag and isinstance(assets, list) else []
+            record = records[0] if len(records) == 1 else None
+        return parse_sha256_digest(record.get("digest")) if record else None
+
+    def _install_update(self, urls_to_try: list[str], expected_sha256: dict[str, str]) -> tuple[bool, str]:
+        """expected_sha256 maps every address to the digest its archive must have; the archive is opened only if it matches."""
         if self._is_updating:
             return False, "Обновление уже загружается и устанавливается."
         self._is_updating = True
@@ -450,7 +512,6 @@ class GitHubUpdater:
 
         try:
             staging_dir.mkdir(parents=True, exist_ok=True)
-            backup_dir.mkdir(parents=True, exist_ok=True)
 
             download_success = False
             last_err = None
@@ -464,6 +525,10 @@ class GitHubUpdater:
                     if token and is_trusted_release_url(try_url):
                         req_headers["Authorization"] = f"Bearer {token}"
 
+                    expected = expected_sha256.get(try_url)
+                    if not expected:
+                        raise ValueError(f"no expected SHA-256 for {try_url}")
+                    archive_hash = hashlib.sha256()
                     req = urllib.request.Request(try_url, headers=req_headers)
                     with opener.open(req, timeout=30) as resp, open(zip_path, "wb") as f:
                         total_bytes = int(resp.headers.get("Content-Length") or 0)
@@ -480,6 +545,7 @@ class GitHubUpdater:
                             if not chunk:
                                 break
                             f.write(chunk)
+                            archive_hash.update(chunk)
                             downloaded += len(chunk)
                             now = time.time()
                             dt = now - last_time
@@ -507,6 +573,13 @@ class GitHubUpdater:
                                 "total_mb": self._status["total_mb"] if self._status["total_mb"] > 0 else dl_mb,
                             })
 
+                    if archive_hash.hexdigest() != expected:
+                        # Not a network error: the other address would carry the same asset, so do not try it
+                        logger.error("Update SHA-256 mismatch for %s: expected %s, got %s", try_url, expected, archive_hash.hexdigest())
+                        shutil.rmtree(staging_dir, ignore_errors=True)
+                        with self._lock:
+                            self._status.update({"stage": "error", "error_message": DIGEST_MISMATCH_MESSAGE})
+                        return False, DIGEST_MISMATCH_MESSAGE
                     download_success = True
                     break
                 except Exception as e:
@@ -530,6 +603,7 @@ class GitHubUpdater:
                     return False, f"Архив поврежден: ошибка в файле {bad_file}"
 
                 # 1. Backup protected user data first
+                backup_dir.mkdir(parents=True, exist_ok=True)
                 for item_name in ("config.json", "Trophies.md", "core/cookies.jar"):
                     src = PROJECT_DIR / item_name
                     if src.exists():
