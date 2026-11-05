@@ -8,6 +8,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const APP_VERSION = require('../package.json').version;
 
 const dir = process.argv[2];
 if (!dir) { console.error('usage: node tools/check_startup_states.cjs <harness-dir>'); process.exit(2); }
@@ -84,7 +85,7 @@ function probe() {
     if (res.body.includes(UNAVAILABLE[lang])) problems.push('the red banner shows after the service answered');
     if (!/^\d+\s+\S+/.test(res.queueCount || '')) problems.push('no real queue count after recovery: ' + res.queueCount);
     if (!/\d/.test(res.shelfText || '')) problems.push('no shelf count after recovery: ' + res.shelfText);
-    if (!/3\.5\.10/.test(res.chipText || '')) problems.push('version chip should show the service version: ' + res.chipText);
+    if (!(res.chipText || '').includes(APP_VERSION)) problems.push('version chip should show the service version: ' + res.chipText);
     if (errors.length) problems.push('page errors: ' + errors.join(' | '));
     report('recovered (' + lang + ')', problems);
     await ctx.close();
