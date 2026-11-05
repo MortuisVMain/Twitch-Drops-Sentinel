@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from time import time
 from datetime import datetime
 from pathlib import Path
@@ -57,30 +58,47 @@ class SentinelStateBridge:
 STATE_BRIDGE = SentinelStateBridge()
 
 
+TOAST_SCRIPT = (
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
+    "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+    "$n = $t.GetElementsByTagName('text'); "
+    "$n.Item(0).InnerText = $env:SENTINEL_TOAST_TITLE; "
+    "$n.Item(1).InnerText = $env:SENTINEL_TOAST_MESSAGE; "
+    "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Twitch Drops Sentinel').Show($toast);"
+)
+
+
+TOAST_TEXT_LIMIT = 256
+
+
+def _toast_text(value) -> str:
+    """Campaign text for a toast: control characters out (a line break and a tab stay), cut to TOAST_TEXT_LIMIT characters."""
+    text = "".join(ch for ch in str(value) if ch in "\n\t" or unicodedata.category(ch) != "Cc")
+    return text[:TOAST_TEXT_LIMIT]
+
+
 def send_windows_toast(title: str, message: str):
-    """Sends native Windows 10/11 toast notification via PowerShell WinRT."""
-    safe_title = title.replace("'", "''").replace('"', '`"')
-    safe_message = message.replace("'", "''").replace('"', '`"')
-    ps_cmd = (
-        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
-        "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
-        "$n = $t.GetElementsByTagName('text'); "
-        f"$n.Item(0).InnerText = '{safe_title}'; "
-        f"$n.Item(1).InnerText = '{safe_message}'; "
-        "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
-        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Twitch Drops Sentinel').Show($toast);"
-    )
+    """Sends a native Windows 10/11 toast via PowerShell WinRT.
+
+    The script is a constant: title and message come from campaign authors, so they travel in the child's
+    environment and are read with $env:, never spliced into code (PowerShell also treats U+2018..U+201B as quotes).
+    """
     import base64
-    encoded_ps = base64.b64encode(ps_cmd.encode("utf-16le")).decode("ascii")
+    encoded_ps = base64.b64encode(TOAST_SCRIPT.encode("utf-16le")).decode("ascii")
+    env = dict(os.environ)
+    env["SENTINEL_TOAST_TITLE"] = _toast_text(title)
+    env["SENTINEL_TOAST_MESSAGE"] = _toast_text(message)
     try:
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
         )
     except Exception:
-        pass
+        logger.warning("Could not start the toast notification: %s", title, exc_info=True)
 
 
 send_toast_msg = send_windows_toast
@@ -409,7 +427,13 @@ class HeadlessGUIManager:
     async def coro_unless_closed(self, coro):
         task = asyncio.ensure_future(coro)
         close_task = asyncio.ensure_future(self._close_requested.wait())
-        done, pending = await asyncio.wait([task, close_task], return_when=asyncio.FIRST_COMPLETED)
+        try:
+            done, pending = await asyncio.wait([task, close_task], return_when=asyncio.FIRST_COMPLETED)
+        except BaseException:
+            # The caller was cancelled: asyncio.wait leaves its children running, so stop both before passing it on
+            task.cancel()
+            close_task.cancel()
+            raise
         for t in pending:
             t.cancel()
         if self._close_requested.is_set():

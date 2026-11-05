@@ -206,3 +206,39 @@ public static class MonitorIds
         return raw;
     }
 }
+
+/// <summary>
+/// Decides which address from the page may be handed to the shell. Links come from campaign data and
+/// third-party pages, and ShellExecute runs any scheme (file:, ms-msdt:, search-ms:, ...), so only absolute
+/// http and https with a host pass. Text with surrounding blanks or control characters is refused, not trimmed.
+/// </summary>
+public static class ExternalLinkPolicy
+{
+    public static bool TryGetOpenable(string? raw, out string uri)
+    {
+        uri = "";
+        if (string.IsNullOrEmpty(raw) || raw.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return false;
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var parsed)) return false;
+        if (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps) return false;
+        if (string.IsNullOrEmpty(parsed.Host)) return false;
+        uri = parsed.AbsoluteUri;
+        return true;
+    }
+}
+
+/// <summary>The only origin the window may show and accept messages from: the virtual host that serves the UI files.</summary>
+public static class AppOriginPolicy
+{
+    public const string Host = "app.sentinel";
+
+    /// <summary>True for an https address on exactly app.sentinel (default port, no user info). Everything else, lookalikes included, is foreign.</summary>
+    public static bool IsAppUri(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw) || raw.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return false;
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var parsed)) return false;
+        return parsed.Scheme == Uri.UriSchemeHttps
+            && parsed.Host == Host
+            && parsed.IsDefaultPort
+            && string.IsNullOrEmpty(parsed.UserInfo);
+    }
+}

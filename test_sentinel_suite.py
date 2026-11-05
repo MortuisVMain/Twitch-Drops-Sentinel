@@ -2926,7 +2926,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
     try:
-        ok, message = updater.GitHubUpdater()._install_update([url])
+        ok, message = updater.GitHubUpdater()._install_update([url], {url: hashlib.sha256(patch.read_bytes()).hexdigest()})
     finally:
         updater.PROJECT_DIR = saved_dir
         server.shutdown()
@@ -2941,7 +2941,7 @@ def test_patch_update_keeps_user_data_and_blocks_path_traversal():
     saved_dir = updater.PROJECT_DIR
     updater.PROJECT_DIR = install
     try:
-        ok, message = updater.GitHubUpdater()._install_update(["http://127.0.0.1:9/none.zip"])
+        ok, message = updater.GitHubUpdater()._install_update(["http://127.0.0.1:9/none.zip"], {"http://127.0.0.1:9/none.zip": "0" * 64})
     finally:
         updater.PROJECT_DIR = saved_dir
     assert ok is False and "Не удалось загрузить" in message, message
@@ -4582,9 +4582,14 @@ def test_update_sources_and_token_scope():
         def __exit__(self, *exc):
             self.close()
 
+    metadata = json.dumps({"tag_name": "v9.9.9", "assets": [{
+        "name": "Patch.zip", "browser_download_url": good[0], "digest": "sha256:" + hashlib.sha256(payload).hexdigest()}]}).encode("utf-8")
+
     class _Opener:
         def open(self, req, timeout=None):
             requests.append((req.full_url, dict(req.header_items())))
+            if req.full_url.endswith("/releases/tags/v9.9.9"):
+                return _Resp(metadata)
             return _Resp(payload)
 
     saved = updater.PROJECT_DIR, urllib.request.build_opener, updater.get_optional_github_token
@@ -5600,6 +5605,676 @@ def test_text_colour_follows_the_theme():
     print("      Text colour: PASS [OK]")
 
 
+def test_toast_text_never_enters_the_powershell_script():
+    print("[security] Toasts: title and message travel in the environment, never inside the PowerShell script...")
+    import base64
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import gui_headless
+
+    hostile = {
+        "title": "\u2018$(calc)\u2019; Remove-Item C:/x \u201A\u201B' \" `",
+        "message": "\u2019; Start-Process calc; '\u2018 \"$(Get-Date)\" ; & {x}\nsecond line",
+    }
+    captured = []
+
+    class _Stub:
+        def __init__(self, args, **kwargs):
+            captured.append((args, kwargs))
+
+    real_popen = gui_headless.subprocess.Popen
+    gui_headless.subprocess.Popen = _Stub
+    try:
+        gui_headless.send_windows_toast(hostile["title"], hostile["message"])
+        gui_headless.send_windows_toast("plain", "text")
+    finally:
+        gui_headless.subprocess.Popen = real_popen
+
+    assert len(captured) == 2, "each toast starts exactly one PowerShell"
+    args, kwargs = captured[0]
+    assert "-EncodedCommand" in args, "the script still goes through -EncodedCommand"
+    script = base64.b64decode(args[args.index("-EncodedCommand") + 1]).decode("utf-16le")
+    for text in hostile.values():
+        assert text not in script, "user text must not be in the script"
+    for fragment in ("calc", "Remove-Item", "Start-Process", "\u2018", "\u2019", "\u201A", "\u201B"):
+        assert fragment not in script, f"script contains hostile fragment {fragment!r}"
+    assert "$env:" in script, "the script reads the text from the environment"
+    env = kwargs.get("env") or {}
+    assert sorted(v for v in env.values() if v in hostile.values()) == sorted(hostile.values()), "env carries both texts verbatim"
+    script_plain = base64.b64decode(captured[1][0][captured[1][0].index("-EncodedCommand") + 1]).decode("utf-16le")
+    assert script == script_plain, "the script is the same static string for every toast"
+    print("      Toast injection: PASS [OK]")
+
+
+def test_toast_text_is_short_and_free_of_control_characters():
+    print("[security] Toasts: title and message are cut to 256 characters and lose control characters before the environment...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import gui_headless
+
+    captured = []
+
+    class _Stub:
+        def __init__(self, args, **kwargs):
+            captured.append(kwargs.get("env") or {})
+
+    real_popen = gui_headless.subprocess.Popen
+    gui_headless.subprocess.Popen = _Stub
+    try:
+        gui_headless.send_windows_toast("T" * 5000, "M" * 300 + "\u0001tail")
+        gui_headless.send_windows_toast("a\u0001b\u0007c\u001bd\u0085e\x00f\r", "line1\nline2\tcol\u0001")
+        gui_headless.send_windows_toast(12345, None)
+    finally:
+        gui_headless.subprocess.Popen = real_popen
+
+    assert len(captured) == 3
+    big = captured[0]
+    assert big["SENTINEL_TOAST_TITLE"] == "T" * 256, "an oversize title is cut to 256 characters"
+    assert big["SENTINEL_TOAST_MESSAGE"] == "M" * 256, "an oversize message is cut to 256 characters"
+    clean = captured[1]
+    assert clean["SENTINEL_TOAST_TITLE"] == "abcdef", repr(clean["SENTINEL_TOAST_TITLE"])
+    assert clean["SENTINEL_TOAST_MESSAGE"] == "line1\nline2\tcol", "U+0001 goes, a line break and a tab stay"
+    assert captured[2]["SENTINEL_TOAST_TITLE"] == "12345" and captured[2]["SENTINEL_TOAST_MESSAGE"] == "None"
+    print("      Toast text limits: PASS [OK]")
+
+
+def test_coro_unless_closed_cancels_its_children_with_the_caller():
+    print("[engine] coro_unless_closed: cancelling the caller cancels both children; results, errors and close still behave...")
+    import asyncio
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import gui_headless
+    from exceptions import ExitRequest
+
+    async def scenario():
+        gui = gui_headless.HeadlessGUIManager(None)
+
+        async def value():
+            return 7
+
+        assert await gui.coro_unless_closed(value()) == 7, "the result of the coroutine is returned"
+
+        async def broken():
+            raise ValueError("boom")
+
+        try:
+            await gui.coro_unless_closed(broken())
+        except ValueError as exc:
+            assert str(exc) == "boom", "the coroutine's own error comes out unchanged"
+        else:
+            raise AssertionError("the error must propagate")
+
+        started = asyncio.Event()
+        seen = {}
+
+        async def slow():
+            seen["task"] = asyncio.current_task()
+            started.set()
+            await asyncio.sleep(3600)
+
+        before = asyncio.all_tasks()
+        outer = asyncio.ensure_future(gui.coro_unless_closed(slow()))
+        await started.wait()
+        children = asyncio.all_tasks() - before - {outer}
+        assert len(children) == 2 and seen["task"] in children, f"the coroutine and the close waiter are the two children: {children}"
+        outer.cancel()
+        try:
+            await outer
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("the caller's cancellation must propagate")
+        await asyncio.wait(children, timeout=2)
+        assert all(t.cancelled() for t in children), f"both children must be cancelled: {[t for t in children if not t.done()]}"
+
+        started.clear()
+        waiting = asyncio.ensure_future(gui.coro_unless_closed(slow()))
+        await started.wait()
+        gui.close_window()
+        try:
+            await waiting
+        except ExitRequest:
+            pass
+        else:
+            raise AssertionError("a close request still ends the wait with ExitRequest")
+        await asyncio.sleep(0)
+        assert seen["task"].cancelled(), "the coroutine is cancelled on a close request"
+
+    asyncio.run(scenario())
+    print("      coro_unless_closed: PASS [OK]")
+
+
+def test_shell_opens_only_checked_web_links():
+    print("[security] Shell: links from the page reach ShellExecute only through ExternalLinkPolicy...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    logic = (WORKSPACE / "desktop" / "DimmerLogic.cs").read_text(encoding="utf-8")
+    assert "class ExternalLinkPolicy" in logic and "UriSchemeHttps" in logic, "the policy lives in the file the check tool compiles"
+    assert "ExternalLinkPolicy.TryGetOpenable" in form, "the shell asks the policy"
+    shell_calls = re.findall(r"Process\.Start\(new ProcessStartInfo\((?!\s*\{)[^;]*UseShellExecute = true", form)
+    for call in shell_calls:
+        assert "args.Uri" not in call, "NewWindowRequested must not pass the page's address to the shell directly"
+    assert re.search(r'OpenExternalLink\(args\.Uri, "NewWindowRequested"\)', form), "NewWindowRequested uses the checked opener"
+    print("      Shell link policy: PASS [OK]")
+
+
+def test_devtools_are_off_in_release_builds():
+    print("[security] WebView2: DevTools are on only in Debug builds or with SENTINEL_DEVTOOLS=1...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert not re.search(r"AreDevToolsEnabled\s*=\s*true", form), "DevTools must not be switched on unconditionally"
+    assert "AreDevToolsEnabled = DevToolsAllowed()" in form, "the setting follows DevToolsAllowed()"
+    body = re.search(r"private static bool DevToolsAllowed\(\)\s*\{(.*?)\n        \}", form, re.S)
+    assert body, "DevToolsAllowed exists"
+    text = body.group(1)
+    assert re.search(r"#if DEBUG\s*return true;\s*#else\s*return Environment\.GetEnvironmentVariable\(\"SENTINEL_DEVTOOLS\"\) == \"1\";\s*#endif", text), \
+        "Debug builds, or the SENTINEL_DEVTOOLS=1 opt-in; nothing else"
+    print("      DevTools gate: PASS [OK]")
+
+
+def test_update_archive_is_checked_against_the_published_sha256():
+    print("[security] Updater: the archive is hashed and compared with the GitHub digest before anything is extracted...")
+    import io
+    import json as _json
+    import types
+    import urllib.error
+    import zipfile
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import updater
+
+    repo = updater.TRUSTED_RELEASE_REPO
+    page = f"https://github.com/{repo}/releases/latest"
+    download_url = f"https://github.com/{repo}/releases/download/v9.9.9/Patch_9.9.9.zip"
+    api_url = f"https://api.github.com/repos/{repo}/releases/assets/123"
+    tag_url = f"https://api.github.com/repos/{repo}/releases/tags/v9.9.9"
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("core/new_module.py", "X = 1\n")
+        zf.writestr("core/version.py", '__version__ = "9.9.9"\n')
+    payload = buffer.getvalue()
+    good = "sha256:" + hashlib.sha256(payload).hexdigest()
+    other = "sha256:" + hashlib.sha256(b"something else").hexdigest()
+
+    def listing(*assets):
+        return {"tag_name": "v9.9.9", "assets": list(assets)}
+
+    def asset(name, digest, url_id=123):
+        record = {"name": name, "url": f"https://api.github.com/repos/{repo}/releases/assets/{url_id}",
+                  "browser_download_url": f"https://github.com/{repo}/releases/download/v9.9.9/{name}"}
+        if digest is not None:
+            record["digest"] = digest
+        return record
+
+    class _Resp(io.BytesIO):
+        def __init__(self, body):
+            super().__init__(body)
+            self.headers = {"Content-Length": str(len(body))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    def fresh_install(name):
+        work = SANDBOX / name
+        shutil.rmtree(work, ignore_errors=True)
+        install = work / "install"
+        (install / "core").mkdir(parents=True)
+        (install / "data").mkdir()
+        (install / "core" / "version.py").write_text('__version__ = "3.3.4"\n', encoding="utf-8")
+        (install / "config.json").write_text('{"keep": true}', encoding="utf-8")
+        (install / "core" / "cookies.jar").write_text("SYNTHETIC-SESSION", encoding="utf-8")
+        return work, install
+
+    def snapshot(root):
+        files = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()}
+        dirs = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_dir())
+        return files, dirs
+
+    def run(release, token="", urls=(download_url,), fail_metadata=False):
+        """Applies an update against a fake GitHub; returns (ok, message, requests, install_snapshot_before, after)."""
+        work, install = fresh_install("update_digest_check")
+        before = snapshot(install)
+        requests = []
+
+        class _Opener:
+            def open(self, req, timeout=None):
+                requests.append((req.full_url, dict(req.header_items())))
+                if req.full_url == tag_url:
+                    if fail_metadata:
+                        raise urllib.error.HTTPError(req.full_url, 403, "rate limit exceeded", {}, None)
+                    return _Resp(_json.dumps(release).encode("utf-8"))
+                if req.full_url == api_url:
+                    if dict(req.header_items()).get("Accept") == "application/octet-stream":
+                        return _Resp(payload)
+                    record = next((a for a in release["assets"] if a["url"] == api_url), None)
+                    if fail_metadata or record is None:
+                        raise urllib.error.HTTPError(req.full_url, 404, "not found", {}, None)
+                    return _Resp(_json.dumps(record).encode("utf-8"))
+                if req.full_url == download_url:
+                    return _Resp(payload)
+                raise AssertionError(f"unexpected request {req.full_url}")
+
+        saved = updater.PROJECT_DIR, updater.CACHE_FILE, updater.urllib.request.build_opener, updater.get_optional_github_token
+        updater.PROJECT_DIR = install
+        updater.CACHE_FILE = work / "cache.json"
+        updater.urllib.request.build_opener = lambda *a, **k: _Opener()
+        updater.get_optional_github_token = lambda: token
+        try:
+            ok, message = updater.GitHubUpdater().apply_update_from_url(urls[0], urls[1] if len(urls) > 1 else None)
+        finally:
+            updater.PROJECT_DIR, updater.CACHE_FILE, updater.urllib.request.build_opener, updater.get_optional_github_token = saved
+        after = snapshot(install)
+        shutil.rmtree(work, ignore_errors=True)
+        return ok, message, requests, before, after
+
+    def downloads(requests):
+        return [url for url, headers in requests
+                if url == download_url or (url == api_url and headers.get("Accept") == "application/octet-stream")]
+
+    # right hash: installs, and the digest of the asset itself is the one used (not the sibling's)
+    ok, message, requests, before, after = run(listing(asset("Other.zip", other, 7), asset("Patch_9.9.9.zip", good)))
+    assert ok, message
+    assert after[0]["core/new_module.py"] and after[0]["config.json"] == before[0]["config.json"], "installed, user data kept"
+    assert after[0]["core/cookies.jar"] == before[0]["core/cookies.jar"]
+    assert any(url == tag_url for url, _ in requests), "the digest comes from the release metadata"
+
+    # right hash, addressed through the API asset url
+    ok, message, *_ = run(listing(asset("Patch_9.9.9.zip", good)), urls=(api_url,))
+    assert ok, message
+
+    # wrong hash: refused, files byte-identical, no second address tried, the message names the page
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", other)), urls=(download_url, api_url))
+    assert ok is False and page in message and "Контрольная сумма" in message, message
+    assert before == after, "a mismatching archive must leave every file and folder as it was"
+    assert downloads(requests) == [download_url], f"a mismatch is not a network error, no retry on the other address: {requests}"
+
+    # digest missing: refused before any download
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", None)))
+    assert ok is False and page in message, message
+    assert before == after and downloads(requests) == [], "no digest, no download, nothing touched"
+
+    # a digest published for another asset name is not accepted
+    ok, message, requests, before, after = run(listing(asset("Other.zip", good, 7)))
+    assert ok is False and page in message, message
+    assert before == after and downloads(requests) == []
+    # same digest on an asset whose address differs by one character
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zi", good, 8)))
+    assert ok is False and before == after and downloads(requests) == []
+
+    # malformed digests
+    for bad in ("sha256:zzzz", "sha256:" + "a" * 63, "sha256:" + "a" * 65, "md5:" + "a" * 32, "a" * 64, "", "sha256:", "sha256: " + "a" * 64, 123):
+        ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", bad)))
+        assert ok is False and page in message, f"{bad!r}: {message}"
+        assert before == after and downloads(requests) == [], f"malformed digest {bad!r} must refuse"
+
+    # GitHub unreachable or rate limited: refused with the same pointer, nothing downloaded
+    ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", good)), fail_metadata=True)
+    assert ok is False and page in message, message
+    assert before == after and downloads(requests) == []
+
+    # token: sent to the API metadata request, absent for anonymous users
+    _, _, requests, _, _ = run(listing(asset("Patch_9.9.9.zip", good)), token="SYNTHETIC_TOKEN")
+    assert dict(requests[0][1]).get("Authorization") == "Bearer SYNTHETIC_TOKEN", requests[0]
+    _, _, requests, _, _ = run(listing(asset("Patch_9.9.9.zip", good)), token="")
+    assert "Authorization" not in requests[0][1], "anonymous check sends no Authorization"
+
+    # parse_sha256_digest itself
+    assert updater.parse_sha256_digest(good) == good[7:]
+    assert updater.parse_sha256_digest("SHA256:" + "A" * 64) == "a" * 64
+    assert updater.parse_sha256_digest(None) is None and updater.parse_sha256_digest(5) is None
+    print("      Update archive digest: PASS [OK]")
+
+
+def test_logout_really_signs_out():
+    print("[security] Logout: the session token is dropped, the cookie file is deleted and nothing writes it back...")
+    import asyncio
+    import json as _json
+    import types
+    import aiohttp
+    from yarl import URL
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import constants
+    import sentinel_service as svc
+    import twitch
+
+    work = SANDBOX / "logout_check"
+    shutil.rmtree(work, ignore_errors=True)
+    (work / "decoy_cwd" / "core").mkdir(parents=True)
+    # A decoy where the old handler looked (relative to the working directory): it is not the engine's file and must stay
+    decoys = [work / "decoy_cwd" / "cookies.jar", work / "decoy_cwd" / "core" / "cookies.jar"]
+    for decoy in decoys:
+        decoy.write_text("DECOY", encoding="utf-8")
+    real_candidates = [constants.COOKIES_PATH, WORKSPACE / "core" / "cookies.jar", WORKSPACE / "cookies.jar"]
+    real_before = {p: _sha256(p) for p in real_candidates}
+
+    class _Button:
+        def config(self, **kwargs):
+            pass
+
+    def make_client(session):
+        fake_twitch = types.SimpleNamespace(gui=types.SimpleNamespace(help=types.SimpleNamespace(_invalidate_button=_Button())),
+                                            _session=session)
+        auth = twitch._AuthState(fake_twitch)
+        auth.access_token, auth.user_id = "SYNTHETIC-TOKEN", 42
+        auth._logged_in.set()
+        events = []
+        client = types.SimpleNamespace(_auth_state=auth, stop_watching=lambda: events.append("stop"),
+                                       change_state=lambda state: events.append(state))
+        return client, auth, events
+
+    async def scenario(cookie_path, break_unlink=False):
+        session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar())
+        try:
+            jar = session.cookie_jar
+            jar.update_cookies({"auth-token": "SYNTHETIC-TOKEN", "unique_id": "dev"}, URL("https://www.twitch.tv"))
+            jar.save(cookie_path)
+            client, auth, events = make_client(session)
+            supervisor = types.SimpleNamespace(twitch_client=client, broadcast_ws=lambda: asyncio.sleep(0))
+            svc.STATE_BRIDGE.username = "someone"
+            response = await svc.SentinelSupervisor.handle_logout(supervisor, None)
+            # what the engine's next save would write
+            after_save = work / "after_save.jar"
+            jar.save(after_save)
+            return response, auth, events, after_save.read_bytes()
+        finally:
+            await session.close()
+
+    saved = svc.COOKIES_PATH, twitch.COOKIES_PATH
+    cwd = os.getcwd()
+    try:
+        jar_file = work / "cookies.jar"
+        svc.COOKIES_PATH = twitch.COOKIES_PATH = jar_file
+        os.chdir(work / "decoy_cwd")
+        response, auth, events, next_save = asyncio.run(scenario(jar_file))
+        assert response.status == 200 and _json.loads(response.text)["success"] is True, response.text
+        assert not hasattr(auth, "access_token") and not hasattr(auth, "user_id"), "the token must be gone from memory"
+        assert not auth._logged_in.is_set(), "the engine must not think it is logged in"
+        assert not jar_file.exists(), "the engine's cookie file must be deleted"
+        assert b"SYNTHETIC-TOKEN" not in next_save, "the next save of the session must not carry the token"
+        assert events == ["stop", constants.State.RESTART], f"the engine stops watching and restarts into the login flow: {events}"
+        assert svc.STATE_BRIDGE.username == "", "the UI state is reset"
+        assert all(d.read_text(encoding="utf-8") == "DECOY" for d in decoys), "files outside the engine's own cookie path are never touched"
+
+        # a cookie file that cannot be deleted is an error the UI sees, not a silent success
+        blocked = work / "blocked" / "cookies.jar"
+        (blocked).mkdir(parents=True)
+        (blocked / "keep.txt").write_text("x", encoding="utf-8")
+        svc.COOKIES_PATH = twitch.COOKIES_PATH = blocked
+        response, auth, events, _ = asyncio.run(scenario(work / "other.jar"))
+        assert response.status == 500 and _json.loads(response.text)["success"] is False, response.text
+        assert (blocked / "keep.txt").exists()
+    finally:
+        os.chdir(cwd)
+        svc.COOKIES_PATH, twitch.COOKIES_PATH = saved
+    assert {p: _sha256(p) for p in real_candidates} == real_before, "the real cookie files were not touched"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      Logout: PASS [OK]")
+
+
+def test_logout_failure_paths_never_keep_the_old_session():
+    print("[security] Logout: a failing invalidate() still empties the jar, the updater copy goes, profile backups stay and are mentioned...")
+    import asyncio
+    import json as _json
+    import types
+    import aiohttp
+    from yarl import URL
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import constants
+    import sentinel_service as svc
+    import twitch
+
+    work = SANDBOX / "logout_failure_check"
+    shutil.rmtree(work, ignore_errors=True)
+    project = work / "project"
+    (project / ".backup_state").mkdir(parents=True)
+    (project / "data" / "backups").mkdir(parents=True)
+    updater_copy = project / ".backup_state" / "cookies.jar"
+    other_state = project / ".backup_state" / "config.json"
+    profile_zip = project / "data" / "backups" / "sentinel_profile_backup_20260101_000000.zip"
+    other_state.write_text("KEEP", encoding="utf-8")
+    profile_zip.write_bytes(b"PK-USER-BACKUP")
+
+    class _Button:
+        def config(self, **kwargs):
+            pass
+
+    class _ExplodingJar:
+        def clear(self):
+            raise RuntimeError("jar is stuck")
+
+    def make_client(session, invalidate_fails):
+        fake_twitch = types.SimpleNamespace(gui=types.SimpleNamespace(help=types.SimpleNamespace(_invalidate_button=_Button())),
+                                            _session=session)
+        auth = twitch._AuthState(fake_twitch)
+        auth.access_token, auth.user_id = "SYNTHETIC-TOKEN", 42
+        auth._logged_in.set()
+        if invalidate_fails:
+            def explode(**kwargs):
+                raise RuntimeError("invalidate failed before the jar was cleared")
+            auth.invalidate = explode
+        events = []
+        client = types.SimpleNamespace(_auth_state=auth, _session=session, stop_watching=lambda: events.append("stop"),
+                                       change_state=lambda state: events.append(state))
+        return client, events
+
+    async def scenario(cookie_path, invalidate_fails=False, stuck_jar=False):
+        session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar())
+        try:
+            jar = session.cookie_jar
+            jar.update_cookies({"auth-token": "SYNTHETIC-TOKEN", "unique_id": "dev"}, URL("https://www.twitch.tv"))
+            jar.save(cookie_path)
+            updater_copy.write_text("OLD-UPDATER-COPY", encoding="utf-8")
+            client, events = make_client(session, invalidate_fails)
+            if stuck_jar:
+                client._session = types.SimpleNamespace(cookie_jar=_ExplodingJar())
+            supervisor = types.SimpleNamespace(twitch_client=client, broadcast_ws=lambda: asyncio.sleep(0))
+            response = await svc.SentinelSupervisor.handle_logout(supervisor, None)
+            # what the shutdown of the restarted engine would write
+            after_save = work / "after_save.jar"
+            jar.save(after_save)
+            return response, events, after_save.read_bytes()
+        finally:
+            await session.close()
+
+    saved = svc.COOKIES_PATH, twitch.COOKIES_PATH, svc.PROJECT_DIR
+    try:
+        jar_file = work / "cookies.jar"
+        svc.COOKIES_PATH = twitch.COOKIES_PATH = jar_file
+        svc.PROJECT_DIR = project
+
+        # invalidate() raises before it reaches jar.clear(): the handler empties the jar itself
+        response, events, next_save = asyncio.run(scenario(jar_file, invalidate_fails=True))
+        body = _json.loads(response.text)
+        assert response.status == 500 and body["success"] is False and "session" in body["error"], response.text
+        assert b"SYNTHETIC-TOKEN" not in next_save, "the restart's shutdown must not save the old account back"
+        assert not jar_file.exists(), "the engine's cookie file is deleted even when invalidate failed"
+        assert not updater_copy.exists(), "the updater's .backup_state copy of the cookies is deleted"
+        assert other_state.read_text(encoding="utf-8") == "KEEP", "the other files in .backup_state stay"
+        assert profile_zip.read_bytes() == b"PK-USER-BACKUP", "profile backups under data/backups are the user's and stay"
+        assert events == ["stop", constants.State.RESTART], f"the failure path restarts onto an emptied jar: {events}"
+
+        # the jar itself cannot be emptied: nothing restarts (a restart would save the old jar) and the UI sees the error
+        response, events, _ = asyncio.run(scenario(jar_file, stuck_jar=True))
+        body = _json.loads(response.text)
+        assert response.status == 500 and body["success"] is False and "cookie jar" in body["error"], response.text
+        assert constants.State.RESTART not in events, f"no restart while the old jar is still in memory: {events}"
+
+        # success: the reply mentions the profile backups that may hold the old account's cookies
+        response, events, _ = asyncio.run(scenario(jar_file))
+        body = _json.loads(response.text)
+        assert response.status == 200 and body["success"] is True, response.text
+        assert "data/backups" in body.get("note", ""), body
+        assert profile_zip.read_bytes() == b"PK-USER-BACKUP"
+
+        # no profile backups: no note
+        profile_zip.unlink()
+        response, events, _ = asyncio.run(scenario(jar_file))
+        assert "note" not in _json.loads(response.text), response.text
+    finally:
+        svc.COOKIES_PATH, twitch.COOKIES_PATH, svc.PROJECT_DIR = saved
+    shutil.rmtree(work, ignore_errors=True)
+    print("      Logout failure paths: PASS [OK]")
+
+
+def test_channel_point_chest_uses_the_real_login_state():
+    print("[security] Channel points: the chest claim checks the real login state, honours the setting and fails visibly...")
+    import asyncio
+    import logging
+    import types
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import twitch
+    from gui_headless import STATE_BRIDGE
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.DEBUG)
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    def make(logged_in, enabled=True, reply=None, error=None):
+        calls = []
+
+        async def gql_request(query):
+            calls.append(query)
+            if error is not None:
+                raise error
+            return reply[len(calls) - 1] if isinstance(reply, list) else reply
+
+        auth = types.SimpleNamespace(_logged_in=asyncio.Event())
+        if logged_in:
+            auth._logged_in.set()
+        client = types.SimpleNamespace(_auth_state=auth, claim_channel_points_enabled=enabled, gql_request=gql_request)
+        client._warn_points_once = types.MethodType(twitch.Twitch._warn_points_once, client)
+        return client, calls
+
+    channel = types.SimpleNamespace(id=777, name="streamer", _login="streamer")
+    chest = {"data": {"communityPoints": {"availableClaim": {"id": "claim-1"}}}}
+    capture = _Capture()
+    twitch.logger.addHandler(capture)
+    earned = STATE_BRIDGE.channel_points_earned
+    try:
+        claim = twitch.Twitch.claim_channel_points_if_available
+
+        client, calls = make(logged_in=True, reply=[chest, {"data": {}}])
+        assert asyncio.run(claim(client, channel)) == 50, "a logged-in engine with the setting on claims an available chest"
+        assert len(calls) == 2, "one context query and one claim"
+        assert calls[1]["variables"]["input"] == {"claimID": "claim-1", "channelID": "777"}, calls[1]
+        assert STATE_BRIDGE.channel_points_earned == earned + 50
+
+        nested = {"data": {"community": {"channel": {"self": {"communityPoints": {"availableClaim": {"id": "claim-2"}}}}}}}
+        client, calls = make(logged_in=True, reply=[nested, {"data": {}}])
+        assert asyncio.run(claim(client, channel)) == 50 and calls[1]["variables"]["input"]["claimID"] == "claim-2", "the full query's nested reply is read too"
+
+        # a Twitch service error makes gql_request retry for a long time: the watch loop must not wait for it
+        real_wait_for = asyncio.wait_for
+        waited = []
+
+        async def short_wait_for(awaitable, timeout):
+            waited.append(timeout)
+            return await real_wait_for(awaitable, 0.01)
+
+        async def hanging_request(query):
+            await asyncio.sleep(30)
+
+        client, calls = make(logged_in=True, reply=chest)
+        client.gql_request = hanging_request
+        twitch.asyncio.wait_for = short_wait_for
+        try:
+            assert asyncio.run(claim(client, channel)) == 0, "a hanging request ends the check"
+        finally:
+            twitch.asyncio.wait_for = real_wait_for
+        assert waited == [15], f"the chest check has a time limit: {waited}"
+
+        client, calls = make(logged_in=False, reply=chest)
+        assert asyncio.run(claim(client, channel)) == 0 and calls == [], "logged out: no request (a request would start the login flow)"
+        client, calls = make(logged_in=True, enabled=False, reply=chest)
+        assert asyncio.run(claim(client, channel)) == 0 and calls == [], "setting off: no request, no claim"
+        client, calls = make(logged_in=True, reply=chest)
+        assert asyncio.run(claim(client, types.SimpleNamespace(id=None, name="x", _login="x"))) == 0 and calls == [], "no channel id: no request"
+
+        # a reply that does not look like the expected one, and a failing request, are logged at WARNING (once), not at DEBUG
+        capture.records.clear()
+        client, calls = make(logged_in=True, reply={"data": {"unexpected": {}}})
+        assert asyncio.run(claim(client, channel)) == 0 and len(calls) == 1
+        assert asyncio.run(claim(client, channel)) == 0
+        warnings = [r for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
+        assert len(warnings) == 1, f"an unrecognised reply is reported once at WARNING: {[r.getMessage() for r in capture.records]}"
+        capture.records.clear()
+        client, calls = make(logged_in=True, error=RuntimeError("boom"))
+        assert asyncio.run(claim(client, channel)) == 0 and asyncio.run(claim(client, channel)) == 0
+        warnings = [r for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
+        assert len(warnings) == 1 and warnings[0].exc_info, "a failing request is reported once at WARNING with the traceback"
+
+        # one transient error must not silence the persistent warning: each kind is reported once on its own
+        capture.records.clear()
+        client, calls = make(logged_in=True, error=RuntimeError("blip"))
+        assert asyncio.run(claim(client, channel)) == 0
+
+        async def odd_reply(query):
+            return {"data": {"unexpected": {}}}
+
+        client.gql_request = odd_reply
+        assert asyncio.run(claim(client, channel)) == 0 and asyncio.run(claim(client, channel)) == 0
+        texts = [r.getMessage() for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
+        assert len(texts) == 2 and "failed" in texts[0] and "no communityPoints" in texts[1], f"one WARNING per kind: {texts}"
+    finally:
+        twitch.logger.removeHandler(capture)
+        STATE_BRIDGE.channel_points_earned = earned
+    assert "is_logged_in" not in (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8"), "no reference to the undefined is_logged_in remains"
+    print("      Channel points claim: PASS [OK]")
+def test_diagnostic_report_shows_the_real_drop_and_a_readable_journal():
+    print("[report] the diagnostic report reads the keys add_drop writes and folds the journal tail...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from sentinel_service import generate_sanitized_diagnostic_report
+    from gui_headless import STATE_BRIDGE
+    settings = {"priority_games": ["Fake Game"], "game_directories": []}
+    hw = {"cpu_percent": 1, "on_battery": False, "is_gaming": False}
+    logs = [{"time": "00:00:01", "level": "CLAIM", "message": "[CLAIM] [CORE] Drop received"},
+            {"time": "00:00:02", "level": "INFO", "message": "[INFO] [TRAY] Icon ready"},
+            {"time": "00:00:03", "level": "WATCH", "message": "[WATCH] [CORE] Watching fake_streamer"},
+            {"time": "00:00:04", "level": "STATUS", "message": "[STATUS] [STATUS] Adding campaigns (1/3)"}]
+    logs += [{"time": f"00:01:{n:02d}", "level": "STATUS", "message": f"[STATUS] [STATUS] Adding campaigns ({n}/3)"} for n in (2, 3)]
+    logs += [{"time": "00:02:00", "level": "INFO", "message": "login oauth:abcdef0123456789 token=SECRET123"}]
+    logs += [{"time": f"00:03:{n:02d}", "level": "INFO", "message": f"Heartbeat {n}"} for n in range(60)]
+    saved = (STATE_BRIDGE.active_drop, STATE_BRIDGE.recent_logs, STATE_BRIDGE.watching_channel)
+
+    def report(drop, entries):
+        STATE_BRIDGE.active_drop, STATE_BRIDGE.recent_logs = drop, entries
+        return generate_sanitized_diagnostic_report(settings, hw)
+
+    try:
+        # the same dict add_drop writes: `name` and `progress_percent`, not `drop_name` and `progress`
+        drop = {"name": "Fake Reward", "game": "Fake Game", "current_minutes": 144, "required_minutes": 180, "progress_percent": 80}
+        text = report(drop, logs[:7])
+        print("      --- sample (fake data) ---\n" + "\n".join("      | " + ln for ln in text.splitlines()[12:30]))
+        assert "Active Drop Name: Fake Reward" in text, text
+        assert "Progress: 144 / 180 min (80%)" in text, text
+        assert "Active Drop Game: Fake Game" in text
+        # one level per line; other brackets stay
+        assert "[STATUS] [STATUS]" not in text and "[CLAIM] [CLAIM]" not in text
+        assert "[CLAIM] [CORE] Drop received" in text
+        assert "[INFO] [TRAY] Icon ready" in text
+        assert "[WATCH] [CORE] Watching fake_streamer" in text
+        # a run of counter lines becomes its last line
+        assert text.count("Adding campaigns") == 1 and "[STATUS] Adding campaigns (3/3)" in text, text
+        # sanitizing still runs on every line
+        assert "abcdef0123456789" not in text and "SECRET123" not in text and "oauth:[REDACTED]" in text and "token=[REDACTED]" in text
+        # nothing is farmed: no crash, readable text
+        empty = report(None, [])
+        assert "Active Drop Name: None" in empty and "Progress: no active drop" in empty and "[No logs recorded yet]" in empty, empty
+        # unknown required time must not divide or crash
+        zero = report({"name": "Zero", "game": "G", "current_minutes": 5, "required_minutes": 0, "progress_percent": 0}, [])
+        assert "Progress: 5 / 0 min (0%)" in zero, zero
+        # the tail is taken after folding, so folded lines do not push others out of the 40 kept
+        many = [{"time": "t", "level": "STATUS", "message": f"[STATUS] Adding ({n}/99)"} for n in range(1, 100)]
+        many = [{"time": "t", "level": "INFO", "message": f"Keep {n}"} for n in range(39)] + many
+        tail = report(None, many)
+        assert "Keep 0" in tail and "Adding (99/99)" in tail and "Adding (98/99)" not in tail, tail
+    finally:
+        STATE_BRIDGE.active_drop, STATE_BRIDGE.recent_logs, STATE_BRIDGE.watching_channel = saved
+    print("      Diagnostic report: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5716,6 +6391,16 @@ if __name__ == "__main__":
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
+        test_toast_text_never_enters_the_powershell_script,
+        test_toast_text_is_short_and_free_of_control_characters,
+        test_coro_unless_closed_cancels_its_children_with_the_caller,
+        test_shell_opens_only_checked_web_links,
+        test_devtools_are_off_in_release_builds,
+        test_update_archive_is_checked_against_the_published_sha256,
+        test_logout_really_signs_out,
+        test_logout_failure_paths_never_keep_the_old_session,
+        test_channel_point_chest_uses_the_real_login_state,
+        test_diagnostic_report_shows_the_real_drop_and_a_readable_journal,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

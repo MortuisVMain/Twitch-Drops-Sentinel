@@ -1683,7 +1683,8 @@ class Twitch:
     async def claim_channel_points_if_available(self, channel: Channel) -> int:
         if not getattr(self, "claim_channel_points_enabled", True):
             return 0
-        if not self.is_logged_in or not channel or not channel.id:
+        # gql_request would start the login flow for a logged-out engine, so check the state first
+        if not self._auth_state._logged_in.is_set() or not channel or not channel.id:
             return 0
         login = getattr(channel, "_login", None) or getattr(channel, "name", None)
         if not login:
@@ -1693,9 +1694,18 @@ class Twitch:
             query = GQL_QUERIES["ChannelPointsContext"].with_variables(
                 {"channelLogin": str(login)}
             )
-            resp = await self.gql_request(query)
+            # gql_request keeps retrying on Twitch service errors; this runs inside the watch loop, which must not wait for it
+            resp = await asyncio.wait_for(self.gql_request(query), timeout=15)
             data = resp.get("data", {}) if isinstance(resp, dict) else {}
-            comm_points = data.get("communityPoints") or {}
+            comm_points = data.get("communityPoints")
+            if comm_points is None:  # the shape of the full persisted query
+                node = data
+                for key in ("community", "channel", "self", "communityPoints"):
+                    node = node.get(key) if isinstance(node, dict) else None
+                comm_points = node
+            if not isinstance(comm_points, dict):
+                self._warn_points_once("unexpected reply", f"ChannelPointsContext reply has no communityPoints (data keys: {sorted(data) if isinstance(data, dict) else type(data).__name__}); chest claiming is not working")
+                return 0
             available_claim = comm_points.get("availableClaim")
             if available_claim and isinstance(available_claim, dict):
                 claim_id = available_claim.get("id")
@@ -1708,14 +1718,23 @@ class Twitch:
                             }
                         }
                     )
-                    await self.gql_request(claim_query)
+                    await asyncio.wait_for(self.gql_request(claim_query), timeout=15)
                     from gui_headless import STATE_BRIDGE
                     STATE_BRIDGE.channel_points_earned += 50
                     logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
                     return 50
         except Exception as e:
-            logger.debug(f"Channel points check for {channel.name}: {e}")
+            self._warn_points_once("request failed", f"ChannelPointsContext check for {channel.name} failed: {e}", exc_info=True)
         return 0
+
+    def _warn_points_once(self, kind: str, message: str, *, exc_info: bool = False) -> None:
+        """The chest check runs every minute: the first failure of each kind is a WARNING, repeats stay at DEBUG."""
+        reported = self.__dict__.setdefault("_points_failures_reported", set())
+        if kind in reported:
+            logger.debug(message)
+            return
+        reported.add(kind)
+        logger.warning(message, exc_info=exc_info)
 
     async def get_auth(self) -> _AuthState:
         await self._auth_state.validate()

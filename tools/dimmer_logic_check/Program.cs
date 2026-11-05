@@ -193,5 +193,66 @@ void Tick(bool reverse = false, bool settle = true)
     Check(BrightnessReading.Resolve(cache, "b", null, 75, false, false) == 75 && cache["b"] == 75, "first read without hardware takes the fallback");
 }
 
+// External links: only absolute http(s) may reach ShellExecute
+{
+    string Open(string? raw) => ExternalLinkPolicy.TryGetOpenable(raw, out var uri) ? uri : "<refused>";
+    Check(Open("http://example.com/a?b=1") == "http://example.com/a?b=1", "http is opened");
+    Check(Open("https://www.twitch.tv/directory") == "https://www.twitch.tv/directory", "https is opened");
+    Check(Open("HTTPS://Example.com/x") == "https://example.com/x", "upper-case scheme is opened, normalized");
+    Check(Open("HTTP://example.com") == "http://example.com/", "upper-case HTTP is opened");
+    Check(Open("file:///C:/Windows/System32/calc.exe") == "<refused>", "file: is refused");
+    Check(Open("ms-msdt:/id PCWDiagnostic /skip force /param \"IT_BrowseForFile=x\"") == "<refused>", "ms-msdt: is refused");
+    Check(Open("search-ms:query=x&crumb=location:\\\\host\\share") == "<refused>", "search-ms: is refused");
+    Check(Open("javascript:alert(1)") == "<refused>", "javascript: is refused");
+    Check(Open("steam://run/1") == "<refused>", "a custom protocol is refused");
+    Check(Open("/relative/path") == "<refused>", "a relative path is refused");
+    Check(Open("relative.html") == "<refused>", "a bare name is refused");
+    Check(Open("") == "<refused>", "an empty string is refused");
+    Check(Open(null) == "<refused>", "null is refused");
+    Check(Open("   ") == "<refused>", "blanks are refused");
+    Check(Open("\\\\server\\share\\file.exe") == "<refused>", "a UNC path is refused");
+    Check(Open("//server/share/file.exe") == "<refused>", "a scheme-relative UNC form is refused");
+    Check(Open("C:\\Windows\\System32\\calc.exe") == "<refused>", "a drive path is refused");
+    Check(Open("https://") == "<refused>", "https:// with no host is refused");
+    Check(Open("http:///x") == "<refused>", "http:/// with no host is refused");
+    Check(Open(" https://example.com") == "<refused>", "a leading space is refused");
+    Check(Open("https://example.com ") == "<refused>", "a trailing space is refused");
+    Check(Open("https://example.com/\n") == "<refused>", "a control character is refused");
+    Check(Open("https:example.com") == "<refused>", "https: without // is refused");
+}
+
+// App origin: the window may stay on https://app.sentinel only; a foreign page must not navigate there or post messages
+{
+    bool App(string? raw) => AppOriginPolicy.IsAppUri(raw);
+    Check(App("https://app.sentinel/index.html?v=123"), "the app page is the app origin");
+    Check(App("https://app.sentinel/"), "the app root is the app origin");
+    Check(App("https://app.sentinel/index.html#/settings"), "a hash route is the app origin");
+    Check(App("https://APP.SENTINEL/index.html"), "upper-case host is the app origin");
+    Check(App("HTTPS://app.sentinel/index.html"), "upper-case scheme is the app origin");
+    Check(App("https://app.sentinel:443/index.html"), "the default https port is the app origin");
+    Check(!App("https://app.sentinel.evil.com/index.html"), "app.sentinel.evil.com is foreign");
+    Check(!App("https://evil.com/#app.sentinel"), "app.sentinel in the fragment is foreign");
+    Check(!App("https://evil.com/?u=https://app.sentinel/"), "app.sentinel in the query is foreign");
+    Check(!App("https://app.sentinel@evil.com/"), "app.sentinel as user info is foreign");
+    Check(!App("https://app.sentinel:pw@evil.com/"), "app.sentinel as user name with password is foreign");
+    Check(!App("https://evil.com\\@app.sentinel/"), "a backslash before @app.sentinel is foreign");
+    Check(!App("https://app.sentinel@app.sentinel/"), "user info on the app host is refused");
+    Check(!App("http://app.sentinel/index.html"), "http scheme is foreign");
+    Check(!App("https://app.sentinel:8443/index.html"), "another port is foreign");
+    Check(!App("https://app.sentinel./index.html"), "a trailing dot host is foreign");
+    Check(!App("https://xapp.sentinel/index.html"), "a prefixed host is foreign");
+    Check(!App("https://evil.com/"), "evil.com is foreign");
+    Check(!App("file:///C:/x/index.html"), "file: is foreign");
+    Check(!App("javascript:alert(1)"), "javascript: is foreign");
+    Check(!App("data:text/html,<h1>x</h1>"), "data: is foreign");
+    Check(!App("about:blank"), "about:blank is foreign");
+    Check(!App("edge://settings"), "edge: is foreign");
+    Check(!App("/index.html"), "a relative path is foreign");
+    Check(!App(" https://app.sentinel/"), "a leading space is foreign");
+    Check(!App("https://app.sentinel/\n"), "a control character is foreign");
+    Check(!App(""), "an empty source is foreign");
+    Check(!App(null), "a null source is foreign");
+}
+
 Console.WriteLine(failures == 0 ? "ALL DIMMER CHECKS PASSED" : $"{failures} DIMMER CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;

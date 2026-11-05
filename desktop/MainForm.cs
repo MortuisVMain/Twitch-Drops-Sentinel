@@ -1419,11 +1419,12 @@ namespace TwitchDropsSentinel
 
                 _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
-                _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                _webView.CoreWebView2.Settings.AreDevToolsEnabled = DevToolsAllowed();
 
 
 
                 _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
 
                 _webView.CoreWebView2.NewWindowRequested += (s, args) =>
 
@@ -1435,7 +1436,7 @@ namespace TwitchDropsSentinel
 
                     {
 
-                        Process.Start(new ProcessStartInfo(args.Uri) { UseShellExecute = true });
+                        OpenExternalLink(args.Uri, "NewWindowRequested");
 
                     }
 
@@ -1535,6 +1536,7 @@ namespace TwitchDropsSentinel
 
                     {
 
+                        _allowInlineNavigation = true; // NavigateToString arrives as a data: navigation; OnNavigationStarting lets this one through
                         _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Twitch Drops Sentinel v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
 
                     }
@@ -1570,6 +1572,25 @@ namespace TwitchDropsSentinel
 
 
 
+        private bool _allowInlineNavigation;
+
+        /// <summary>The window stays on the app origin. Anything else is cancelled; an http(s) target goes to the default browser instead.</summary>
+        private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            if (_allowInlineNavigation && e.Uri.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
+            {
+                _allowInlineNavigation = false;
+                return;
+            }
+            if (AppOriginPolicy.IsAppUri(e.Uri)) return;
+            e.Cancel = true;
+            try
+            {
+                OpenExternalLink(e.Uri, "NavigationStarting");
+            }
+            catch (Exception ex) { LogDesktopError("navigation blocked", ex); }
+        }
+
         private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
 
         {
@@ -1577,6 +1598,13 @@ namespace TwitchDropsSentinel
             try
 
             {
+
+                if (!AppOriginPolicy.IsAppUri(e.Source))
+                {
+                    string shown = new string((e.Source ?? "").Where(c => !char.IsControl(c)).Take(200).ToArray());
+                    LogDesktopError("web message ignored", new InvalidOperationException("not from the app origin: " + shown));
+                    return;
+                }
 
                 string json = e.WebMessageAsJson;
 
@@ -3612,6 +3640,32 @@ else
                 }
             }
             catch (Exception ex) { LogDesktopError("загрузка baseline яркости", ex); }
+        }
+
+        /// <summary>DevTools can read the page's data and run script in it: on in Debug builds, in Release only with SENTINEL_DEVTOOLS=1.</summary>
+        private static bool DevToolsAllowed()
+        {
+#if DEBUG
+            return true;
+#else
+            return Environment.GetEnvironmentVariable("SENTINEL_DEVTOOLS") == "1";
+#endif
+        }
+
+        /// <summary>Hands a link from the page to the default browser. Only absolute http(s) goes to the shell; anything else is logged and dropped.</summary>
+        private static void OpenExternalLink(string? raw, string source)
+        {
+            if (!ExternalLinkPolicy.TryGetOpenable(raw, out var uri))
+            {
+                string shown = new string((raw ?? "").Where(c => !char.IsControl(c)).Take(200).ToArray());
+                LogDesktopError("external link refused (" + source + ")", new InvalidOperationException("not an absolute http(s) address: " + shown));
+                return;
+            }
+            try
+            {
+                Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            }
+            catch (Exception ex) { LogDesktopError("open external link (" + source + ")", ex); }
         }
 
         private static void LogDesktopError(string context, Exception ex)

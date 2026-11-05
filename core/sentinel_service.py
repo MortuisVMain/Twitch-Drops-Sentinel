@@ -97,6 +97,29 @@ def set_autostart_status(enabled: bool) -> bool:
     except Exception:
         return False
 
+_PROGRESS_COUNTER_RE = re.compile(r'^(.*?)\s*\((\d+)\s*/\s*(\d+)\)\s*$')
+
+
+def report_log_tail(logs: list, limit: int = 40) -> list:
+    """Journal entries for the report: level prefix shown once, counter runs folded, then the last `limit`."""
+    entries = []
+    for item in logs:
+        level = str(item.get('level') or 'INFO')
+        text = str(item.get('message', ''))
+        stripped = re.sub(r'^\s*(\[' + re.escape(level) + r'\]\s*)+', '', text, flags=re.IGNORECASE)
+        entries.append({'time': item.get('time', ''), 'level': level, 'message': stripped or text})
+    folded = []
+    for entry in entries:
+        match = _PROGRESS_COUNTER_RE.match(entry['message'])
+        if folded and match:
+            prev = _PROGRESS_COUNTER_RE.match(folded[-1]['message'])
+            if prev and prev.group(1) == match.group(1) and folded[-1]['level'] == entry['level']:
+                folded[-1] = entry
+                continue
+        folded.append(entry)
+    return folded[-limit:]
+
+
 def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -> str:
     os_info = f"{platform.system()} {platform.release()} (Build {platform.version()})"
     py_info = f"Python {platform.python_version()} ({platform.architecture()[0]})"
@@ -112,7 +135,7 @@ def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -
     masked_user = f"{user_id_raw[:3]}***" if len(user_id_raw) > 3 else user_id_raw
 
     log_lines = []
-    for log_item in STATE_BRIDGE.recent_logs[-40:]:
+    for log_item in report_log_tail(STATE_BRIDGE.recent_logs):
         msg = f"[{log_item.get('time', '')}] [{log_item.get('level', 'INFO')}] {log_item.get('message', '')}"
         sanitized_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
         sanitized_msg = re.sub(r'(auth_token|client_secret|token|password)=["\']?[a-zA-Z0-9_\-]+["\']?', r'\1=[REDACTED]', sanitized_msg, flags=re.IGNORECASE)
@@ -135,8 +158,8 @@ def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -
         f"Session User: {masked_user}",
         f"Streamer Watching: {streamer}",
         f"Active Drop Game: {active_drop.get('game', 'None')}",
-        f"Active Drop Name: {active_drop.get('drop_name', 'None')}",
-        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress', 0)}%)",
+        f"Active Drop Name: {active_drop.get('name', 'None')}",
+        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress_percent', 0)}%)" if active_drop else "Progress: no active drop",
         f"Priority Games: {', '.join(settings.get('priority_games', [])) or 'None'}",
         f"Installed Games Detected: {len([g for g in CAMPAIGNS_FETCHER.get_catalog() if g.get('is_installed')])}",
         f"Game Directories: {len(settings.get('game_directories', []))} configured",
@@ -1077,25 +1100,48 @@ class SentinelSupervisor:
     async def handle_logout(self, request: web.Request) -> web.Response:
         logger.info("[AUTH] Пользователь запросил выход / смену аккаунта Twitch.")
         try:
-            # 1. Stop watching if active
+            failures: list[str] = []
+            jar_cleared = True
+            # 1. Stop watching and drop the session: the token leaves memory, the in-memory cookie jar is emptied and the
+            #    jar file removed, so the restart below cannot save or reload the old account
             if self.twitch_client:
                 if hasattr(self.twitch_client, "stop_watching"):
                     self.twitch_client.stop_watching()
-                if hasattr(self.twitch_client, "_auth") and self.twitch_client._auth:
-                    self.twitch_client._auth.invalidate(delete_cookies=True)
+                # The session's jar is emptied first and on its own: if invalidate() raises before it gets there, the restart's
+                # shutdown would save the old account back into the cookie file
+                session = getattr(self.twitch_client, "_session", None)
+                if session is not None:
+                    try:
+                        session.cookie_jar.clear()
+                    except Exception as exc:
+                        logger.error("Logout: could not empty the cookie jar: %s", exc, exc_info=True)
+                        failures.append(f"cookie jar: {exc}")
+                        jar_cleared = False
+                auth_state = getattr(self.twitch_client, "_auth_state", None)
+                if auth_state is not None:
+                    try:
+                        auth_state.invalidate(delete_cookies=True)
+                    except Exception as exc:
+                        logger.error("Logout: could not invalidate the session: %s", exc, exc_info=True)
+                        failures.append(f"session: {exc}")
 
-            # 2. Safely remove cookies.jar on disk
-            for c_path in [
-                Path("cookies.jar"),
-                Path("core/cookies.jar"),
-                Path(os.path.join(os.path.dirname(__file__), "..", "cookies.jar")),
-                Path(os.path.join(os.path.dirname(__file__), "cookies.jar")),
-            ]:
+            # 2. The engine's own cookie file (and the copies next to the code); the working directory plays no part
+            code_dir = Path(__file__).resolve().parent
+            #    and the updater's copy of the cookies in .backup_state
+            for c_path in dict.fromkeys([COOKIES_PATH, code_dir / "cookies.jar", code_dir.parent / "cookies.jar",
+                                         PROJECT_DIR / ".backup_state" / "cookies.jar"]):
                 try:
-                    if c_path.exists():
-                        c_path.unlink()
+                    c_path.unlink(missing_ok=True)
                 except Exception as exc:
-                    logger.debug("Failed unlinking cookies.jar at %s: %s", c_path, exc)
+                    logger.error("Logout: could not delete %s: %s", c_path, exc, exc_info=True)
+                    failures.append(f"{c_path.name}: {exc}")
+
+            if failures:
+                # The old account would be restored from the file: say so instead of reporting a sign-out that did not happen
+                # (not while the old jar is still in memory: the restart's shutdown would write it to the file)
+                if jar_cleared and self.twitch_client and hasattr(self.twitch_client, "change_state"):
+                    self.twitch_client.change_state(State.RESTART)
+                return web.json_response({"success": False, "error": "Не удалось полностью выйти из аккаунта Twitch: " + "; ".join(failures)}, status=500)
 
             # 3. Reset STATE_BRIDGE
             STATE_BRIDGE.user_id = ""
@@ -1111,7 +1157,11 @@ class SentinelSupervisor:
                 self.twitch_client.change_state(State.RESTART)
 
             await self.broadcast_ws()
-            return web.json_response({"success": True, "message": "Успешный выход из аккаунта Twitch"})
+            reply: dict[str, Any] = {"success": True, "message": "Успешный выход из аккаунта Twitch"}
+            if any((PROJECT_DIR / "data" / "backups").glob("sentinel_profile_backup_*.zip")):
+                # The user's own files: not deleted here, but they can still hold the old account's cookies
+                reply["note"] = "В data/backups остались резервные копии профиля: в них могут быть cookies прежнего аккаунта. Удалите их вручную, если они не нужны."
+            return web.json_response(reply)
         except Exception as e:
             logger.error("Error during logout: %s", e, exc_info=True)
             return web.json_response({"success": False, "error": str(e)}, status=500)
