@@ -1419,7 +1419,7 @@ namespace TwitchDropsSentinel
 
                 _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
-                _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                _webView.CoreWebView2.Settings.AreDevToolsEnabled = DevToolsAllowed();
 
 
 
@@ -3612,6 +3612,16 @@ else
                 }
             }
             catch (Exception ex) { LogDesktopError("загрузка baseline яркости", ex); }
+        }
+
+        /// <summary>DevTools can read the page's data and run script in it: on in Debug builds, in Release only with SENTINEL_DEVTOOLS=1.</summary>
+        private static bool DevToolsAllowed()
+        {
+#if DEBUG
+            return true;
+#else
+            return Environment.GetEnvironmentVariable("SENTINEL_DEVTOOLS") == "1";
+#endif
         }
 
         /// <summary>Hands a link from the page to the default browser. Only absolute http(s) goes to the shell; anything else is logged and dropped.</summary>

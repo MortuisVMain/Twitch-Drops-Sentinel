@@ -5653,6 +5653,19 @@ def test_shell_opens_only_checked_web_links():
     print("      Shell link policy: PASS [OK]")
 
 
+def test_devtools_are_off_in_release_builds():
+    print("[security] WebView2: DevTools are on only in Debug builds or with SENTINEL_DEVTOOLS=1...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    assert not re.search(r"AreDevToolsEnabled\s*=\s*true", form), "DevTools must not be switched on unconditionally"
+    assert "AreDevToolsEnabled = DevToolsAllowed()" in form, "the setting follows DevToolsAllowed()"
+    body = re.search(r"private static bool DevToolsAllowed\(\)\s*\{(.*?)\n        \}", form, re.S)
+    assert body, "DevToolsAllowed exists"
+    text = body.group(1)
+    assert re.search(r"#if DEBUG\s*return true;\s*#else\s*return Environment\.GetEnvironmentVariable\(\"SENTINEL_DEVTOOLS\"\) == \"1\";\s*#endif", text), \
+        "Debug builds, or the SENTINEL_DEVTOOLS=1 opt-in; nothing else"
+    print("      DevTools gate: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5771,6 +5784,7 @@ if __name__ == "__main__":
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
         test_toast_text_never_enters_the_powershell_script,
         test_shell_opens_only_checked_web_links,
+        test_devtools_are_off_in_release_builds,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
