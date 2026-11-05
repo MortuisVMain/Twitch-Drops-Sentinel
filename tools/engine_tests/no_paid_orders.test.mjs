@@ -15,12 +15,39 @@ const orders = await load('orders.js').catch(err => ({ missing: err.message }));
 
 // ---------- fakes ----------
 const timer = { waitForTimeout: async () => {} };
-const button = (text, log, { visible = true } = {}) => ({
+const button = (text, log, { visible = true, waitFails = false } = {}) => ({
   first() { return this; }, // a locator is narrowed with first(); the fake is its own first match
+  filter() { return this; },
+  locator() { return this; },
+  waitFor: async () => { if (waitFails) throw new Error('Timeout'); },
   innerText: async () => { if (text instanceof Error) throw text; return text; },
   isVisible: async () => visible,
   click: async () => { log.push(`click:${text}`); },
+  check: async () => { log.push('check'); },
+  pressSequentially: async s => { log.push(`type:${s}`); },
 });
+/**
+ * A locator that can be pinned like a real one: elementHandle() gives the element, which keeps its own label.
+ * `labels` advances on every read of the element (the last one repeats), `clicks` records the options of each click.
+ */
+const pinnable = (labels, log, clicks = []) => {
+  const list = [].concat(labels);
+  let i = 0;
+  const handle = {
+    innerText: async () => list[Math.min(i++, list.length - 1)],
+    isVisible: async () => true,
+    evaluate: async () => handle.block ?? '',
+    click: async opts => { log.push('click:handle'); clicks.push(opts); },
+    dispose: async () => { log.push('dispose'); },
+  };
+  return {
+    handle,
+    first() { return this; },
+    elementHandle: async () => handle,
+    innerText: async () => { throw new Error('the lazy locator must not be read once the element is pinned'); },
+    click: async () => { log.push('click:LAZY'); },
+  };
+};
 /** A page: evaluate() gives its text. `texts` may be a list that advances on every read (last one repeats). */
 const fakePage = (texts, buttons = {}) => {
   const list = [].concat(texts);
@@ -126,7 +153,8 @@ test('Epic Get click: only a positively recognised free action', async () => {
   assert.equal(res.refused, true, 'a page that shows a paid total is not free');
   for (const label of ['get', 'Get', 'получить', ' Получить ']) {
     const log = [];
-    const res2 = await orders.clickGetIfFree(button(label, log), label, fakePage('Epic Games Store'));
+    // positive evidence of free (Epic's promotions list names this game at 0) is now required as well
+    const res2 = await orders.clickGetIfFree(button(label, log), label, fakePage('Epic Games Store'), { promoFree: true });
     assert.equal(res2.refused, false, label);
     assert.equal(log.length, 1, `${label} is a free action and is clicked`);
   }
@@ -241,4 +269,301 @@ test('the other stores: their order clicks stay behind their own checks', () => 
   const unity = read('unity.js');
   assert.ok(unity.includes('waitForFreeOrder') && unity.includes("orderTotalState(await readPageText(page)) !== 'free'"));
   assert.ok(unity.indexOf("orderTotalState(await readPageText(page)) !== 'free'") < unity.indexOf('payBtn.click'));
+});
+
+// ======================================================================================================
+// Second pass: an order-capable click happens only on positive evidence of free
+// ======================================================================================================
+
+// ---------- totals: a charge line beats a zero total line ----------
+test('order totals: a line that says what is charged makes the order paid', () => {
+  const paid = [
+    'Total $0.00\nPay now $9.99', 'You will be charged $9.99 today', 'Payment due: $9.99', 'Buy now for $9.99',
+    'Total Free\nPay $9.99', 'Free trial\nThen $9.99/month\nTotal $0.00', 'Total $0.00\nYou pay $4.99',
+    'Total $0.00\nTo pay: 4,99 €', 'Итого 0 ₽\nК оплате 499 ₽', 'Итого 0 ₽\nБудет списано 499 ₽', 'Total $0.00\n$4.99 per month',
+    'Total $0.00\nОплатить 499 ₽', 'Итого 0 ₽\n299 ₽ в месяц', 'Total $9.99 (includes discount)\nTotal $0.00',
+  ];
+  for (const text of paid) {
+    assert.equal(orderTotalState(text, { freeWord: true }), 'paid', JSON.stringify(text));
+    assert.notEqual(orderTotalState(text), 'free', JSON.stringify(text));
+  }
+  // a savings line or a zero charge is still not what gets charged
+  for (const text of ['Total savings $5.00\nTotal $0.00', 'Pay now $0.00\nTotal $0.00', 'Amount due $0.00\nTotal $0.00', 'You pay $0.00\nTotal $0.00']) {
+    assert.equal(orderTotalState(text), 'free', JSON.stringify(text));
+  }
+  // the description of a game is not a price list
+  assert.equal(orderTotalState('Survive 100 days, then escape.\nTotal $0.00'), 'free');
+});
+
+// ---------- modal loop: a dismissal is an exact label ----------
+test('modal labels: only an exact harmless label is dismissed', () => {
+  for (const label of ['Continue', 'continue', ' CONTINUE ', 'Продолжить', 'View Product', 'Agree', 'I Agree', 'Accept', 'I Accept', 'Принять', 'Согласен', 'I understand']) {
+    assert.equal(orders.classifyModalLabel(label), 'dismiss', label);
+  }
+  for (const label of ['Continue to payment', 'Accept and pay $9.99', 'Agree and Place Order', 'Продолжить к оплате', 'Continue to checkout', 'Continue 2', 'Accept & buy',
+    'Add to library and continue', 'Accept purchase', 'Согласен и купить', 'Принять заказ', 'Agree to the terms', 'Continue shopping', '']) {
+    assert.equal(orders.classifyModalLabel(label), 'refuse', JSON.stringify(label));
+  }
+});
+
+test('modal loop: a button that merely contains Continue or Accept is never clicked, free total or not', async () => {
+  for (const label of ['Continue to payment', 'Accept and pay $9.99', 'Agree and Place Order', 'Продолжить к оплате', 'Continue to checkout', 'Accept & buy']) {
+    const log = [];
+    const page = fakePage('Total $0.00', { [orders.DISMISS_SELECTOR]: button(label, log), [orders.ORDER_SELECTOR]: button('Place Order', log) });
+    const res = await orders.settleModals(page, { log: () => {}, attempts: 3 });
+    assert.deepEqual(log, [], `${label}: nothing may be clicked`);
+    assert.equal(res.refused, true, label);
+    assert.ok(res.status === NOT_FREE || res.status === TOTAL_UNKNOWN);
+  }
+  // a pinned button is clicked through its handle, with a short timeout
+  const log = [];
+  const clicks = [];
+  let gone = false;
+  const pin = pinnable('Continue', log, clicks);
+  pin.isVisible = async () => !gone;
+  pin.handle.click = async o => { gone = true; log.push('click:handle'); clicks.push(o); };
+  const res = await orders.settleModals(fakePage('Epic Games Store', { [orders.DISMISS_SELECTOR]: pin }), { log: () => {}, attempts: 3 });
+  assert.equal(res.refused, false);
+  assert.deepEqual(log.filter(x => x.startsWith('click')), ['click:handle']);
+  assert.ok(clicks[0].timeout <= 5000, 'a bounded click');
+});
+
+// ---------- Epic Get: the element is pinned and read again right before the click ----------
+test('Get click: the label is read again from the same element right before the click', async () => {
+  // the button changes after the first read (the page moved on): nothing is clicked
+  for (const labels of [['Get', 'Buy Now'], ['Get', 'Get', '$9.99'], ['Get', 'Get', 'Add to cart'], ['Get', 'In Library']]) {
+    const log = [];
+    const pin = pinnable(labels, log);
+    const res = await orders.clickGetIfFree(pin, 'get', fakePage('Epic Games Store'), { promoFree: true });
+    assert.equal(res.refused, true, labels.join('>'));
+    assert.ok(!log.some(x => x.startsWith('click')), `${labels.join('>')}: no click`);
+    assert.ok(log.includes('dispose'), 'the handle is released');
+  }
+  const log = [];
+  const clicks = [];
+  const pin = pinnable(['Get', 'Get', 'Get', 'Get'], log, clicks);
+  const res = await orders.clickGetIfFree(pin, 'get', fakePage('Epic Games Store'), { promoFree: true });
+  assert.equal(res.refused, false);
+  assert.deepEqual(log.filter(x => x.startsWith('click')), ['click:handle'], 'the pinned element is clicked, not the lazy locator');
+  assert.ok(clicks[0].timeout <= 3000, 'a short click timeout');
+});
+
+// ---------- Epic Get: positive evidence of free ----------
+test('Get evidence: promotions list or the price block must say free; unknown is refused', async () => {
+  const E = orders.getEvidence;
+  const cases = [
+    ['promotion at 0, no block', { promoFree: true, priceBlock: '' }, 'free'],
+    ['promotion at 0, struck-out original', { promoFree: true, priceBlock: '-100%\n$29.99\nFree\nGet' }, 'free'],
+    ['promotion at 0, block reads Get only', { promoFree: true, priceBlock: 'Get' }, 'free'],
+    ['no promotion, no block', { promoFree: false, priceBlock: '' }, 'unknown'],
+    ['no promotion data', { promoFree: null, priceBlock: 'Get' }, 'unknown'],
+    ['block: -100% with struck-out original', { promoFree: null, priceBlock: '-100%\n$29.99\nFree\nGet' }, 'free'],
+    ['block: RU free', { promoFree: null, priceBlock: 'Бесплатно\nПолучить' }, 'free'],
+    ['block: free with a price and no discount mark', { promoFree: null, priceBlock: 'Free\n$29.99\nGet' }, 'unknown'],
+    ['block: plain price', { promoFree: null, priceBlock: '$29.99\nGet' }, 'unknown'],
+    ['block: -50%', { promoFree: null, priceBlock: '-50%\n$29.99\n$14.99\nGet' }, 'unknown'],
+    ['promotion at 0 but the block shows a plain price', { promoFree: true, priceBlock: '$29.99\nGet' }, 'unknown'],
+    ['promotion at 0 but the block charges', { promoFree: true, priceBlock: 'Free\nThen $9.99/month\nGet' }, 'paid'],
+    ['block: free word beside a pay line', { promoFree: null, priceBlock: 'Free\nPay now $9.99' }, 'paid'],
+  ];
+  for (const [name, input, state] of cases) assert.equal(E(input).state, state, name);
+
+  // through the click: unknown never clicks, and says so
+  for (const opts of [{}, { promoFree: null }, { promoFree: false }]) {
+    const log = [];
+    const res = await orders.clickGetIfFree(button('Get', log), 'get', fakePage('Epic Games Store'), opts);
+    assert.deepEqual(log, [], JSON.stringify(opts));
+    assert.equal(res.status, TOTAL_UNKNOWN);
+    assert.match(res.reason, /free/i);
+  }
+  // the price block is read from the element's neighbourhood
+  const log = [];
+  const pin = pinnable(['Get', 'Get', 'Get'], log);
+  pin.handle.block = '-100%\n$29.99\nFree\nGet';
+  const res = await orders.clickGetIfFree(pin, 'get', fakePage('Epic Games Store'), { promoFree: null });
+  assert.equal(res.refused, false, 'the block alone is positive evidence');
+  const log2 = [];
+  const pin2 = pinnable(['Get', 'Get', 'Get'], log2);
+  pin2.handle.block = '$29.99\nGet';
+  const res2 = await orders.clickGetIfFree(pin2, 'get', fakePage('Epic Games Store'), { promoFree: null });
+  assert.equal(res2.refused, true);
+  assert.ok(!log2.some(x => x.startsWith('click')));
+});
+
+test('promotions list: only an active offer at exactly 0 for this page counts', async () => {
+  const now = Date.parse('2026-11-05T12:00:00Z');
+  const offer = (start, end) => [{ promotionalOffers: [{ startDate: start, endDate: end }] }];
+  const el = (over = {}) => ({
+    title: 'Game', productSlug: 'game-a/home', urlSlug: 'wrong-id-1234', catalogNs: { mappings: [{ pageSlug: 'game-a' }] },
+    price: { totalPrice: { discountPrice: 0, originalPrice: 2999 } },
+    promotions: { promotionalOffers: offer('2026-11-01T00:00:00Z', '2026-11-12T00:00:00Z') }, ...over,
+  });
+  const named = (slug, over) => el({ productSlug: slug, urlSlug: slug, catalogNs: { mappings: [{ pageSlug: slug }] }, ...over });
+  const slugs = orders.freePromoSlugs([
+    el(),
+    named('game-b', { price: { totalPrice: { discountPrice: 1499 } } }),
+    named('game-c', { promotions: { promotionalOffers: [] } }),
+    named('game-d', { promotions: { promotionalOffers: offer('2026-11-10T00:00:00Z', '2026-11-17T00:00:00Z') } }),
+    named('game-e', { promotions: { promotionalOffers: offer('2026-10-01T00:00:00Z', '2026-11-01T00:00:00Z') } }),
+    named('game-f', { price: {} }),
+    null,
+  ], now);
+  assert.ok(slugs instanceof Set);
+  assert.deepEqual([...slugs].filter(s => s.startsWith('game-')).sort(), ['game-a']);
+  assert.equal(orders.slugFromUrl('https://store.epicgames.com/en-US/p/game-a'), 'game-a');
+  assert.equal(orders.slugFromUrl('https://store.epicgames.com/en-US/p/Game-A?x=1#top'), 'game-a');
+  assert.equal(orders.slugFromUrl('not a url'), '');
+  assert.equal(orders.promoFreeForPage(slugs, 'https://store.epicgames.com/en-US/p/game-a'), true);
+  assert.equal(orders.promoFreeForPage(slugs, 'https://store.epicgames.com/en-US/p/game-b'), false);
+  assert.equal(orders.promoFreeForPage(null, 'https://store.epicgames.com/en-US/p/game-a'), null);
+
+  // the fetch is injected; a failure gives null (unknown), never an empty "all clear"
+  const body = { data: { Catalog: { searchStore: { elements: [el()] } } } };
+  const ok = await orders.fetchFreePromoSlugs(async () => ({ ok: true, json: async () => body }), now);
+  assert.ok(ok.has('game-a'));
+  assert.equal(await orders.fetchFreePromoSlugs(async () => { throw new Error('offline'); }, now), null);
+  assert.equal(await orders.fetchFreePromoSlugs(async () => ({ ok: false, status: 503 }), now), null);
+  assert.equal(await orders.fetchFreePromoSlugs(async () => ({ ok: true, json: async () => ({}) }), now), null);
+});
+
+// ---------- the shared gate pins the element ----------
+test('clickOnlyIfFree: the element is pinned, read again right before the click, clicked with a short timeout', async () => {
+  const log = [];
+  const clicks = [];
+  const pin = pinnable(['Place Order', 'Place Order', 'Place Order'], log, clicks);
+  const res = await clickOnlyIfFree(pin, fakeFrame('Total $0.00'), { timer, clickOptions: { delay: 50 } });
+  assert.equal(res.refused, false);
+  assert.deepEqual(log.filter(x => x.startsWith('click')), ['click:handle']);
+  assert.ok(clicks[0].timeout <= 3000 && clicks[0].delay === 50, JSON.stringify(clicks[0]));
+  assert.ok(log.includes('dispose'));
+
+  // the label changed between the check and the click (the locator now points elsewhere): refused
+  for (const labels of [['Place Order', 'Place Order', 'Place Order $9.99'], ['Add to library', 'Add to library', 'Buy now'], ['Place Order', 'Place Order', '']]) {
+    const log2 = [];
+    const res2 = await clickOnlyIfFree(pinnable(labels, log2), fakeFrame('Total $0.00'), { timer });
+    assert.equal(res2.refused, true, labels.join('>'));
+    assert.ok(!log2.some(x => x.startsWith('click')), `${labels.join('>')}: no click`);
+  }
+  // a click that cannot complete is a refusal, not a hang or a throw
+  const log3 = [];
+  const bad = pinnable(['Place Order'], log3);
+  bad.handle.click = async () => { throw new Error('Timeout 2000ms exceeded'); };
+  const res3 = await clickOnlyIfFree(bad, fakeFrame('Total $0.00'), { timer });
+  assert.equal(res3.refused, true);
+  // an element that cannot be found is a refusal
+  const missing = { first() { return this; }, elementHandle: async () => { throw new Error('Timeout'); } };
+  assert.equal((await clickOnlyIfFree(missing, fakeFrame('Total $0.00'), { timer })).status, TOTAL_UNKNOWN);
+});
+
+test('Fab Buy now: pinned and read again before the click', async () => {
+  const log = [];
+  const clicks = [];
+  const ok = await orders.clickBuyNowIfFree(pinnable(['Buy now', 'Buy now'], log, clicks), fakePage('Free listing'));
+  assert.equal(ok.refused, false);
+  assert.deepEqual(log.filter(x => x.startsWith('click')), ['click:handle']);
+  assert.ok(clicks[0].timeout <= 3000);
+  const log2 = [];
+  const res = await orders.clickBuyNowIfFree(pinnable(['Buy now', 'Buy now $19.99'], log2), fakePage('Free listing'));
+  assert.equal(res.refused, true);
+  assert.ok(!log2.some(x => x.startsWith('click')));
+});
+
+// ---------- the small clicks around an order: exact text, bounded, awaited ----------
+test('exact-label click: refuses anything but the expected word', async () => {
+  const RE = /^(?:i accept|i agree|принять)$/i;
+  for (const label of ['Accept and pay $9.99', 'I Accept the purchase', 'Принять и оплатить', '', 'Accept 1']) {
+    const log = [];
+    assert.equal(await orders.clickExactLabel(button(label, log), RE), false, label);
+    assert.deepEqual(log, [], label);
+  }
+  const log = [];
+  assert.equal(await orders.clickExactLabel(button('I Accept', log), RE), true);
+  assert.deepEqual(log, ['click:I Accept']);
+  assert.equal(await orders.clickExactLabel(button(new Error('gone'), []), RE), false, 'unreadable: not clicked, not thrown');
+});
+
+test('EU accept: only after the wait, only the exact word, never beside a paid total', async () => {
+  const mk = (label, log, opts) => ({ locator: () => button(label, log, opts) });
+  let log = [];
+  assert.equal(await orders.acceptEuAgreement(mk('I Accept', log), fakeFrame('Total $0.00'), { timeout: 10 }), true);
+  assert.deepEqual(log, ['click:I Accept']);
+  log = [];
+  assert.equal(await orders.acceptEuAgreement(mk('Принять', log), fakeFrame(''), { timeout: 10 }), true, 'after the gated order the total may be gone');
+  log = [];
+  assert.equal(await orders.acceptEuAgreement(mk('I Accept', log), fakeFrame('Total $9.99'), { timeout: 10 }), false);
+  assert.deepEqual(log, [], 'a paid total: no click');
+  log = [];
+  assert.equal(await orders.acceptEuAgreement(mk('I Accept', log, { waitFails: true }), fakeFrame('Total $0.00'), { timeout: 10 }), false);
+  assert.deepEqual(log, [], 'no EU button: nothing to do, no throw');
+  log = [];
+  assert.equal(await orders.acceptEuAgreement(mk('Accept and pay $9.99', log), fakeFrame('Total $0.00'), { timeout: 10 }), false);
+  assert.deepEqual(log, []);
+});
+
+test('EULA and parental PIN: bounded, exact, answered before the game is left', async () => {
+  let log = [];
+  const page = label => ({ locator: () => button(label, log) });
+  assert.equal(await orders.acceptEulaIfShown(page('Accept'), { timeout: 10 }), true);
+  assert.ok(log.includes('check') && log.includes('click:Accept'));
+  log = [];
+  assert.equal(await orders.acceptEulaIfShown(page('Accept and pay $9.99'), { timeout: 10 }), false);
+  assert.ok(!log.some(x => x.startsWith('click')));
+  log = [];
+  assert.equal(await orders.acceptEulaIfShown({ locator: () => button('Accept', log, { waitFails: true }) }, { timeout: 10 }), false, 'no EULA shown');
+  assert.deepEqual(log, []);
+
+  log = [];
+  const frame = label => ({ locator: () => button(label, log) });
+  const notes = [];
+  assert.equal(await orders.enterParentalPin(frame('Continue'), '1234', { timeout: 10, notify: m => notes.push(m) }), true);
+  assert.deepEqual(log, ['type:1234', 'click:Continue']);
+  log = [];
+  assert.equal(await orders.enterParentalPin(frame('Continue to payment'), '1234', { timeout: 10, notify: () => {} }), false);
+  assert.ok(!log.some(x => x.startsWith('click')));
+  log = [];
+  assert.equal(await orders.enterParentalPin(frame('Continue'), undefined, { timeout: 10, notify: m => notes.push(m) }), false);
+  assert.deepEqual(log, [], 'no PIN configured: nothing typed or clicked');
+  assert.ok(notes.length >= 1, 'and the user is told');
+});
+
+// ---------- the page-level fallback is a dialog, not the whole page ----------
+test('page-level order button: only inside a dialog and with the dialog text as the source', async () => {
+  assert.ok(!/Claim|Get Now|Order Now/i.test(orders.PAGE_ORDER_LABEL.source), 'banners are not orders');
+  for (const text of ['Place Order', 'Add to library', 'Оформить заказ', 'Добавить в библиотеку']) assert.ok(orders.PAGE_ORDER_LABEL.test(text), text);
+  for (const text of ['Claim', 'Get Now', 'Order Now', 'Get']) assert.ok(!orders.PAGE_ORDER_LABEL.test(text), text);
+  assert.ok(/dialog/.test(orders.ORDER_DIALOG));
+
+  // the text gate reads the dialog, so a stray "Total $0.00" elsewhere on the page proves nothing
+  const seen = [];
+  const dialog = { first() { return this; }, innerText: async () => 'Place Order\nTotal $9.99' };
+  const inner = { filter: () => ({ first: () => button('Place Order', []) }) };
+  const target = orders.pageOrderTarget({
+    waitForTimeout: async () => {},
+    locator: sel => { seen.push(sel); return { filter: () => ({ first: () => ({ ...dialog, locator: () => inner }) }) }; },
+  });
+  assert.ok(target.button && target.source);
+  assert.equal(await readPageText(target.source), 'Place Order\nTotal $9.99');
+  assert.equal(await settledOrderState(target.source, { timer, tries: 2 }), 'paid');
+  assert.ok(seen.some(s => s === orders.ORDER_DIALOG), 'it looks inside a dialog');
+});
+
+// ---------- sources ----------
+test('epic-games.js: no blind clicks, no catch-all fallback, no claim without proof, no status-less entry', () => {
+  for (const [name, code] of [['epic-games.js', read('epic-games.js')], ['dist/epic-games.mjs', read('dist/epic-games.mjs')]]) {
+    assert.ok(!/_iframeTimeout/.test(code), `${name}: the catch-all fallback is gone`);
+    assert.ok(!code.includes('text=Claim'), `${name}: a detached "Claim" is not proof of a claim`);
+    assert.ok(!/Get Now|Order Now/.test(code), `${name}: banner buttons are not orders`);
+    assert.ok(!/btnAgree|waitFor\([^)]*\)\.then\([^)]*click/.test(code), `${name}: fire-and-forget clicks`);
+    assert.ok(!/end user license agreement"\)'\)\.waitFor/.test(code), `${name}: the EULA click is awaited`);
+    for (const fn of ['acceptEulaIfShown', 'enterParentalPin', 'acceptEuAgreement', 'fetchFreePromoSlugs', 'promoFreeForPage', 'pageOrderTarget']) assert.ok(code.includes(fn), `${name} uses ${fn}`);
+    assert.ok(code.includes('failed:unconfirmed'), `${name}: an unconfirmed claim is a failure`);
+    assert.ok(/\|\|= \{ title, time: datetime\(\), url: page\.url\(\), status: 'failed' \}/.test(code), `${name}: Epic's entry starts as failed`);
+  }
+  assert.ok(/TimeoutError/.test(read('epic-games.js')), 'only a timeout means "no iframe"');
+});
+
+test('unity pay click is pinned', () => {
+  const unity = read('unity.js');
+  assert.ok(/payBtn\.click\(\{[^}]*timeout/.test(unity), 'a short click timeout');
+  assert.ok(unity.includes('elementHandle'), 'the button is pinned');
 });
