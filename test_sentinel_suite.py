@@ -5913,6 +5913,79 @@ def test_logout_really_signs_out():
     print("      Logout: PASS [OK]")
 
 
+def test_channel_point_chest_uses_the_real_login_state():
+    print("[security] Channel points: the chest claim checks the real login state, honours the setting and fails visibly...")
+    import asyncio
+    import logging
+    import types
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import twitch
+    from gui_headless import STATE_BRIDGE
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.DEBUG)
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    def make(logged_in, enabled=True, reply=None, error=None):
+        calls = []
+
+        async def gql_request(query):
+            calls.append(query)
+            if error is not None:
+                raise error
+            return reply[len(calls) - 1] if isinstance(reply, list) else reply
+
+        auth = types.SimpleNamespace(_logged_in=asyncio.Event())
+        if logged_in:
+            auth._logged_in.set()
+        client = types.SimpleNamespace(_auth_state=auth, claim_channel_points_enabled=enabled, gql_request=gql_request)
+        client._warn_points_once = types.MethodType(twitch.Twitch._warn_points_once, client)
+        return client, calls
+
+    channel = types.SimpleNamespace(id=777, name="streamer", _login="streamer")
+    chest = {"data": {"communityPoints": {"availableClaim": {"id": "claim-1"}}}}
+    capture = _Capture()
+    twitch.logger.addHandler(capture)
+    earned = STATE_BRIDGE.channel_points_earned
+    try:
+        claim = twitch.Twitch.claim_channel_points_if_available
+
+        client, calls = make(logged_in=True, reply=[chest, {"data": {}}])
+        assert asyncio.run(claim(client, channel)) == 50, "a logged-in engine with the setting on claims an available chest"
+        assert len(calls) == 2, "one context query and one claim"
+        assert calls[1]["variables"]["input"] == {"claimID": "claim-1", "channelID": "777"}, calls[1]
+        assert STATE_BRIDGE.channel_points_earned == earned + 50
+
+        client, calls = make(logged_in=False, reply=chest)
+        assert asyncio.run(claim(client, channel)) == 0 and calls == [], "logged out: no request (a request would start the login flow)"
+        client, calls = make(logged_in=True, enabled=False, reply=chest)
+        assert asyncio.run(claim(client, channel)) == 0 and calls == [], "setting off: no request, no claim"
+        client, calls = make(logged_in=True, reply=chest)
+        assert asyncio.run(claim(client, types.SimpleNamespace(id=None, name="x", _login="x"))) == 0 and calls == [], "no channel id: no request"
+
+        # a reply that does not look like the expected one, and a failing request, are logged at WARNING (once), not at DEBUG
+        capture.records.clear()
+        client, calls = make(logged_in=True, reply={"data": {"unexpected": {}}})
+        assert asyncio.run(claim(client, channel)) == 0 and len(calls) == 1
+        assert asyncio.run(claim(client, channel)) == 0
+        warnings = [r for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
+        assert len(warnings) == 1, f"an unrecognised reply is reported once at WARNING: {[r.getMessage() for r in capture.records]}"
+        capture.records.clear()
+        client, calls = make(logged_in=True, error=RuntimeError("boom"))
+        assert asyncio.run(claim(client, channel)) == 0 and asyncio.run(claim(client, channel)) == 0
+        warnings = [r for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
+        assert len(warnings) == 1 and warnings[0].exc_info, "a failing request is reported once at WARNING with the traceback"
+    finally:
+        twitch.logger.removeHandler(capture)
+        STATE_BRIDGE.channel_points_earned = earned
+    assert "is_logged_in" not in (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8"), "no reference to the undefined is_logged_in remains"
+    print("      Channel points claim: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -6034,6 +6107,7 @@ if __name__ == "__main__":
         test_devtools_are_off_in_release_builds,
         test_update_archive_is_checked_against_the_published_sha256,
         test_logout_really_signs_out,
+        test_channel_point_chest_uses_the_real_login_state,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

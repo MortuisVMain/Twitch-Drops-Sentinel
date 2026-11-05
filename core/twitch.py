@@ -1683,7 +1683,8 @@ class Twitch:
     async def claim_channel_points_if_available(self, channel: Channel) -> int:
         if not getattr(self, "claim_channel_points_enabled", True):
             return 0
-        if not self.is_logged_in or not channel or not channel.id:
+        # gql_request would start the login flow for a logged-out engine, so check the state first
+        if not self._auth_state._logged_in.is_set() or not channel or not channel.id:
             return 0
         login = getattr(channel, "_login", None) or getattr(channel, "name", None)
         if not login:
@@ -1695,7 +1696,10 @@ class Twitch:
             )
             resp = await self.gql_request(query)
             data = resp.get("data", {}) if isinstance(resp, dict) else {}
-            comm_points = data.get("communityPoints") or {}
+            comm_points = data.get("communityPoints")
+            if not isinstance(comm_points, dict):
+                self._warn_points_once(f"ChannelPointsContext reply has no communityPoints (data keys: {sorted(data) if isinstance(data, dict) else type(data).__name__}); chest claiming is not working")
+                return 0
             available_claim = comm_points.get("availableClaim")
             if available_claim and isinstance(available_claim, dict):
                 claim_id = available_claim.get("id")
@@ -1714,8 +1718,16 @@ class Twitch:
                     logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
                     return 50
         except Exception as e:
-            logger.debug(f"Channel points check for {channel.name}: {e}")
+            self._warn_points_once(f"ChannelPointsContext check for {channel.name} failed: {e}", exc_info=True)
         return 0
+
+    def _warn_points_once(self, message: str, *, exc_info: bool = False) -> None:
+        """The chest check runs every minute: the first failure is a WARNING, repeats stay at DEBUG."""
+        if getattr(self, "_points_failure_reported", False):
+            logger.debug(message)
+            return
+        self._points_failure_reported = True
+        logger.warning(message, exc_info=exc_info)
 
     async def get_auth(self) -> _AuthState:
         await self._auth_state.validate()
