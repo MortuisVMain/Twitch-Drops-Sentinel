@@ -1704,7 +1704,7 @@ class Twitch:
                     node = node.get(key) if isinstance(node, dict) else None
                 comm_points = node
             if not isinstance(comm_points, dict):
-                self._warn_points_once(f"ChannelPointsContext reply has no communityPoints (data keys: {sorted(data) if isinstance(data, dict) else type(data).__name__}); chest claiming is not working")
+                self._warn_points_once("unexpected reply", f"ChannelPointsContext reply has no communityPoints (data keys: {sorted(data) if isinstance(data, dict) else type(data).__name__}); chest claiming is not working")
                 return 0
             available_claim = comm_points.get("availableClaim")
             if available_claim and isinstance(available_claim, dict):
@@ -1724,15 +1724,16 @@ class Twitch:
                     logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
                     return 50
         except Exception as e:
-            self._warn_points_once(f"ChannelPointsContext check for {channel.name} failed: {e}", exc_info=True)
+            self._warn_points_once("request failed", f"ChannelPointsContext check for {channel.name} failed: {e}", exc_info=True)
         return 0
 
-    def _warn_points_once(self, message: str, *, exc_info: bool = False) -> None:
-        """The chest check runs every minute: the first failure is a WARNING, repeats stay at DEBUG."""
-        if getattr(self, "_points_failure_reported", False):
+    def _warn_points_once(self, kind: str, message: str, *, exc_info: bool = False) -> None:
+        """The chest check runs every minute: the first failure of each kind is a WARNING, repeats stay at DEBUG."""
+        reported = self.__dict__.setdefault("_points_failures_reported", set())
+        if kind in reported:
             logger.debug(message)
             return
-        self._points_failure_reported = True
+        reported.add(kind)
         logger.warning(message, exc_info=exc_info)
 
     async def get_auth(self) -> _AuthState:

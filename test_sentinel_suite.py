@@ -6204,6 +6204,19 @@ def test_channel_point_chest_uses_the_real_login_state():
         assert asyncio.run(claim(client, channel)) == 0 and asyncio.run(claim(client, channel)) == 0
         warnings = [r for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
         assert len(warnings) == 1 and warnings[0].exc_info, "a failing request is reported once at WARNING with the traceback"
+
+        # one transient error must not silence the persistent warning: each kind is reported once on its own
+        capture.records.clear()
+        client, calls = make(logged_in=True, error=RuntimeError("blip"))
+        assert asyncio.run(claim(client, channel)) == 0
+
+        async def odd_reply(query):
+            return {"data": {"unexpected": {}}}
+
+        client.gql_request = odd_reply
+        assert asyncio.run(claim(client, channel)) == 0 and asyncio.run(claim(client, channel)) == 0
+        texts = [r.getMessage() for r in capture.records if r.levelno >= logging.WARNING and "ChannelPointsContext" in r.getMessage()]
+        assert len(texts) == 2 and "failed" in texts[0] and "no communityPoints" in texts[1], f"one WARNING per kind: {texts}"
     finally:
         twitch.logger.removeHandler(capture)
         STATE_BRIDGE.channel_points_earned = earned
