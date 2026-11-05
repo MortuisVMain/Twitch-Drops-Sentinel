@@ -97,6 +97,29 @@ def set_autostart_status(enabled: bool) -> bool:
     except Exception:
         return False
 
+_PROGRESS_COUNTER_RE = re.compile(r'^(.*?)\s*\((\d+)\s*/\s*(\d+)\)\s*$')
+
+
+def report_log_tail(logs: list, limit: int = 40) -> list:
+    """Journal entries for the report: level prefix shown once, counter runs folded, then the last `limit`."""
+    entries = []
+    for item in logs:
+        level = str(item.get('level') or 'INFO')
+        text = str(item.get('message', ''))
+        stripped = re.sub(r'^\s*(\[' + re.escape(level) + r'\]\s*)+', '', text, flags=re.IGNORECASE)
+        entries.append({'time': item.get('time', ''), 'level': level, 'message': stripped or text})
+    folded = []
+    for entry in entries:
+        match = _PROGRESS_COUNTER_RE.match(entry['message'])
+        if folded and match:
+            prev = _PROGRESS_COUNTER_RE.match(folded[-1]['message'])
+            if prev and prev.group(1) == match.group(1) and folded[-1]['level'] == entry['level']:
+                folded[-1] = entry
+                continue
+        folded.append(entry)
+    return folded[-limit:]
+
+
 def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -> str:
     os_info = f"{platform.system()} {platform.release()} (Build {platform.version()})"
     py_info = f"Python {platform.python_version()} ({platform.architecture()[0]})"
@@ -112,7 +135,7 @@ def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -
     masked_user = f"{user_id_raw[:3]}***" if len(user_id_raw) > 3 else user_id_raw
 
     log_lines = []
-    for log_item in STATE_BRIDGE.recent_logs[-40:]:
+    for log_item in report_log_tail(STATE_BRIDGE.recent_logs):
         msg = f"[{log_item.get('time', '')}] [{log_item.get('level', 'INFO')}] {log_item.get('message', '')}"
         sanitized_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
         sanitized_msg = re.sub(r'(auth_token|client_secret|token|password)=["\']?[a-zA-Z0-9_\-]+["\']?', r'\1=[REDACTED]', sanitized_msg, flags=re.IGNORECASE)
@@ -135,8 +158,8 @@ def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -
         f"Session User: {masked_user}",
         f"Streamer Watching: {streamer}",
         f"Active Drop Game: {active_drop.get('game', 'None')}",
-        f"Active Drop Name: {active_drop.get('drop_name', 'None')}",
-        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress', 0)}%)",
+        f"Active Drop Name: {active_drop.get('name', 'None')}",
+        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress_percent', 0)}%)" if active_drop else "Progress: no active drop",
         f"Priority Games: {', '.join(settings.get('priority_games', [])) or 'None'}",
         f"Installed Games Detected: {len([g for g in CAMPAIGNS_FETCHER.get_catalog() if g.get('is_installed')])}",
         f"Game Directories: {len(settings.get('game_directories', []))} configured",
