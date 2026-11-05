@@ -2,6 +2,11 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.11] - 2026-11-05
+- Scheduled giveaways: an interrupted run now says so, and the message shows that run's real log instead of a path that may not exist.
+- App start: while the service is starting you see a calm status line and loading states, not a red error, empty lists and zero counters. The old V7.0 label is gone.
+- Shelf: the "Has unclaimed" filter is removed.
+
 ## [3.5.10] - 2026-11-05
 - Mini-window: all buttons fit again, and it keeps its size across monitors. The window returns to its position, size and maximized state, also after you close the app from the mini-window.
 - The pin button in the mini-window now really turns always-on-top off and on.
