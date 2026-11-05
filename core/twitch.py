@@ -1718,7 +1718,7 @@ class Twitch:
                             }
                         }
                     )
-                    await self.gql_request(claim_query)
+                    await asyncio.wait_for(self.gql_request(claim_query), timeout=15)
                     from gui_headless import STATE_BRIDGE
                     STATE_BRIDGE.channel_points_earned += 50
                     logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
