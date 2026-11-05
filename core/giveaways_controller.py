@@ -78,7 +78,10 @@ def owned_status(entry: dict) -> Optional[str]:
     """'claimed' or 'existed' for a game the account owns; None for anything else.
 
     A refused order ("failed:not-free"), a failure, a skip or a status nobody knows must never be listed as claimed.
-    An entry without a status comes from an older engine, which wrote one only for claims.
+    An entry without a status key comes from an older engine, which wrote no status for a claim; it still counts as
+    claimed. The current engine writes a status for every entry it creates (Epic, Fab and Unity start at "failed"), so
+    a game that was only opened, skipped or refused never reads as owned. A status that is present is never defaulted:
+    anything not listed above, an empty one included, is not owned.
     """
     status = entry.get("status", "claimed")
     if not isinstance(status, str):

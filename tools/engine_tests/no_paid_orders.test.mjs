@@ -331,7 +331,7 @@ test('modal loop: a button that merely contains Continue or Accept is never clic
 // ---------- Epic Get: the element is pinned and read again right before the click ----------
 test('Get click: the label is read again from the same element right before the click', async () => {
   // the button changes after the first read (the page moved on): nothing is clicked
-  for (const labels of [['Get', 'Buy Now'], ['Get', 'Get', '$9.99'], ['Get', 'Get', 'Add to cart'], ['Get', 'In Library']]) {
+  for (const labels of [['Get', 'Buy Now'], ['Get', '$9.99'], ['Get', 'Add to cart'], ['Get', 'In Library'], ['Buy Now', 'Get'], ['Get', '']]) {
     const log = [];
     const pin = pinnable(labels, log);
     const res = await orders.clickGetIfFree(pin, 'get', fakePage('Epic Games Store'), { promoFree: true });
@@ -438,7 +438,7 @@ test('clickOnlyIfFree: the element is pinned, read again right before the click,
   assert.ok(log.includes('dispose'));
 
   // the label changed between the check and the click (the locator now points elsewhere): refused
-  for (const labels of [['Place Order', 'Place Order', 'Place Order $9.99'], ['Add to library', 'Add to library', 'Buy now'], ['Place Order', 'Place Order', '']]) {
+  for (const labels of [['Place Order', 'Place Order $9.99'], ['Add to library', 'Buy now'], ['Place Order', '']]) {
     const log2 = [];
     const res2 = await clickOnlyIfFree(pinnable(labels, log2), fakeFrame('Total $0.00'), { timer });
     assert.equal(res2.refused, true, labels.join('>'));
@@ -556,8 +556,8 @@ test('epic-games.js: no blind clicks, no catch-all fallback, no claim without pr
     assert.ok(!/btnAgree|waitFor\([^)]*\)\.then\([^)]*click/.test(code), `${name}: fire-and-forget clicks`);
     assert.ok(!/end user license agreement"\)'\)\.waitFor/.test(code), `${name}: the EULA click is awaited`);
     for (const fn of ['acceptEulaIfShown', 'enterParentalPin', 'acceptEuAgreement', 'fetchFreePromoSlugs', 'promoFreeForPage', 'pageOrderTarget']) assert.ok(code.includes(fn), `${name} uses ${fn}`);
-    assert.ok(code.includes('failed:unconfirmed'), `${name}: an unconfirmed claim is a failure`);
-    assert.ok(/\|\|= \{ title, time: datetime\(\), url: page\.url\(\), status: 'failed' \}/.test(code), `${name}: Epic's entry starts as failed`);
+    assert.ok(/failed:unconfirmed/.test(code), `${name}: an unconfirmed claim is a failure`);
+    assert.ok(/\|\|= \{ title, time: datetime\(\), url: page\.url\(\), status: ['"]failed['"] \}/.test(code), `${name}: Epic's entry starts as failed`);
   }
   assert.ok(/TimeoutError/.test(read('epic-games.js')), 'only a timeout means "no iframe"');
 });

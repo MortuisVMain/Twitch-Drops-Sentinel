@@ -5422,17 +5422,23 @@ var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
 var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
 var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
+var CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
+var CHARGE_SOFT = /(?<![\p{L}\d])(?:pay|then|due)(?![\p{L}\d])|per month|\/\s?month|в месяц/iu;
+var CHARGE_LINE_MAX = 160;
 var NOT_FREE = "failed:not-free";
 var TOTAL_UNKNOWN = "failed:total-unknown";
 var hasNonZeroDigit = (text) => /[1-9]/.test(text);
+var hasNonZeroAmount = (text) => [...String(text).matchAll(new RegExp(AMOUNT, "gu"))].some((m) => hasNonZeroDigit(m[0]));
+var isChargeLine = (line) => line.length <= CHARGE_LINE_MAX && (CHARGE_STRICT.test(line) && hasNonZeroDigit(line) || CHARGE_SOFT.test(line) && hasNonZeroAmount(line));
 var orderTotalState = (text, { freeWord = false } = {}) => {
   const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let state = "unknown";
   let unreadable = false;
+  if (lines.some(isChargeLine)) return "paid";
   for (const [i, line] of lines.entries()) {
     const match = TOTAL_LINE.exec(line);
     if (!match) continue;
-    if (NOT_THE_PRICE.test(match[2])) continue;
+    if (NOT_THE_PRICE.test(match[2].split(/\d/)[0])) continue;
     const amount = match[2] || lines[i + 1] || "";
     if (hasNonZeroDigit(amount)) return "paid";
     if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
@@ -5464,29 +5470,62 @@ var settledOrderState = async (source, { timer = source, tries = 20, freeWord = 
   return zeroChecks === 3 ? "free" : last;
 };
 var refusal = (status, reason) => ({ refused: true, clicked: false, status, reason });
-var clickOnlyIfFree = async (button, source, { timer = source, tries = 10, clickOptions } = {}) => {
-  let label;
+var CLICK_TIMEOUT = 2e3;
+var pinElement = async (locator, timeout = 5e3) => {
+  if (typeof locator?.elementHandle !== "function") return { target: locator, release: async () => {
+  } };
+  const handle = await locator.elementHandle({ timeout });
+  return { target: handle, release: () => Promise.resolve(handle.dispose?.()).catch(() => {
+  }) };
+};
+var readLabel = async (target) => String(await target.innerText({ timeout: 2e3 })).trim();
+var clickPinned = async (target, label, clickOptions) => {
+  let again;
   try {
-    label = String(await button.innerText({ timeout: 5e3 })).trim();
+    again = await readLabel(target);
   } catch (err) {
-    return refusal(TOTAL_UNKNOWN, `cannot read the order button: ${err.message}`);
+    return refusal(TOTAL_UNKNOWN, `cannot read the button right before the click: ${err.message}`);
   }
-  if (!label) return refusal(TOTAL_UNKNOWN, "the order button has no text");
-  if (hasPaidAmount(label)) return refusal(NOT_FREE, `the order button names a price: "${label}"`);
-  const state = await settledOrderState(source, { timer, tries, freeWord: true });
-  if (state !== "free") {
-    return refusal(state === "paid" ? NOT_FREE : TOTAL_UNKNOWN, state === "paid" ? `the order total is not zero (button: "${label}")` : `the page does not clearly say the order is free (button: "${label}")`);
+  if (again !== label || hasPaidAmount(again)) return refusal(NOT_FREE, `the button changed right before the click: "${label}" is now "${again}"`);
+  try {
+    await target.click({ ...clickOptions, timeout: CLICK_TIMEOUT });
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `the click did not go through (${String(err.message).split(/\r?\n/)[0]}): check the game by hand`);
   }
-  const last = orderTotalState(await readPageText(source), { freeWord: true });
-  if (last !== "free") return refusal(last === "paid" ? NOT_FREE : TOTAL_UNKNOWN, `the total changed right before the order (button: "${label}")`);
-  await button.click(clickOptions);
   return { refused: false, clicked: true, label };
+};
+var clickOnlyIfFree = async (button, source, { timer = source, tries = 10, clickOptions } = {}) => {
+  let pin;
+  try {
+    pin = await pinElement(button);
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot find the order button: ${err.message}`);
+  }
+  try {
+    let label;
+    try {
+      label = await readLabel(pin.target);
+    } catch (err) {
+      return refusal(TOTAL_UNKNOWN, `cannot read the order button: ${err.message}`);
+    }
+    if (!label) return refusal(TOTAL_UNKNOWN, "the order button has no text");
+    if (hasPaidAmount(label)) return refusal(NOT_FREE, `the order button names a price: "${label}"`);
+    const state = await settledOrderState(source, { timer, tries, freeWord: true });
+    if (state !== "free") {
+      return refusal(state === "paid" ? NOT_FREE : TOTAL_UNKNOWN, state === "paid" ? `the order total is not zero (button: "${label}")` : `the page does not clearly say the order is free (button: "${label}")`);
+    }
+    const last = orderTotalState(await readPageText(source), { freeWord: true });
+    if (last !== "free") return refusal(last === "paid" ? NOT_FREE : TOTAL_UNKNOWN, `the total changed right before the order (button: "${label}")`);
+    return await clickPinned(pin.target, label, clickOptions);
+  } finally {
+    await pin.release();
+  }
 };
 
 // src/orders.js
 var BUTTON = "button:not([disabled]):not(:has(.payment-loading--loading))";
 var buttonsWith = (texts) => texts.map((text) => `${BUTTON}:has-text("${text}")`).join(", ");
-var DISMISS_SELECTOR = buttonsWith(["Continue", "\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C", "View Product", "Agree", "Accept", "I understand"]);
+var DISMISS_SELECTOR = buttonsWith(["Continue", "\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C", "View Product", "Agree", "Accept", "\u041F\u0440\u0438\u043D\u044F\u0442\u044C", "\u0421\u043E\u0433\u043B\u0430\u0441\u0435\u043D", "I understand"]);
 var ORDER_SELECTOR = buttonsWith(["Yes, buy now", "Place Order", "\u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0437\u0430\u043A\u0430\u0437", "Add to library", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0443"]);
 var recordRefusal = (dbEntry, notifyItem, result) => {
   console.error(`  Not ordering (${result.status}): ${result.reason}`);
@@ -5494,17 +5533,26 @@ var recordRefusal = (dbEntry, notifyItem, result) => {
   notifyItem.status = result.status;
 };
 var clickBuyNowIfFree = async (button, page2) => {
-  let label;
+  let pin;
   try {
-    label = String(await button.innerText({ timeout: 5e3 })).trim();
+    pin = await pinElement(button);
   } catch (err) {
-    return refusal(TOTAL_UNKNOWN, `cannot read the Buy now button: ${err.message}`);
+    return refusal(TOTAL_UNKNOWN, `cannot find the Buy now button: ${err.message}`);
   }
-  if (!label) return refusal(TOTAL_UNKNOWN, "the Buy now button has no text");
-  if (hasPaidAmount(label)) return refusal(NOT_FREE, `the Buy now button names a price: "${label}"`);
-  if (orderTotalState(await readPageText(page2), { freeWord: true }) === "paid") return refusal(NOT_FREE, "the listing page shows a paid total");
-  await button.click();
-  return { refused: false, clicked: true, label };
+  try {
+    let label;
+    try {
+      label = await readLabel(pin.target);
+    } catch (err) {
+      return refusal(TOTAL_UNKNOWN, `cannot read the Buy now button: ${err.message}`);
+    }
+    if (!label) return refusal(TOTAL_UNKNOWN, "the Buy now button has no text");
+    if (hasPaidAmount(label)) return refusal(NOT_FREE, `the Buy now button names a price: "${label}"`);
+    if (orderTotalState(await readPageText(page2), { freeWord: true }) === "paid") return refusal(NOT_FREE, "the listing page shows a paid total");
+    return await clickPinned(pin.target, label);
+  } finally {
+    await pin.release();
+  }
 };
 var isFreeListing = (result) => result?.priceTier?.discountPercentage === 100;
 
