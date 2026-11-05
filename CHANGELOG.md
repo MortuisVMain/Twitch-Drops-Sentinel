@@ -2,6 +2,13 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.10] - 2026-11-05
+- Mini-window: all buttons fit again, and it keeps its size across monitors. The window returns to its position, size and maximized state, also after you close the app from the mini-window.
+- The pin button in the mini-window now really turns always-on-top off and on.
+- Sharper text on screens at 100% scale: panels are now solid, so the backdrop shows only between them.
+- Off-queue games have covers and no longer stretch to huge empty cards while the farm waits.
+- Giveaways show longer names on two lines. The shelf list keeps its columns together, and the exclude button moved from the cover to a small button below it.
+
 ## [3.5.9] - 2026-11-05
 - Giveaways: Epic and Fab games are ordered only when the total is clearly zero. A free game may be refused when its price cannot be read, and then it has to be claimed by hand. Base games are no longer queued for add-ons that require them.
 - Refused, failed and skipped games are no longer listed as claimed, so the claimed count may go down.
