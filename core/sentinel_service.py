@@ -1077,25 +1077,34 @@ class SentinelSupervisor:
     async def handle_logout(self, request: web.Request) -> web.Response:
         logger.info("[AUTH] Пользователь запросил выход / смену аккаунта Twitch.")
         try:
-            # 1. Stop watching if active
+            failures: list[str] = []
+            # 1. Stop watching and drop the session: the token leaves memory, the in-memory cookie jar is emptied and the
+            #    jar file removed, so the restart below cannot save or reload the old account
             if self.twitch_client:
                 if hasattr(self.twitch_client, "stop_watching"):
                     self.twitch_client.stop_watching()
-                if hasattr(self.twitch_client, "_auth") and self.twitch_client._auth:
-                    self.twitch_client._auth.invalidate(delete_cookies=True)
+                auth_state = getattr(self.twitch_client, "_auth_state", None)
+                if auth_state is not None:
+                    try:
+                        auth_state.invalidate(delete_cookies=True)
+                    except Exception as exc:
+                        logger.error("Logout: could not invalidate the session: %s", exc, exc_info=True)
+                        failures.append(f"session: {exc}")
 
-            # 2. Safely remove cookies.jar on disk
-            for c_path in [
-                Path("cookies.jar"),
-                Path("core/cookies.jar"),
-                Path(os.path.join(os.path.dirname(__file__), "..", "cookies.jar")),
-                Path(os.path.join(os.path.dirname(__file__), "cookies.jar")),
-            ]:
+            # 2. The engine's own cookie file (and the copies next to the code); the working directory plays no part
+            code_dir = Path(__file__).resolve().parent
+            for c_path in dict.fromkeys([COOKIES_PATH, code_dir / "cookies.jar", code_dir.parent / "cookies.jar"]):
                 try:
-                    if c_path.exists():
-                        c_path.unlink()
+                    c_path.unlink(missing_ok=True)
                 except Exception as exc:
-                    logger.debug("Failed unlinking cookies.jar at %s: %s", c_path, exc)
+                    logger.error("Logout: could not delete %s: %s", c_path, exc, exc_info=True)
+                    failures.append(f"{c_path.name}: {exc}")
+
+            if failures:
+                # The old account would be restored from the file: say so instead of reporting a sign-out that did not happen
+                if self.twitch_client and hasattr(self.twitch_client, "change_state"):
+                    self.twitch_client.change_state(State.RESTART)
+                return web.json_response({"success": False, "error": "Не удалось полностью выйти из аккаунта Twitch: " + "; ".join(failures)}, status=500)
 
             # 3. Reset STATE_BRIDGE
             STATE_BRIDGE.user_id = ""

@@ -5827,6 +5827,92 @@ def test_update_archive_is_checked_against_the_published_sha256():
     print("      Update archive digest: PASS [OK]")
 
 
+def test_logout_really_signs_out():
+    print("[security] Logout: the session token is dropped, the cookie file is deleted and nothing writes it back...")
+    import asyncio
+    import json as _json
+    import types
+    import aiohttp
+    from yarl import URL
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import constants
+    import sentinel_service as svc
+    import twitch
+
+    work = SANDBOX / "logout_check"
+    shutil.rmtree(work, ignore_errors=True)
+    (work / "decoy_cwd" / "core").mkdir(parents=True)
+    # A decoy where the old handler looked (relative to the working directory): it is not the engine's file and must stay
+    decoys = [work / "decoy_cwd" / "cookies.jar", work / "decoy_cwd" / "core" / "cookies.jar"]
+    for decoy in decoys:
+        decoy.write_text("DECOY", encoding="utf-8")
+    real_candidates = [constants.COOKIES_PATH, WORKSPACE / "core" / "cookies.jar", WORKSPACE / "cookies.jar"]
+    real_before = {p: _sha256(p) for p in real_candidates}
+
+    class _Button:
+        def config(self, **kwargs):
+            pass
+
+    def make_client(session):
+        fake_twitch = types.SimpleNamespace(gui=types.SimpleNamespace(help=types.SimpleNamespace(_invalidate_button=_Button())),
+                                            _session=session)
+        auth = twitch._AuthState(fake_twitch)
+        auth.access_token, auth.user_id = "SYNTHETIC-TOKEN", 42
+        auth._logged_in.set()
+        events = []
+        client = types.SimpleNamespace(_auth_state=auth, stop_watching=lambda: events.append("stop"),
+                                       change_state=lambda state: events.append(state))
+        return client, auth, events
+
+    async def scenario(cookie_path, break_unlink=False):
+        session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar())
+        try:
+            jar = session.cookie_jar
+            jar.update_cookies({"auth-token": "SYNTHETIC-TOKEN", "unique_id": "dev"}, URL("https://www.twitch.tv"))
+            jar.save(cookie_path)
+            client, auth, events = make_client(session)
+            supervisor = types.SimpleNamespace(twitch_client=client, broadcast_ws=lambda: asyncio.sleep(0))
+            svc.STATE_BRIDGE.username = "someone"
+            response = await svc.SentinelSupervisor.handle_logout(supervisor, None)
+            # what the engine's next save would write
+            after_save = work / "after_save.jar"
+            jar.save(after_save)
+            return response, auth, events, after_save.read_bytes()
+        finally:
+            await session.close()
+
+    saved = svc.COOKIES_PATH, twitch.COOKIES_PATH
+    cwd = os.getcwd()
+    try:
+        jar_file = work / "cookies.jar"
+        svc.COOKIES_PATH = twitch.COOKIES_PATH = jar_file
+        os.chdir(work / "decoy_cwd")
+        response, auth, events, next_save = asyncio.run(scenario(jar_file))
+        assert response.status == 200 and _json.loads(response.text)["success"] is True, response.text
+        assert not hasattr(auth, "access_token") and not hasattr(auth, "user_id"), "the token must be gone from memory"
+        assert not auth._logged_in.is_set(), "the engine must not think it is logged in"
+        assert not jar_file.exists(), "the engine's cookie file must be deleted"
+        assert b"SYNTHETIC-TOKEN" not in next_save, "the next save of the session must not carry the token"
+        assert events == ["stop", constants.State.RESTART], f"the engine stops watching and restarts into the login flow: {events}"
+        assert svc.STATE_BRIDGE.username == "", "the UI state is reset"
+        assert all(d.read_text(encoding="utf-8") == "DECOY" for d in decoys), "files outside the engine's own cookie path are never touched"
+
+        # a cookie file that cannot be deleted is an error the UI sees, not a silent success
+        blocked = work / "blocked" / "cookies.jar"
+        (blocked).mkdir(parents=True)
+        (blocked / "keep.txt").write_text("x", encoding="utf-8")
+        svc.COOKIES_PATH = twitch.COOKIES_PATH = blocked
+        response, auth, events, _ = asyncio.run(scenario(work / "other.jar"))
+        assert response.status == 500 and _json.loads(response.text)["success"] is False, response.text
+        assert (blocked / "keep.txt").exists()
+    finally:
+        os.chdir(cwd)
+        svc.COOKIES_PATH, twitch.COOKIES_PATH = saved
+    assert {p: _sha256(p) for p in real_candidates} == real_before, "the real cookie files were not touched"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      Logout: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5947,6 +6033,7 @@ if __name__ == "__main__":
         test_shell_opens_only_checked_web_links,
         test_devtools_are_off_in_release_builds,
         test_update_archive_is_checked_against_the_published_sha256,
+        test_logout_really_signs_out,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
