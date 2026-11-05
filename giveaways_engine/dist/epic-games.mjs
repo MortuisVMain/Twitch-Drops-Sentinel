@@ -5744,6 +5744,8 @@ var launchContext = async (cfg2, options) => {
       "--no-default-browser-check"
     ];
     options.args = [...options.args ?? [], ...offscreenArgs];
+  } else if (options.headless === false) {
+    options.args = [...options.args ?? [], "--window-position=100,80", "--window-size=1280,900"];
   }
   if (cfg2.dir?.browser) {
     const lockFile = path.resolve(cfg2.dir.browser, "SingletonLock");
@@ -6672,6 +6674,7 @@ var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
 var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
 var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
+var FREE_STATEMENT = /^This is free\.(?:\s|$)/;
 var CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
 var CHARGE_SOFT = /(?<![\p{L}\d])(?:pay|then|due)(?![\p{L}\d])|per month|\/\s?month|в месяц/iu;
 var CHARGE_LINE_MAX = 160;
@@ -6697,7 +6700,9 @@ var orderTotalState = (text, { freeWord = false } = {}) => {
       unreadable = true;
     }
   }
-  return unreadable ? "unknown" : state;
+  if (unreadable) return "unknown";
+  if (state === "unknown" && freeWord && lines.some((line) => FREE_STATEMENT.test(line)) && lines.some((line) => WHOLE_AMOUNT.test(line) && !hasNonZeroDigit(line)) && !lines.some(hasNonZeroAmount)) return "free";
+  return state;
 };
 var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
 var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
@@ -6799,6 +6804,14 @@ var recordRefusal = (dbEntry, notifyItem, result) => {
   dbEntry.status = result.status;
   notifyItem.status = result.status;
 };
+var isEpicLoginPage = (url) => {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return hostname.endsWith("epicgames.com") && /^\/id(?:\/|$)/.test(pathname);
+  } catch {
+    return false;
+  }
+};
 var PROMOTIONS_URL = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US";
 var HUNDRED_OFF = /^[-−–]\s?100\s?%$/u;
 var FREE_WORD2 = /^(?:free|бесплатно)\.?$/iu;
@@ -6851,6 +6864,8 @@ var getEvidence = ({ promoFree = null, priceBlock = "" } = {}) => {
   if (percent || word && !priced) return { state: "free", source: "price-block", reason: "the price block says free" };
   return { state: "unknown", reason: "neither Epic's promotions list nor the price block next to the button says this game is free" };
 };
+var PRICE_BLOCK_READS = 16;
+var PRICE_BLOCK_READ_MS = 500;
 var readPriceBlock = async (target) => {
   if (typeof target?.evaluate !== "function") return "";
   try {
@@ -6888,7 +6903,11 @@ var clickGetIfFree = async (button, label, page2, { promoFree = null } = {}) => 
     }
     if (!FREE_GET_LABEL.test(now) || hasPaidAmount(now)) return refusal(NOT_FREE, `the purchase button now says "${now}", not a free "Get"`);
     if (orderTotalState(await readPageText(page2), { freeWord: true }) === "paid") return refusal(NOT_FREE, "the page shows a paid total");
-    const evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    let evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    for (let read = 1; evidence.state === "unknown" && read < PRICE_BLOCK_READS; read++) {
+      await page2.waitForTimeout(PRICE_BLOCK_READ_MS);
+      evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    }
     if (evidence.state !== "free") return refusal(evidence.state === "paid" ? NOT_FREE : TOTAL_UNKNOWN, evidence.reason);
     console.log(`  Free confirmed (${evidence.source}): ${evidence.reason}`);
     return await clickPinned(pin.target, now, { delay: 11 });
@@ -7365,6 +7384,7 @@ try {
           const iframeOrder = await clickOnlyIfFree(checkoutBtn, iframe, { timer: page, clickOptions: { delay: 50 } });
           if (iframeOrder.refused) {
             recordRefusal(db.data[user][game_id], notify_game, iframeOrder);
+            await page.screenshot({ path: screenshot("failed", `${game_id}_${filenamify(datetime())}.png`) }).catch((err) => console.warn(`  Could not save a screenshot: ${err.message}`));
             if (cfg.time) console.timeEnd("claim game");
             continue;
           }
@@ -7428,6 +7448,12 @@ Game link: ${url}`);
           }
           euAccept = acceptEuAgreement(page, page);
         } else {
+          if (isEpicLoginPage(page.url())) {
+            console.error("  Epic asks to sign in again (account page after Get): sign in from the store card, then run again.");
+            db.data[user][game_id].status = notify_game.status = "failed:login-required";
+            if (cfg.time) console.timeEnd("claim game");
+            continue;
+          }
           console.log("  No page-level order button \u2014 waiting for direct In Library transition...");
         }
       }

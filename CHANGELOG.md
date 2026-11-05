@@ -2,6 +2,12 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.13] - 2026-11-05
+- Giveaways: Fab and Epic free games are claimed again. Versions 3.5.9 to 3.5.12 refused them: nothing was charged, but free games were missed. An order still needs a clear zero in the checkout. Checked with real claims.
+- When Epic asks to sign in again after Get, the log says so at once.
+- A sign-in window always opens on the screen instead of off its left edge.
+- After an update the app no longer offers that same update again.
+
 ## [3.5.12] - 2026-11-05
 - Giveaways, Fab: free assets are no longer refused because a listing mentions "total ratings". The order itself still needs a clear zero total in the checkout. This fix has not been run through a real Fab checkout yet.
 - The giveaways log tells what happened per store: claimed, refused, skipped because of a missing sign-in, or nothing new, instead of always saying success.

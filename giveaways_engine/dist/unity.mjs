@@ -5356,6 +5356,8 @@ var launchContext = async (cfg2, options) => {
       "--no-default-browser-check"
     ];
     options.args = [...options.args ?? [], ...offscreenArgs];
+  } else if (options.headless === false) {
+    options.args = [...options.args ?? [], "--window-position=100,80", "--window-size=1280,900"];
   }
   if (cfg2.dir?.browser) {
     const lockFile = path2.resolve(cfg2.dir.browser, "SingletonLock");
@@ -5422,6 +5424,7 @@ var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
 var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
 var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
+var FREE_STATEMENT = /^This is free\.(?:\s|$)/;
 var CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
 var CHARGE_SOFT = /(?<![\p{L}\d])(?:pay|then|due)(?![\p{L}\d])|per month|\/\s?month|в месяц/iu;
 var CHARGE_LINE_MAX = 160;
@@ -5447,7 +5450,9 @@ var orderTotalState = (text, { freeWord = false } = {}) => {
       unreadable = true;
     }
   }
-  return unreadable ? "unknown" : state;
+  if (unreadable) return "unknown";
+  if (state === "unknown" && freeWord && lines.some((line) => FREE_STATEMENT.test(line)) && lines.some((line) => WHOLE_AMOUNT.test(line) && !hasNonZeroDigit(line)) && !lines.some(hasNonZeroAmount)) return "free";
+  return state;
 };
 var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
 var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";

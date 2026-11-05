@@ -51,3 +51,6 @@ All stores share one browser profile, so a valid login used to make the button s
 `?switch=1` the engine gets `FGC_SWITCH_ACCOUNT=<store>` and `launchContext` clears that store's cookies only
 (`STORE_LOGIN_COOKIES` in `src/browser.js`), then the store's normal login wait takes over. Fab also clears Epic, because it
 signs in through Epic and would come straight back. Sites that keep a login outside cookies were not checked on real accounts.
+
+## The sign-in window opened almost entirely off-screen
+All stores share one browser profile, and Chromium saves the window position in `Default/Preferences`. A background run moves the window off-screen, so a later visible window reopened there: `left -1250`, 1280 wide, 30 px on screen, impossible to grab. A visible window now always starts with `--window-position=100,80 --window-size=1280,900`, which overrides the saved position. Checked on a throwaway profile with that saved position: without the flags `left -1250`, with them `left 100`. No real sign-in was run.

@@ -41,6 +41,16 @@ export const recordRefusal = (dbEntry, notifyItem, result) => {
   notifyItem.status = result.status;
 };
 
+/** Epic's sign-in and account chooser ("Welcome back"): a Get click can land here, and no order or proof can follow. */
+export const isEpicLoginPage = url => {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return hostname.endsWith('epicgames.com') && /^\/id(?:\/|$)/.test(pathname);
+  } catch {
+    return false; // not a URL: not the sign-in page
+  }
+};
+
 // ---------- Epic: is this game free? Positive evidence only ----------
 
 const PROMOTIONS_URL = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US';
@@ -116,6 +126,8 @@ export const getEvidence = ({ promoFree = null, priceBlock = '' } = {}) => {
   return { state: 'unknown', reason: 'neither Epic\'s promotions list nor the price block next to the button says this game is free' };
 };
 
+const PRICE_BLOCK_READS = 16, PRICE_BLOCK_READ_MS = 500;
+
 /** The text around a purchase button (a few levels up, as long as it stays short), where the price is. '' if unreadable. */
 const readPriceBlock = async target => {
   if (typeof target?.evaluate !== 'function') return '';
@@ -160,7 +172,12 @@ export const clickGetIfFree = async (button, label, page, { promoFree = null } =
     }
     if (!FREE_GET_LABEL.test(now) || hasPaidAmount(now)) return refusal(NOT_FREE, `the purchase button now says "${now}", not a free "Get"`);
     if (orderTotalState(await readPageText(page), { freeWord: true }) === 'paid') return refusal(NOT_FREE, 'the page shows a paid total');
-    const evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    // The page shows the base price first and the sale a moment later, so an undecided block is read again; paid is final
+    let evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    for (let read = 1; evidence.state === 'unknown' && read < PRICE_BLOCK_READS; read++) {
+      await page.waitForTimeout(PRICE_BLOCK_READ_MS);
+      evidence = getEvidence({ promoFree, priceBlock: await readPriceBlock(pin.target) });
+    }
     if (evidence.state !== 'free') return refusal(evidence.state === 'paid' ? NOT_FREE : TOTAL_UNKNOWN, evidence.reason);
     console.log(`  Free confirmed (${evidence.source}): ${evidence.reason}`);
     return await clickPinned(pin.target, now, { delay: 11 });
