@@ -5413,6 +5413,101 @@ var launchContext = async (cfg2, options) => {
   return context2;
 };
 
+// src/checkout.js
+var CURRENCY = "\\p{Sc}";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
+var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
+var hasNonZeroDigit = (text) => /[1-9]/.test(text);
+var orderTotalState = (text, { freeWord = false } = {}) => {
+  const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let state = "unknown";
+  let unreadable = false;
+  for (const [i, line] of lines.entries()) {
+    const match = TOTAL_LINE.exec(line);
+    if (!match) continue;
+    if (NOT_THE_PRICE.test(match[2])) continue;
+    const amount = match[2] || lines[i + 1] || "";
+    if (hasNonZeroDigit(amount)) return "paid";
+    if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
+      state = "free";
+    } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
+      unreadable = true;
+    }
+  }
+  return unreadable ? "unknown" : state;
+};
+var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
+var readPageText = async (source) => {
+  try {
+    const text = typeof source.evaluate === "function" ? await source.evaluate(() => document.body.innerText) : await source.locator("body").innerText({ timeout: 5e3 });
+    return typeof text === "string" ? text : "";
+  } catch (err) {
+    console.warn(`Cannot read the checkout page: ${err.message}`);
+    return "";
+  }
+};
+var settledOrderState = async (source, { timer = source, tries = 20, freeWord = false } = {}) => {
+  let zeroChecks = 0;
+  let last = "unknown";
+  for (let i = 0; i < tries && zeroChecks < 3; i++) {
+    last = orderTotalState(await readPageText(source), { freeWord });
+    zeroChecks = last === "free" ? zeroChecks + 1 : 0;
+    if (zeroChecks < 3) await timer.waitForTimeout(1e3);
+  }
+  return zeroChecks === 3 ? "free" : last;
+};
+var refusal = (status, reason) => ({ refused: true, clicked: false, status, reason });
+var clickOnlyIfFree = async (button, source, { timer = source, tries = 10, clickOptions } = {}) => {
+  let label;
+  try {
+    label = String(await button.innerText({ timeout: 5e3 })).trim();
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot read the order button: ${err.message}`);
+  }
+  if (!label) return refusal(TOTAL_UNKNOWN, "the order button has no text");
+  if (hasPaidAmount(label)) return refusal(NOT_FREE, `the order button names a price: "${label}"`);
+  const state = await settledOrderState(source, { timer, tries, freeWord: true });
+  if (state !== "free") {
+    return refusal(state === "paid" ? NOT_FREE : TOTAL_UNKNOWN, state === "paid" ? `the order total is not zero (button: "${label}")` : `the page does not clearly say the order is free (button: "${label}")`);
+  }
+  const last = orderTotalState(await readPageText(source), { freeWord: true });
+  if (last !== "free") return refusal(last === "paid" ? NOT_FREE : TOTAL_UNKNOWN, `the total changed right before the order (button: "${label}")`);
+  await button.click(clickOptions);
+  return { refused: false, clicked: true, label };
+};
+
+// src/orders.js
+var BUTTON = "button:not([disabled]):not(:has(.payment-loading--loading))";
+var buttonsWith = (texts) => texts.map((text) => `${BUTTON}:has-text("${text}")`).join(", ");
+var DISMISS_SELECTOR = buttonsWith(["Continue", "\u041F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C", "View Product", "Agree", "Accept", "I understand"]);
+var ORDER_SELECTOR = buttonsWith(["Yes, buy now", "Place Order", "\u041E\u0444\u043E\u0440\u043C\u0438\u0442\u044C \u0437\u0430\u043A\u0430\u0437", "Add to library", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 \u0431\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0443"]);
+var recordRefusal = (dbEntry, notifyItem, result) => {
+  console.error(`  Not ordering (${result.status}): ${result.reason}`);
+  dbEntry.status = result.status;
+  notifyItem.status = result.status;
+};
+var clickBuyNowIfFree = async (button, page2) => {
+  let label;
+  try {
+    label = String(await button.innerText({ timeout: 5e3 })).trim();
+  } catch (err) {
+    return refusal(TOTAL_UNKNOWN, `cannot read the Buy now button: ${err.message}`);
+  }
+  if (!label) return refusal(TOTAL_UNKNOWN, "the Buy now button has no text");
+  if (hasPaidAmount(label)) return refusal(NOT_FREE, `the Buy now button names a price: "${label}"`);
+  if (orderTotalState(await readPageText(page2), { freeWord: true }) === "paid") return refusal(NOT_FREE, "the listing page shows a paid total");
+  await button.click();
+  return { refused: false, clicked: true, label };
+};
+var isFreeListing = (result) => result?.priceTier?.discountPercentage === 100;
+
 // fab.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "fab", ...a);
 console.log(datetime(), "started checking Fab (Unreal Engine assets)");
@@ -5488,8 +5583,7 @@ try {
       return await res.json();
     });
     for (const r of searchData.results || []) {
-      const isPromo = r.priceTier?.isPromotional || r.priceTier?.discountPercentage === 100;
-      if (isPromo && !assetMap.has(r.uid)) {
+      if (isFreeListing(r) && !assetMap.has(r.uid)) {
         assetMap.set(r.uid, {
           uid: r.uid,
           title: r.title,
@@ -5549,7 +5643,12 @@ try {
           }
           throw new Error("Buy now button not visible");
         }
-        await buyBtn.click();
+        const buyResult = await clickBuyNowIfFree(buyBtn, page);
+        if (buyResult.refused) {
+          recordRefusal(db.data[user][asset.uid], notifyItem, buyResult);
+          dbFab.data[user][asset.uid].status = buyResult.status;
+          continue;
+        }
         await page.waitForTimeout(2e3);
         const frameSelector = '#webPurchaseContainer iframe, iframe[src*="purchase"], iframe[allow*="payment"], iframe[src*="checkout"]';
         await page.waitForSelector(frameSelector, { timeout: 2e4 }).catch(() => {
@@ -5557,7 +5656,14 @@ try {
         const checkoutFrame = page.frameLocator(frameSelector).first();
         const addBtn = checkoutFrame.locator('button:has-text("Add to library"), button:has-text("Add to Library"), button:has-text("Place Order")').first();
         await addBtn.waitFor({ timeout: 15e3 });
-        await addBtn.click();
+        const orderResult = await clickOnlyIfFree(addBtn, checkoutFrame, { timer: page });
+        if (orderResult.refused) {
+          recordRefusal(db.data[user][asset.uid], notifyItem, orderResult);
+          dbFab.data[user][asset.uid].status = orderResult.status;
+          await page.screenshot({ path: screenshot("failed", `${filenamify(asset.title)}_${filenamify(datetime())}.png`) }).catch(() => {
+          });
+          continue;
+        }
         let confirmed = false;
         for (let i = 0; i < 15; i++) {
           await page.waitForTimeout(1e3);

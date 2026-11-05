@@ -5,6 +5,8 @@ import path from 'path';
 import { existsSync, writeFileSync } from 'fs';
 import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
+import { clickOnlyIfFree } from './src/checkout.js';
+import { clickGetIfFree, recordRefusal, settleModals } from './src/orders.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
 
@@ -316,31 +318,26 @@ try {
       console.log('  Requires base game! Nothing to claim.');
       notify_game.status = 'requires base game';
       db.data[user][game_id].status ||= 'failed:requires-base-game';
-      // TODO claim base game if it is free
-      const baseUrl = 'https://store.epicgames.com' + await page.locator('a:has-text("Overview")').getAttribute('href');
-      console.log('  Base game:', pastelBlue(baseUrl));
-      // await page.click('a:has-text("Overview")');
-      // TODO handle this via function call for base game above since this will never terminate if DRYRUN=1
-      urls.push(baseUrl); // add base game to the list of games to claim
-      urls.push(url); // add add-on itself again
+      // The base game is not queued: an add-on is not claimed on a base game whose price nobody checked here.
+      // The base game is claimed on its own when it is among the free games; the add-on then follows in the next run.
+      console.log('  The base game is not queued automatically. Claim it first, then run again.');
     } else { // GET
-      console.log('  Not in library yet! Click', btnText);
-      await purchaseBtn.click({ delay: 11 });
+      // Only a plain "Get" / "Получить" on a page without a paid total is clicked; "Buy Now", "$9.99" and the rest are refused
+      const getResult = await clickGetIfFree(purchaseBtn, btnText, page);
+      if (getResult.refused) {
+        recordRefusal(db.data[user][game_id], notify_game, getResult);
+        if (cfg.time) console.timeEnd('claim game');
+        continue;
+      }
+      console.log('  Not in library yet! Clicked', btnText);
 
       // Handle potential age-gate, content warning, device unsupported, or edition confirmation modals
-      // Also handles new 2025 Epic page-level "Place Order" dialogs (no iframe)
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await page.waitForTimeout(500);
-        const warningBtn = page.locator('button:not([disabled]):not(:has(.payment-loading--loading)):has-text("Continue"), button:not([disabled]):has-text("Продолжить"), button:not([disabled]):has-text("View Product"), button:not([disabled]):has-text("Yes, buy now"), button:not([disabled]):has-text("Agree"), button:not([disabled]):has-text("Accept"), button:not([disabled]):has-text("I understand"), button:not([disabled]):has-text("Place Order"), button:not([disabled]):has-text("Оформить заказ"), button:not([disabled]):has-text("Add to library"), button:not([disabled]):has-text("Добавить в библиотеку")').first();
-        if (await warningBtn.isVisible().catch(() => false)) {
-          const warningBtnText = await warningBtn.innerText().catch(() => '');
-          console.log(`  Dismissing modal / clicking order button: "${warningBtnText.trim()}"...`);
-          await warningBtn.click().catch(() => {});
-          await page.waitForTimeout(1000);
-        } else {
-          // No modal button visible — stop polling
-          break;
-        }
+      // Also handles new 2025 Epic page-level "Place Order" dialogs (no iframe): those go through the free-total gate
+      const modalResult = await settleModals(page);
+      if (modalResult.refused) {
+        recordRefusal(db.data[user][game_id], notify_game, modalResult);
+        if (cfg.time) console.timeEnd('claim game');
+        continue;
       }
 
       // Accept End User License Agreement (only needed once)
@@ -389,7 +386,13 @@ try {
         // Epic renamed the checkout button from "Place Order" to "Add to library" (new "this game is free" layout) - support both languages
         const checkoutBtn = iframe.locator('button:not(:has(.payment-loading--loading))').filter({ hasText: /Add to library|Place Order|Добавить в библиотеку|Оформить заказ/i }).first();
         await checkoutBtn.waitFor({ state: 'visible', timeout: 25000 });
-        await checkoutBtn.click({ delay: 50 });
+        // The total is read from inside the iframe: a refusal here is not a "no iframe" case, it ends this game
+        const iframeOrder = await clickOnlyIfFree(checkoutBtn, iframe, { timer: page, clickOptions: { delay: 50 } });
+        if (iframeOrder.refused) {
+          recordRefusal(db.data[user][game_id], notify_game, iframeOrder);
+          if (cfg.time) console.timeEnd('claim game');
+          continue;
+        }
 
         // I Agree button is only shown for EU accounts! https://github.com/vogler/free-games-claimer/pull/7#issuecomment-1038964872
         const btnAgree = iframe.locator('button:has-text("I Accept"), button:has-text("Принять")');
@@ -424,8 +427,13 @@ try {
             'button:not(:has(.payment-loading--loading)):not([disabled])',
           ].join(', ')).filter({ hasText: /Place Order|Add to library|Добавить в библиотеку|Оформить заказ|Order Now|Get Now|Claim/i }).first();
           await pageOrderBtn.waitFor({ state: 'visible', timeout: 8000 });
-          console.log('  Found page-level order button, clicking...');
-          await pageOrderBtn.click({ delay: 50 });
+          console.log('  Found page-level order button...');
+          const pageOrder = await clickOnlyIfFree(pageOrderBtn, page, { clickOptions: { delay: 50 } });
+          if (pageOrder.refused) {
+            recordRefusal(db.data[user][game_id], notify_game, pageOrder);
+            if (cfg.time) console.timeEnd('claim game');
+            continue;
+          }
           // I Agree button for EU accounts (page-level)
           const btnAgreeEl = page.locator('button:has-text("I Accept"), button:has-text("Принять")');
           btnAgreeEl.waitFor({ timeout: 3000 }).then(() => btnAgreeEl.click()).catch(_ => { });
@@ -490,7 +498,7 @@ try {
   if (error.message && process.exitCode != 130) notify(`epic-games failed: ${error.message.split('\n')[0]}`);
 } finally {
   await db.write(); // write out json db
-  if (notify_games.filter(g => g.status == 'claimed' || g.status == 'failed').length) { // don't notify if all have status 'existed', 'manual', 'requires base game', 'unavailable-in-region', 'skipped'
+  if (notify_games.filter(g => g.status == 'claimed' || String(g.status).startsWith('failed')).length) { // don't notify if all have status 'existed', 'manual', 'requires base game', 'unavailable-in-region', 'skipped'
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`epic-games (${user}):<br>${html_game_list(notify_games, statsSummary)}`);
   }

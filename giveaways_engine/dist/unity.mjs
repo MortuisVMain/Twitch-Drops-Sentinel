@@ -5421,8 +5421,9 @@ var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
 var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
 var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
+var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
 var hasNonZeroDigit = (text) => /[1-9]/.test(text);
-var orderTotalState = (text) => {
+var orderTotalState = (text, { freeWord = false } = {}) => {
   const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let state = "unknown";
   let unreadable = false;
@@ -5432,7 +5433,7 @@ var orderTotalState = (text) => {
     if (NOT_THE_PRICE.test(match[2])) continue;
     const amount = match[2] || lines[i + 1] || "";
     if (hasNonZeroDigit(amount)) return "paid";
-    if (WHOLE_AMOUNT.test(amount)) {
+    if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
       state = "free";
     } else if (match[2] && STARTS_LIKE_AMOUNT.test(match[2])) {
       unreadable = true;
@@ -5441,18 +5442,26 @@ var orderTotalState = (text) => {
   return unreadable ? "unknown" : state;
 };
 var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
-var readPageText = (page2) => page2.evaluate(() => document.body.innerText).catch((err) => {
-  console.warn(`Cannot read the checkout page: ${err.message}`);
-  return "";
-});
-var waitForFreeOrder = async (page2) => {
-  let zeroChecks = 0;
-  for (let i = 0; i < 20 && zeroChecks < 3; i++) {
-    zeroChecks = orderTotalState(await readPageText(page2)) === "free" ? zeroChecks + 1 : 0;
-    if (zeroChecks < 3) await page2.waitForTimeout(1e3);
+var readPageText = async (source) => {
+  try {
+    const text = typeof source.evaluate === "function" ? await source.evaluate(() => document.body.innerText) : await source.locator("body").innerText({ timeout: 5e3 });
+    return typeof text === "string" ? text : "";
+  } catch (err) {
+    console.warn(`Cannot read the checkout page: ${err.message}`);
+    return "";
   }
-  return zeroChecks === 3;
 };
+var settledOrderState = async (source, { timer = source, tries = 20, freeWord = false } = {}) => {
+  let zeroChecks = 0;
+  let last = "unknown";
+  for (let i = 0; i < tries && zeroChecks < 3; i++) {
+    last = orderTotalState(await readPageText(source), { freeWord });
+    zeroChecks = last === "free" ? zeroChecks + 1 : 0;
+    if (zeroChecks < 3) await timer.waitForTimeout(1e3);
+  }
+  return zeroChecks === 3 ? "free" : last;
+};
+var waitForFreeOrder = async (page2) => await settledOrderState(page2) === "free";
 
 // unity.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "unity", ...a);

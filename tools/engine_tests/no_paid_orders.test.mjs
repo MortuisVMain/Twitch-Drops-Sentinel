@@ -16,6 +16,7 @@ const orders = await load('orders.js').catch(err => ({ missing: err.message }));
 // ---------- fakes ----------
 const timer = { waitForTimeout: async () => {} };
 const button = (text, log, { visible = true } = {}) => ({
+  first() { return this; }, // a locator is narrowed with first(); the fake is its own first match
   innerText: async () => { if (text instanceof Error) throw text; return text; },
   isVisible: async () => visible,
   click: async () => { log.push(`click:${text}`); },
@@ -135,7 +136,7 @@ test('Epic Get click: only a positively recognised free action', async () => {
 test('Epic modal loop: harmless dialogs are dismissed, an order button goes through the gate', async () => {
   const log = [];
   let dismissed = false;
-  const dismiss = { innerText: async () => 'Continue', isVisible: async () => !dismissed, click: async () => { dismissed = true; log.push('click:Continue'); } };
+  const dismiss = { first() { return this; }, innerText: async () => 'Continue', isVisible: async () => !dismissed, click: async () => { dismissed = true; log.push('click:Continue'); } };
   const paid = fakePage('Total $19.99', { [orders.DISMISS_SELECTOR]: dismiss, [orders.ORDER_SELECTOR]: button('Place Order', log) });
   const res = await orders.settleModals(paid, { log: () => {} });
   assert.deepEqual(log, ['click:Continue'], 'the harmless dialog is dismissed, the order is not placed');

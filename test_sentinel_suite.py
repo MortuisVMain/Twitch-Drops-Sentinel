@@ -3677,6 +3677,47 @@ console.log(JSON.stringify({ states, paid, waits }));
     assert out["waits"] == {"stable": True, "flicker": False, "blank": False}, f"zero must hold on the page: {out['waits']}"
 
 
+def test_no_order_without_a_confirmed_free_total():
+    print("[no-paid-orders] Epic and Fab order only at a confirmed free total; a refusal is never listed as claimed...")
+    node = shutil.which("node")
+    if node is None:
+        print("      SKIP: Node.js is missing, the engine tests cannot run")
+        return
+    engine_tests = WORKSPACE / "tools" / "engine_tests" / "no_paid_orders.test.mjs"
+    res = subprocess.run([node, "--test", str(engine_tests)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    assert res.returncode == 0, f"engine tests failed:\n{res.stdout[-2500:]}\n{res.stderr[-800:]}"
+
+    # The status gate: only owned games are listed, whatever else the engine wrote
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    engine = Path(tempfile.mkdtemp(prefix="sentinel_inventory_"))
+    original_fgc_path = os.environ.get("FGC_PATH")
+    try:
+        (engine / "data").mkdir()
+        statuses = {"claimed": "claimed", "existed": "existed", "manual": "manual", "prime": "claimed and redeemed",
+                    "refused": "failed:not-free", "unknown-total": "failed:total-unknown", "failed": "failed", "skipped": "skipped",
+                    "base": "failed:requires-base-game", "gog-message": "Giveaway has ended", "nothing": None, "odd": 7}
+        games = {slug: {"title": slug, "time": "2026-11-01 10:00:00", "url": "u", "status": status} for slug, status in statuses.items()}
+        games["old"] = {"title": "old", "time": "2026-11-01 10:00:00", "url": "u"}  # an older engine wrote no status for a claim
+        (engine / "data" / "epic-games.json").write_text(json.dumps({"acc": games}), encoding="utf-8")
+        os.environ["FGC_PATH"] = str(engine)
+        stores, inventory = gc.GiveawaysOrchestrator()._read_inventory_sync(force=True)
+        listed = {item["slug"]: item["status"] for item in inventory}
+        assert listed == {"claimed": "claimed", "existed": "existed", "manual": "existed", "prime": "claimed", "old": "claimed"}, listed
+        assert stores["epic"]["newlyClaimedCount"] == 3 and stores["epic"]["existedCount"] == 2, stores["epic"]
+    finally:
+        if original_fgc_path is None:
+            os.environ.pop("FGC_PATH", None)
+        else:
+            os.environ["FGC_PATH"] = original_fgc_path
+        shutil.rmtree(engine, ignore_errors=True)
+
+    for name in ("epic-games", "fab"):
+        bundle = (WORKSPACE / "giveaways_engine" / "dist" / f"{name}.mjs").read_text(encoding="utf-8")
+        assert "clickOnlyIfFree" in bundle, f"dist/{name}.mjs is what ships: rebuild it"
+    print("      No order without a confirmed free total: ALL PASS [OK]")
+
+
 def test_release_archives_carry_the_licenses():
     print("[licensing] Both release archives ship the license texts of the code inside them...")
     tool = (WORKSPACE / "tools" / "create_clean_release.py").read_text(encoding="utf-8")
@@ -5674,6 +5715,7 @@ if __name__ == "__main__":
         test_login_hint_goes_away_once_the_attempt_succeeded,
         test_giveaways_setup_failure_and_engine_stdin,
         test_unity_orders_only_at_a_clear_zero_total,
+        test_no_order_without_a_confirmed_free_total,
         test_switch_account_forgets_only_that_store,
         test_giveaways_readiness_says_what_is_left,
         test_engine_install_button_does_not_start_a_claim,
