@@ -225,3 +225,20 @@ public static class ExternalLinkPolicy
         return true;
     }
 }
+
+/// <summary>The only origin the window may show and accept messages from: the virtual host that serves the UI files.</summary>
+public static class AppOriginPolicy
+{
+    public const string Host = "app.sentinel";
+
+    /// <summary>True for an https address on exactly app.sentinel (default port, no user info). Everything else, lookalikes included, is foreign.</summary>
+    public static bool IsAppUri(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw) || raw.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return false;
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var parsed)) return false;
+        return parsed.Scheme == Uri.UriSchemeHttps
+            && parsed.Host == Host
+            && parsed.IsDefaultPort
+            && string.IsNullOrEmpty(parsed.UserInfo);
+    }
+}

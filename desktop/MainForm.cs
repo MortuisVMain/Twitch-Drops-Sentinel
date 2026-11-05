@@ -1424,6 +1424,7 @@ namespace TwitchDropsSentinel
 
 
                 _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
 
                 _webView.CoreWebView2.NewWindowRequested += (s, args) =>
 
@@ -1535,6 +1536,7 @@ namespace TwitchDropsSentinel
 
                     {
 
+                        _allowInlineNavigation = true; // NavigateToString arrives as a data: navigation; OnNavigationStarting lets this one through
                         _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Twitch Drops Sentinel v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
 
                     }
@@ -1570,6 +1572,25 @@ namespace TwitchDropsSentinel
 
 
 
+        private bool _allowInlineNavigation;
+
+        /// <summary>The window stays on the app origin. Anything else is cancelled; an http(s) target goes to the default browser instead.</summary>
+        private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            if (_allowInlineNavigation && e.Uri.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
+            {
+                _allowInlineNavigation = false;
+                return;
+            }
+            if (AppOriginPolicy.IsAppUri(e.Uri)) return;
+            e.Cancel = true;
+            try
+            {
+                OpenExternalLink(e.Uri, "NavigationStarting");
+            }
+            catch (Exception ex) { LogDesktopError("navigation blocked", ex); }
+        }
+
         private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
 
         {
@@ -1577,6 +1598,13 @@ namespace TwitchDropsSentinel
             try
 
             {
+
+                if (!AppOriginPolicy.IsAppUri(e.Source))
+                {
+                    string shown = new string((e.Source ?? "").Where(c => !char.IsControl(c)).Take(200).ToArray());
+                    LogDesktopError("web message ignored", new InvalidOperationException("not from the app origin: " + shown));
+                    return;
+                }
 
                 string json = e.WebMessageAsJson;
 
