@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { BROWSER_IDS, launchWithPolicy, resolveBrowserChoice } from './browser_choice.js';
 
 // All stores share one browser profile, so leaving one account means clearing that store's cookies only.
 // Fab signs in through Epic: with the Epic cookies left in place it would sign straight back in.
@@ -66,16 +67,17 @@ const minimizeWindow = async context => {
  * avoid a circular import while config.js and util.js are still initializing.
  * @param {object} cfg the loaded configuration (src/config.js)
  * @param {object} options options for `launchPersistentContext` (without the user data dir)
+ * @param {{importEngine?: (name: string) => Promise<object>}} [deps] replaces the dynamic import of the engine package (tests)
  * @returns {Promise<object>} the launched browser context
  */
-export const launchContext = async (cfg, options) => {
+export const launchContext = async (cfg, options, deps = {}) => {
   const engine = ENGINES[cfg.automation];
   if (!engine) {
     throw new Error(`Unknown AUTOMATION "${cfg.automation}". Supported values: ${Object.keys(ENGINES).join(', ')}.`);
   }
   let module;
   try {
-    module = await import(engine.package);
+    module = await (deps.importEngine ?? (name => import(name)))(engine.package);
   } catch (error) {
     // Give a clear error instead of the obscure "Cannot find package" module error
     if (error?.code == 'ERR_MODULE_NOT_FOUND') {
@@ -131,52 +133,22 @@ export const launchContext = async (cfg, options) => {
     }
   }
 
-  let context;
-  const launch = opts => browser.launchPersistentContext(cfg.dir.browser, opts);
-
-  try {
-    context = await launch(options);
-  } catch (error) {
-    const isChannelError = options.channel && (
-      error.message.includes('Chromium distribution') ||
-      error.message.includes('not found') ||
-      error.message.includes("Executable doesn't exist") ||
-      error.message.includes('Cannot find') ||
-      error.message.toLowerCase().includes('channel')
-    );
-
-    if (isChannelError) {
-      console.warn(`[WARN] Browser channel "${options.channel}" is not available on this system.`);
-      // On Windows, Microsoft Edge is always pre-installed
-      if (process.platform === 'win32' && options.channel !== 'msedge') {
-        try {
-          console.log('[INFO] Attempting fallback to Microsoft Edge (msedge)...');
-          context = await launch({ ...options, channel: 'msedge' });
-        } catch {
-          // Edge not available or failed, fall through to bundled Chromium
-        }
-      }
-      if (!context) {
-        console.log('[INFO] Falling back to bundled Patchright Chromium...');
-        const fallbackOpts = { ...options };
-        delete fallbackOpts.channel;
-        try {
-          context = await launch(fallbackOpts);
-        } catch (bundledError) {
-          if (bundledError.message.includes("Executable doesn't exist")) {
-            console.log('[INFO] Bundled Chromium binary not found. Automatically running "npx patchright install chromium"...');
-            const { execSync } = await import('child_process');
-            execSync('npx patchright install chromium', { stdio: 'inherit' });
-            context = await launch(fallbackOpts);
-          } else {
-            throw bundledError;
-          }
-        }
-      }
-    } else {
-      throw error;
-    }
+  const choice = resolveBrowserChoice(process.env);
+  if (choice.invalid !== null) {
+    console.warn(`[WARN] Unknown browser "${choice.invalid}" in FGC_BROWSER (giveaways_browser): running as "auto". Valid values: ${BROWSER_IDS.join(', ')}.`);
   }
+  const launch = opts => browser.launchPersistentContext(cfg.dir.browser, opts);
+  const context = await launchWithPolicy({
+    launch,
+    options,
+    browser: choice.browser,
+    platform: process.platform,
+    install: async () => {
+      const { execSync } = await import('child_process');
+      execSync('npx patchright install chromium', { stdio: 'inherit' });
+    },
+    log: console,
+  });
 
   // minimize only when a store forces a visible browser although headless was requested;
   // ClaimGames.cmd sets FGC_MINIMIZE for that case, so an explicit SHOW=1 stays visible

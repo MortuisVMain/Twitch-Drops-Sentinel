@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { format } from 'node:util';
 import { readRunReport, summarizeRun } from './src/runsummary.js';
+import { browserLabel, resolveBrowserChoice } from './src/browser_choice.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -133,6 +134,28 @@ function readScheduledStores(configPath) {
   return [...new Set(known)];
 }
 
+// The scheduled task has no app to hand it the choice: it reads "giveaways_browser" when it runs, like the store choice.
+// A manual run gets FGC_BROWSER from the app. Either way the children inherit it and src/browser.js is the only place that acts on it.
+function applyScheduledBrowser(configPath) {
+  let text;
+  try {
+    text = fs.readFileSync(configPath, 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    process.env.FGC_BROWSER = 'auto';
+    return;
+  }
+  const value = JSON.parse(text.replace(/^\uFEFF/, '')).giveaways_browser;
+  process.env.FGC_BROWSER = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
+}
+
+function reportBrowser() {
+  const { browser, invalid } = resolveBrowserChoice(process.env);
+  if (invalid !== null) console.warn(`[SENTINEL] ⚠ Неизвестный браузер «${invalid}» в настройках раздач: используется автовыбор.`);
+  process.env.FGC_BROWSER = browser;
+  console.log(`[SENTINEL] Браузер для раздач: ${browserLabel(browser)}`);
+}
+
 function resolveScript(entry) {
   const distPath = path.join(__dirname, 'dist', entry.script);
   if (fs.existsSync(distPath)) return distPath;
@@ -236,6 +259,7 @@ async function main() {
     }
   }
 
+  if (scheduled) applyScheduledBrowser(configPath);
   if (!ensureBrowserEngine()) process.exit(1);
 
   console.log('============================================================');
@@ -243,6 +267,7 @@ async function main() {
   console.log('  Mortuis_V_Studio');
   console.log('============================================================');
   console.log(`[SENTINEL] Режим браузера: ${headless ? 'Фоновый стелс' : 'Активный экран'}`);
+  reportBrowser();
   console.log(`[SENTINEL] Выбранные платформы: ${stores.map(s => STORE_SCRIPTS[s]?.label || s).join(', ')}`);
 
   const failed = [];

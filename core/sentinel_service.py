@@ -181,7 +181,7 @@ from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
-from giveaways_controller import GiveawaysOrchestrator
+from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
@@ -334,6 +334,7 @@ SUPERVISOR_DEFAULTS = {
     "giveaways_enabled": True,
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
+    "giveaways_browser": "auto",
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
@@ -579,6 +580,7 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/v1/giveaways/stream", self.handle_giveaways_stream)
         self.app.router.add_get("/api/v1/giveaways/readiness", self.handle_giveaways_readiness)
         self.app.router.add_post("/api/v1/giveaways/install-engine", self.handle_giveaways_install_engine)
+        self.app.router.add_post("/api/v1/giveaways/browser", self.handle_giveaways_browser)
         self.app.router.add_get("/api/v1/dimmer/state", self.handle_dimmer_state)
         self.app.router.add_post("/api/v1/dimmer/brightness", self.handle_dimmer_brightness)
         self.app.router.add_post("/api/v1/dimmer/blackout", self.handle_dimmer_blackout)
@@ -1491,6 +1493,34 @@ class SentinelSupervisor:
 
     async def handle_giveaways_install_engine(self, request: web.Request) -> web.Response:
         return web.json_response(await self.giveaways.install_engine())
+
+    async def handle_giveaways_browser(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        browser = parse_browser(body.get("browser")) if isinstance(body, dict) else None
+        if browser is None:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"detail": f"Неизвестный браузер. Допустимые значения: {', '.join(BROWSER_CHOICES)}."}, ensure_ascii=False),
+                content_type="application/json",
+            )
+
+        def write() -> None:
+            apply_change(self.settings, lambda current: current.__setitem__("giveaways_browser", browser), self.save_settings)
+
+        try:
+            res = await self.giveaways.change_browser(browser, write)
+        except web.HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Could not save the giveaways browser: %s", e, exc_info=True)
+            raise web.HTTPInternalServerError(
+                text=json.dumps({"detail": "Не удалось сохранить выбор браузера. Подробности в журнале приложения."}, ensure_ascii=False),
+                content_type="application/json",
+            )
+        logger.info(f"Giveaways browser set to {browser}")
+        return web.json_response(res)
 
     async def handle_giveaways_stream(self, request: web.Request) -> web.StreamResponse:
         return await self.giveaways.handle_stream(request)

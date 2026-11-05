@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { format } from 'node:util';
 import { appendFileSync, rmSync } from 'node:fs';
+import { resolveBrowserChoice, sessionsFileName } from './browser_choice.js';
 // not the same since these will give the absolute paths for this file instead of for the file using them
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,20 +74,24 @@ export const loginHint = () => {
     : `[SENTINEL] Войдите в аккаунт в открывшемся окне браузера. Если окна не видно, найдите его на панели задач. На вход есть ${cfg.login_timeout / 60000} мин.`;
 };
 
+// Sign-ins live in the profile of the chosen browser: each browser has its own record (sessions.json stays that of chrome and auto)
+const sessionsFile = () => sessionsFileName(resolveBrowserChoice(process.env).browser);
+
 // A login state that cannot be saved must not cost the user the run: the card is only wrong until the next run.
 const writeSession = async (store, entry) => {
   try {
-    const sessions = await jsonDb('sessions.json', {}).catch(error => {
+    const file = sessionsFile();
+    const sessions = await jsonDb(file, {}).catch(error => {
       if (!(error instanceof SyntaxError)) throw error;
       // Only holds what the next run finds out again, so a damaged file is safe to replace
-      console.error(`[SENTINEL] Replacing damaged sessions.json: ${error.message}`);
-      rmSync(dataDir('sessions.json'), { force: true });
-      return jsonDb('sessions.json', {});
+      console.error(`[SENTINEL] Replacing damaged ${file}: ${error.message}`);
+      rmSync(dataDir(file), { force: true });
+      return jsonDb(file, {});
     });
     sessions.data[store] = entry;
     await sessions.write();
   } catch (error) {
-    console.error(`[SENTINEL] Could not save the login state of ${store} to sessions.json: ${error.message}`);
+    console.error(`[SENTINEL] Could not save the login state of ${store} to ${sessionsFile()}: ${error.message}`);
   }
 };
 // The store card shows this login; the per-store databases only learn about an account once something was claimed.

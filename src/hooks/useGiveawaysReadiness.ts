@@ -107,7 +107,29 @@ export function useGiveawaysReadiness(windowOpen: boolean) {
     await check(true, true);
   }, [check]);
 
+  const [browserBusy, setBrowserBusy] = useState(false);
+  /** true when the service took the choice; the error is shown in the window either way */
+  const setBrowser = useCallback(async (browser: string): Promise<boolean> => {
+    setActionError(null);
+    setBrowserBusy(true);
+    let saved = false;
+    try {
+      const res = await fetch(`${API}/browser`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ browser }) });
+      if (res.status === 409) setActionError('Браузер нельзя сменить, пока идёт сбор, вход в магазин или установка движка. Дождитесь конца и повторите');
+      else if (res.status === 400) setActionError('Сервис не принял этот браузер');
+      else if (!res.ok) setActionError('Не удалось сохранить выбор браузера');
+      else saved = true;
+    } catch (err) {
+      console.error('useGiveawaysReadiness: браузер не изменён', err);
+      setActionError('Сервис не отвечает, браузер не изменён');
+    } finally {
+      setBrowserBusy(false);
+    }
+    await check(true, true);
+    return saved;
+  }, [check]);
+
   // A quick answer is no answer for the window: it shows the skeleton until the full check arrives
   const waitingForFull = windowOpen && !failure && data !== null && !data.full;
-  return { data, loading: loading || waitingForFull, failure, actionError, setActionError, check, installEngine };
+  return { data, loading: loading || waitingForFull, failure, actionError, setActionError, check, installEngine, setBrowser, browserBusy };
 }

@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 import { dataDir } from './util.js';
+import { profileDir } from './browser_choice.js';
 
 dotenv.config({ path: 'data/config.env' }); // loads env vars from file - will not set vars that are already set, i.e., can overwrite values from file by prefixing, e.g., VAR=VAL node ...
 
@@ -25,7 +26,7 @@ export const cfg = {
   notify_title: process.env.NOTIFY_TITLE, // apprise notification title
   get dir() { // avoids ReferenceError: Cannot access 'dataDir' before initialization
     return {
-      browser: process.env.BROWSER_DIR || dataDir('browser'), // for multiple accounts or testing
+      browser: profileDir(process.env, dataDir), // data/browser, data/browser-<choice> for FGC_BROWSER; BROWSER_DIR wins (multiple accounts, testing)
       screenshots: process.env.SCREENSHOTS_DIR || dataDir('screenshots'), // set to 0 to disable screenshots
     };
   },

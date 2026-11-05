@@ -96,8 +96,57 @@ const engineText = (item: ReadinessItem, ctx: TextContext): ItemText => {
 export const itemStatus = (item: ReadinessItem, engineInstall?: { running: boolean; error: string | null }): ReadinessStatus =>
   item.id === 'engine' && item.status === 'ok' && engineInstall && !engineInstall.running && engineInstall.error ? 'warning' : item.status;
 
+export type BrowserChoice = 'auto' | 'chrome' | 'msedge' | 'chromium';
+const BROWSER_CHOICES: BrowserChoice[] = ['auto', 'chrome', 'msedge', 'chromium'];
+
+const BROWSER_LABEL: Record<BrowserChoice, string> = { auto: 'Автовыбор', chrome: 'Google Chrome', msedge: 'Microsoft Edge', chromium: 'Встроенный Chromium' };
+// A browser that is not on the list: the choice stays visible instead of silently showing another one
+const BROWSER_UNAVAILABLE: Record<Exclude<BrowserChoice, 'auto'>, string> = {
+  chrome: 'Google Chrome (не найден)',
+  msedge: 'Microsoft Edge (не найден)',
+  chromium: 'Встроенный Chromium (скачается при первом запуске)',
+};
+
+export const browserOptionLabel = (id: string): string => BROWSER_LABEL[id as BrowserChoice] ?? id;
+
+/** The choice the service reports; an answer without it (an older service) or an unknown one reads as auto */
+export const browserChoiceOf = (item: ReadinessItem): BrowserChoice =>
+  BROWSER_CHOICES.includes(item.params.choice) ? item.params.choice : 'auto';
+
+/** What the list offers: the browsers the service found, and the chosen one even when it is gone */
+export const browserOptions = (item: ReadinessItem): Array<{ id: BrowserChoice; text: string }> => {
+  const choice = browserChoiceOf(item);
+  const offered: BrowserChoice[] = Array.isArray(item.params.options) ? item.params.options.filter((id: string) => BROWSER_CHOICES.includes(id as BrowserChoice)) : ['auto'];
+  const ids = offered.includes(choice) ? offered : [...offered, choice];
+  return ids.map((id) => {
+    const note = id !== 'auto' && (!offered.includes(id) || (id === 'chromium' && !item.params.chromiumInstalled));
+    return { id, text: note ? BROWSER_UNAVAILABLE[id as Exclude<BrowserChoice, 'auto'>] : browserOptionLabel(id) };
+  });
+};
+
+/** Every browser other than chrome/auto signs in apart: with no sign-in in the list, the user has to sign in again there */
+export const browserNeedsFreshSignIn = (choice: string, items: ReadinessItem[]): boolean =>
+  (choice === 'msedge' || choice === 'chromium') && !items.some((item) => item.id === 'login' && item.status === 'ok');
+
+const BROWSER_MISSING: Record<'chrome' | 'msedge' | 'chromium', string> = {
+  chrome: 'Выбранный Google Chrome не найден. Выберите другой браузер ниже или установите его',
+  msedge: 'Выбранный Microsoft Edge не найден. Выберите другой браузер ниже или установите его',
+  chromium: 'Встроенный Chromium не найден',
+};
+const BROWSER_CHOSEN: Record<'chrome' | 'msedge' | 'chromium', string> = {
+  chrome: 'Выбран Google Chrome',
+  msedge: 'Выбран Microsoft Edge',
+  chromium: 'Выбран встроенный Chromium',
+};
+
 const browserText = (item: ReadinessItem): ItemText => {
   const title = 'Браузер для магазинов';
+  const choice = browserChoiceOf(item);
+  if (choice !== 'auto') {
+    if (item.params.reason === 'selected_missing') return { title, lines: [BROWSER_MISSING[choice]] };
+    if (item.params.reason === 'will_download') return { title, lines: ['Выбран встроенный Chromium. Он скачается при первом запуске'] };
+    return { title, lines: [BROWSER_CHOSEN[choice]] };
+  }
   const found = item.params.found;
   if (found === 'chrome') return { title, lines: ['Найден Google Chrome'] };
   if (found === 'edge') return { title, lines: ['Найден Microsoft Edge'] };
