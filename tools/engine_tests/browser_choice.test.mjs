@@ -13,8 +13,11 @@ const ENGINE = path.join(ROOT, 'giveaways_engine');
 const load = file => import(pathToFileURL(path.join(ENGINE, 'src', file)).href);
 const choice = await load('browser_choice.js');
 const { launchContext } = await load('browser.js');
-await load('util.js'); // util.js first: config.js and util.js import each other and only this order initializes
-const { cfg } = await load('config.js');
+import { existsSync } from 'node:fs';
+// CI does not install the engine's dependencies (lowdb ...), so these tests use a cfg of their own: the profile comes from the
+// same profileDir() that src/config.js calls. The real config.js is only checked where those dependencies exist.
+const cfg = { automation: 'patchright', get dir() { return { browser: choice.profileDir(process.env, name => path.join('data', name)) }; } };
+const engineDeps = existsSync(path.join(ENGINE, 'node_modules', 'lowdb'));
 
 const missing = name => new Error(`browserType.launchPersistentContext: Chromium distribution '${name}' is not installed.\nRun "npx patchright install ${name}"`);
 const noBinary = () => new Error("browserType.launchPersistentContext: Executable doesn't exist at C:\\x\\chrome.exe");
@@ -212,7 +215,7 @@ test('launchContext: BROWSER_DIR still wins for the profile, an invalid value ru
   });
 });
 
-test('cfg.dir.browser, which every store script and the lock cleanup use, follows the choice too', () => {
+test('cfg.dir.browser, which every store script and the lock cleanup use, follows the choice too', { skip: !engineDeps && 'the engine dependencies are not installed (npm ci in giveaways_engine)' }, () => {
   const probe = env => spawnSync(process.execPath, ['--input-type=module', '-e',
     "import './src/util.js'; import { cfg } from './src/config.js'; console.log(cfg.dir.browser);"], {
     cwd: ENGINE, encoding: 'utf8', env: { ...process.env, FGC_BROWSER: '', BROWSER_DIR: '', ...env },
