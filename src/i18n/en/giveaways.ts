@@ -223,6 +223,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Не удалось узнать состояние задания в Планировщике Windows': 'Could not read the task state in Windows Task Scheduler',
   'Не удалось починить задание автосбора': 'Could not repair the auto-claim task',
   'Последний запуск завершился с ошибкой': 'The last run ended with an error',
+  'Последний запуск был прерван и не проверил все магазины': 'The last run was interrupted and did not check all the stores',
   'Автосбор включён': 'Auto-claim is on',
   'Открыть страницу': 'Open the page',
   'Установить движок': 'Install the engine',

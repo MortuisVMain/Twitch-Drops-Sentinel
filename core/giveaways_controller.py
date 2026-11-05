@@ -36,6 +36,7 @@ SCHEDULED_LOG = PROJECT_DIR / "giveaways_scheduled.log"
 RUN_FAILED_MARK = "[SENTINEL] \u2715"  # runner.js ends the log of a failed run with such a line
 RUN_DONE_MARK = "[SENTINEL] ■"  # runner.js ends every normal run with such a line; a log without it was cut off
 RUN_LOG_FORMAT_MARK = "[SENTINEL] ◆"  # first line of a log by a runner that writes the line above; older logs lack both
+TASK_RESULT_INTERRUPTED = 0xC000013A  # STATUS_CONTROL_C_EXIT: the run was interrupted; nothing more is known about why
 RUN_LOG_CLOCK_SLACK_SECONDS = 2.0  # the log is touched after the scheduler stamps the start; file times are coarser than that
 RUN_LOG_TAIL_BYTES = 4096
 FGC_ROOT = resolve_fgc_root()
@@ -208,6 +209,31 @@ def _last_run_failed(code: Optional[int], state: Optional[str] = None, last_run:
     return not lines[-1].startswith(RUN_DONE_MARK)
 
 
+def _last_run_interrupted(code: Optional[int]) -> bool:
+    return isinstance(code, int) and code & 0xFFFFFFFF == TASK_RESULT_INTERRUPTED
+
+
+def _scheduled_log_file(execute: Optional[str], arguments: Optional[str], last_run: Optional[str]) -> Optional[str]:
+    """The log of the last run, only when that file exists. This app's own task writes SCHEDULED_LOG; a launcher of the
+    user's leaves ClaimOutput_*.log beside itself, and only a log at least as new as the last run can be that run's."""
+    if "--log" in (arguments or ""):
+        return str(SCHEDULED_LOG) if SCHEDULED_LOG.is_file() else None
+    ran_at = _parse_task_time(last_run)
+    launcher = Path(execute) if execute else None
+    if ran_at is None or launcher is None or not launcher.is_absolute():  # a bare name would search the service's own directory
+        return None
+    if not launcher.parent.is_dir():
+        logger.warning(f"The folder of the scheduled launcher is missing: {launcher.parent}")
+        return None
+    try:
+        logs = [(path.stat().st_mtime, path) for path in launcher.parent.glob("ClaimOutput_*.log") if path.is_file()]
+    except OSError as e:
+        logger.warning(f"Could not list the run logs in {launcher.parent}: {e}")
+        return None
+    fresh = [entry for entry in logs if entry[0] >= ran_at - RUN_LOG_CLOCK_SLACK_SECONDS]
+    return str(max(fresh)[1]) if fresh else None
+
+
 class GiveawaysOrchestrator:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -273,6 +299,7 @@ class GiveawaysOrchestrator:
             elif bool(raw.get("exists")):
                 mask = 37
 
+            last_run_failed = _last_run_failed(raw.get("lastResult"), raw.get("state"), raw.get("lastRun"), raw.get("arguments"))
             result = {
                 "taskName": TASK_NAME,
                 "exists": bool(raw.get("exists")),
@@ -282,7 +309,9 @@ class GiveawaysOrchestrator:
                 "lastTaskResult": raw.get("lastResult"),
                 "daysOfWeek": mask,
                 "activeDays": bitmask_to_days(mask),
-                "lastRunFailed": _last_run_failed(raw.get("lastResult"), raw.get("state"), raw.get("lastRun"), raw.get("arguments")),
+                "lastRunFailed": last_run_failed,
+                "lastRunInterrupted": last_run_failed and _last_run_interrupted(raw.get("lastResult")),
+                "logFile": _scheduled_log_file(raw.get("execute"), raw.get("arguments"), raw.get("lastRun")),
                 "action": {key: raw.get(key) for key in ("execute", "arguments", "workingDirectory")},
             }
         except Exception as e:
@@ -298,11 +327,12 @@ class GiveawaysOrchestrator:
                 "daysOfWeek": None,
                 "activeDays": [],
                 "lastRunFailed": False,
+                "lastRunInterrupted": False,
+                "logFile": None,
                 "action": {},
             }
 
         result["repairError"] = self._repair_error
-        result["logFile"] = str(SCHEDULED_LOG)
         self._scheduler_cache = (now, result)
         return result
 

@@ -2343,13 +2343,11 @@ def test_queue_filter_only_with_campaigns():
     shutil.rmtree(out_dir, ignore_errors=True)
 
 
-def test_shelf_unclaimed_filter_uses_shared_campaign_state():
-    print("[audit F-039b] Shelf: 'Есть неполученные' counts running and link-needed campaigns through getCampaignState...")
+def test_shelf_has_no_unclaimed_filter():
+    print("[shelf] The 'Есть неполученные' filter was removed at the owner's request and stays out...")
     shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
-    assert "import { getCampaignState } from '../utils/campaignState'" in shelf, "one shared definition of the campaign state"
-    assert "'unclaimed'" in shelf and "🎁 Есть неполученные ({unclaimedCount})" in shelf
-    assert "kind === 'running' || kind === 'link'" in shelf, "finished and no-campaign games are not 'unclaimed'"
-    assert "Есть неполученные награды: кампания идёт и что-то ещё можно получить" in shelf
+    assert "unclaimed" not in shelf.lower() and "Есть неполученные" not in shelf, "the filter is gone"
+    assert "Активные кампании" in shelf, "the active campaigns filter stays"
 
 
 def test_console_collapse_tray_filter_and_plain_labels():
@@ -2394,7 +2392,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice, isIdle)" in dash, "stored choice + idle state decide"
     assert "console.warn('LiveDashboard: не удалось сохранить состояние консоли'" in dash, "a failed save is reported, not swallowed"
     assert "safeRecentLogs.map((l) =>" in dash, "Copy still takes the untouched full journal"
-    assert "hardware.is_paused" in dash and "Автосбор включён · Сейчас ожидает" in dash and 'id="heroDropTitle">Ожидание кампаний' in dash, "idle hero states the farm switch"
+    assert "hardware.is_paused" in dash and "Автосбор включён · Сейчас ожидает" in dash and 'id="heroDropTitle">{starting' in dash and "'Ожидание кампаний'" in dash, "idle hero states the farm switch"
     for new in ("🎯 Режим: только очередь", "⚡ Режим: очередь + любые", "Показать игры вне очереди", "Собирать сейчас", "Сейчас · отменить"):
         assert new in dash, new
     for old in ("Только очередь ⇄", "Очередь + любые ⇄", "'ФОКУС'", "'FORCE'", "Фармить вне очереди\n"):
@@ -3443,7 +3441,7 @@ def test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install():
         for code, failed in ((1, True), (0, False), (None, False), (267011, False), (267009, False)):
             state = run(_FakeTaskScheduler(exists=True, last_result=code), lambda o: o._query_scheduler(force=True))
             assert state["lastRunFailed"] is failed, (code, state)
-        assert state["logFile"].endswith("giveaways_scheduled.log"), state
+        assert state["logFile"] is None, "no giveaways_scheduled.log exists here: a log that is not there must not be named"
 
         # conhost does not pass the exit code on, so for our task the scheduler reports 0: the run log tells
         run_log = Path(tempfile.mkdtemp(prefix="sentinel_runlog_")) / "giveaways_scheduled.log"
@@ -4250,7 +4248,9 @@ def test_giveaways_readiness_says_what_is_left():
         # A broken schedule warns, it does not stop a manual claim
         report, items = check(_FakeTaskScheduler(exists=True, last_result=1))
         assert items[("scheduler", None)]["status"] == "warning" and items[("scheduler", None)]["params"]["reason"] == "last_run_failed", items
-        assert items[("scheduler", None)]["params"]["logFile"], items
+        assert items[("scheduler", None)]["params"]["logFile"] is None, "no log file exists here, none may be named"
+        report, items = check(_FakeTaskScheduler(exists=True, last_result=3221225786))
+        assert items[("scheduler", None)]["params"]["reason"] == "last_run_interrupted", items
         assert report["ready"], "the schedule is optional"
         report, items = check(_FakeTaskScheduler(query_broken=True))
         assert items[("scheduler", None)]["status"] == "warning" and items[("scheduler", None)]["params"]["reason"] == "query_failed", items
@@ -5016,6 +5016,79 @@ def test_claimed_drop_never_replaces_the_drop_being_farmed():
     finally:
         STATE_BRIDGE.active_drop = saved
     print("      Counter follows only the drop being farmed: ALL PASS [OK]")
+
+
+def test_scheduler_log_file_is_a_file_that_exists_and_an_interrupted_run_is_named():
+    print("[clean-install] Scheduler: logFile is an existing file or null, lastRunInterrupted for STATUS_CONTROL_C_EXIT...")
+    import datetime as dt
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+    import giveaways_readiness as gr
+
+    original_exec, original_log = gc.asyncio.create_subprocess_exec, gc.SCHEDULED_LOG
+    work = Path(tempfile.mkdtemp(prefix="sentinel_foreignlog_"))
+    launcher_dir = work / "Free Games Claimer"
+    launcher_dir.mkdir()
+    launcher = launcher_dir / "StudioClaimLauncher.bat"
+    own_log = work / "giveaways_scheduled.log"
+    gc.SCHEDULED_LOG = own_log
+    ran = dt.datetime.now().astimezone() - dt.timedelta(minutes=30)
+    stamp = ran.isoformat(timespec="microseconds")[:-6] + "0" + ran.isoformat(timespec="microseconds")[-6:]
+    INTERRUPTED = 3221225786  # 0xC000013A STATUS_CONTROL_C_EXIT
+
+    def make_log(name, age_seconds):
+        path = launcher_dir / name
+        path.write_text("claim output\n", encoding="utf-8")
+        when = ran.timestamp() + age_seconds
+        os.utime(path, (when, when))
+        return path
+
+    def sched(execute=str(launcher), arguments=None, code=INTERRUPTED, last_run=stamp):
+        info = {"state": "Ready", "lastRun": last_run, "arguments": arguments, "execute": execute, "workingDirectory": str(launcher_dir)}
+        gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True, last_result=code, action=info)
+        return asyncio.run(gc.GiveawaysOrchestrator()._query_scheduler(force=True))
+
+    try:
+        # A foreign launcher whose directory has no ClaimOutput log, or none from this run: nothing to name
+        assert sched()["logFile"] is None
+        old = make_log("ClaimOutput_20260101-000000.log", -3600)
+        (launcher_dir / "notes.log").write_text("x", encoding="utf-8")
+        assert sched()["logFile"] is None, "a log from an earlier run is not the log of this one"
+
+        # The newest log of this run, not just any; a small clock margin is allowed
+        older = make_log("ClaimOutput_20260102-000000.log", 60)
+        newest = make_log("ClaimOutput_20260102-010000.log", 120)
+        state = sched()
+        assert state["logFile"] == str(newest), state
+        assert sched(last_run=None)["logFile"] is None, "without a last run time freshness cannot be judged"
+        assert sched(execute=str(work / "gone" / "x.bat"))["logFile"] is None, "a missing launcher directory is a null, not an error"
+        assert sched(execute="x.bat")["logFile"] is None, "a bare file name must not make the service read its own directory"
+        newest.unlink()
+        older.unlink()
+        margin = make_log("ClaimOutput_20260103-000000.log", -1)
+        assert sched()["logFile"] == str(margin), "the log is stamped a moment before the scheduler's start time"
+
+        # This app's own task: SCHEDULED_LOG when it exists, null otherwise
+        own_args = f'--headless "node.exe" "runner.js" --scheduled --config "c.json" --log "{own_log}"'
+        assert sched(execute="conhost.exe", arguments=own_args, code=1)["logFile"] is None
+        own_log.write_text("[SENTINEL] start\n", encoding="utf-8")
+        assert sched(execute="conhost.exe", arguments=own_args, code=1)["logFile"] == str(own_log)
+
+        # An interrupted run is named as such; other failures are not
+        state = sched()
+        assert state["lastRunFailed"] is True and state["lastRunInterrupted"] is True, state
+        for code, failed in ((1, True), (0, False), (None, False)):
+            state = sched(code=code)
+            assert state["lastRunFailed"] is failed and state["lastRunInterrupted"] is False, (code, state)
+
+        # The readiness window says the same
+        item = gr._scheduler_item(sched(code=INTERRUPTED, last_run=stamp, execute=str(work / "gone" / "x.bat")))
+        assert item["params"]["reason"] == "last_run_interrupted" and item["params"]["logFile"] is None, item
+        assert gr._scheduler_item(sched(code=1))["params"]["reason"] == "last_run_failed"
+        assert gr._scheduler_item(sched(code=0))["params"]["reason"] is None
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.SCHEDULED_LOG = original_exec, original_log
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def test_scheduled_run_that_never_finished_is_reported_as_failed():
@@ -6372,7 +6445,7 @@ if __name__ == "__main__":
         test_settings_modules_counter_matches_switches,
         test_shelf_facts_trophy_line_and_sync_age,
         test_queue_filter_only_with_campaigns,
-        test_shelf_unclaimed_filter_uses_shared_campaign_state,
+        test_shelf_has_no_unclaimed_filter,
         test_console_collapse_tray_filter_and_plain_labels,
         test_toast_gate_dedup_switch_and_priming,
         test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,
@@ -6422,6 +6495,7 @@ if __name__ == "__main__":
         test_steam_login_window_fits_a_small_screen,
         test_concurrent_update_checks_share_one_request,
         test_scheduled_run_that_never_finished_is_reported_as_failed,
+        test_scheduler_log_file_is_a_file_that_exists_and_an_interrupted_run_is_named,
         test_settings_changes_send_only_the_changed_fields,
         test_giveaways_empty_store_choice_starts_nothing,
         test_dimmer_logic_and_shell_use_it,

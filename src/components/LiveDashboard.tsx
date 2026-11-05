@@ -4,7 +4,7 @@ import {
   Search, X, RotateCcw, Flame, CheckCircle2, Tv, AlertTriangle,
   ChevronUp, ChevronDown
 } from 'lucide-react';
-import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem } from '../types';
+import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem, ConnectionPhase } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { CartridgeCover } from './GameShelf';
@@ -18,6 +18,7 @@ import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueVi
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
   connected?: boolean;
+  connectionPhase?: ConnectionPhase;
   onBanStreamer?: (channelName: string, isSnooze2h: boolean) => void;
   availableChannels?: Array<{ name: string; display_name?: string; viewers?: number; current?: boolean }>;
   hardware: HardwareGuard;
@@ -88,6 +89,7 @@ const QUEUE_FILTER_EMPTY: Record<QueueFilter, string> = {
 export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   activeDrop,
   connected = false,
+  connectionPhase = connected ? 'connected' : 'unavailable',
   onBanStreamer,
   availableChannels,
   hardware,
@@ -111,6 +113,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   onCancelForceFarm,
 }) => {
   const { playClick } = useTactileAudio();
+  // No answer from the service yet: empty lists and zero counts below are not data, so they are not shown as facts
+  const starting = connectionPhase === 'starting';
   const [logFilter, setLogFilter] = useState<'ALL' | 'WATCH' | 'CLAIM' | 'CORE'>('ALL');
   const [expandedSync, setExpandedSync] = useState<string[]>([]);
   const [codeCopy, setCodeCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -598,7 +602,12 @@ const filteredLogs = useMemo(() => {
 
   return (
     <div id="view-dashboard" className="view-tab active">
-      {!connected && (
+      {starting && (
+        <div className="ending-soon-radar mb-2.5" role="status" style={{ borderColor: 'var(--border-main)', justifyContent: 'flex-start', color: 'var(--text-secondary)' }}>
+          Запускаем службу Sentinel…
+        </div>
+      )}
+      {!connected && !starting && (
         <div className="ending-soon-radar mb-2.5 border-rose-500/40" role="status">
           <strong style={{ color: 'var(--led-rose)' }}>Локальный сервис Sentinel недоступен.</strong>
           <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
@@ -708,14 +717,18 @@ const filteredLogs = useMemo(() => {
             <span className="tag" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '2px', maxWidth: '100%' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span className="led-dot" />
-                <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ · <span id="queueCount">{`${queueStats.total} ${pluralRu(queueStats.total, 'игра', 'игры', 'игр')}`}</span></span>
+                <span title="Очередь кампаний: игры в порядке фарма">ОЧЕРЕДЬ{!starting && <> · <span id="queueCount">{`${queueStats.total} ${pluralRu(queueStats.total, 'игра', 'игры', 'игр')}`}</span></>}</span>
               </span>
               <span style={{ display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--text-muted)' }}>
-                <span title="Игры очереди с идущей кампанией, которую можно фармить (вместе с игрой, которая фармится сейчас)">{`Доступно ${queueStats.available}`}</span>
-                {' · '}
-                <span title="Кампания есть, но аккаунт игры не привязан: фарм невозможен, пока вы его не привяжете">{`Нужна привязка ${queueStats.needLink}`}</span>
-                {' · '}
-                <span title="Игры очереди, где все награды уже получены">{`Завершено ${queueStats.finished}`}</span>
+                {starting ? '\u00a0' : (
+                  <>
+                    <span title="Игры очереди с идущей кампанией, которую можно фармить (вместе с игрой, которая фармится сейчас)">{`Доступно ${queueStats.available}`}</span>
+                    {' · '}
+                    <span title="Кампания есть, но аккаунт игры не привязан: фарм невозможен, пока вы его не привяжете">{`Нужна привязка ${queueStats.needLink}`}</span>
+                    {' · '}
+                    <span title="Игры очереди, где все награды уже получены">{`Завершено ${queueStats.finished}`}</span>
+                  </>
+                )}
               </span>
             </span>
 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -812,7 +825,9 @@ const filteredLogs = useMemo(() => {
 
           {/* COMPACT QUEUE SCROLL CONTAINER */}
           <div className="queue-scroll" id="queueContainer" style={{ minHeight: 0, flex: 1, overflowY: 'auto' }}>
-            {queueShown.visible.length === 0 ? (
+            {starting ? (
+              <div className="text-center py-6 text-xs text-[var(--text-muted)]">Загружаем очередь…</div>
+            ) : queueShown.visible.length === 0 ? (
               <div className="text-center py-6 text-xs text-[var(--text-muted)]">
                 {queueCampaigns.length === 0 ? 'Очередь кампаний пуста' : QUEUE_FILTER_EMPTY[queueFilter]}
               </div>
@@ -853,15 +868,15 @@ const filteredLogs = useMemo(() => {
 
             {isIdle ? (
               <div className="idle-hero">
-                <h2 className="idle-hero-title" id="heroDropTitle">Ожидание кампаний</h2>
+                <h2 className="idle-hero-title" id="heroDropTitle">{starting ? 'Загружаем данные…' : 'Ожидание кампаний'}</h2>
                 {connected && (
                   <div className="idle-hero-extra tabular" style={hardware.is_paused ? { color: 'var(--led-amber)' } : undefined}>
                     {hardware.is_paused ? 'Автосбор приостановлен' : 'Автосбор включён · Сейчас ожидает'}
                   </div>
                 )}
-                <div className="idle-hero-reason">{idleInfo.reason}</div>
-                {idleInfo.extra && <div className="idle-hero-extra tabular">{idleInfo.extra}</div>}
-                {idleInfo.unlinked.slice(0, 3).map((u) => (
+                <div className="idle-hero-reason">{starting ? 'Данные появятся, когда служба ответит.' : idleInfo.reason}</div>
+                {!starting && idleInfo.extra && <div className="idle-hero-extra tabular">{idleInfo.extra}</div>}
+                {!starting && idleInfo.unlinked.slice(0, 3).map((u) => (
                   <button
                     key={u.name}
                     className="idle-hero-link"
@@ -872,7 +887,7 @@ const filteredLogs = useMemo(() => {
                     {shortGameName(u.name)}: {u.count} {pluralRu(u.count, 'дроп ждёт', 'дропа ждут', 'дропов ждут')} — привяжите аккаунт ↗
                   </button>
                 ))}
-                {idleInfo.unlinked.length > 3 && (
+                {!starting && idleInfo.unlinked.length > 3 && (
                   <div className="idle-hero-extra tabular">и ещё {idleInfo.unlinked.length - 3}</div>
                 )}
                 <div className="idle-hero-actions">
@@ -1282,7 +1297,7 @@ const filteredLogs = useMemo(() => {
             <div className={`override-scroll-grid ${consoleCollapsed ? 'is-poster' : 'is-compact'}`} id="overrideGrid" style={consoleCollapsed ? { maxHeight: 'none', overflowY: 'auto', flex: '1 1 auto' } : { maxHeight: 'none', overflow: 'visible' }}>
               {overrideGames.length === 0 ? (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
-                  Нет подходящих кампаний для ручного переключения
+                  {starting ? 'Загружаем кампании…' : 'Нет подходящих кампаний для ручного переключения'}
                 </div>
               ) : (
                 overrideGames.map((g, idx) => {

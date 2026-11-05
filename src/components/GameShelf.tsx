@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
-import { getCampaignState } from '../utils/campaignState';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
@@ -127,7 +126,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const { playClick } = useTactileAudio();
 
   // 1. All useState hooks declared cleanly at the top to prevent TDZ errors
-  const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed' | 'unclaimed'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed'>('all');
   const [removedKeys, setRemovedKeys] = useState<string[]>(ignoredGames || []);
   const [showTrophyVault, setShowTrophyVault] = useState<boolean>(() => {
     try {
@@ -352,12 +351,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     return new Set([...removedKeys, ...(ignoredGames || [])].map(k => k.toLowerCase().trim()));
   }, [removedKeys, ignoredGames]);
 
-  // Something is still left to claim: the same campaign state the dashboard queue uses, "running" or "needs a link" (not "done")
-  const hasUnclaimed = (game: GameItem): boolean => {
-    const { kind } = getCampaignState(game, trophies, isTitleMatch);
-    return kind === 'running' || kind === 'link';
-  };
-
   // 4. Filter games based on active tab and search
   const filteredGames = useMemo(() => {
     if (activeFilter === 'removed' || filterMode === 'removed') {
@@ -436,9 +429,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       if (activeFilter === 'all' || filterMode === 'drops') {
         return isCampaignRunning(g);
       }
-      if (activeFilter === 'unclaimed') {
-        return hasUnclaimed(g);
-      }
       if (activeFilter === 'priority') {
         return priorityList.includes(g.name);
       }
@@ -465,10 +455,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     [games, excludedSet, excludedList, allRemovedLower]
   );
   const dropsCount = visibleRunning.length;
-  const unclaimedCount = useMemo(
-    () => games.filter((g) => hasUnclaimed(g) && !excludedSet.has(g.name) && !excludedList.includes(g.name) && !allRemovedLower.has(g.name.toLowerCase())).length,
-    [games, trophies, excludedSet, excludedList, allRemovedLower]
-  );
   // remember what has been shown, so the next visit can mark newcomers
   useEffect(() => {
     if (visibleRunning.length === 0) return;
@@ -602,13 +588,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             onClick={() => { playClick(); setActiveFilter('all'); }}
           >
             🔥 Активные кампании ({dropsCount})
-          </button>
-          <button
-            className={`tactile-btn ${activeFilter === 'unclaimed' ? 'active-mint' : ''}`}
-            onClick={() => { playClick(); setActiveFilter('unclaimed'); }}
-            title="Есть неполученные награды: кампания идёт и что-то ещё можно получить"
-          >
-            🎁 Есть неполученные ({unclaimedCount})
           </button>
           <button
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}

@@ -100,8 +100,6 @@ export const SHELF: Record<string, string> = {
   '🔥 Активные кампании (': '🔥 Active campaigns (',
   '⭐ В моей очереди (': '⭐ In my queue (',
   '🏆 Собрано (': '🏆 Collected (',
-  '🎁 Есть неполученные (': '🎁 Has unclaimed (',
-  'Есть неполученные награды: кампания идёт и что-то ещё можно получить': 'Unclaimed rewards: a campaign is running and there is still something to claim',
   '💾 Установлено на ПК (': '💾 Installed on PC (',
   '🚫 Исключения': '🚫 Exclusions',
   '🗑️ Удалённые': '🗑️ Removed',

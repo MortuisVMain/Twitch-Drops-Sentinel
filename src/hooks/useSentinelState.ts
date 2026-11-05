@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
 import { followBackendLanguage } from '../i18n';
 import { followBackendTextScale } from '../utils/textScale';
-import { FullSentinelState, SentinelSettings, TrophyItem } from '../types';
+import { ConnectionPhase, FullSentinelState, SentinelSettings, TrophyItem } from '../types';
+
+// The service took over 15 s to answer after launch (measured): 4 times that still counts as a start, not a failure
+const START_GRACE_MS = 60_000;
+// Only a test fixture sets this (tools/ui_fixture.js ?grace=); a production build never has it
+const startGraceMs = () => {
+  const override = (window as unknown as { __SENTINEL_START_GRACE_MS?: unknown }).__SENTINEL_START_GRACE_MS;
+  return typeof override === 'number' ? override : START_GRACE_MS;
+};
 
 const INITIAL_STATE: FullSentinelState = {
   connected: false,
@@ -54,16 +62,25 @@ export function useSentinelState(
 ) {
   const [sentinelState, setSentinelState] = useState<FullSentinelState>(INITIAL_STATE);
   const [isScanning, setIsScanning] = useState(false);
+  // Set once the service is lost, or never answered within the grace period; the polling below decides, no extra timer
+  const [serviceLost, setServiceLost] = useState(false);
   // The service does not report when the catalog was last refreshed: remember the last sync it confirmed to us
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
   // Poll backend API
   useEffect(() => {
     let isMounted = true;
+    const mountedAt = Date.now();
+    let hasAnswered = false;
+    const markUnreachable = () => {
+      if (isMounted && (hasAnswered || Date.now() - mountedAt >= startGraceMs())) setServiceLost(true);
+    };
     const fetchState = async () => {
+      if (!hasAnswered) markUnreachable(); // a request that hangs must not keep "starting" forever
       try {
         const res = await fetch('http://127.0.0.1:28492/api/state');
         if (!res.ok) {
+          markUnreachable();
           if (isMounted) {
             setSentinelState((prev) => ({
               ...prev,
@@ -75,6 +92,8 @@ export function useSentinelState(
         }
         const data = await res.json();
         if (isMounted) {
+          hasAnswered = true;
+          setServiceLost(false);
           setSentinelState((prev) => {
               let mergedActiveDrop = data.active_drop;
               if (
@@ -112,6 +131,7 @@ export function useSentinelState(
           });
         }
       } catch (error) {
+        markUnreachable();
         if (isMounted) {
           setSentinelState((prev) => ({
             ...prev,
@@ -525,9 +545,12 @@ export function useSentinelState(
     }
   };
 
+  const connectionPhase: ConnectionPhase = sentinelState.connected ? 'connected' : serviceLost ? 'unavailable' : 'starting';
+
   return {
     sentinelState,
     setSentinelState,
+    connectionPhase,
     isScanning,
     handleTogglePriority,
     handleToggleExclude,

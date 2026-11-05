@@ -160,6 +160,9 @@ export interface StoreTelemetry {
   loginConfirmedAt?: number | null;
 }
 
+// starting: the local service has not answered yet (within the grace period); unavailable: it never did, or it was lost
+export type ConnectionPhase = 'starting' | 'connected' | 'unavailable';
+
 export interface SchedulerTelemetry {
   taskName: string;
   exists: boolean;
@@ -168,7 +171,10 @@ export interface SchedulerTelemetry {
   // The service could not bring the task in line with this install at startup
   repairError?: string | null;
   lastRunFailed?: boolean;
-  logFile?: string;
+  // The last run ended with STATUS_CONTROL_C_EXIT (0xC000013A); the code does not know why
+  lastRunInterrupted?: boolean;
+  // A log file that exists, or null
+  logFile?: string | null;
   state: 'Ready' | 'Running' | 'Disabled' | 'Unknown';
   lastRunTime: string | null;
   nextRunTime: string | null;

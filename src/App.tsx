@@ -337,6 +337,8 @@ export const App: React.FC = () => {
 
     handleToggleUserLinked,
 
+    connectionPhase,
+
   } = useSentinelState(showToast, playRewardChime, playClick);
 
 
@@ -1077,11 +1079,11 @@ export const App: React.FC = () => {
 
               <span className="brand-name-short">Sentinel</span>{' '}
 
-              <span className="version-chip version-pro" id="headerThemeBadge">
-
-                {sentinelState?.version || updateInfo?.local_version || 'v7.0'}
-
-              </span>
+              {(sentinelState?.version || updateInfo?.local_version) && (
+                <span className="version-chip version-pro" id="headerThemeBadge">
+                  {sentinelState?.version || updateInfo?.local_version}
+                </span>
+              )}
 
             </h1>
 
@@ -1122,7 +1124,7 @@ export const App: React.FC = () => {
 
             <span className="tab-ico">🎮</span><span className="tab-label">Полка Игр</span>
 
-            <span className="badge-num" title="Игр, установленных на этом ПК">{sentinelState.installed_games.length}</span>
+            {connectionPhase !== 'starting' && <span className="badge-num" title="Игр, установленных на этом ПК">{sentinelState.installed_games.length}</span>}
 
           </button>
 
@@ -1643,6 +1645,8 @@ export const App: React.FC = () => {
               stats={sentinelState.stats}
 
             connected={sentinelState.connected}
+
+              connectionPhase={connectionPhase}
 
               settings={sentinelState.settings}
 
