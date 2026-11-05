@@ -5913,6 +5913,111 @@ def test_logout_really_signs_out():
     print("      Logout: PASS [OK]")
 
 
+def test_logout_failure_paths_never_keep_the_old_session():
+    print("[security] Logout: a failing invalidate() still empties the jar, the updater copy goes, profile backups stay and are mentioned...")
+    import asyncio
+    import json as _json
+    import types
+    import aiohttp
+    from yarl import URL
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import constants
+    import sentinel_service as svc
+    import twitch
+
+    work = SANDBOX / "logout_failure_check"
+    shutil.rmtree(work, ignore_errors=True)
+    project = work / "project"
+    (project / ".backup_state").mkdir(parents=True)
+    (project / "data" / "backups").mkdir(parents=True)
+    updater_copy = project / ".backup_state" / "cookies.jar"
+    other_state = project / ".backup_state" / "config.json"
+    profile_zip = project / "data" / "backups" / "sentinel_profile_backup_20260101_000000.zip"
+    other_state.write_text("KEEP", encoding="utf-8")
+    profile_zip.write_bytes(b"PK-USER-BACKUP")
+
+    class _Button:
+        def config(self, **kwargs):
+            pass
+
+    class _ExplodingJar:
+        def clear(self):
+            raise RuntimeError("jar is stuck")
+
+    def make_client(session, invalidate_fails):
+        fake_twitch = types.SimpleNamespace(gui=types.SimpleNamespace(help=types.SimpleNamespace(_invalidate_button=_Button())),
+                                            _session=session)
+        auth = twitch._AuthState(fake_twitch)
+        auth.access_token, auth.user_id = "SYNTHETIC-TOKEN", 42
+        auth._logged_in.set()
+        if invalidate_fails:
+            def explode(**kwargs):
+                raise RuntimeError("invalidate failed before the jar was cleared")
+            auth.invalidate = explode
+        events = []
+        client = types.SimpleNamespace(_auth_state=auth, _session=session, stop_watching=lambda: events.append("stop"),
+                                       change_state=lambda state: events.append(state))
+        return client, events
+
+    async def scenario(cookie_path, invalidate_fails=False, stuck_jar=False):
+        session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar())
+        try:
+            jar = session.cookie_jar
+            jar.update_cookies({"auth-token": "SYNTHETIC-TOKEN", "unique_id": "dev"}, URL("https://www.twitch.tv"))
+            jar.save(cookie_path)
+            updater_copy.write_text("OLD-UPDATER-COPY", encoding="utf-8")
+            client, events = make_client(session, invalidate_fails)
+            if stuck_jar:
+                client._session = types.SimpleNamespace(cookie_jar=_ExplodingJar())
+            supervisor = types.SimpleNamespace(twitch_client=client, broadcast_ws=lambda: asyncio.sleep(0))
+            response = await svc.SentinelSupervisor.handle_logout(supervisor, None)
+            # what the shutdown of the restarted engine would write
+            after_save = work / "after_save.jar"
+            jar.save(after_save)
+            return response, events, after_save.read_bytes()
+        finally:
+            await session.close()
+
+    saved = svc.COOKIES_PATH, twitch.COOKIES_PATH, svc.PROJECT_DIR
+    try:
+        jar_file = work / "cookies.jar"
+        svc.COOKIES_PATH = twitch.COOKIES_PATH = jar_file
+        svc.PROJECT_DIR = project
+
+        # invalidate() raises before it reaches jar.clear(): the handler empties the jar itself
+        response, events, next_save = asyncio.run(scenario(jar_file, invalidate_fails=True))
+        body = _json.loads(response.text)
+        assert response.status == 500 and body["success"] is False and "session" in body["error"], response.text
+        assert b"SYNTHETIC-TOKEN" not in next_save, "the restart's shutdown must not save the old account back"
+        assert not jar_file.exists(), "the engine's cookie file is deleted even when invalidate failed"
+        assert not updater_copy.exists(), "the updater's .backup_state copy of the cookies is deleted"
+        assert other_state.read_text(encoding="utf-8") == "KEEP", "the other files in .backup_state stay"
+        assert profile_zip.read_bytes() == b"PK-USER-BACKUP", "profile backups under data/backups are the user's and stay"
+        assert events == ["stop", constants.State.RESTART], f"the failure path restarts onto an emptied jar: {events}"
+
+        # the jar itself cannot be emptied: nothing restarts (a restart would save the old jar) and the UI sees the error
+        response, events, _ = asyncio.run(scenario(jar_file, stuck_jar=True))
+        body = _json.loads(response.text)
+        assert response.status == 500 and body["success"] is False and "cookie jar" in body["error"], response.text
+        assert constants.State.RESTART not in events, f"no restart while the old jar is still in memory: {events}"
+
+        # success: the reply mentions the profile backups that may hold the old account's cookies
+        response, events, _ = asyncio.run(scenario(jar_file))
+        body = _json.loads(response.text)
+        assert response.status == 200 and body["success"] is True, response.text
+        assert "data/backups" in body.get("note", ""), body
+        assert profile_zip.read_bytes() == b"PK-USER-BACKUP"
+
+        # no profile backups: no note
+        profile_zip.unlink()
+        response, events, _ = asyncio.run(scenario(jar_file))
+        assert "note" not in _json.loads(response.text), response.text
+    finally:
+        svc.COOKIES_PATH, twitch.COOKIES_PATH, svc.PROJECT_DIR = saved
+    shutil.rmtree(work, ignore_errors=True)
+    print("      Logout failure paths: PASS [OK]")
+
+
 def test_channel_point_chest_uses_the_real_login_state():
     print("[security] Channel points: the chest claim checks the real login state, honours the setting and fails visibly...")
     import asyncio
@@ -6131,6 +6236,7 @@ if __name__ == "__main__":
         test_devtools_are_off_in_release_builds,
         test_update_archive_is_checked_against_the_published_sha256,
         test_logout_really_signs_out,
+        test_logout_failure_paths_never_keep_the_old_session,
         test_channel_point_chest_uses_the_real_login_state,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped

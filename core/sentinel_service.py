@@ -1078,11 +1078,22 @@ class SentinelSupervisor:
         logger.info("[AUTH] Пользователь запросил выход / смену аккаунта Twitch.")
         try:
             failures: list[str] = []
+            jar_cleared = True
             # 1. Stop watching and drop the session: the token leaves memory, the in-memory cookie jar is emptied and the
             #    jar file removed, so the restart below cannot save or reload the old account
             if self.twitch_client:
                 if hasattr(self.twitch_client, "stop_watching"):
                     self.twitch_client.stop_watching()
+                # The session's jar is emptied first and on its own: if invalidate() raises before it gets there, the restart's
+                # shutdown would save the old account back into the cookie file
+                session = getattr(self.twitch_client, "_session", None)
+                if session is not None:
+                    try:
+                        session.cookie_jar.clear()
+                    except Exception as exc:
+                        logger.error("Logout: could not empty the cookie jar: %s", exc, exc_info=True)
+                        failures.append(f"cookie jar: {exc}")
+                        jar_cleared = False
                 auth_state = getattr(self.twitch_client, "_auth_state", None)
                 if auth_state is not None:
                     try:
@@ -1093,7 +1104,9 @@ class SentinelSupervisor:
 
             # 2. The engine's own cookie file (and the copies next to the code); the working directory plays no part
             code_dir = Path(__file__).resolve().parent
-            for c_path in dict.fromkeys([COOKIES_PATH, code_dir / "cookies.jar", code_dir.parent / "cookies.jar"]):
+            #    and the updater's copy of the cookies in .backup_state
+            for c_path in dict.fromkeys([COOKIES_PATH, code_dir / "cookies.jar", code_dir.parent / "cookies.jar",
+                                         PROJECT_DIR / ".backup_state" / "cookies.jar"]):
                 try:
                     c_path.unlink(missing_ok=True)
                 except Exception as exc:
@@ -1102,7 +1115,8 @@ class SentinelSupervisor:
 
             if failures:
                 # The old account would be restored from the file: say so instead of reporting a sign-out that did not happen
-                if self.twitch_client and hasattr(self.twitch_client, "change_state"):
+                # (not while the old jar is still in memory: the restart's shutdown would write it to the file)
+                if jar_cleared and self.twitch_client and hasattr(self.twitch_client, "change_state"):
                     self.twitch_client.change_state(State.RESTART)
                 return web.json_response({"success": False, "error": "Не удалось полностью выйти из аккаунта Twitch: " + "; ".join(failures)}, status=500)
 
@@ -1120,7 +1134,11 @@ class SentinelSupervisor:
                 self.twitch_client.change_state(State.RESTART)
 
             await self.broadcast_ws()
-            return web.json_response({"success": True, "message": "Успешный выход из аккаунта Twitch"})
+            reply: dict[str, Any] = {"success": True, "message": "Успешный выход из аккаунта Twitch"}
+            if any((PROJECT_DIR / "data" / "backups").glob("sentinel_profile_backup_*.zip")):
+                # The user's own files: not deleted here, but they can still hold the old account's cookies
+                reply["note"] = "В data/backups остались резервные копии профиля: в них могут быть cookies прежнего аккаунта. Удалите их вручную, если они не нужны."
+            return web.json_response(reply)
         except Exception as e:
             logger.error("Error during logout: %s", e, exc_info=True)
             return web.json_response({"success": False, "error": str(e)}, status=500)
