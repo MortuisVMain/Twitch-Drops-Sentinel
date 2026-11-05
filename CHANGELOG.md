@@ -2,6 +2,15 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.9] - 2026-11-05
+- Giveaways: Epic and Fab games are ordered only when the total is clearly zero. A free game may be refused when its price cannot be read, and then it has to be claimed by hand. Base games are no longer queued for add-ons that require them.
+- Refused, failed and skipped games are no longer listed as claimed, so the claimed count may go down.
+- Notification text can no longer run commands. Only web links open outside the app, and the window stays on the app's own address. Developer tools are off in release builds.
+- Updates check the archive against the checksum published on GitHub. If the checksum cannot be read, the update stops.
+- Sign out now really ends the Twitch session and removes the saved cookies.
+- Channel point chests are claimed only while you are signed in, and a stuck request can no longer stall watching. This depends on the shape of Twitch replies and has not been checked on the live site.
+- The diagnostic report shows the real drop and its progress.
+
 ## [3.5.8] - 2026-11-04
 - The queue shows how many games are available, need action, have no campaign or are finished, with filters for each status. The position now has its own badge.
 - The game shelf can show only campaigns with unclaimed rewards.
