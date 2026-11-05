@@ -57,30 +57,38 @@ class SentinelStateBridge:
 STATE_BRIDGE = SentinelStateBridge()
 
 
+TOAST_SCRIPT = (
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
+    "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+    "$n = $t.GetElementsByTagName('text'); "
+    "$n.Item(0).InnerText = $env:SENTINEL_TOAST_TITLE; "
+    "$n.Item(1).InnerText = $env:SENTINEL_TOAST_MESSAGE; "
+    "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Twitch Drops Sentinel').Show($toast);"
+)
+
+
 def send_windows_toast(title: str, message: str):
-    """Sends native Windows 10/11 toast notification via PowerShell WinRT."""
-    safe_title = title.replace("'", "''").replace('"', '`"')
-    safe_message = message.replace("'", "''").replace('"', '`"')
-    ps_cmd = (
-        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
-        "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
-        "$n = $t.GetElementsByTagName('text'); "
-        f"$n.Item(0).InnerText = '{safe_title}'; "
-        f"$n.Item(1).InnerText = '{safe_message}'; "
-        "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
-        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Twitch Drops Sentinel').Show($toast);"
-    )
+    """Sends a native Windows 10/11 toast via PowerShell WinRT.
+
+    The script is a constant: title and message come from campaign authors, so they travel in the child's
+    environment and are read with $env:, never spliced into code (PowerShell also treats U+2018..U+201B as quotes).
+    """
     import base64
-    encoded_ps = base64.b64encode(ps_cmd.encode("utf-16le")).decode("ascii")
+    encoded_ps = base64.b64encode(TOAST_SCRIPT.encode("utf-16le")).decode("ascii")
+    env = dict(os.environ)
+    env["SENTINEL_TOAST_TITLE"] = str(title).replace("\x00", "")
+    env["SENTINEL_TOAST_MESSAGE"] = str(message).replace("\x00", "")
     try:
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
         )
     except Exception:
-        pass
+        logger.warning("Could not start the toast notification: %s", title, exc_info=True)
 
 
 send_toast_msg = send_windows_toast

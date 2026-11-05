@@ -5600,6 +5600,46 @@ def test_text_colour_follows_the_theme():
     print("      Text colour: PASS [OK]")
 
 
+def test_toast_text_never_enters_the_powershell_script():
+    print("[security] Toasts: title and message travel in the environment, never inside the PowerShell script...")
+    import base64
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import gui_headless
+
+    hostile = {
+        "title": "\u2018$(calc)\u2019; Remove-Item C:/x \u201A\u201B' \" `",
+        "message": "\u2019; Start-Process calc; '\u2018 \"$(Get-Date)\" ; & {x}\nsecond line",
+    }
+    captured = []
+
+    class _Stub:
+        def __init__(self, args, **kwargs):
+            captured.append((args, kwargs))
+
+    real_popen = gui_headless.subprocess.Popen
+    gui_headless.subprocess.Popen = _Stub
+    try:
+        gui_headless.send_windows_toast(hostile["title"], hostile["message"])
+        gui_headless.send_windows_toast("plain", "text")
+    finally:
+        gui_headless.subprocess.Popen = real_popen
+
+    assert len(captured) == 2, "each toast starts exactly one PowerShell"
+    args, kwargs = captured[0]
+    assert "-EncodedCommand" in args, "the script still goes through -EncodedCommand"
+    script = base64.b64decode(args[args.index("-EncodedCommand") + 1]).decode("utf-16le")
+    for text in hostile.values():
+        assert text not in script, "user text must not be in the script"
+    for fragment in ("calc", "Remove-Item", "Start-Process", "\u2018", "\u2019", "\u201A", "\u201B"):
+        assert fragment not in script, f"script contains hostile fragment {fragment!r}"
+    assert "$env:" in script, "the script reads the text from the environment"
+    env = kwargs.get("env") or {}
+    assert sorted(v for v in env.values() if v in hostile.values()) == sorted(hostile.values()), "env carries both texts verbatim"
+    script_plain = base64.b64decode(captured[1][0][captured[1][0].index("-EncodedCommand") + 1]).decode("utf-16le")
+    assert script == script_plain, "the script is the same static string for every toast"
+    print("      Toast injection: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -5716,6 +5756,7 @@ if __name__ == "__main__":
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
+        test_toast_text_never_enters_the_powershell_script,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
