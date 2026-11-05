@@ -76,3 +76,50 @@
 - ~20 из 36 тестов — grep по исходникам, есть тавтологии (L429-436, L314, L62-70, L650).
 - Не покрыто: `TimedDrop.claim`, `should_switch`, `apply_update_from_url`, persistence настроек, `start_claim/abort_claim`; JS/TS тестов нет.
 - Топ-5 тестов к добавлению: updater (protected paths + zip-slip), claim idempotency, switch priority matrix, settings round-trip + corrupt JSON, giveaways concurrent/abort.
+
+## Статус на 2026-11-05 (код: origin/main 6b8767f + ветка claude/security-fixes)
+
+Статусы получены чтением кода, а не запуском против реальных сервисов (Twitch, Epic, Unity, GitHub). Строки с пометкой «не перепроверялось» перенесены из списка статусов, который передал заказчик; в этой ветке по коду я их заново не открывал. Остальные подтверждены ссылкой на файл. Нумерация та же, что в аудите выше.
+
+| № | Статус | Основание |
+|---|---|---|
+| 1 | Частично | Проверка Origin и Host есть (`core/sentinel_service.py:580`, `core/local_access.py`); токена на сессию нет, запросы без Origin проходят; у SSE раздач `Access-Control-Allow-Origin: *` (`core/giveaways_controller.py:807`) |
+| 2 | Исправлено в ветке (хеш) | Архив сверяется с SHA-256 из дайджеста актива GitHub (`core/updater.py` ~576), хеш и источник закрыты полностью; редирект может вести на любой https-хост, но токен туда не уходит, а хеш проверяется |
+| 3 | Частично | Токен только на доверенные хосты (`core/updater.py:525`, `is_trusted_release_url`); `git credential fill` остался (`core/updater.py:170`) |
+| 4 | Исправлено в ветке | Текст тоста идёт через окружение, не в код; длина до 256 символов, без управляющих символов (`core/gui_headless.py`, `_toast_text`); гейты `test_toast_text_*` |
+| 5 | Исправлено в ветке | В ShellExecute попадает только абсолютный http(s): `ExternalLinkPolicy` (`desktop/DimmerLogic.cs`), `OpenExternalLink` (`desktop/MainForm.cs`); гейт `test_shell_opens_only_checked_web_links` |
+| 6 | Исправлено в ветке | DevTools выключены в Release (`DevToolsAllowed()`); `NavigationStarting` отменяет всё, кроме `https://app.sentinel`, http(s) уходит в браузер; сообщения моста с чужим `e.Source` игнорируются (`AppOriginPolicy`, проверка `tools/dimmer_logic_check`). В живом окне WebView2 не проверялось |
+| 7 | Не исправлено | Не перепроверялось (UNC-пути в game directories, `core/sentinel_service.py`) |
+| 8 | Не исправлено | `npm install` при отсутствии движка остался (`core/giveaways_controller.py:666`) |
+| 9 | Не исправлено | Действия подключены по тегам (`@v5`), в `release.yml` `contents: write` на весь workflow (`.github/workflows/release.yml:10`) |
+| 10 | Не исправлено | Не перепроверялось (пункты Low: clipboard/CSRF, `clip.exe`, pickle-куки, пароли в `data/config.env`, `python` из PATH) |
+| 11 | Исправлено | `giveaways_engine/unity.js` проверяет итог через `src/checkout.js` (`waitForFreeOrder`, `orderTotalState`, строки 236 и 271) |
+| 12 | Не исправлено | **Epic кладёт базовую игру в очередь и жмёт заказ без проверки итога (`giveaways_engine/epic-games.js:324-325` и ветка GET ниже): чинить первым, риск реальных денег.** Перепроверено 2026-11-05: `epic-games.js` не импортирует `src/checkout.js` (в отличие от `unity.js`); `fab.js` тоже |
+| 13 | Исправлено | `core/inventory.py:253` задаёт `camp` |
+| 14 | Исправлено | `import shutil` есть (`core/sentinel_service.py:21`) |
+| 15 | Исправлено в ветке | Выход сбрасывает токен, очищает jar сессии независимо от `invalidate()`, удаляет cookies.jar и копию `.backup_state/cookies.jar`; гейты `test_logout_*`. Профильные копии в `data/backups` не трогаются, ответ несёт `note` |
+| 16 | Исправлено в ветке | Сундук баллов проверяет `_auth_state._logged_in`, запрос и клейм ограничены 15 с; отчёт о сбое по одному разу на вид; гейт `test_channel_point_chest_*` |
+| 17 | Исправлено | Строк с mojibake `Р”Р°С‚Р°` в `core/sentinel_service.py` нет |
+| 18 | Исправлено | Обратный отсчёт пересчитывается каждую секунду (`core/auto_shutdown.py`, `next_countdown`) |
+| 19 | Не исправлено | Не перепроверялось (`handle_claim`, `core/sentinel_service.py`) |
+| 20 | Не исправлено | Не перепроверялось (`core/giveaways_controller.py`, статусы раздач) |
+| 21 | Не исправлено | Не перепроверялось (`giveaways_engine/steam.js`) |
+| 22 | Не исправлено | Не перепроверялось (`giveaways_engine/itch.js`) |
+| 23 | Частично | `giveaways_engine/runner.js:179` по-прежнему `resolve(code \|\| 0)` |
+| 24 | Не исправлено | Не перепроверялось (старый `Twitch` при исключении в `_run`) |
+| 25 | Частично | Не перепроверялось (таймаут раздач) |
+| 26 | Не исправлено | Не перепроверялось (watchdog в `desktop/MainForm.cs`) |
+| 27 | Не исправлено | Не перепроверялось (`core/websocket.py`) |
+| 28 | Частично | Не перепроверялось (запись `config.json`) |
+| 29 | Частично | `sys.exit(0)` внутри задачи остался (`core/sentinel_service.py:908`) |
+| 30 | Частично | Не перепроверялось (`Application.Restart()` и `--minimized`) |
+| 31 | Частично | Не перепроверялось (DDC/CI и WMI в UI-потоке) |
+| 32 | Не исправлено | Не перепроверялось (replay SSE по живому deque) |
+| 33 | Не исправлено | Не перепроверялось (`ExitRequest`, fire-and-forget `create_task`) |
+| 34 | Исправлено | `INITIAL_STATE` стартует с `connected: false` (`src/hooks/useSentinelState.ts:7`) |
+| 35 | Частично | Не перепроверялось (опрос перезаписывает `settings`) |
+| 36 | Не исправлено | `handleClaimNow` при `progress < 100` показывает сообщение без `return` и создаёт трофей (`src/hooks/useSentinelState.ts:315-319`) |
+| 37 | Не исправлено | Условие `logs.length === 0` в замыкании остаётся (`src/components/GiveawaysView.tsx:154`) |
+| 38 | Исправлено | `boxArtSources` в `src/components/LiveDashboard.tsx` больше не встречается |
+| 39 | Частично | Не перепроверялось (`uptimeSeconds` и мемоизация в `LiveDashboard.tsx`) |
+| 40 | Не исправлено | Не перепроверялось (гонки поиска, двойной `FOLDER_SELECTED`, a11y, палитра) |
