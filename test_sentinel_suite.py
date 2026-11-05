@@ -5645,6 +5645,71 @@ def test_toast_text_never_enters_the_powershell_script():
     print("      Toast injection: PASS [OK]")
 
 
+def test_coro_unless_closed_cancels_its_children_with_the_caller():
+    print("[engine] coro_unless_closed: cancelling the caller cancels both children; results, errors and close still behave...")
+    import asyncio
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import gui_headless
+    from exceptions import ExitRequest
+
+    async def scenario():
+        gui = gui_headless.HeadlessGUIManager(None)
+
+        async def value():
+            return 7
+
+        assert await gui.coro_unless_closed(value()) == 7, "the result of the coroutine is returned"
+
+        async def broken():
+            raise ValueError("boom")
+
+        try:
+            await gui.coro_unless_closed(broken())
+        except ValueError as exc:
+            assert str(exc) == "boom", "the coroutine's own error comes out unchanged"
+        else:
+            raise AssertionError("the error must propagate")
+
+        started = asyncio.Event()
+        seen = {}
+
+        async def slow():
+            seen["task"] = asyncio.current_task()
+            started.set()
+            await asyncio.sleep(3600)
+
+        before = asyncio.all_tasks()
+        outer = asyncio.ensure_future(gui.coro_unless_closed(slow()))
+        await started.wait()
+        children = asyncio.all_tasks() - before - {outer}
+        assert len(children) == 2 and seen["task"] in children, f"the coroutine and the close waiter are the two children: {children}"
+        outer.cancel()
+        try:
+            await outer
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("the caller's cancellation must propagate")
+        await asyncio.wait(children, timeout=2)
+        assert all(t.cancelled() for t in children), f"both children must be cancelled: {[t for t in children if not t.done()]}"
+
+        started.clear()
+        waiting = asyncio.ensure_future(gui.coro_unless_closed(slow()))
+        await started.wait()
+        gui.close_window()
+        try:
+            await waiting
+        except ExitRequest:
+            pass
+        else:
+            raise AssertionError("a close request still ends the wait with ExitRequest")
+        await asyncio.sleep(0)
+        assert seen["task"].cancelled(), "the coroutine is cancelled on a close request"
+
+    asyncio.run(scenario())
+    print("      coro_unless_closed: PASS [OK]")
+
+
 def test_shell_opens_only_checked_web_links():
     print("[security] Shell: links from the page reach ShellExecute only through ExternalLinkPolicy...")
     form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -6232,6 +6297,8 @@ if __name__ == "__main__":
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
         test_toast_text_never_enters_the_powershell_script,
+        test_toast_text_is_short_and_free_of_control_characters,
+        test_coro_unless_closed_cancels_its_children_with_the_caller,
         test_shell_opens_only_checked_web_links,
         test_devtools_are_off_in_release_builds,
         test_update_archive_is_checked_against_the_published_sha256,

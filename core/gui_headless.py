@@ -417,7 +417,13 @@ class HeadlessGUIManager:
     async def coro_unless_closed(self, coro):
         task = asyncio.ensure_future(coro)
         close_task = asyncio.ensure_future(self._close_requested.wait())
-        done, pending = await asyncio.wait([task, close_task], return_when=asyncio.FIRST_COMPLETED)
+        try:
+            done, pending = await asyncio.wait([task, close_task], return_when=asyncio.FIRST_COMPLETED)
+        except BaseException:
+            # The caller was cancelled: asyncio.wait leaves its children running, so stop both before passing it on
+            task.cancel()
+            close_task.cancel()
+            raise
         for t in pending:
             t.cancel()
         if self._close_requested.is_set():
