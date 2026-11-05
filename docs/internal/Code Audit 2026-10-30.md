@@ -77,7 +77,7 @@
 - Не покрыто: `TimedDrop.claim`, `should_switch`, `apply_update_from_url`, persistence настроек, `start_claim/abort_claim`; JS/TS тестов нет.
 - Топ-5 тестов к добавлению: updater (protected paths + zip-slip), claim idempotency, switch priority matrix, settings round-trip + corrupt JSON, giveaways concurrent/abort.
 
-## Статус на 2026-11-05 (код: origin/main 6b8767f + ветка claude/security-fixes)
+## Статус на 2026-11-05 (код: origin/main 468eb9d)
 
 Статусы получены чтением кода, а не запуском против реальных сервисов (Twitch, Epic, Unity, GitHub). Строки с пометкой «не перепроверялось» перенесены из списка статусов, который передал заказчик; в этой ветке по коду я их заново не открывал. Остальные подтверждены ссылкой на файл. Нумерация та же, что в аудите выше.
 
@@ -94,7 +94,7 @@
 | 9 | Не исправлено | Действия подключены по тегам (`@v5`), в `release.yml` `contents: write` на весь workflow (`.github/workflows/release.yml:10`) |
 | 10 | Не исправлено | Не перепроверялось (пункты Low: clipboard/CSRF, `clip.exe`, pickle-куки, пароли в `data/config.env`, `python` из PATH) |
 | 11 | Исправлено | `giveaways_engine/unity.js` проверяет итог через `src/checkout.js` (`waitForFreeOrder`, `orderTotalState`, строки 236 и 271) |
-| 12 | Не исправлено | **Epic кладёт базовую игру в очередь и жмёт заказ без проверки итога (`giveaways_engine/epic-games.js:324-325` и ветка GET ниже): чинить первым, риск реальных денег.** Перепроверено 2026-11-05: `epic-games.js` не импортирует `src/checkout.js` (в отличие от `unity.js`); `fab.js` тоже |
+| 12 | Исправлено в main для Epic и Fab (по проверенному PR #5), на живых магазинах не проверялось | Заказ и «Get» нажимаются только при подтверждённо нулевом итоге, иначе отказ `failed:not-free` или `failed:total-unknown` (`giveaways_engine/src/checkout.js`, `giveaways_engine/src/orders.js`, `epic-games.js`, `fab.js`; карточка `docs/solutions/066`). «Requires base game» ничего не ставит в очередь. Закрытый отказ: бесплатная игра может быть отклонена и тогда забирается вручную. Раньше здесь стояло: «Не исправлено, Epic кладёт базовую игру в очередь и жмёт заказ без проверки итога (`epic-games.js:324-325`), `fab.js` тоже» |
 | 13 | Исправлено | `core/inventory.py:253` задаёт `camp` |
 | 14 | Исправлено | `import shutil` есть (`core/sentinel_service.py:21`) |
 | 15 | Исправлено в ветке | Выход сбрасывает токен, очищает jar сессии независимо от `invalidate()`, удаляет cookies.jar и копию `.backup_state/cookies.jar`; гейты `test_logout_*`. Профильные копии в `data/backups` не трогаются, ответ несёт `note` |
@@ -102,7 +102,7 @@
 | 17 | Исправлено | Строк с mojibake `Р”Р°С‚Р°` в `core/sentinel_service.py` нет |
 | 18 | Исправлено | Обратный отсчёт пересчитывается каждую секунду (`core/auto_shutdown.py`, `next_countdown`) |
 | 19 | Не исправлено | Не перепроверялось (`handle_claim`, `core/sentinel_service.py`) |
-| 20 | Не исправлено | Не перепроверялось (`core/giveaways_controller.py`, статусы раздач) |
+| 20 | Исправлено в main (PR #5) | `owned_status` в `core/giveaways_controller.py` учитывает только `claimed`, `existed` и `manual`; отказ (`failed:not-free`), сбой, пропуск и неизвестный статус больше не показываются как полученные, поэтому счётчик может уменьшиться. Запись без ключа `status` (старый движок) по-прежнему считается полученной. Гейт `test_no_order_without_a_confirmed_free_total` |
 | 21 | Не исправлено | Не перепроверялось (`giveaways_engine/steam.js`) |
 | 22 | Не исправлено | Не перепроверялось (`giveaways_engine/itch.js`) |
 | 23 | Частично | `giveaways_engine/runner.js:179` по-прежнему `resolve(code \|\| 0)` |
