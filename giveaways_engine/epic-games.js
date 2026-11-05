@@ -7,6 +7,7 @@ import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, 
 import { cfg } from './src/config.js';
 import { clickOnlyIfFree } from './src/checkout.js';
 import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
+import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
 
@@ -527,6 +528,7 @@ try {
   if (error.message && process.exitCode != 130) notify(`epic-games failed: ${error.message.split('\n')[0]}`);
 } finally {
   await db.write(); // write out json db
+  writeRunReport(notify_games);
   if (notify_games.filter(g => g.status == 'claimed' || String(g.status).startsWith('failed')).length) { // don't notify if all have status 'existed', 'manual', 'requires base game', 'unavailable-in-region', 'skipped'
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`epic-games (${user}):<br>${html_game_list(notify_games, statsSummary)}`);

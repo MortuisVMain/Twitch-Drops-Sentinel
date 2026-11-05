@@ -56,6 +56,30 @@ export const orderTotalState = (text, { freeWord = false } = {}) => {
 /** True if the text, such as the label of the order button, has any number above zero: a free order's button has no reason to. */
 export const hasPaidAmount = text => hasNonZeroDigit(String(text));
 
+// A listing page is read for money only: a currency symbol or a known ISO code beside the number, so that "45,000 TRI"
+// or "15 PBR" in a description is not a price. Used by listingShowsPaidTotal only; the order reader keeps AMOUNT.
+const ISO_CODES = 'USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN';
+const LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|руб)`;
+const hasListingAmount = text => [...String(text).matchAll(new RegExp(LISTING_AMOUNT, 'gu'))].some(m => hasNonZeroDigit(m[0]));
+
+/**
+ * For a store LISTING page, which the order decision does not read: true only if a total line or a charge line holds a
+ * money amount above zero ("Total $19.99", "Pay now ₹500", "Итого 1 490 ₽"). "total ratings 15", "Total Tris: 45,000",
+ * a crossed-out price, "Lowest price in 30 days: ₹11,150.74" and another asset's "From ₹6,689.99" are not charges.
+ * A charge word with a bare number and no currency ("Pay 10 credits") is not counted here: the page can say that in a
+ * description, and the checkout that the click opens is gated by orderTotalState, which reads it strictly.
+ * Use it only where the click merely opens a checkout that is gated separately.
+ */
+export const listingShowsPaidTotal = text => {
+  const lines = String(text).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  return lines.some((line, i) => {
+    if (line.length <= CHARGE_LINE_MAX && (CHARGE_STRICT.test(line) || CHARGE_SOFT.test(line)) && hasListingAmount(line)) return true;
+    const match = TOTAL_LINE.exec(line);
+    if (!match || NOT_THE_PRICE.test(match[2].split(/\d/)[0])) return false;
+    return hasListingAmount(match[2] || lines[i + 1] || '');
+  });
+};
+
 /** The text of a page or of an iframe: a frameLocator has no page text, so it is read through its body. */
 export const readPageText = async source => {
   try {

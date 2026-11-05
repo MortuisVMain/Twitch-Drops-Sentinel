@@ -35,3 +35,6 @@ A review found no way to place a paid order on its own, but these gaps. The prin
 
 ## Second pass: cost
 Free games are now refused when the promotions list is unreachable or does not name the game and the price block shows no `-100%` or Free; when a dialog button has a label outside the list; when a claim is real but its confirmation text is not recognised (shown as `failed:unconfirmed`); and a page-level order button outside a dialog. Each stays in the store's free list and is claimed by hand.
+
+## Correction (see 069): cost of reading a listing as an order
+Fab's "Buy now" read the whole LISTING page with the checkout reader `orderTotalState`, so "total ratings 15" counted as a paid total and every Fab asset was refused as `failed:not-free`. The Buy now click only opens the checkout, which is gated separately by `clickOnlyIfFree`, so it now reads the listing with `listingShowsPaidTotal` (a total or charge line with a real currency amount). Every order-capable click (Epic Get, EU accept, the checkout gate) still uses the strict reader. Details: `069-fab-total-ratings-false-paid.md`.

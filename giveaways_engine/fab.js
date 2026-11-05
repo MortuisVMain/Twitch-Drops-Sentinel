@@ -6,6 +6,7 @@ import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 import { clickOnlyIfFree } from './src/checkout.js';
 import { clickBuyNowIfFree, isFreeListing, recordRefusal } from './src/orders.js';
+import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'fab', ...a);
 
@@ -249,6 +250,7 @@ try {
 } finally {
   await db.write();
   await dbFab.write();
+  writeRunReport(notify_games);
   if (notify_games.filter(g => g.status != 'existed').length) {
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`Fab / Unreal Engine (${user}):<br>${html_game_list(notify_games, statsSummary)}`);

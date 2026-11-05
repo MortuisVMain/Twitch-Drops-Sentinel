@@ -5,6 +5,7 @@ import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSI
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
 import { hasPaidAmount, orderTotalState, readPageText, waitForFreeOrder } from './src/checkout.js';
+import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'unity', ...a);
 
@@ -64,6 +65,7 @@ try {
     if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
       console.log('Skipping Unity Asset Store (requires interactive login once via --show).');
       await notify('Unity Asset Store: Not signed in. Run "ClaimGames.cmd --show --claim unity" to log in.');
+      writeRunReport([], { skipped: 'login' });
       await context.close();
       process.exit(0);
     } else {
@@ -315,6 +317,7 @@ try {
   }
 } finally {
   await db.write();
+  writeRunReport(notify_games);
   if (notify_games.filter(g => g.status != 'existed').length) {
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`Unity Asset Store (${user}):<br>${html_game_list(notify_games, statsSummary)}`);

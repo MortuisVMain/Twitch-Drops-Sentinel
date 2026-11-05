@@ -5890,6 +5890,43 @@ var html_game_list = (games, statsSummary = null) => {
   return statsSummary ? `${list}<br><br><b>${escapeHtml(statsSummary)}</b>` : list;
 };
 
+// src/runsummary.js
+import { readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
+
+// src/checkout.js
+var CURRENCY = "\\p{Sc}";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
+var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
+var LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|\u0440\u0443\u0431)`;
+
+// src/runsummary.js
+var tallyGames = (games) => {
+  const tally = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  for (const { status } of games) {
+    const text = String(status ?? "");
+    if (text === "claimed") tally.claimed++;
+    else if (text === "existed") tally.existed++;
+    else if (text === NOT_FREE || text === TOTAL_UNKNOWN) tally.refused++;
+    else if (text.startsWith("failed")) tally.failed++;
+    else tally.other++;
+  }
+  return tally;
+};
+var writeRunReport = (games, extra = {}) => {
+  const file = process.env.SENTINEL_RUN_REPORT;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify({ ...tallyGames(games), ...extra }));
+  } catch (err) {
+    console.warn(`[SENTINEL] \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0438\u0442\u043E\u0433 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: ${err.message}`);
+  }
+};
+
 // gog.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "gog", ...a);
 var URL_CLAIM = "https://www.gog.com/en";
@@ -6110,6 +6147,7 @@ try {
   if (error.message && process.exitCode != 130) notify(`gog failed: ${error.message.split("\n")[0]}`);
 } finally {
   await db.write();
+  writeRunReport(notify_games);
   if (notify_games.filter((g) => g.status != "existed").length) {
     notify(`gog (${user}):<br>${html_game_list(notify_games)}`);
   }

@@ -2,6 +2,7 @@ import { launchContext } from './src/browser.js';
 import chalk from 'chalk';
 import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
+import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'gog', ...a);
 
@@ -259,6 +260,7 @@ try {
   if (error.message && process.exitCode != 130) notify(`gog failed: ${error.message.split('\n')[0]}`);
 } finally {
   await db.write(); // write out json db
+  writeRunReport(notify_games);
   if (notify_games.filter(g => g.status != 'existed').length) { // don't notify if all were already claimed
     notify(`gog (${user}):<br>${html_game_list(notify_games)}`);
   }

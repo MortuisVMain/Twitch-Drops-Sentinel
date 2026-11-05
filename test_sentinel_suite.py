@@ -3480,6 +3480,7 @@ def test_scheduled_run_collects_selected_stores_and_writes_a_log():
         (engine / "dist").mkdir(parents=True)
         (engine / "node_modules" / "patchright").mkdir(parents=True)
         shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
         shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
         scripts = {"epic": "epic-games", "gog": "gog", "steam": "steam", "fab": "fab", "unity": "unity", "itch": "itch"}
         for store, name in scripts.items():
@@ -3564,6 +3565,7 @@ def test_engine_installs_itself_for_a_scheduled_run():
     engine = Path(tempfile.mkdtemp(prefix="sentinel_runner_"))
     try:
         shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
         shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
         bin_dir = engine / "fake_bin"
         bin_dir.mkdir()
@@ -4356,6 +4358,7 @@ def test_runner_finishes_an_interrupted_engine_install():
     (engine / "data").mkdir()
     (engine / "node_modules" / "patchright").mkdir(parents=True)
     shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+    shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
     shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
     (engine / "dist" / "gog.mjs").write_text("console.log('STORE gog');", encoding="utf-8")
     bin_dir = engine / "fakebin"
@@ -5174,6 +5177,7 @@ def test_scheduled_run_that_never_finished_is_reported_as_failed():
         (engine / "dist").mkdir(parents=True)
         (engine / "node_modules" / "patchright").mkdir(parents=True)
         shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
         shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
         (engine / "dist" / "epic-games.mjs").write_text("console.log('STORE epic');", encoding="utf-8")
         (engine / "dist" / "gog.mjs").write_text("process.exit(3);", encoding="utf-8")

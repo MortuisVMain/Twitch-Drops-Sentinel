@@ -567,3 +567,123 @@ test('unity pay click is pinned', () => {
   assert.ok(/payBtn\.click\(\{[^}]*timeout/.test(unity), 'a short click timeout');
   assert.ok(unity.includes('elementHandle'), 'the button is pinned');
 });
+
+// ======================================================================================================
+// Fab listing page: "total ratings 15" is not a total (docs/solutions/069)
+// ======================================================================================================
+const checkout = await load('checkout.js');
+const runsummary = await load('runsummary.js').catch(err => ({ missing: err.message }));
+
+/** The text of a real en-US Fab listing, read from a live page (a sale at 100% off). */
+const REAL_FAB_LISTING = [
+  'Average rating 5.0 out of 5, total ratings 15.', '5.0', '(15)', 'License', 'Select a license', 'PERSONAL', '₹11,150.74',
+  'Free*', '-100%', 'Sale ends 11/17/2026, 8:29 PM', 'Lowest price in 30 days before discount: ₹11,150.74', 'Buy now',
+].join('\n');
+
+test('the real Fab listing text lets Buy now through, and the checkout then decides', async () => {
+  const log = [];
+  const res = await orders.clickBuyNowIfFree(button('Buy now', log), fakePage(REAL_FAB_LISTING));
+  assert.equal(res.refused, false, res.reason);
+  assert.deepEqual(log, ['click:Buy now']);
+  // Buy now only opened the checkout: a paid, empty or unreadable total in the checkout frame never reaches the order click
+  for (const [frame, status] of [[fakeFrame('Total $19.99'), NOT_FREE], [fakeFrame(''), TOTAL_UNKNOWN], [fakeFrame(new Error('detached')), TOTAL_UNKNOWN]]) {
+    const orderLog = [];
+    const order = await clickOnlyIfFree(button('Add to library', orderLog), frame, { timer, tries: 3 });
+    assert.deepEqual(orderLog, []);
+    assert.equal(order.status, status);
+  }
+});
+
+test('listing reader: description and rating lines are not a paid total', () => {
+  const notPaid = [
+    REAL_FAB_LISTING, 'Average rating 5.0 out of 5, total ratings 15.', 'total ratings 15.', 'Total Tris: 45,000', 'Total of 12 meshes',
+    'Total polycount 120000', 'Total 45,000 TRI', 'Total 15 PBR textures', 'Всего 12 моделей', '₹11,150.74\nFree*\n-100%',
+    'Lowest price in 30 days before discount: ₹11,150.74', 'From ₹6,689.99', 'От 6 689,99 ₹', 'Pay 10 credits', '', 'Buy now',
+    'Total $0.00', 'Total savings $5.00', 'Sale ends 11/17/2026, 8:29 PM',
+  ];
+  for (const text of notPaid) assert.equal(checkout.listingShowsPaidTotal(text), false, JSON.stringify(text));
+});
+
+test('listing reader: a total or charge line with a real amount is paid', () => {
+  const paid = [
+    'Total $19.99', 'Total: ₹500', 'Итого 1 490 ₽', 'Pay now $9.99', 'Buy now for $5', 'Total\n$19.99', 'Order total 20,00 €',
+    'Total 19.99 USD', 'Total 499 руб', 'Total $0.00\nPay now $9.99', 'You pay $4.99', 'К оплате 499 ₽', 'Total $9.99 (includes discount)',
+    'Free trial\nThen $9.99/month', 'Average rating 5.0, total ratings 15.\nTotal $19.99',
+  ];
+  for (const text of paid) assert.equal(checkout.listingShowsPaidTotal(text), true, JSON.stringify(text));
+});
+
+test('Fab Buy now: a listing that shows a real total or a price on the button is still refused', async () => {
+  for (const [label, text] of [['Buy now', 'Total $19.99'], ['Buy now', 'Pay now ₹500'], ['Buy now', 'Итого 1 490 ₽'], ['Buy now $19.99', REAL_FAB_LISTING]]) {
+    const log = [];
+    const res = await orders.clickBuyNowIfFree(button(label, log), fakePage(text));
+    assert.deepEqual(log, [], `${label} / ${text}`);
+    assert.equal(res.refused, true);
+  }
+});
+
+test('the order reader is not widened: totals on checkout pages read as before', () => {
+  assert.equal(orderTotalState('total ratings 15.'), 'paid'); // strict on purpose: the order gates keep refusing this
+  assert.equal(orderTotalState('Total $19.99'), 'paid');
+  assert.equal(orderTotalState('Free*\n-100%', { freeWord: true }), 'unknown');
+});
+
+// ---------- the summary of a store run ----------
+test('run summary: counts come from the statuses the store script wrote', () => {
+  const s = runsummary.tallyGames;
+  assert.deepEqual(s([{ status: 'claimed' }, { status: 'existed' }, { status: 'failed:not-free' }, { status: 'failed:total-unknown' }, { status: 'failed' }, { status: 'manual' }]),
+    { claimed: 1, existed: 1, refused: 2, failed: 1, other: 1 });
+  assert.deepEqual(s([]), { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 });
+});
+
+test('run summary: refused is not success, a skipped store is not success, unknown is neutral', () => {
+  const sum = runsummary.summarizeRun;
+  const none = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  const refused = sum('Fab / Unreal Engine', { ...none, refused: 3 });
+  assert.equal(refused.level, 'warn');
+  assert.ok(refused.text.includes('⚠ Fab / Unreal Engine: отклонено 3, получено 0'), refused.text);
+  assert.ok(!refused.text.includes('✓'));
+  const skipped = sum('Unity Asset Store', { skipped: 'login' });
+  assert.equal(skipped.level, 'warn');
+  assert.ok(skipped.text.includes('⚠ Unity Asset Store: пропущено, нужен вход'), skipped.text);
+  assert.ok(sum('GOG', none).text.includes('✓ GOG: новых раздач нет'));
+  assert.ok(sum('Epic Games', { ...none, claimed: 2 }).text.includes('✓ Epic Games: получено 2'));
+  const mixed = sum('Epic Games', { ...none, claimed: 1, refused: 1 });
+  assert.equal(mixed.level, 'warn');
+  assert.ok(mixed.text.includes('отклонено 1') && mixed.text.includes('получено 1'));
+  assert.equal(sum('Epic Games', { ...none, failed: 1 }).level, 'warn');
+  for (const unknown of [null, undefined, 'x', {}, { claimed: 'many' }]) {
+    const res = sum('Steam', unknown);
+    assert.equal(res.level, 'log');
+    assert.ok(res.text.includes('Steam: завершён') && !res.text.includes('✓'), res.text);
+  }
+});
+
+test('run summary: the child writes a report file, the runner reads it back', async () => {
+  const { mkdtempSync, rmSync, writeFileSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(path.join(tmpdir(), 'sentinel-report-'));
+  const old = process.env.SENTINEL_RUN_REPORT;
+  try {
+    const file = path.join(dir, 'report.json');
+    process.env.SENTINEL_RUN_REPORT = file;
+    runsummary.writeRunReport([{ status: 'failed:not-free' }, { status: 'failed:not-free' }, { status: 'claimed' }]);
+    assert.deepEqual(runsummary.readRunReport(file), { claimed: 1, existed: 0, refused: 2, failed: 0, other: 0 });
+    assert.equal(existsSync(file), false, 'the report is consumed');
+    assert.equal(runsummary.readRunReport(file), null, 'no file: unknown');
+    writeFileSync(file, '{broken');
+    assert.equal(runsummary.readRunReport(file), null, 'a damaged file: unknown');
+    delete process.env.SENTINEL_RUN_REPORT;
+    assert.doesNotThrow(() => runsummary.writeRunReport([])); // run by hand, no report wanted
+  } finally {
+    if (old === undefined) delete process.env.SENTINEL_RUN_REPORT; else process.env.SENTINEL_RUN_REPORT = old;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runner and the store scripts use the honest summary', () => {
+  const runner = read('runner.js');
+  assert.ok(!runner.includes('сбор успешно завершен'), 'the runner no longer says success on exit code 0 alone');
+  assert.ok(runner.includes('summarizeRun') && runner.includes('SENTINEL_RUN_REPORT'));
+  for (const file of ['fab.js', 'unity.js', 'epic-games.js', 'gog.js']) assert.ok(read(file).includes('writeRunReport'), `${file} reports its run`);
+});
