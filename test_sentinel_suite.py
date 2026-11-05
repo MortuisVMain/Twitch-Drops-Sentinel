@@ -6393,7 +6393,6 @@ if __name__ == "__main__":
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
         test_toast_text_never_enters_the_powershell_script,
         test_toast_text_is_short_and_free_of_control_characters,
-        test_toast_text_is_short_and_free_of_control_characters,
         test_coro_unless_closed_cancels_its_children_with_the_caller,
         test_shell_opens_only_checked_web_links,
         test_devtools_are_off_in_release_builds,
