@@ -16,7 +16,7 @@ const GROUP_OF: Record<string, ReadinessGroupId> = { login: 'logins', site: 'sit
 export const KNOWN_REASONS: Record<string, Array<string | null>> = {
   node: ['missing', 'old', 'unreadable', null],
   selection: ['disabled', 'none_selected', 'config_broken', null],
-  scheduler: ['not_created', 'query_failed', 'repair_failed', 'last_run_failed', null],
+  scheduler: ['not_created', 'query_failed', 'repair_failed', 'last_run_failed', 'last_run_interrupted', null],
   browser: ['chrome', 'edge', 'chromium', null],
 };
 
@@ -135,6 +135,7 @@ const schedulerText = (item: ReadinessItem, ctx: TextContext): ItemText => {
   if (reason === 'query_failed') return { title, lines: ['Не удалось узнать состояние задания в Планировщике Windows'] };
   if (reason === 'repair_failed') return { title, lines: nonEmpty(['Не удалось починить задание автосбора', error ? `Ошибка: ${error}` : null]) };
   if (reason === 'last_run_failed') return { title, lines: nonEmpty(['Последний запуск завершился с ошибкой', logFile ? `Лог: ${logFile}` : null]) };
+  if (reason === 'last_run_interrupted') return { title, lines: nonEmpty(['Последний запуск был прерван и не проверил все магазины', logFile ? `Лог: ${logFile}` : null]) };
   if (reason) return { title, lines: [`Состояние не распознано: ${reason}`] };
   const days = Array.isArray(activeDays) && activeDays.length ? activeDays.map((d: string) => DAY_RU[d] ?? d).join(', ') : '';
   return { title, lines: nonEmpty([days ? `Дни: ${days}` : 'Автосбор включён', dateLine('Следующий запуск', nextRunTime, ctx)]) };

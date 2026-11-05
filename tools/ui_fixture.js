@@ -6,9 +6,13 @@
 // ?theme=light|titanium|... picks the interface theme (light is Daylight).
 // ?update=1 serves an available update, so the header shows its widest state (update button).
 // ?readiness=clean serves a clean machine for the giveaways readiness window (default: everything ready); ?readiness=error makes the check fail.
+// ?service=slow|down makes fetch of /api/state and /api/updates/check reject (the local service is not up yet): slow for the first 5 s, then it answers; down always. Startup states: tools/check_startup_states.cjs.
+// ?grace=<ms> shortens the start grace period of the connection check (the app reads window.__SENTINEL_START_GRACE_MS, which only this fixture sets).
 // ?pip=short serves short game/reward/channel names, ?pip=idle serves no active drop and no channel (default: the long names above), for the mini-window checks (tools/check_pip_layout.cjs).
 (function () {
   var q = new URLSearchParams(location.search);
+  if (q.get('grace') && isFinite(Number(q.get('grace')))) window.__SENTINEL_START_GRACE_MS = Number(q.get('grace'));
+  var serviceMode = q.get('service'), serviceUpAt = Date.now() + 5000;
   try {
     if (q.get('lang')) localStorage.setItem('sentinel_ui_lang', q.get('lang'));
     if (q.get('scale')) localStorage.setItem('sentinel_ui_text_scale', q.get('scale'));
@@ -133,6 +137,7 @@
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
   window.fetch = function (url) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+    if ((path === '/api/state' || path === '/api/updates/check') && (serviceMode === 'down' || (serviceMode === 'slow' && Date.now() < serviceUpAt))) return Promise.reject(new TypeError('Failed to fetch'));
     if (path === '/api/v1/giveaways/state' && gMode) {
       gCalls += 1;
       if (gMode === '500' || (gMode === '500once' && gCalls === 1) || (gMode === 'failafter' && gCalls > 1)) return failing(500);

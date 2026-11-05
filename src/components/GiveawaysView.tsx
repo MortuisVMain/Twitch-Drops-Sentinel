@@ -819,7 +819,10 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           )}
           {data?.scheduler?.lastRunFailed && (
             <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4, overflowWrap: 'anywhere' }}>
-              {`⚠ Последний запуск по расписанию завершился с ошибкой. Лог: ${data.scheduler.logFile}`}
+              {data.scheduler.lastRunInterrupted
+                ? '⚠ Последний запуск по расписанию был прерван и не проверил все магазины.'
+                : '⚠ Последний запуск по расписанию завершился с ошибкой.'}
+              {data.scheduler.logFile ? ` Лог: ${data.scheduler.logFile}` : null}
             </div>
           )}
 

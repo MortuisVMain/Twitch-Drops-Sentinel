@@ -121,7 +121,7 @@ def _scheduler_item(sched: dict) -> dict:
     params = {"lastRunTime": sched.get("lastRunTime"), "nextRunTime": sched.get("nextRunTime"),
               "activeDays": sched.get("activeDays"), "logFile": log_file}
     if sched.get("lastRunFailed"):
-        return _item("scheduler", "warning", {"reason": "last_run_failed", **params})
+        return _item("scheduler", "warning", {"reason": "last_run_interrupted" if sched.get("lastRunInterrupted") else "last_run_failed", **params})
     return _item("scheduler", "ok", {"reason": None, **params})
 
 
