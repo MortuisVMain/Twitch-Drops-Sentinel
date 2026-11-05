@@ -6295,7 +6295,7 @@ var source_default = chalk;
 
 // epic-games.js
 import path3 from "path";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync as writeFileSync2 } from "fs";
 
 // src/util.js
 import path2 from "node:path";
@@ -6700,6 +6700,8 @@ var orderTotalState = (text, { freeWord = false } = {}) => {
   return unreadable ? "unknown" : state;
 };
 var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
+var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
+var LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|\u0440\u0443\u0431)`;
 var readPageText = async (source) => {
   try {
     const text = typeof source.evaluate === "function" ? await source.evaluate(() => document.body.innerText) : await source.locator("body").innerText({ timeout: 5e3 });
@@ -7004,6 +7006,30 @@ var pageOrderTarget = (page2) => {
   const orderButtons = page2.locator(BUTTON).filter({ hasText: PAGE_ORDER_LABEL });
   const dialog = page2.locator(ORDER_DIALOG).filter({ has: orderButtons }).first();
   return { button: dialog.locator(BUTTON).filter({ hasText: PAGE_ORDER_LABEL }).first(), source: scopedSource(dialog, page2) };
+};
+
+// src/runsummary.js
+import { readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
+var tallyGames = (games) => {
+  const tally = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  for (const { status } of games) {
+    const text = String(status ?? "");
+    if (text === "claimed") tally.claimed++;
+    else if (text === "existed") tally.existed++;
+    else if (text === NOT_FREE || text === TOTAL_UNKNOWN) tally.refused++;
+    else if (text.startsWith("failed")) tally.failed++;
+    else tally.other++;
+  }
+  return tally;
+};
+var writeRunReport = (games, extra = {}) => {
+  const file = process.env.SENTINEL_RUN_REPORT;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify({ ...tallyGames(games), ...extra }));
+  } catch (err) {
+    console.warn(`[SENTINEL] \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0438\u0442\u043E\u0433 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: ${err.message}`);
+  }
 };
 
 // epic-games.js
@@ -7455,12 +7481,13 @@ Game link: ${url}`);
   if (error.message && process.exitCode != 130) notify(`epic-games failed: ${error.message.split("\n")[0]}`);
 } finally {
   await db.write();
+  writeRunReport(notify_games);
   if (notify_games.filter((g) => g.status == "claimed" || String(g.status).startsWith("failed")).length) {
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`epic-games (${user}):<br>${html_game_list(notify_games, statsSummary)}`);
   }
 }
-if (cfg.debug) writeFileSync(path3.resolve(cfg.dir.browser, "cookies.json"), JSON.stringify(await context.cookies()));
+if (cfg.debug) writeFileSync2(path3.resolve(cfg.dir.browser, "cookies.json"), JSON.stringify(await context.cookies()));
 if (page.video()) console.log("Recorded video:", await page.video().path());
 await context.close();
 /*! Bundled license information:

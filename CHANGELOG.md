@@ -2,6 +2,10 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.12] - 2026-11-05
+- Giveaways, Fab: free assets are no longer refused because a listing mentions "total ratings". The order itself still needs a clear zero total in the checkout. This fix has not been run through a real Fab checkout yet.
+- The giveaways log tells what happened per store: claimed, refused, skipped because of a missing sign-in, or nothing new, instead of always saying success.
+
 ## [3.5.11] - 2026-11-05
 - Scheduled giveaways: an interrupted run now says so, and the message shows that run's real log instead of a path that may not exist.
 - App start: while the service is starting you see a calm status line and loading states, not a red error, empty lists and zero counters. The old V7.0 label is gone.

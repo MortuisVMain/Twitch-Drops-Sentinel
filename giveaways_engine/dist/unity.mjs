@@ -5425,6 +5425,8 @@ var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
 var CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
 var CHARGE_SOFT = /(?<![\p{L}\d])(?:pay|then|due)(?![\p{L}\d])|per month|\/\s?month|в месяц/iu;
 var CHARGE_LINE_MAX = 160;
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
 var hasNonZeroDigit = (text) => /[1-9]/.test(text);
 var hasNonZeroAmount = (text) => [...String(text).matchAll(new RegExp(AMOUNT, "gu"))].some((m) => hasNonZeroDigit(m[0]));
 var isChargeLine = (line) => line.length <= CHARGE_LINE_MAX && (CHARGE_STRICT.test(line) && hasNonZeroDigit(line) || CHARGE_SOFT.test(line) && hasNonZeroAmount(line));
@@ -5448,6 +5450,8 @@ var orderTotalState = (text, { freeWord = false } = {}) => {
   return unreadable ? "unknown" : state;
 };
 var hasPaidAmount = (text) => hasNonZeroDigit(String(text));
+var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
+var LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|\u0440\u0443\u0431)`;
 var readPageText = async (source) => {
   try {
     const text = typeof source.evaluate === "function" ? await source.evaluate(() => document.body.innerText) : await source.locator("body").innerText({ timeout: 5e3 });
@@ -5468,6 +5472,30 @@ var settledOrderState = async (source, { timer = source, tries = 20, freeWord = 
   return zeroChecks === 3 ? "free" : last;
 };
 var waitForFreeOrder = async (page2) => await settledOrderState(page2) === "free";
+
+// src/runsummary.js
+import { readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
+var tallyGames = (games) => {
+  const tally = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  for (const { status } of games) {
+    const text = String(status ?? "");
+    if (text === "claimed") tally.claimed++;
+    else if (text === "existed") tally.existed++;
+    else if (text === NOT_FREE || text === TOTAL_UNKNOWN) tally.refused++;
+    else if (text.startsWith("failed")) tally.failed++;
+    else tally.other++;
+  }
+  return tally;
+};
+var writeRunReport = (games, extra = {}) => {
+  const file = process.env.SENTINEL_RUN_REPORT;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify({ ...tallyGames(games), ...extra }));
+  } catch (err) {
+    console.warn(`[SENTINEL] \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0438\u0442\u043E\u0433 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: ${err.message}`);
+  }
+};
 
 // unity.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "unity", ...a);
@@ -5514,6 +5542,7 @@ try {
     if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
       console.log("Skipping Unity Asset Store (requires interactive login once via --show).");
       await notify('Unity Asset Store: Not signed in. Run "ClaimGames.cmd --show --claim unity" to log in.');
+      writeRunReport([], { skipped: "login" });
       await context.close();
       process.exit(0);
     } else {
@@ -5718,6 +5747,7 @@ try {
   }
 } finally {
   await db.write();
+  writeRunReport(notify_games);
   if (notify_games.filter((g) => g.status != "existed").length) {
     const statsSummary = await getStatsSummary().catch(() => null);
     notify(`Unity Asset Store (${user}):<br>${html_game_list(notify_games, statsSummary)}`);

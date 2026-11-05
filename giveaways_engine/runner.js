@@ -11,7 +11,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import os from 'node:os';
 import { format } from 'node:util';
+import { readRunReport, summarizeRun } from './src/runsummary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -152,10 +154,14 @@ function runStore(storeKey, headless) {
     console.log(`[SENTINEL] ▶ Запуск сбора: ${entry.label}...`);
     console.log(`------------------------------------------------------------`);
 
+    // The store script says what it did in this file; the summary below is made from it
+    const reportFile = path.join(os.tmpdir(), `sentinel-run-${process.pid}-${storeKey}.json`);
+    fs.rmSync(reportFile, { force: true });
     const childEnv = {
       ...process.env,
       SHOW: headless ? '0' : '1',
       FGC_MINIMIZE: headless ? '1' : '0',
+      SENTINEL_RUN_REPORT: reportFile,
     };
 
     const proc = spawn(process.execPath, [scriptPath], {
@@ -172,8 +178,11 @@ function runStore(storeKey, headless) {
 
     proc.on('close', (code) => {
       if (code === 0) {
-        console.log(`[SENTINEL] ✓ ${entry.label}: сбор успешно завершен.`);
+        // Exit code 0 only says that the script did not crash: refused or skipped games end the same way
+        const summary = summarizeRun(entry.label, readRunReport(reportFile));
+        console[summary.level](summary.text);
       } else {
+        fs.rmSync(reportFile, { force: true });
         console.warn(`[SENTINEL] ⚠ ${entry.label}: завершился с предупреждением (код ${code}).`);
       }
       resolve(code || 0);

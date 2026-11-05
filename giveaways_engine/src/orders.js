@@ -1,5 +1,5 @@
 // Epic and Fab: what may be clicked on the way to an order. Anything not clearly free is refused, never clicked.
-import { NOT_FREE, TOTAL_UNKNOWN, clickOnlyIfFree, clickPinned, hasNonZeroAmount, hasPaidAmount, orderTotalState, pinElement, readLabel, readPageText, refusal, scopedSource } from './checkout.js';
+import { NOT_FREE, TOTAL_UNKNOWN, clickOnlyIfFree, clickPinned, hasNonZeroAmount, hasPaidAmount, listingShowsPaidTotal, orderTotalState, pinElement, readLabel, readPageText, refusal, scopedSource } from './checkout.js';
 
 const BUTTON = 'button:not([disabled]):not(:has(.payment-loading--loading))';
 const buttonsWith = texts => texts.map(text => `${BUTTON}:has-text("${text}")`).join(', ');
@@ -313,7 +313,7 @@ export const pageOrderTarget = page => {
   return { button: dialog.locator(BUTTON).filter({ hasText: PAGE_ORDER_LABEL }).first(), source: scopedSource(dialog, page) };
 };
 
-/** Fab's "Buy now" only opens the checkout; still, a button with a price or a page with a paid total is not opened. */
+/** Fab's "Buy now" only opens the checkout; still, a button with a price or a listing with a paid total is not opened. */
 export const clickBuyNowIfFree = async (button, page) => {
   let pin;
   try {
@@ -330,7 +330,8 @@ export const clickBuyNowIfFree = async (button, page) => {
     }
     if (!label) return refusal(TOTAL_UNKNOWN, 'the Buy now button has no text');
     if (hasPaidAmount(label)) return refusal(NOT_FREE, `the Buy now button names a price: "${label}"`);
-    if (orderTotalState(await readPageText(page), { freeWord: true }) === 'paid') return refusal(NOT_FREE, 'the listing page shows a paid total');
+    // Read as a listing, not as an order: "total ratings 15" is no total. The checkout this click opens is gated by clickOnlyIfFree.
+    if (listingShowsPaidTotal(await readPageText(page))) return refusal(NOT_FREE, 'the listing page shows a paid total');
     return await clickPinned(pin.target, label);
   } finally {
     await pin.release();

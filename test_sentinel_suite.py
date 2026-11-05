@@ -790,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.11", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.11") == (3, 5, 11)
+    assert __version__ == "3.5.12", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.12") == (3, 5, 12)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.11") > parse_version("3.5.6")
+    assert parse_version("v3.5.12") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -3068,7 +3068,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.11'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.12'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -3480,6 +3480,7 @@ def test_scheduled_run_collects_selected_stores_and_writes_a_log():
         (engine / "dist").mkdir(parents=True)
         (engine / "node_modules" / "patchright").mkdir(parents=True)
         shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
         shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
         scripts = {"epic": "epic-games", "gog": "gog", "steam": "steam", "fab": "fab", "unity": "unity", "itch": "itch"}
         for store, name in scripts.items():
@@ -3564,6 +3565,7 @@ def test_engine_installs_itself_for_a_scheduled_run():
     engine = Path(tempfile.mkdtemp(prefix="sentinel_runner_"))
     try:
         shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
         shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
         bin_dir = engine / "fake_bin"
         bin_dir.mkdir()
@@ -4356,6 +4358,7 @@ def test_runner_finishes_an_interrupted_engine_install():
     (engine / "data").mkdir()
     (engine / "node_modules" / "patchright").mkdir(parents=True)
     shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+    shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
     shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
     (engine / "dist" / "gog.mjs").write_text("console.log('STORE gog');", encoding="utf-8")
     bin_dir = engine / "fakebin"
@@ -5174,6 +5177,7 @@ def test_scheduled_run_that_never_finished_is_reported_as_failed():
         (engine / "dist").mkdir(parents=True)
         (engine / "node_modules" / "patchright").mkdir(parents=True)
         shutil.copy2(WORKSPACE / "giveaways_engine" / "runner.js", engine / "runner.js")
+        shutil.copytree(WORKSPACE / "giveaways_engine" / "src", engine / "src", dirs_exist_ok=True)  # runner.js imports its run summary
         shutil.copy2(WORKSPACE / "giveaways_engine" / "package.json", engine / "package.json")
         (engine / "dist" / "epic-games.mjs").write_text("console.log('STORE epic');", encoding="utf-8")
         (engine / "dist" / "gog.mjs").write_text("process.exit(3);", encoding="utf-8")
