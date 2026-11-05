@@ -4996,6 +4996,8 @@ var launchContext = async (cfg2, options) => {
       "--no-default-browser-check"
     ];
     options.args = [...options.args ?? [], ...offscreenArgs];
+  } else if (options.headless === false) {
+    options.args = [...options.args ?? [], "--window-position=100,80", "--window-size=1280,900"];
   }
   if (cfg2.dir?.browser) {
     const lockFile = path.resolve(cfg2.dir.browser, "SingletonLock");

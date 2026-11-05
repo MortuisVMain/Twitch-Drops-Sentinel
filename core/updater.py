@@ -289,8 +289,12 @@ class GitHubUpdater:
         if CACHE_FILE.exists():
             try:
                 data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+                result = data.get("result")
+                # An answer from before an update still names the old version and offers the update just installed
+                if isinstance(result, dict) and result.get("local_version") != get_live_local_version():
+                    return
                 self.last_check_time = float(data.get("time", 0))
-                self._cached_result = data.get("result")
+                self._cached_result = result
             except Exception as exc:
                 logger.debug("Failed loading update cache: %s", exc)
 

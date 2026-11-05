@@ -114,6 +114,9 @@ export const launchContext = async (cfg, options) => {
       '--no-default-browser-check',
     ];
     options.args = [...(options.args ?? []), ...offscreenArgs];
+  } else if (options.headless === false) {
+    // A visible window is for the user: the profile remembers where a background run left it, up to fully off-screen
+    options.args = [...(options.args ?? []), '--window-position=100,80', '--window-size=1280,900'];
   }
 
   // Stale profile lock cleanup to prevent crashes from previous interrupted runs

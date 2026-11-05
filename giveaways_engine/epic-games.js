@@ -6,7 +6,7 @@ import { existsSync, writeFileSync } from 'fs';
 import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { clickOnlyIfFree } from './src/checkout.js';
-import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
+import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, isEpicLoginPage, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
 import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
@@ -399,6 +399,7 @@ try {
           const iframeOrder = await clickOnlyIfFree(checkoutBtn, iframe, { timer: page, clickOptions: { delay: 50 } });
           if (iframeOrder.refused) {
             recordRefusal(db.data[user][game_id], notify_game, iframeOrder);
+            await page.screenshot({ path: screenshot('failed', `${game_id}_${filenamify(datetime())}.png`) }).catch(err => console.warn(`  Could not save a screenshot: ${err.message}`));
             if (cfg.time) console.timeEnd('claim game');
             continue;
           }
@@ -468,6 +469,12 @@ try {
           euAccept = acceptEuAgreement(page, page);
         } else {
           // No order dialog — the button may already be flipping to "In Library", which the check below must see
+          if (isEpicLoginPage(page.url())) {
+            console.error('  Epic asks to sign in again (account page after Get): sign in from the store card, then run again.');
+            db.data[user][game_id].status = notify_game.status = 'failed:login-required';
+            if (cfg.time) console.timeEnd('claim game');
+            continue;
+          }
           console.log('  No page-level order button — waiting for direct In Library transition...');
         }
       }

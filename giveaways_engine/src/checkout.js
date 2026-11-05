@@ -7,6 +7,7 @@ const STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, 'u');
 const TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 const NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i; // a saving next to the word "total" is not what gets charged
 const FREE_WORD = /^(?:free|бесплатно)\.?$/iu; // Epic and Fab may write the word where the amount would be
+const FREE_STATEMENT = /^This is free\.(?:\s|$)/; // the exact sentence of the checkout, not "free for members"
 // A line that says what is charged. STRICT words name a charge by themselves: any number above zero on the line counts.
 // SOFT words also occur in ordinary text ("Pay", "then", "due"): they count only beside an amount with a currency.
 const CHARGE_STRICT = /pay now|you pay|to pay|charged|amount due|payment due|due now|due today|buy now for|к оплате|списан|оплатить|оплата/iu;
@@ -50,7 +51,11 @@ export const orderTotalState = (text, { freeWord = false } = {}) => {
       unreadable = true; // reads like a price, but not one we understand
     }
   }
-  return unreadable ? 'unknown' : state;
+  if (unreadable) return 'unknown';
+  // The live Epic and Fab free checkout has no total line: only "TRY 0.00" and this sentence, beside no price at all
+  if (state === 'unknown' && freeWord && lines.some(line => FREE_STATEMENT.test(line)) &&
+    lines.some(line => WHOLE_AMOUNT.test(line) && !hasNonZeroDigit(line)) && !lines.some(hasNonZeroAmount)) return 'free';
+  return state;
 };
 
 /** True if the text, such as the label of the order button, has any number above zero: a free order's button has no reason to. */

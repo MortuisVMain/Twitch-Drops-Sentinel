@@ -2350,6 +2350,42 @@ def test_shelf_has_no_unclaimed_filter():
     assert "Активные кампании" in shelf, "the active campaigns filter stays"
 
 
+def test_update_cache_from_an_older_version_is_not_used():
+    print("[updates] A cached answer written by another app version is dropped, so an update just installed is not offered again...")
+    import tempfile
+    from pathlib import Path as _P
+    sys.path.insert(0, str(WORKSPACE / "core"))
+    import updater
+    saved = updater.CACHE_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        updater.CACHE_FILE = _P(tmp) / "cache.json"
+        try:
+            live = updater.get_live_local_version()
+            def checker_with_cached(local):
+                updater.CACHE_FILE.write_text(json.dumps({"time": time.time(), "result": {
+                    "local_version": local, "remote_version": "99.0.0", "update_available": True}}), encoding="utf-8")
+                return updater.GitHubUpdater()
+            stale = checker_with_cached("0.0.1")
+            assert stale._cached_result is None and stale.last_check_time == 0.0, "an answer from an older version is not reused"
+            fresh = checker_with_cached(live)
+            assert fresh._cached_result and fresh._cached_result["update_available"] is True, "an answer from this version is still cached"
+        finally:
+            updater.CACHE_FILE = saved
+    print("      Update cache across versions: PASS [OK]")
+
+
+def test_visible_browser_window_opens_on_screen():
+    print("[giveaways] A sign-in window ignores the off-screen position a background run left in the profile...")
+    engine = WORKSPACE / "giveaways_engine"
+    source = (engine / "src" / "browser.js").read_text(encoding="utf-8")
+    hidden = source.index("'--window-position=-32000,-32000'")
+    visible = source.index("'--window-position=100,80'")
+    assert hidden < source.index("} else if (options.headless === false) {") < visible, "the on-screen position is for a window the user sees"
+    for script in ("unity", "fab", "epic-games", "gog", "steam", "itch", "prime-gaming"):
+        assert "--window-position=100,80" in (engine / "dist" / f"{script}.mjs").read_text(encoding="utf-8"), f"dist/{script}.mjs is rebuilt"
+    print("      Sign-in window position: PASS [OK]")
+
+
 def test_console_collapse_tray_filter_and_plain_labels():
     print("[usability 2] Console: collapse decision, [TRAY] hidden outside Core, toggle is accessible; plain labels; honest empty collection...")
     import shutil as _sh
@@ -6450,6 +6486,8 @@ if __name__ == "__main__":
         test_shelf_facts_trophy_line_and_sync_age,
         test_queue_filter_only_with_campaigns,
         test_shelf_has_no_unclaimed_filter,
+        test_update_cache_from_an_older_version_is_not_used,
+        test_visible_browser_window_opens_on_screen,
         test_console_collapse_tray_filter_and_plain_labels,
         test_toast_gate_dedup_switch_and_priming,
         test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies,

@@ -687,3 +687,58 @@ test('runner and the store scripts use the honest summary', () => {
   assert.ok(runner.includes('summarizeRun') && runner.includes('SENTINEL_RUN_REPORT'));
   for (const file of ['fab.js', 'unity.js', 'epic-games.js', 'gog.js']) assert.ok(read(file).includes('writeRunReport'), `${file} reports its run`);
 });
+
+// ---------- the real Epic/Fab free checkout: no "Total" line, a zero amount and a plain statement ----------
+const FREE_CHECKOUT = 'Checkout\nMORTUIS_V\nUnderground Tunnel\nTRY 0.00\nThis is free. Add it to your library to get started.\nAdd to library';
+test('free checkout seen live: statement plus zero amount is free, for both the reader and the click', async () => {
+  assert.equal(orderTotalState(FREE_CHECKOUT, { freeWord: true }), 'free');
+  const log = [];
+  const res = await clickOnlyIfFree(button('Add to library', log), fakeFrame(FREE_CHECKOUT), { timer });
+  assert.equal(res.refused, false);
+  assert.deepEqual(log, ['click:Add to library']);
+});
+test('free checkout: the statement alone, or with any price beside it, never makes an order free', () => {
+  for (const text of [
+    'This is free. Add it to your library to get started.', // no zero amount
+    'Underground Tunnel\nTRY 0.00', // no statement
+    'Underground Tunnel\nTRY 0.00\nThis is free for members.\nTRY 19.99', // a price elsewhere
+    'Underground Tunnel\n$19.99\nThis is free. Add it to your library.',
+    'TRY 0.00\nThis is free.\nPay now $9.99',
+    'TRY 0.00\nThis is free.\nTotal $9.99',
+    'TRY 0.00\nThis is not free.',
+    'TRY 0.00\nIs this free?',
+  ]) assert.notEqual(orderTotalState(text, { freeWord: true }), 'free', JSON.stringify(text));
+  assert.notEqual(orderTotalState(FREE_CHECKOUT), 'free', 'without freeWord the old strict answer stays');
+});
+
+test('Epic: the account chooser after Get is recognised, the store is not', () => {
+  assert.equal(orders.isEpicLoginPage('https://www.epicgames.com/id/login?redirectUrl=x'), true);
+  assert.equal(orders.isEpicLoginPage('https://www.epicgames.com/id'), true);
+  for (const url of ['https://store.epicgames.com/p/flotsam-266287', 'https://www.epicgames.com/idea', 'https://evil.example/id/login', 'nonsense']) {
+    assert.equal(orders.isEpicLoginPage(url), false, url);
+  }
+});
+
+test('Epic Get: the price block is read until the sale has rendered, and an undecided block still refuses', async () => {
+  const getButton = (blocks, log) => {
+    let reads = 0;
+    return {
+      innerText: async () => 'Get',
+      evaluate: async () => blocks[Math.min(reads++, blocks.length - 1)],
+      click: async () => { log.push('click'); },
+    };
+  };
+  const page = { evaluate: async () => 'Flotsam', waitForTimeout: async () => {} };
+  const late = [];
+  const res = await orders.clickGetIfFree(getButton(['₹589.00\nGet', '₹589.00\nGet', '-100%\n₹589.00*\nFree\nGet'], late), 'Get', page, { promoFree: true });
+  assert.equal(res.refused, false, 'the sale appears on a later read');
+  assert.deepEqual(late, ['click']);
+  const never = [];
+  const stuck = await orders.clickGetIfFree(getButton(['₹589.00\nGet'], never), 'Get', page, { promoFree: true });
+  assert.equal(stuck.refused, true, 'a price with no free mark at the end is still refused');
+  assert.deepEqual(never, []);
+  const paid = [];
+  const charged = await orders.clickGetIfFree(getButton(['Pay now ₹589.00\nGet', '-100%\nFree\nGet'], paid), 'Get', page, { promoFree: true });
+  assert.equal(charged.refused, true, 'a charge is final, it is not read again');
+  assert.deepEqual(paid, []);
+});
