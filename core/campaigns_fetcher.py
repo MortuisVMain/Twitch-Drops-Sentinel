@@ -21,7 +21,7 @@ CACHE_FILE = DATA_DIR / "active_campaigns_cache.json"
 INSTALLED_GAMES_FILE = DATA_DIR / "installed_games.json"
 BOX_ART_CACHE_FILE = DATA_DIR / "box_art_cache.json"
 
-API_URL = "https://twitch-drops-api.sunkwi.com/v2/drops"
+API_URL = "https://drops.sunkwi.com/api/twitch/drops"
 
 CACHE_MAX_AGE = 300          # seconds a cached response is reused by regular calls
 STARTUP_CACHE_MAX_AGE = 900  # a cache this young is enough at startup: no API call
@@ -196,7 +196,7 @@ class CampaignsFetcher:
         try:
             with urllib.request.urlopen(req, timeout=12) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                campaigns = data.get("data", [])
+                campaigns = data.get("games", [])
                 if campaigns:
                     self._cached_campaigns = campaigns
                     self._last_fetch_time = datetime.now(timezone.utc).timestamp()
