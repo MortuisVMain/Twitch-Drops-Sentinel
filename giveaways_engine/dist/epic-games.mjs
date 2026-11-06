@@ -6866,6 +6866,30 @@ var isEpicLoginPage = (url) => {
     return false;
   }
 };
+var confirmEpicAccount = async (page2, user2, { timeout = 3e4 } = {}) => {
+  if (!user2 || !/\/id\/login\/switch-account/.test(new URL(page2.url()).pathname)) return "unknown";
+  const tile = page2.getByText(user2, { exact: true }).first();
+  try {
+    await tile.waitFor({ state: "visible", timeout: 1e4 });
+    await tile.click({ timeout: 5e3 });
+  } catch (err) {
+    console.warn(`  Cannot pick the account ${user2} on Epic's confirmation page: ${String(err.message).split(/\r?\n/)[0]}`);
+    return "unknown";
+  }
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    let host = "";
+    try {
+      host = new URL(page2.url()).hostname;
+    } catch (err) {
+      console.warn(`  Unreadable page address after the account choice: ${err.message}`);
+    }
+    if (host === "store.epicgames.com") return "confirmed";
+    if (await page2.locator('input[type="password"]').first().isVisible().catch(() => false)) return "password";
+    await page2.waitForTimeout(500);
+  }
+  return "unknown";
+};
 var PROMOTIONS_URL = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US";
 var HUNDRED_OFF = /^[-−–]\s?100\s?%$/u;
 var FREE_WORD2 = /^(?:free|бесплатно)\.?$/iu;
@@ -7281,6 +7305,7 @@ try {
   console.log(`Free games:
   ${urls.map((u) => pastelBlue(u)).join("\n  ")}`);
   const promoSlugs = await fetchFreePromoSlugs();
+  const retriedAfterConfirm = /* @__PURE__ */ new Set();
   for (const url of urls) {
     if (cfg.time) console.time("claim game");
     await ensureAgeCookies(context);
@@ -7503,7 +7528,16 @@ Game link: ${url}`);
           euAccept = acceptEuAgreement(page, page);
         } else {
           if (isEpicLoginPage(page.url())) {
-            console.error("  Epic asks to sign in again (account page after Get): sign in from the store card, then run again.");
+            const confirmed = await confirmEpicAccount(page, user);
+            if (confirmed === "confirmed" && !retriedAfterConfirm.has(url)) {
+              console.log("  Epic asked to confirm the account: confirmed, trying this game again...");
+              retriedAfterConfirm.add(url);
+              notify_games.splice(notify_games.indexOf(notify_game), 1);
+              urls.push(url);
+              if (cfg.time) console.timeEnd("claim game");
+              continue;
+            }
+            console.error(confirmed === "password" ? "  Epic asks for the password to confirm the account: sign in from the store card, then run again." : "  Epic asks to sign in again (account page after Get): sign in from the store card, then run again.");
             db.data[user][game_id].status = notify_game.status = "failed:login-required";
             if (cfg.time) console.timeEnd("claim game");
             continue;
