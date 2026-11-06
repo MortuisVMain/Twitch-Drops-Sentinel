@@ -2,6 +2,9 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.18] - 2026-11-06
+- Game shelf: every game gets a cover, not only games with a running Twitch campaign. Covers are also looked up for queue, excluded, linked, hidden and trophy games, remembered by name, and used on every screen when a game has no art of its own or its art does not load.
+
 ## [3.5.17] - 2026-11-06
 - Giveaways, Unity: the weekly Asset Store giveaway is claimed again. The engine finds the renamed giveaway link, waits for the late checkout form and coupon field, answers the tax question before applying the coupon, and reads the Unity total in English and Russian. The order still goes through only at a clear zero total.
 

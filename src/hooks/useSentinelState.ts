@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { followBackendLanguage } from '../i18n';
 import { followBackendTextScale } from '../utils/textScale';
+import { setServerCovers } from '../utils/gameBoxArts';
 import { ConnectionPhase, FullSentinelState, SentinelSettings, TrophyItem } from '../types';
 
 // The service took over 15 s to answer after launch (measured): 4 times that still counts as a start, not a failure
@@ -112,6 +113,7 @@ export function useSentinelState(
               }
               followBackendLanguage(data.settings?.language);
               followBackendTextScale((data.settings as { ui_text_scale?: unknown } | undefined)?.ui_text_scale);
+              setServerCovers(data.covers);
               return {
                 ...prev,
                 ...data,

@@ -790,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.17", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.17") == (3, 5, 17)
+    assert __version__ == "3.5.18", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.18") == (3, 5, 18)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.17") > parse_version("3.5.6")
+    assert parse_version("v3.5.18") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -2848,6 +2848,30 @@ def test_cover_keeper_replaces_broken_and_missing_covers():
     assert searched.count("Epic Only Game") == 1, searched
     shutil.rmtree(work, ignore_errors=True)
 
+    # Queue games come and go with Twitch campaigns: their covers are looked up even while the catalog lacks them,
+    # so a card that appears without art ("Riders Republic", "Grand Theft Auto V") already has one by name
+    from cover_keeper import cover_targets
+    catalog = [{"name": "PEAK", "box_art": lib}]
+    targets = cover_targets(catalog, ["peak", "Riders Republic", "Grand Theft Auto V", "", "Riders Republic"])
+    assert targets[0] is catalog[0], "catalog entries are passed as they are"
+    assert [t["name"] for t in targets[1:]] == ["Riders Republic", "Grand Theft Auto V"], targets
+    assert all(t.get("box_art") is None for t in targets[1:]), targets
+    assert cover_targets(catalog, None) == catalog
+
+    # Every game the app can show without a campaign gets a cover: queue, excluded, linked, hidden and trophy games
+    from cover_keeper import shelf_names, covers_by_name
+    names = shelf_names(
+        {"priority_games": ["Riders Republic"], "excluded_games": ["World of Tanks"], "user_linked_games": ["Hunt: Showdown 1896"]},
+        [{"game": "EVE Online"}, {"game": ""}, {"nogame": 1}],
+        ["Halloween: The Game"],
+    )
+    assert names == ["Riders Republic", "World of Tanks", "Hunt: Showdown 1896", "Halloween: The Game", "EVE Online"], names
+    keeper = CoverKeeper(None)
+    keeper._by_name = {"riders republic": "https://x/riders.jpg", "peak": "https://x/peak.jpg"}
+    # every name with a found cover, catalog games too (the app uses it only when its own art fails)
+    assert covers_by_name(keeper, ["Riders Republic", "PEAK", "Unknown Indie", ""]) == {
+        "Riders Republic": "https://x/riders.jpg", "PEAK": "https://x/peak.jpg"}
+
     import shutil as _sh
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
     node = _sh.which("node")
@@ -2861,13 +2885,20 @@ def test_cover_keeper_replaces_broken_and_missing_covers():
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
-        "import { resolveGameBoxArtSources } from './gameBoxArts.mjs';\n"
+        "import { resolveGameBoxArtSources, setServerCovers } from './gameBoxArts.mjs';\n"
         f"const lib = '{lib}';\n"
-        "console.log(JSON.stringify({ peak: resolveGameBoxArtSources('PEAK', [lib]), none: resolveGameBoxArtSources('Totally Unknown Indie', [undefined, null]), twitch: resolveGameBoxArtSources('Unknown Thing', ['https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg']) }));\n",
+        "console.log(JSON.stringify({ peak: resolveGameBoxArtSources('PEAK', [lib]), none: resolveGameBoxArtSources('Totally Unknown Indie', [undefined, null]), twitch: resolveGameBoxArtSources('Unknown Thing', ['https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg']) }));\n"
+        "setServerCovers({ 'Riders Republic': 'https://x/riders.jpg', 'Unknown Thing': 'https://x/thing.jpg' });\n"
+        "console.log(JSON.stringify({ riders: resolveGameBoxArtSources('riders  REPUBLIC', [undefined]), thing: resolveGameBoxArtSources('Unknown Thing', ['https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg']) }));\n",
         encoding="utf-8")
     run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
-    d = json.loads(run.stdout)
+    first, served = run.stdout.strip().splitlines()
+    d = json.loads(first)
+    served = json.loads(served)
+    # a game with no art of its own (no campaign) shows the cover the service found; it never comes before the game's own art
+    assert served["riders"] == ["https://x/riders.jpg"], served
+    assert served["thing"] == ["https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg", "https://x/thing.jpg"], served
     assert d["peak"][0] == lib and any(u.endswith("/3527290/header.jpg") for u in d["peak"]) and len(d["peak"]) == len(set(d["peak"]))
     assert d["none"] == [], "no source at all: the component shows initials instead of a broken image"
     assert d["twitch"] == ["https://static-cdn.jtvnw.net/ttv-boxart/9_IGDB-285x380.jpg"]
@@ -3106,7 +3137,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.17'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.18'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"

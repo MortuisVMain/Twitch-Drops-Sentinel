@@ -39,6 +39,42 @@ def _key(name: str) -> str:
     return re.sub(r"[^a-z0-9а-я]+", " ", (name or "").lower()).strip()
 
 
+def cover_targets(catalog: list, queue: Optional[Iterable[str]]) -> list:
+    """The catalog plus every queue game it lacks: queue games come and go with Twitch campaigns, and one that comes
+    back without art (no campaign cover) is shown with the cover found for its name meanwhile."""
+    seen = {_key(g.get("name", "")) for g in catalog}
+    extra = []
+    for name in queue or []:
+        key = _key(name)
+        if key and key not in seen:
+            seen.add(key)
+            extra.append({"name": name, "box_art": None})
+    return list(catalog) + extra
+
+
+def shelf_names(settings: dict, trophies: Iterable[dict], ignored: Iterable[str]) -> list:
+    """Games the app can show without a campaign: queue, excluded, linked, hidden and trophy games (in that order, unique)."""
+    names = [*settings.get("priority_games", []), *settings.get("excluded_games", []),
+             *settings.get("user_linked_games", []), *ignored, *(t.get("game") or "" for t in trophies)]
+    seen, out = set(), []
+    for name in names:
+        key = _key(name)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(name)
+    return out
+
+
+def covers_by_name(keeper: "CoverKeeper", names: Iterable[str]) -> dict:
+    """Name -> cover found by the keeper, for the app to fall back on wherever a game shows without art."""
+    out = {}
+    for name in names:
+        url = keeper._by_name.get(_key(name)) if name else None
+        if url:
+            out[name] = url
+    return out
+
+
 HeadCheck = Callable[[str], Awaitable[bool]]
 NameSearch = Callable[[str], Awaitable[list]]
 
