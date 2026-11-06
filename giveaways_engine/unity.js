@@ -109,9 +109,19 @@ try {
     const match = bannerText.match(/coupon code\s+([A-Z0-9_-]+)/i);
     const couponCode = match ? match[1].trim() : null;
 
-    // Asset link button
-    const giftBtn = page.locator('a:has-text("GET YOUR FREE GIFT")').first();
-    const assetHref = (await giftBtn.getAttribute('href').catch(() => null)) || '';
+    // The asset link of the giveaway block, whatever its label says ("GET YOUR FREE GIFT" before, "SHOP NOW" since Nov 2026):
+    // the nearest ancestor of the heading that holds a package link, so a link elsewhere on the page is never taken
+    const assetHref = await page.evaluate(() => {
+      const heading = [...document.querySelectorAll('*')].find(el => el.children.length === 0 && /^PUBLISHER ASSET GIVEAWAY$/i.test(el.textContent.trim()));
+      for (let block = heading; block; block = block.parentElement) {
+        const link = block.querySelector('a[href*="/packages/"]');
+        if (link) return link.getAttribute('href') || '';
+      }
+      return '';
+    }).catch(err => {
+      console.warn(`[WARN] Could not read the giveaway link: ${err.message}`);
+      return '';
+    });
 
     if (!couponCode || !assetHref) {
       console.warn(`[WARN] Could not parse giveaway details: coupon=${couponCode}, href=${assetHref}`);
@@ -200,7 +210,11 @@ try {
           await page.waitForTimeout(3000);
 
           // Billing details are the user's own: an account without them is reported, never filled with made-up ones
+          // The form renders seconds after the page: unanswered, its tax question makes Unity refuse the coupon
+          // ("Organization address info is not complete or correct")
           const addressForm = page.locator('#org_address_form');
+          await addressForm.waitFor({ state: 'visible', timeout: 15000 })
+            .catch(err => console.warn(`[WARN] Unity billing form did not appear: ${err.message.split('\n')[0]}`));
           if (await addressForm.isVisible().catch(() => false)) {
             const missing = [];
             for (const field of ['firstName', 'lastName', 'email', 'phoneNumber', 'streetAddress', 'postalCode', 'locality']) {
@@ -214,28 +228,40 @@ try {
 
             const vatNoLabel = page.locator('label[for="vatRegisteredNo"]');
             if (await vatNoLabel.isVisible().catch(() => false)) {
-              await vatNoLabel.click().catch(() => {});
+              await vatNoLabel.click().catch(err => console.warn(`[WARN] Could not answer the Unity tax question: ${err.message.split('\n')[0]}`));
               await page.waitForTimeout(1000);
+              console.log(`    Tax question answered "No": ${await page.locator('#vatRegisteredNo').isChecked().catch(() => false)}`);
             }
           }
 
-          // Apply coupon code if not already applied
-          const couponActive = (await page.locator(`text=${couponCode}`).count()) > 0;
-          if (!couponActive) {
-            console.log(`    Applying coupon: ${couponCode}...`);
-            const couponInput = page.locator('dd.input input[type="text"]:visible, input[placeholder*="Coupon" i], input[placeholder*="Promo" i]').first();
-            const applyBtn = page.locator('dd.input button.btn:visible, button:has-text("Apply"), button:has-text("Применить")').first();
-            if (await couponInput.isVisible()) {
-              await couponInput.fill(couponCode);
-              await page.waitForTimeout(1000);
-              await applyBtn.click();
-              await page.waitForTimeout(4000);
-            }
+          // Apply the coupon unless the order is free already. The code on the page proves nothing: it can be the publisher's
+          // name too ("LAYERLAB" is Layer Lab's code and its publisher label), which once skipped the coupon entirely
+          // The checkout renders each control twice and hides one copy: only a visible coupon field and its own Apply button
+          // ("Apply" alone also matches the hidden cookie-settings dialog). An Apply right after the page re-renders (the tax
+          // answer above) is sometimes lost, so it is tried again until the total turns free; the gate below decides anyway.
+          const couponInput = page.locator('dd.input input[type="text"]:visible, input[placeholder*="Coupon" i]:visible, input[placeholder*="Promo" i]:visible').first();
+          const applyBtn = page.locator('dd.input button.btn:visible').first();
+          const isFree = async () => orderTotalState(await readPageText(page)) === 'free';
+          // the summary block with the field renders after the rest of the checkout
+          await couponInput.waitFor({ state: 'visible', timeout: 15000 })
+            .catch(err => console.warn(`[WARN] Unity coupon field did not appear: ${err.message.split('\n')[0]}`));
+          for (let attempt = 1; attempt <= 3 && !await isFree() && await couponInput.isVisible(); attempt++) {
+            console.log(`    Applying coupon: ${couponCode} (attempt ${attempt})...`);
+            await couponInput.fill(couponCode);
+            await page.waitForTimeout(1000);
+            await applyBtn.click();
+            for (let waited = 0; waited < 8000 && !await isFree(); waited += 1000) await page.waitForTimeout(1000);
           }
 
           // CRITICAL SAFETY GUARD: Verify total is strictly 0 before touching confirm buttons
           console.log('    Verifying cart total is strictly $0.00 / 0.00...');
           if (!await waitForFreeOrder(page)) {
+            // Unity's own answer explains a refused coupon ("incomplete company address", "invalid code"): the summary
+            // block only, never the billing form with the user's details
+            const said = await page.evaluate(() => (document.querySelector('dd.input')?.closest('dl')?.parentElement?.innerText || '')
+              .split('\n').map(l => l.trim()).filter(Boolean).join(' / ').slice(0, 300))
+              .catch(err => `unreadable: ${err.message}`);
+            console.log(`    Unity coupon block says: ${said || '(nothing)'}`);
             throw new Error('Safety guard tripped: Cart total is not a clear 0. Aborting checkout to prevent accidental charges.');
           }
 
@@ -250,10 +276,10 @@ try {
           });
           await page.waitForTimeout(1000);
 
-          // Submit final checkout
+          // Submit final checkout. The checkout renders a hidden copy of the pay button first: visible candidates only
           const payLocator = page.locator([
             'button[type="submit"]:not([disabled])',
-            'button.btn:visible',
+            'button.btn',
             'button:has-text("Pay now")',
             'button:has-text("Complete order")',
             'button:has-text("Confirm")',
@@ -261,7 +287,7 @@ try {
             'button:has-text("Оплатить")',
             'button:has-text("Заплатить немедленно")',
             'button:has-text("Подтвердить")',
-          ].join(', ')).filter({ hasText: /pay|complete|confirm|order|оплат|подтверд|заказ|немедленно/i }).first();
+          ].map(selector => `${selector}:visible`).join(', ')).filter({ hasText: /pay|complete|confirm|order|оплат|подтверд|заказ|немедленно/i }).first();
 
           await payLocator.scrollIntoViewIfNeeded().catch(() => {});
           // Pinned: the element that is checked below is the very element that is clicked, not whatever the locator finds later
@@ -281,7 +307,8 @@ try {
             throw new Error(`The checkout button changed right before the order (was "${buttonText}"). Aborting checkout to prevent accidental charges.`);
           }
           console.log('    Submitting final order...');
-          await payBtn.click({ timeout: 2000 });
+          // the order redirect takes longer than the click timeout: the loop below waits for it, not the click
+          await payBtn.click({ timeout: 2000, noWaitAfter: true });
 
           // Wait for order confirmation
           let orderConfirmed = false;

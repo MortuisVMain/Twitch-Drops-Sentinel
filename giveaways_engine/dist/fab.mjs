@@ -5473,7 +5473,7 @@ var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
 var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
 var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
 var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
-var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|to pay now|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
 var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
 var FREE_STATEMENT = /^This is free\.(?:\s|$)/;
@@ -5494,7 +5494,8 @@ var orderTotalState = (text, { freeWord = false } = {}) => {
     const match = TOTAL_LINE.exec(line);
     if (!match) continue;
     if (NOT_THE_PRICE.test(match[2].split(/\d/)[0])) continue;
-    const amount = match[2] || lines[i + 1] || "";
+    const next = lines[i + 1] || "";
+    const amount = match[2] || (/^\d+\p{L}/u.test(next) && !hasNonZeroAmount(next) ? "" : next);
     if (hasNonZeroDigit(amount)) return "paid";
     if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
       state = "free";

@@ -2,6 +2,9 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.17] - 2026-11-06
+- Giveaways, Unity: the weekly Asset Store giveaway is claimed again. The engine finds the renamed giveaway link, waits for the late checkout form and coupon field, answers the tax question before applying the coupon, and reads the Unity total in English and Russian. The order still goes through only at a clear zero total.
+
 ## [3.5.16] - 2026-11-06
 - Giveaways, Epic: when Epic asks to confirm your account after Get, the remembered account you are signed in with is picked automatically, so the claim goes on. No password is typed; a password request still asks you to sign in.
 
