@@ -6712,7 +6712,7 @@ var recordClaimStat = async (store, { title, url, priceUsd = 0, coverUrl = null 
 };
 var getStatsSummary = async () => {
   const statsDb = await jsonDb("stats.json", { totalSavedUsd: 0, totalClaimed: 0, history: [] });
-  return `\u{1F4B0} \u0412\u0441\u0435\u0433\u043E \u0441\u044D\u043A\u043E\u043D\u043E\u043C\u043B\u0435\u043D\u043E: $${statsDb.data.totalSavedUsd || 0} (${statsDb.data.totalClaimed || 0} \u0440\u0430\u0437\u0434\u0430\u0447)`;
+  return `\u0412\u0441\u0435\u0433\u043E \u0441\u044D\u043A\u043E\u043D\u043E\u043C\u043B\u0435\u043D\u043E: $${statsDb.data.totalSavedUsd || 0} (${statsDb.data.totalClaimed || 0} \u0440\u0430\u0437\u0434\u0430\u0447)`;
 };
 var html_game_list = (games, statsSummary = null) => {
   const list = games.map((g) => `- <a href="${g.url}">${escapeHtml(g.title)}</a> (${g.status}${g.price ? ` - $${g.price}` : ""})`).join("<br>");
