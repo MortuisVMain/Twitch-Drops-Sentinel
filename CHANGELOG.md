@@ -2,6 +2,12 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.15] - 2026-11-06
+- Drops: every new claim is recorded in Trophies.md, also a reward you got before from an earlier campaign. Drops claimed long ago are no longer announced again every hour.
+- Console: keeps the last hours of farming (at least five), and Copy takes all of it. A new button opens the log file in Explorer. The log file is rotated at 10 MB, five old parts are kept.
+- Off-queue campaigns fill two rows across the whole panel while farming.
+- The diagnostic report window is readable: wrapped lines and vertical scrolling.
+
 ## [3.5.14] - 2026-11-06
 - Giveaways: choose the browser for sign-in and claims in the readiness window: automatic (as before), Chrome, Edge or the built-in Chromium. A chosen browser is never silently replaced by another.
 - Each browser keeps its own sign-ins: after switching to Edge or Chromium, sign in to the stores once more. Your current Chrome sign-ins stay as they are.

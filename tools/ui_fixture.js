@@ -56,7 +56,7 @@
       claimed_drops: 0, total_drops: 4, farmable: true, allowed_channels: [] });
   }
   var state = {
-    version: '3.5.14', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.5.15', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
@@ -193,10 +193,10 @@
     if (reset) after = 0;
     return { session: journal.session, last_seq: journal.seq, reset: reset, entries: journal.entries.filter(function (e) { return e.seq > after; }) };
   }
-  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.14', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.14', remote_version: '3.5.14', error: null };
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.15', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.15', remote_version: '3.5.15', error: null };
   // the plain-text diagnostic report: many lines, a few of them very long (paths, URLs), like the real one
   function diagReport() {
-    var out = ['==================================================', 'TWITCH DROPS SENTINEL v3.5.14 - DIAGNOSTIC REPORT', '==================================================', 'OS: Windows 11 (Build 10.0.26300)', 'Active Drop Name: Pouch of Violet Dust', 'RECENT LOGS:'];
+    var out = ['==================================================', 'TWITCH DROPS SENTINEL v3.5.15 - DIAGNOSTIC REPORT', '==================================================', 'OS: Windows 11 (Build 10.0.26300)', 'Active Drop Name: Pouch of Violet Dust', 'RECENT LOGS:'];
     for (var n = 0; n < 120; n++) out.push('[06:' + (10 + n % 50) + ':00] [INFO] Line ' + n + (n % 17 === 0 ? ' C:/Users/someone/AppData/Local/Programs/TwitchDropsSentinel/core/cookies.jar [PRESENT] ' + new Array(12).join('segment-of-a-very-long-unbroken-path-name/') : ''));
     out.push('END OF DIAGNOSTIC REPORT');
     return out.join('\n');
