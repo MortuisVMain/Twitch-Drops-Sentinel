@@ -90,9 +90,9 @@
         "channels": {
             "name": "Канали",
             "switch": "Перемкнути",
-            "online": "ОНЛАЙН  \u2714",
-            "pending": "ОФЛАЙН \u23f3",
-            "offline": "ОФЛАЙН \u274c",
+            "online": "ОНЛАЙН",
+            "pending": "ОФЛАЙН",
+            "offline": "ОФЛАЙН",
             "headings": {
                 "channel": "Канал",
                 "status": "Стан",
@@ -112,13 +112,13 @@
                 "refresh": "Оновити"
             },
             "status": {
-                "linked": "Пов'язано \u2714",
-                "not_linked": "Не пов'язано \u274c",
-                "active": "Діюча \u2714",
-                "upcoming": "Наближається \u23f3",
-                "expired": "Прострочено \u274c",
-                "claimed": "Отримано \u2714",
-                "ready_to_claim": "Готове до отримання \u23f3"
+                "linked": "Пов'язано",
+                "not_linked": "Не пов'язано",
+                "active": "Діюча",
+                "upcoming": "Наближається",
+                "expired": "Прострочено",
+                "claimed": "Отримано",
+                "ready_to_claim": "Готове до отримання"
             },
             "starts": "Починається {time}",
             "ends": "Завершується {time}",

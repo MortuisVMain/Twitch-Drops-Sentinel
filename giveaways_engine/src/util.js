@@ -147,7 +147,7 @@ export const recordClaimStat = async (store, { title, url, priceUsd = 0, coverUr
 
 export const getStatsSummary = async () => {
   const statsDb = await jsonDb('stats.json', { totalSavedUsd: 0, totalClaimed: 0, history: [] });
-  return `💰 Всего сэкономлено: $${statsDb.data.totalSavedUsd || 0} (${statsDb.data.totalClaimed || 0} раздач)`;
+  return `Всего сэкономлено: $${statsDb.data.totalSavedUsd || 0} (${statsDb.data.totalClaimed || 0} раздач)`;
 };
 
 export const html_game_list = (games, statsSummary = null) => {

@@ -90,9 +90,9 @@
         "channels": {
             "name": "Csatornák",
             "switch": "Váltás",
-            "online": "ONLINE  ✔",
-            "pending": "OFFLINE ⏳",
-            "offline": "OFFLINE ❌",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Csatorna",
                 "status": "Állapot",
@@ -112,13 +112,13 @@
                 "refresh": "Frissítés"
             },
             "status": {
-                "linked": "Összekapcsolva ✔",
-                "not_linked": "Nincs összekapcsolva ❌",
-                "active": "Aktív ✔",
-                "upcoming": "Közelgő ⏳",
-                "expired": "Lejárt ❌",
-                "claimed": "Átvéve ✔",
-                "ready_to_claim": "Átvehető ⏳"
+                "linked": "Összekapcsolva",
+                "not_linked": "Nincs összekapcsolva",
+                "active": "Aktív",
+                "upcoming": "Közelgő",
+                "expired": "Lejárt",
+                "claimed": "Átvéve",
+                "ready_to_claim": "Átvehető"
             },
             "starts": "Kezdete: {time}",
             "ends": "Vége: {time}",

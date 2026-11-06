@@ -90,9 +90,9 @@
         "channels": {
             "name": "Canale",
             "switch": "Schimbă",
-            "online": "ONLINE  ✔",
-            "pending": "OFFLINE ⏳",
-            "offline": "OFFLINE ❌",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Canal",
                 "status": "Statut",
@@ -112,13 +112,13 @@
                 "refresh": "Actualizare"
             },
             "status": {
-                "linked": "Conectat ✔",
-                "not_linked": "Deconectat ❌",
-                "active": "Activ ✔",
-                "upcoming": "În viitor ⏳",
-                "expired": "Expirat ❌",
-                "claimed": "Revendicat ✔",
-                "ready_to_claim": "Gata de revendicare ⏳"
+                "linked": "Conectat",
+                "not_linked": "Deconectat",
+                "active": "Activ",
+                "upcoming": "În viitor",
+                "expired": "Expirat",
+                "claimed": "Revendicat",
+                "ready_to_claim": "Gata de revendicare"
             },
             "starts": "Începe : {time}",
             "ends": "Se termină : {time}",

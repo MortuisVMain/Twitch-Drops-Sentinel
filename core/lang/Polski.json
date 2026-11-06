@@ -90,9 +90,9 @@
         "channels": {
             "name": "Kanały",
             "switch": "Zmień",
-            "online": "ONLINE ✔",
-            "pending": "W TOKU ⏳",
-            "offline": "OFFLINE ❌",
+            "online": "ONLINE",
+            "pending": "W TOKU",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Kanał",
                 "status": "Status",
@@ -112,13 +112,13 @@
                 "refresh": "Odśwież"
             },
             "status": {
-                "linked": "Połączono ✔",
-                "not_linked": "Nie połączono ❌",
-                "active": "Aktywna ✔",
-                "upcoming": "Nadchodząca ⏳",
-                "expired": "Wygasła ❌",
-                "claimed": "Odebrano ✔",
-                "ready_to_claim": "Gotowe do odebrania ⏳"
+                "linked": "Połączono",
+                "not_linked": "Nie połączono",
+                "active": "Aktywna",
+                "upcoming": "Nadchodząca",
+                "expired": "Wygasła",
+                "claimed": "Odebrano",
+                "ready_to_claim": "Gotowe do odebrania"
             },
             "starts": "Rozpoczęcie: {time}",
             "ends": "Koniec: {time}",

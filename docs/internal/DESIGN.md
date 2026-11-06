@@ -47,3 +47,13 @@
 - **Терминология:** «дроп / кампания» = Twitch Drops; «Раздачи» = только вкладка бесплатных игр (7 магазинов). Не смешивать (аудит F-011, F-017).
 - **Заголовки карточек** (`.engraved-header .tag`) не переносятся (`white-space: nowrap`); если шапка шире карточки, переносить блок кнопок (`flex-wrap`), как в планировщике Раздач.
 - **Минимальное окно** 1180×750 физических px; при масштабе 150% это ~787 CSS px, шапка (~1090 px) в таком окне обрезается (наблюдение P3).
+
+## App-wide iconography (2026-11-06)
+
+- Use the existing Lucide SVG family for application controls, navigation, dialogs, menus and PiP. Keep the Sentinel brand mark, store branding and game artwork.
+- Use consistent inline dimensions and `currentColor`; decorative icons are hidden from assistive technology and do not take keyboard focus. Icon-only controls retain a localized accessible name.
+- Use neutral icons for ordinary actions, the existing theme accent for active state, and warning/error colors only for meaningful states. Repeated decorative symbols in status prose may be omitted.
+- Keep action meaning consistent across surfaces. Channel snooze means hiding a channel for two hours, not putting the computer to sleep; channel exclusion is local to Sentinel.
+- Separate SVG elements from translated text. Update source labels and exact/regex English translations together. Never strip arbitrary Unicode from channel names, game titles, rewards or external log content.
+- Own new logs and native notifications use readable text. Preserve historical log/journal content and backward-compatible parsers.
+- Validate the complete application surface inventory using offline fixtures before delivery; compilation alone does not establish visual correctness. Real account, hardware, power and update actions are outside visual verification.

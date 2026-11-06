@@ -90,9 +90,9 @@
         "channels": {
             "name": "Canais",
             "switch": "Trocar",
-            "online": "ONLINE  \u2714",
-            "pending": "OFFLINE \u23f3",
-            "offline": "OFFLINE \u274c",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Canal",
                 "status": "Status",
@@ -112,13 +112,13 @@
                 "refresh": "Atualizar"
             },
             "status": {
-                "linked": "Conectado \u2714",
-                "not_linked": "Desconectado \u274c",
-                "active": "Ativo \u2714",
-                "upcoming": "Se aproximando \u23f3",
-                "expired": "Expirado \u274c",
-                "claimed": "Coletado \u2714",
-                "ready_to_claim": "Pronto para coleta \u23f3"
+                "linked": "Conectado",
+                "not_linked": "Desconectado",
+                "active": "Ativo",
+                "upcoming": "Se aproximando",
+                "expired": "Expirado",
+                "claimed": "Coletado",
+                "ready_to_claim": "Pronto para coleta"
             },
             "starts": "Começa em: {time}",
             "ends": "Termina em: {time}",

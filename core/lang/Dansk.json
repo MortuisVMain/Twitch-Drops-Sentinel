@@ -90,9 +90,9 @@
         "channels": {
             "name": "Kanaler",
             "switch": "Skift",
-            "online": "ONLINE  \u2714",
-            "pending": "OFFLINE \u23f3",
-            "offline": "OFFLINE \u274c",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Kanal",
                 "status": "Status",
@@ -112,13 +112,13 @@
                 "refresh": "Opdater"
             },
             "status": {
-                "linked": "Forbundet \u2714",
-                "not_linked": "Ikke forbundet \u274c",
-                "active": "Aktiv \u2714",
-                "upcoming": "Kommende \u23f3",
-                "expired": "Udløbet \u274c",
-                "claimed": "Hentet \u2714",
-                "ready_to_claim": "Klar til at hente \u23f3"
+                "linked": "Forbundet",
+                "not_linked": "Ikke forbundet",
+                "active": "Aktiv",
+                "upcoming": "Kommende",
+                "expired": "Udløbet",
+                "claimed": "Hentet",
+                "ready_to_claim": "Klar til at hente"
             },
             "starts": "Starter: {time}",
             "ends": "Slutter: {time}",

@@ -90,9 +90,9 @@
         "channels": {
             "name": "Saluran",
             "switch": "Beralih",
-            "online": "ONLINE  ✔",
-            "pending": "DITUNDA ⏳",
-            "offline": "OFFLINE ❌",
+            "online": "ONLINE",
+            "pending": "DITUNDA",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Saluran",
                 "status": "Status",
@@ -112,13 +112,13 @@
                 "refresh": "Muat ulang"
             },
             "status": {
-                "linked": "Ditautkan ✔",
-                "not_linked": "Tidak Ditautkan ❌",
-                "active": "Aktif ✔",
-                "upcoming": "Segera hadir ⏳",
-                "expired": "Kedaluarsa ❌",
-                "claimed": "Diklaim ✔",
-                "ready_to_claim": "Siap untuk diklaim ⏳"
+                "linked": "Ditautkan",
+                "not_linked": "Tidak Ditautkan",
+                "active": "Aktif",
+                "upcoming": "Segera hadir",
+                "expired": "Kedaluarsa",
+                "claimed": "Diklaim",
+                "ready_to_claim": "Siap untuk diklaim"
             },
             "starts": "Mulai : {time}",
             "ends": "Akhir : {time}",

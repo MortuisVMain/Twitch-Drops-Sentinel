@@ -516,4 +516,4 @@ class HeadlessGUIManager:
 
     def grab_attention(self, sound=False):
         if sound:
-            send_windows_toast("Twitch Drops Sentinel 🔔", "Требуется внимание пользователя.")
+            send_windows_toast("Twitch Drops Sentinel", "Требуется внимание пользователя.")

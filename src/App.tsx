@@ -27,6 +27,12 @@ import { useSentinelState } from './hooks/useSentinelState';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
+import {
+  Ban, Check, ChevronRight, CircleHelp, Copy, CornerDownLeft, Ellipsis, Gamepad2, Gift,
+  LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Pin, Play,
+  RefreshCw, Settings, SkipForward, Square, Target,
+} from 'lucide-react';
+
 import { 
 
   AlertTriangle, 
@@ -131,7 +137,7 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 
           <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 mx-auto flex items-center justify-center">
 
-            <AlertTriangle className="w-6 h-6" />
+            <AlertTriangle className="w-6 h-6" aria-hidden="true" focusable="false" />
 
           </div>
 
@@ -367,7 +373,7 @@ export const App: React.FC = () => {
 
     handleUpdateSettings({ ui_theme: newTheme as any });
 
-    showToast(`✓ Активирована тема: ${newTheme.toUpperCase()}`);
+    showToast(`Активирована тема: ${newTheme.toUpperCase()}`);
 
   };
 
@@ -393,7 +399,7 @@ export const App: React.FC = () => {
 
     });
 
-    showToast(`✓ Задник шасси: ${label}`);
+    showToast(`Задник шасси: ${label}`);
 
   };
 
@@ -432,7 +438,7 @@ export const App: React.FC = () => {
 
     }
 
-    showToast(nextPip ? '📐 Выделенный мини-кокпит PIP активирован' : '📐 Стандартный оконный режим');
+    showToast(nextPip ? 'Выделенный мини-кокпит PIP активирован' : 'Стандартный оконный режим');
 
   };
 
@@ -482,13 +488,13 @@ export const App: React.FC = () => {
 
       });
 
-      showToast('🌙 Ночной режим активирован: затемнение задника, тишина ALPS');
+      showToast('Ночной режим активирован: затемнение задника, тишина ALPS');
 
     } else {
 
       setReliefOpacity(0.85);
 
-      showToast('☀️ Дневной режим восстановлен');
+      showToast('Дневной режим восстановлен');
 
     }
 
@@ -674,7 +680,7 @@ export const App: React.FC = () => {
 
         setUpdateInstalled(true);
 
-        showToast('✨ Обновление успешно установлено! Нажмите «Перезапустить сейчас».');
+        showToast('Обновление успешно установлено! Нажмите «Перезапустить сейчас».');
 
         checkUpdates(true);
 
@@ -1109,7 +1115,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span className="tab-ico">⊞</span><span className="tab-label">Дашборд</span>
+            <span className="tab-ico"><LayoutDashboard className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Дашборд</span>
 
             <span className="badge-num">LIVE</span>
 
@@ -1124,7 +1130,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span className="tab-ico">🎮</span><span className="tab-label">Полка Игр</span>
+            <span className="tab-ico"><Gamepad2 className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Полка Игр</span>
 
             {connectionPhase !== 'starting' && <span className="badge-num" title="Игр, установленных на этом ПК">{sentinelState.installed_games.length}</span>}
 
@@ -1139,7 +1145,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span className="tab-ico">🎁</span><span className="tab-label">Раздачи</span>
+            <span className="tab-ico"><Gift className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Раздачи</span>
 
           </button>
 
@@ -1152,7 +1158,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span className="tab-ico">🖥</span><span className="tab-label">Диммер</span>
+            <span className="tab-ico"><Monitor className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Диммер</span>
 
 
           </button>
@@ -1166,7 +1172,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span className="tab-ico">⚙</span><span className="tab-label">Настройки</span>
+            <span className="tab-ico"><Settings className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Настройки</span>
 
 
           </button>
@@ -1216,7 +1222,7 @@ export const App: React.FC = () => {
 
             >
 
-              <span>✨<span className="upd-text"> v{updateInfo.remote_version}</span></span>
+              <Sparkles className="ui-icon" aria-hidden="true" focusable="false" /><span className="upd-text"> v{updateInfo.remote_version}</span>
 
             </button>
 
@@ -1234,7 +1240,7 @@ export const App: React.FC = () => {
 
           >
 
-            <Search className="w-3.5 h-3.5 inline" /><span className="ml-1">Ctrl+K</span>
+            <Search className="w-3.5 h-3.5 inline" aria-hidden="true" focusable="false" /><span className="ml-1">Ctrl+K</span>
 
           </button>
 
@@ -1253,7 +1259,7 @@ export const App: React.FC = () => {
   
             >
   
-              <span>{isPipMode ? '📐 В ОКНО' : '📐 PIP'}</span>
+              <PictureInPicture2 className="ui-icon" aria-hidden="true" focusable="false" /><span>{isPipMode ? 'В ОКНО' : 'PIP'}</span>
   
             </button>
           )}
@@ -1273,37 +1279,37 @@ export const App: React.FC = () => {
               aria-expanded={showMoreMenu}
               aria-label="Дополнительные действия"
             >
-              <span>⋯</span>
-              {isNightGuard && <span className="more-night" title="Ночной режим включён" aria-label="Ночной режим включён">🌙</span>}
+              <span><Ellipsis className="ui-icon" aria-hidden="true" focusable="false" /></span>
+              {isNightGuard && <span className="more-night" title="Ночной режим включён" aria-label="Ночной режим включён"><Moon className="ui-icon" aria-hidden="true" focusable="false" /></span>}
             </button>
             <div className={`more-menu ${showMoreMenu ? 'open' : ''}`} role="menu" onClick={(e) => e.stopPropagation()}>
               <button className="more-item more-item-palette" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowCmdPalette(true); }}>
-                <span>🔍 Быстрые команды</span>
+                <span><Search className="ui-icon" aria-hidden="true" focusable="false" /> Быстрые команды</span>
                 <span className="more-hint">Ctrl+K</span>
               </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); handleTogglePipMode(); }}>
-                <span>📐 Мини-окно (PIP)</span>
+                <span><PictureInPicture2 className="ui-icon" aria-hidden="true" focusable="false" /> Мини-окно (PIP)</span>
                 <span className="more-hint">Ctrl+M</span>
               </button>
               <button className="more-item" role="menuitemcheckbox" aria-checked={isNightGuard} onClick={() => { playClick(); handleToggleNightGuard(); }}>
-                <span>🌙 Ночной режим</span>
-                <span className="more-check">{isNightGuard ? '✓' : ''}</span>
+                <span><Moon className="ui-icon" aria-hidden="true" focusable="false" /> Ночной режим</span>
+                <span className="more-check">{isNightGuard && <Check className="ui-icon" aria-hidden="true" focusable="false" />}</span>
               </button>
               <button className="more-item more-item-help" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHelpModal(true); }}>
-                <span>💡 Справка и горячие клавиши</span>
+                <span><CircleHelp className="ui-icon" aria-hidden="true" focusable="false" /> Справка и горячие клавиши</span>
               </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
-                <span>🎨 Тема</span>
-                <span className="more-hint">▸</span>
+                <span><Palette className="ui-icon" aria-hidden="true" focusable="false" /> Тема</span>
+                <span className="more-hint"><ChevronRight className="ui-icon" aria-hidden="true" focusable="false" /></span>
               </button>
               <button
                 className="more-item"
                 role="menuitemcheckbox"
                 aria-checked={!isMuted}
-                onClick={() => { toggleMute(); showToast(!isMuted ? '🔇 Звук интерфейса выключен' : '🔊 Звук интерфейса включён'); }}
+                onClick={() => { toggleMute(); showToast(!isMuted ? 'Звук интерфейса выключен' : 'Звук интерфейса включён'); }}
               >
-                <span>{isMuted ? '🔇' : '🔊'} Звук интерфейса: {isMuted ? 'выкл' : 'вкл'}</span>
-                <span className="more-check">{!isMuted ? '✓' : ''}</span>
+                <span>{isMuted ? <VolumeX className="ui-icon" aria-hidden="true" focusable="false" /> : <Volume2 className="ui-icon" aria-hidden="true" focusable="false" />} Звук интерфейса: {isMuted ? 'выкл' : 'вкл'}</span>
+                <span className="more-check">{!isMuted && <Check className="ui-icon" aria-hidden="true" focusable="false" />}</span>
               </button>
             </div>
           <div className="theme-dropdown-wrap pip-hide" id="themeDropdownWrap">
@@ -1382,11 +1388,7 @@ export const App: React.FC = () => {
 
           >
 
-            <svg width="10" height="10" viewBox="0 0 10 10">
-
-              <path d="M1.5 5.5h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-
-            </svg>
+            <Minus size={12} aria-hidden="true" focusable="false" />
 
           </button>
 
@@ -1402,19 +1404,11 @@ export const App: React.FC = () => {
 
             {isWindowMaximized ? (
 
-              <svg width="10" height="10" viewBox="0 0 10 10">
-
-                <path d="M3 1.5h5.5v5.5M1.5 3.5h5.5v5.5h-5.5z" fill="none" stroke="currentColor" strokeWidth="1.1"/>
-
-              </svg>
+              <Copy size={12} aria-hidden="true" focusable="false" />
 
             ) : (
 
-              <svg width="10" height="10" viewBox="0 0 10 10">
-
-                <rect x="1.5" y="1.5" width="7" height="7" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.1"/>
-
-              </svg>
+              <Square size={12} aria-hidden="true" focusable="false" />
 
             )}
 
@@ -1430,11 +1424,7 @@ export const App: React.FC = () => {
 
           >
 
-            <svg width="10" height="10" viewBox="0 0 10 10">
-
-              <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-
-            </svg>
+            <X size={12} aria-hidden="true" focusable="false" />
 
           </button>
 
@@ -1470,7 +1460,7 @@ export const App: React.FC = () => {
               />
             ) : null}
             <div className="pip-cover-fallback" style={{ display: activeGameBoxArt ? 'none' : 'flex' }}>
-              <span style={{ fontSize: 'var(--fs-xl)' }}>🎮</span>
+              <span style={{ fontSize: 'var(--fs-xl)' }}><Gamepad2 className="ui-icon" aria-hidden="true" focusable="false" /></span>
             </div>
             <div className="pip-cover-tag">
               <span className="pulse-dot"></span>
@@ -1534,7 +1524,7 @@ export const App: React.FC = () => {
                 {activeDrop?.game || 'STANDBY'}
               </span>
               <span className="tabular pip-channel" title={sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}>
-                📡 {sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}
+                <Radio className="ui-icon" aria-hidden="true" focusable="false" /> {sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}
               </span>
             </div>
             <div className="pip-reward" title={activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}>
@@ -1555,7 +1545,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span>📌</span>
+            <span><Pin className="ui-icon" aria-hidden="true" focusable="false" /></span>
 
             <span className="pip-label-full">{isTopMost ? 'ЗАКРЕПЛЕНО' : 'ПОВЕРХ ОКОН'}</span>
 
@@ -1573,11 +1563,11 @@ export const App: React.FC = () => {
 
           >
 
-            <span>↻</span>
+            <span><RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /></span>
 
-            <span className="pip-label-full">Сменить узел</span>
+            <span className="pip-label-full">Сменить стрим</span>
 
-            <span className="pip-label-short">Узел</span>
+            <span className="pip-label-short">Стрим</span>
 
           </button>
 
@@ -1591,7 +1581,7 @@ export const App: React.FC = () => {
 
           >
 
-            <span>⏭</span>
+            <span><SkipForward className="ui-icon" aria-hidden="true" focusable="false" /></span>
 
             <span className="pip-label-full">След. игра</span>
 
@@ -1613,15 +1603,15 @@ export const App: React.FC = () => {
 
             }}
 
-            title="Добавить текущий канал в список игнорируемых"
+            title="Исключить текущий канал из фарма навсегда"
 
           >
 
-            <span>🚫</span>
+            <span><Ban className="ui-icon" aria-hidden="true" focusable="false" /></span>
 
-            <span className="pip-label-full">В игнор</span>
+            <span className="pip-label-full">Исключить</span>
 
-            <span className="pip-label-short">Игнор</span>
+            <span className="pip-label-short">Искл.</span>
 
           </button>
 
@@ -1852,22 +1842,22 @@ export const App: React.FC = () => {
         const query = cmdSearch.toLowerCase().trim();
 
         const navActions = [
-          { id: 'dashboard', key: '1', icon: '⊞', title: 'Дашборд', action: () => handleTabChange('dashboard') },
-          { id: 'shelf', key: '2', icon: '🎮', title: 'Полка игр', action: () => handleTabChange('shelf') },
-          { id: 'giveaways', key: '3', icon: '🎁', title: 'Раздачи', action: () => handleTabChange('giveaways') },
-          { id: 'dimmer', key: '4', icon: '🖥', title: 'Диммер', action: () => handleTabChange('dimmer') },
-          { id: 'settings', key: '5', icon: '⚙', title: 'Настройки', action: () => handleTabChange('settings') },
+          { id: 'dashboard', key: '1', icon: LayoutDashboard, title: 'Дашборд', action: () => handleTabChange('dashboard') },
+          { id: 'shelf', key: '2', icon: Gamepad2, title: 'Полка игр', action: () => handleTabChange('shelf') },
+          { id: 'giveaways', key: '3', icon: Gift, title: 'Раздачи', action: () => handleTabChange('giveaways') },
+          { id: 'dimmer', key: '4', icon: Monitor, title: 'Диммер', action: () => handleTabChange('dimmer') },
+          { id: 'settings', key: '5', icon: Settings, title: 'Настройки', action: () => handleTabChange('settings') },
         ].filter(item => !query || item.title.toLowerCase().includes(query) || item.key === query);
 
         const quickActions = [
-          { id: 'switch-streamer', icon: '↻', title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
-          { id: 'refresh-twitch', key: 'F5', icon: '⟳', title: 'Обновить данные Twitch', action: () => handleManualRefresh() },
-          { id: 'toggle-daemon', icon: '⏯', title: sentinelState.hardware.is_paused ? 'Запустить сбор дропов' : 'Приостановить сбор дропов', action: () => handleToggleDaemon() },
-          { id: 'toggle-pip', key: 'Ctrl+M', icon: '📐', title: isPipMode ? 'Вернуться из мини-окна (PIP)' : 'Мини-окно (PIP)', action: () => handleTogglePipMode() },
-          { id: 'toggle-night', icon: '🌙', title: isNightGuard ? 'Выключить ночной режим' : 'Включить ночной режим', action: () => handleToggleNightGuard() },
-          { id: 'open-theme', icon: '🎨', title: 'Выбрать тему оформления', action: () => setShowThemeMenu(true) },
-          { id: 'toggle-sound', icon: isMuted ? '🔇' : '🔊', title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? '🔇 Звук интерфейса выключен' : '🔊 Звук интерфейса включён'); } },
-          { id: 'open-help', icon: '💡', title: 'Справка и горячие клавиши', action: () => setShowHelpModal(true) },
+          { id: 'switch-streamer', icon: RefreshCw, title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
+          { id: 'refresh-twitch', key: 'F5', icon: RefreshCw, title: 'Обновить данные Twitch', action: () => handleManualRefresh() },
+          { id: 'toggle-daemon', icon: sentinelState.hardware.is_paused ? Play : Pause, title: sentinelState.hardware.is_paused ? 'Запустить сбор дропов' : 'Приостановить сбор дропов', action: () => handleToggleDaemon() },
+          { id: 'toggle-pip', key: 'Ctrl+M', icon: PictureInPicture2, title: isPipMode ? 'Вернуться из мини-окна (PIP)' : 'Мини-окно (PIP)', action: () => handleTogglePipMode() },
+          { id: 'toggle-night', icon: Moon, title: isNightGuard ? 'Выключить ночной режим' : 'Включить ночной режим', action: () => handleToggleNightGuard() },
+          { id: 'open-theme', icon: Palette, title: 'Выбрать тему оформления', action: () => setShowThemeMenu(true) },
+          { id: 'toggle-sound', icon: isMuted ? VolumeX : Volume2, title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? 'Звук интерфейса выключен' : 'Звук интерфейса включён'); } },
+          { id: 'open-help', icon: CircleHelp, title: 'Справка и горячие клавиши', action: () => setShowHelpModal(true) },
         ].filter(item => !query || item.title.toLowerCase().includes(query) || (item.key || '').toLowerCase().includes(query));
 
         const matchingGames = (sentinelState?.all_catalog_games || [])
@@ -1915,7 +1905,7 @@ export const App: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-3 px-4 bg-[#202725] border-b border-[#303a35] flex items-center gap-2.5 shrink-0">
-                <Search className="w-4 h-4 text-[#73bba5] shrink-0" />
+                <Search className="w-4 h-4 text-[#73bba5] shrink-0" aria-hidden="true" focusable="false" />
                 <input 
                   type="text" 
                   placeholder="Поиск по играм, стримам и действиям... (Esc)" 
@@ -1954,7 +1944,7 @@ export const App: React.FC = () => {
                           onClick={() => runResult(i)}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-5 text-center text-xs shrink-0">{item.icon}</span>
+                            <span className="w-5 text-center text-xs shrink-0"><item.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                             <span className="text-xs font-semibold text-white group-hover:text-[#73bba5] transition-colors truncate">
                               {item.title}
                             </span>
@@ -1982,7 +1972,7 @@ export const App: React.FC = () => {
                           onClick={() => runResult(navActions.length + i)}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-5 text-center text-xs shrink-0">{item.icon}</span>
+                            <span className="w-5 text-center text-xs shrink-0"><item.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                             <span className="text-xs font-semibold text-white group-hover:text-[#73bba5] transition-colors truncate">
                               {item.title}
                             </span>
@@ -2002,7 +1992,7 @@ export const App: React.FC = () => {
                   <div>
                     <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] uppercase tracking-[0.04em] px-2 py-0.5 pt-1 flex items-center justify-between">
                       <span>Игры в каталоге</span>
-                      <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">Фокус ↵</span>
+                      <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">Фокус <CornerDownLeft className="ui-icon" aria-hidden="true" focusable="false" /></span>
                     </div>
                     <div className="space-y-0.5">
                       {matchingGames.map((game, i) => (
@@ -2013,13 +2003,13 @@ export const App: React.FC = () => {
                           onClick={() => runResult(navActions.length + quickActions.length + i)}
                         >
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-5 text-center text-xs shrink-0">🎯</span>
+                            <span className="w-5 text-center text-xs shrink-0"><Target className="ui-icon" aria-hidden="true" focusable="false" /></span>
                             <span className="text-xs font-bold text-white group-hover:text-[#73bba5] transition-colors truncate">
                               {game.name}
                             </span>
                           </div>
                           <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold shrink-0">
-                            В ФОКУС ↵
+                            В ФОКУС <CornerDownLeft className="ui-icon" aria-hidden="true" focusable="false" />
                           </span>
                         </button>
                       ))}
@@ -2051,7 +2041,7 @@ export const App: React.FC = () => {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
 
-            <Sparkles size={14} style={{ color: 'var(--led-mint)' }} />
+            <Sparkles size={14} style={{ color: 'var(--led-mint)' }} aria-hidden="true" focusable="false" />
 
             <span>{toastMessage}</span>
 
@@ -2065,7 +2055,7 @@ export const App: React.FC = () => {
 
           >
 
-            <X size={14} />
+            <X size={14} aria-hidden="true" focusable="false" />
 
           </button>
 
@@ -2106,7 +2096,7 @@ export const App: React.FC = () => {
 
             >
 
-              <X size={18} />
+              <X size={18} aria-hidden="true" focusable="false" />
 
             </button>
 
@@ -2116,7 +2106,7 @@ export const App: React.FC = () => {
 
               <div className="w-10 h-10 rounded-xl bg-[var(--led-mint)]/20 border border-[var(--led-mint)]/40 flex items-center justify-center text-[var(--led-mint)]">
 
-                <Sparkles size={20} />
+                <Sparkles size={20} aria-hidden="true" focusable="false" />
 
               </div>
 

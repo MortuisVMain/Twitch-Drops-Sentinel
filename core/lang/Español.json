@@ -90,9 +90,9 @@
         "channels": {
             "name": "Canales",
             "switch": "Cambiar",
-            "online": "ONLINE  ✔",
-            "pending": "OFFLINE ⏳",
-            "offline": "OFFLINE ❌",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Canal",
                 "status": "Estado",
@@ -112,13 +112,13 @@
                 "refresh": "Actualizar"
             },
             "status": {
-                "linked": "Vinculado ✔",
-                "not_linked": "Sin vincular ❌",
-                "active": "Activo ✔",
-                "upcoming": "Próximamente ⏳",
-                "expired": "Expirado ❌",
-                "claimed": "Reclamado ✔",
-                "ready_to_claim": "Listo para reclamar ⏳"
+                "linked": "Vinculado",
+                "not_linked": "Sin vincular",
+                "active": "Activo",
+                "upcoming": "Próximamente",
+                "expired": "Expirado",
+                "claimed": "Reclamado",
+                "ready_to_claim": "Listo para reclamar"
             },
             "starts": "Comienza: {time}",
             "ends": "Termina: {time}",

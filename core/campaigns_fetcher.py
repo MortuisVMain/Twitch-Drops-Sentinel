@@ -416,7 +416,7 @@ class CampaignsFetcher:
                 "drops_end_at": end_at,
                 "rewards_count": len(rewards),
                 "rewards": rewards_summary,
-                "message": f"🔥 Кампания АКТИВНА на Twitch! Доступно {len(rewards)} наград.",
+                "message": f"Кампания АКТИВНА на Twitch! Доступно {len(rewards)} наград.",
             }
 
         # Check installed games
@@ -432,7 +432,7 @@ class CampaignsFetcher:
                     "box_art": ig.get("box_art"),
                     "has_active_drops": False,
                     "is_installed": True,
-                    "message": "💾 Игра установлена на ПК, но на Twitch прямо сейчас нет активных Drops. Sentinel встанет в очередь авто-ожидания.",
+                    "message": "Игра установлена на ПК, но на Twitch прямо сейчас нет активных Drops. Sentinel встанет в очередь авто-ожидания.",
                 }
 
         # Not found in active drops
@@ -442,7 +442,7 @@ class CampaignsFetcher:
             "canonical_name": q_raw,
             "has_active_drops": False,
             "is_installed": False,
-            "message": "⚠️ На Twitch прямо сейчас нет активных кампаний Drops для этой игры. При добавлении Sentinel будет ожидать старта официальной раздачи.",
+            "message": "На Twitch прямо сейчас нет активных кампаний Drops для этой игры. При добавлении Sentinel будет ожидать старта официальной раздачи.",
         }
 
     def search_games(self, query: str) -> list[dict[str, Any]]:

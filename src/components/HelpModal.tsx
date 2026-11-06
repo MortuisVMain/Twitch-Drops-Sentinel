@@ -44,29 +44,29 @@ interface TipItem {
 const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: React.ReactNode; title: string; tips: TipItem[] }> = {
   dashboard: {
     label: 'Дашборд',
-    icon: <LayoutDashboard size={15} />,
+    icon: <LayoutDashboard size={15} aria-hidden="true" focusable="false" />,
     title: 'Советы по дашборду и фарму',
     tips: [
       {
-        icon: <Zap size={16} className="text-[#73bba5]" />,
+        icon: <Zap size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
         title: 'Фарм без видео',
         description: 'Sentinel общается с серверами Twitch напрямую, не скачивая видеопоток. Видеокарта не нагружается, а трафик экономится: до 2,5 ГБ в час.',
         badge: '0% GPU'
       },
       {
-        icon: <Radio size={16} className="text-emerald-400" />,
+        icon: <Radio size={16} className="text-emerald-400" aria-hidden="true" focusable="false" />,
         title: 'Замена зависшего стрима',
         description: 'Если стример закончил эфир, выключил дропы или минуты перестали идти, Sentinel сам перейдёт на другого стримера. Включается в Настройках: «Менять зависший стрим».',
         badge: 'Автозамена'
       },
       {
-        icon: <Sparkles size={16} className="text-amber-400" />,
+        icon: <Sparkles size={16} className="text-amber-400" aria-hidden="true" focusable="false" />,
         title: 'Принудительный фокус на игре',
-        description: 'Хотите забрать дроп конкретной игры вне очереди? Используйте выпадающий список «Выбрать игру для фарма ▾» в блоке ручного фокуса. После завершения сбора Sentinel сам вернется к обычной очереди.',
+        description: 'Хотите забрать дроп конкретной игры вне очереди? Используйте выпадающий список «Выбрать игру для фарма» в блоке ручного фокуса. После завершения сбора Sentinel сам вернется к обычной очереди.',
         badge: 'Вне очереди'
       },
       {
-        icon: <Coins size={16} className="text-amber-300" />,
+        icon: <Coins size={16} className="text-amber-300" aria-hidden="true" focusable="false" />,
         title: 'Бонусные баллы канала',
         description: 'Sentinel сам нажимает на сундуки с баллами на стримах (+50 за каждый), и вкладку браузера держать открытой не нужно. Включается в Настройках: «Собирать бонусные баллы канала».',
         badge: '+50 очков'
@@ -75,29 +75,29 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
   },
   shelf: {
     label: 'Полка игр',
-    icon: <Gamepad2 size={15} />,
+    icon: <Gamepad2 size={15} aria-hidden="true" focusable="false" />,
     title: 'Советы по управлению библиотекой и очередью',
     tips: [
       {
-        icon: <Layers size={16} className="text-[#73bba5]" />,
+        icon: <Layers size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
         title: 'Очередь по порядку (#1, #2, #3)',
-        description: 'Sentinel фармит игры из очереди строго сверху вниз. Порядок меняется стрелками ▲ ▼ на карточке игры. Вкладка «Активные кампании» показывает только то, что идёт прямо сейчас, новые кампании с меткой «НОВАЯ» стоят первыми.',
+        description: 'Sentinel фармит игры из очереди строго сверху вниз. Порядок меняется стрелками на карточке игры. Вкладка «Активные кампании» показывает только то, что идёт прямо сейчас, новые кампании с меткой «НОВАЯ» стоят первыми.',
         badge: 'Порядок'
       },
       {
-        icon: <FolderSync size={16} className="text-sky-400" />,
+        icon: <FolderSync size={16} className="text-sky-400" aria-hidden="true" focusable="false" />,
         title: 'Автопоиск установленных игр на ПК',
         description: 'Сканер проверяет библиотеки Steam, Epic Games, GOG и пользовательские папки. Игры, найденные на вашем компьютере, автоматически отмечаются значком «Установлено на ПК».',
         badge: 'Авто-сканер'
       },
       {
-        icon: <ShieldCheck size={16} className="text-rose-400" />,
+        icon: <ShieldCheck size={16} className="text-rose-400" aria-hidden="true" focusable="false" />,
         title: 'Исключения и скрытие лишних игр',
-        description: 'Не хотите фармить игру — нажмите «Исключить» на карточке. Она уйдёт в список «Исключения»; он и список «Удалённые» открываются в меню ⋯ справа от поиска.',
+        description: 'Не хотите фармить игру — нажмите «Исключить» на карточке. Она уйдёт в список «Исключения»; он и список «Удалённые» открываются в меню справа от поиска.',
         badge: 'Исключения'
       },
       {
-        icon: <Gift size={16} className="text-lime-400" />,
+        icon: <Gift size={16} className="text-lime-400" aria-hidden="true" focusable="false" />,
         title: 'Вкладка «Собрано» и журнал Trophies.md',
         description: 'Полученные награды попадают во вкладку «Собрано» с точным временем и записываются в файл Trophies.md рядом с программой. Блок «Трофеи» на других вкладках свёрнут в одну строку.',
         badge: 'Трофеи'
@@ -106,29 +106,29 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
   },
   giveaways: {
     label: 'Раздачи',
-    icon: <Gift size={15} />,
+    icon: <Gift size={15} aria-hidden="true" focusable="false" />,
     title: 'Советы по бесплатным раздачам',
     tips: [
       {
-        icon: <KeyRound size={16} className="text-[#73bba5]" />,
+        icon: <KeyRound size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
         title: 'Вход в магазины в один клик',
-        description: 'Нажмите «🔑 Войти в аккаунт» на карточке магазина. Откроется окно браузера: войдите один раз, и сессия сохранится. Сменить аккаунт можно кнопкой ⇄ на карточке.',
+        description: 'Нажмите «Войти в аккаунт» на карточке магазина. Откроется окно браузера: войдите один раз, и сессия сохранится. Сменить аккаунт можно кнопкой на карточке.',
         badge: 'Один раз'
       },
       {
-        icon: <Clock size={16} className="text-cyan-400" />,
+        icon: <Clock size={16} className="text-cyan-400" aria-hidden="true" focusable="false" />,
         title: 'Быстрая проверка перед запуском',
         description: 'Перед тяжёлым браузером для GOG и Steam сборщик быстро смотрит витрины. Если бесплатных игр сейчас нет, шаг завершается сразу и ПК не нагружается.',
         badge: 'Быстро'
       },
       {
-        icon: <Store size={16} className="text-purple-400" />,
+        icon: <Store size={16} className="text-purple-400" aria-hidden="true" focusable="false" />,
         title: 'Бесплатные ассеты Fab и Unity Store',
         description: 'Помимо классических игр Epic Games Store, Sentinel автоматически забирает временные бесплатные паки для Unreal Engine (Fab) и Unity Asset Store прямо на ваш аккаунт разработчика.',
         badge: 'UE & Unity'
       },
       {
-        icon: <ShieldCheck size={16} className="text-emerald-400" />,
+        icon: <ShieldCheck size={16} className="text-emerald-400" aria-hidden="true" focusable="false" />,
         title: 'Фоновый режим',
         description: 'Кнопка «Фоновый режим» скрывает окно браузера: сборщик работает тихо и не перехватывает мышь и клавиатуру, можно спокойно работать или играть.',
         badge: 'Без окна'
@@ -137,17 +137,17 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
   },
   dimmer: {
     label: 'Диммер',
-    icon: <Monitor size={15} />,
+    icon: <Monitor size={15} aria-hidden="true" focusable="false" />,
     title: 'Управление яркостью и экранами',
     tips: [
       {
-        icon: <SlidersHorizontal size={16} className="text-[#73bba5]" />,
+        icon: <SlidersHorizontal size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
         title: 'Одна карточка на монитор',
         description: 'У каждого монитора свой ползунок, своя база и кнопка «Затемнить только этот». Если монитор не принимает команды яркости, доступно только программное затемнение.',
         badge: 'По мониторам'
       },
       {
-        icon: <ShieldCheck size={16} className="text-violet-400" />,
+        icon: <ShieldCheck size={16} className="text-violet-400" aria-hidden="true" focusable="false" />,
         title: 'База яркости',
         description: 'Нажмите «Запомнить как базу», а потом меняйте яркость как угодно: «Вернуть к базе» (или Alt+Shift+Backspace) вернёт сохранённый уровень, даже из игры.',
         badge: 'Возврат'
@@ -156,29 +156,29 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
   },
   settings: {
     label: 'Настройки',
-    icon: <SlidersHorizontal size={15} />,
+    icon: <SlidersHorizontal size={15} aria-hidden="true" focusable="false" />,
     title: 'Советы по настройкам и защите ПК',
     tips: [
       {
-        icon: <ShieldCheck size={16} className="text-violet-400" />,
+        icon: <ShieldCheck size={16} className="text-violet-400" aria-hidden="true" focusable="false" />,
         title: 'Пауза, когда вы играете',
         description: 'Как только Sentinel замечает запущенную игру, он ставит фарм на паузу и не отнимает ресурсы у видеокарты и процессора. Закрыли игру — фарм продолжится.',
         badge: 'Больше FPS'
       },
       {
-        icon: <Clock size={16} className="text-amber-400" />,
+        icon: <Clock size={16} className="text-amber-400" aria-hidden="true" focusable="false" />,
         title: 'Выключить или усыпить ПК после очереди',
         description: 'Когда все дропы очереди получены, Sentinel за 60 секунд предупредит и выполнит выбранное действие: сон, выключение или блокировка. Кнопка «Проверить таймер» только показывает отсчёт, ПК не трогает.',
         badge: 'После очереди'
       },
       {
-        icon: <RefreshCw size={16} className="text-[#73bba5]" />,
+        icon: <RefreshCw size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
         title: 'Автообновление в 1 клик через GitHub',
         description: 'Sentinel проверяет релизы на GitHub. Когда выходит новая версия, её можно поставить прямо из приложения: вход, настройки и журнал сохранятся.',
         badge: 'Данные целы'
       },
       {
-        icon: <Lightbulb size={16} className="text-blue-400" />,
+        icon: <Lightbulb size={16} className="text-blue-400" aria-hidden="true" focusable="false" />,
         title: 'Диагностический отчет для поддержки',
         description: 'Если что-то работает не так, кнопка «Отчет» внизу Настроек соберёт техническую сводку без паролей и токенов — её можно отправить на разбор.',
         badge: 'Без секретов'
@@ -237,7 +237,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
         <div className="py-4 px-6 border-b border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-[#368873]/20 border border-[#73bba5]/40 text-[#73bba5] flex items-center justify-center shrink-0 shadow-sm">
-              <CircleHelp size={18} />
+              <CircleHelp size={18} aria-hidden="true" focusable="false" />
             </div>
             <div>
               <h2 id="help-title" className="text-sm md:text-base font-bold text-white">
@@ -257,7 +257,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
             aria-label="Закрыть"
             className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
           >
-            <X size={16} />
+            <X size={16} aria-hidden="true" focusable="false" />
           </button>
         </div>
 
@@ -301,7 +301,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                 : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
             }`}
           >
-            <Keyboard size={15} />
+            <Keyboard size={15} aria-hidden="true" focusable="false" />
             <span>Клавиши</span>
           </button>
         </div>
@@ -379,7 +379,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
 
           {/* Bottom Security / Architecture Note - Compact */}
           <div className="mt-2 p-3 px-4 rounded-xl bg-gradient-to-r from-[#202725] to-[#1a2320] border border-[#368873]/30 flex items-start gap-2.5 shrink-0">
-            <ShieldCheck size={16} className="text-[#73bba5] shrink-0 mt-0.5" />
+            <ShieldCheck size={16} className="text-[#73bba5] shrink-0 mt-0.5" aria-hidden="true" focusable="false" />
             <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed">
               <strong className="text-white inline mr-1">Принцип автономности и безопасности Sentinel:</strong>
               Все пароли, сессии и авторизационные токены хранятся исключительно в локальных файлах на вашем компьютере. Никаких внешних серверов, аналитики или облачных баз данных.
@@ -401,7 +401,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
             }}
             className="px-4 py-1.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-md shrink-0 whitespace-nowrap"
           >
-            <Check size={13} />
+            <Check size={13} aria-hidden="true" focusable="false" />
             <span>Всё понятно</span>
           </button>
         </div>

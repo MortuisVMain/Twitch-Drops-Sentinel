@@ -1178,7 +1178,7 @@ def test_sleep_guard_watchdog_and_account_protection():
     assert "is_account_connected" in fetcher_py, "campaigns_fetcher.py must propagate is_account_connected"
     assert "account_link_url" in fetcher_py, "campaigns_fetcher.py must propagate account_link_url"
     shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
-    assert "⚠️ Требуется привязка" in shelf_tsx, "GameShelf must display '⚠️ Требуется привязка' badge"
+    assert "<TriangleAlert className=\"ui-icon\" aria-hidden=\"true\" focusable=\"false\" /> Требуется привязка" in shelf_tsx, "GameShelf must display the 'Требуется привязка' badge"
 
     # 6. SmartScreen Unblock in Launcher
     launcher_bat = (WORKSPACE / "Запустить_Twitch_Drops_Sentinel.bat").read_text(encoding="utf-8")
@@ -1276,7 +1276,7 @@ def test_game_shelf_claimed_tab_and_trophies_integration():
     assert "'drops' | 'priority' | 'claimed'" in shelf_tsx and "filterMode" in shelf_tsx, "filterMode must include 'claimed'"
 
     # 3. Verify claimed tab and banner
-    assert "🏆 Собрано" in shelf_tsx, "GameShelf must display '🏆 Собрано' tab"
+    assert "<Trophy className=\"ui-icon\" aria-hidden=\"true\" focusable=\"false\" /> Собрано (" in shelf_tsx, "GameShelf must display the 'Собрано' tab"
     assert "filterMode === 'claimed'" in shelf_tsx, "GameShelf must handle filterMode === 'claimed'"
     assert "isGameClaimed" in shelf_tsx, "GameShelf must have isGameClaimed function"
     assert "claimedTrophiesByGame" in shelf_tsx, "GameShelf must have claimedTrophiesByGame mapping"
@@ -1343,7 +1343,7 @@ def test_twitch_drops_sync_and_active_filter():
     assert "isDropActiveNow" in shelf_tsx, "GameShelf must define isDropActiveNow"
     assert "isSyncingDrops" in shelf_tsx, "GameShelf must track isSyncingDrops"
     assert "isSyncSuccess" in shelf_tsx, "GameShelf must track isSyncSuccess"
-    assert "↻ Обновить" in shelf_tsx, "GameShelf must have the refresh button"
+    assert "useState<string>('Обновить')" in shelf_tsx and "<RefreshCw" in shelf_tsx, "GameShelf must have the refresh button"
     assert "filterMode === 'drops'" in shelf_tsx and "isCampaignRunning(g)" in shelf_tsx, "Active campaigns tab must filter with isCampaignRunning"
 
     # 5. Test App.tsx passes onShowToast and onManualRefresh
@@ -1391,7 +1391,7 @@ def test_shelf_removed_tab_and_startup_sync():
 
     # 4. Test GameShelf.tsx removed tab, banners, disabled buttons, and restore button
     shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
-    assert "🗑️ Удалённые" in shelf_tsx, "GameShelf must have '🗑️ Удалённые' tab"
+    assert "<Trash2 className=\"ui-icon\" aria-hidden=\"true\" focusable=\"false\" /> Удалённые" in shelf_tsx, "GameShelf must have the 'Удалённые' tab"
     assert "filterMode === 'removed'" in shelf_tsx, "GameShelf must handle filterMode === 'removed'"
     assert "handleRestoreGame" in shelf_tsx, "GameShelf must have handleRestoreGame"
     assert "В исключениях (нельзя в очередь)" in shelf_tsx, "GameShelf must disable priority button for excluded games"
@@ -1606,10 +1606,10 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     assert "Alt + Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt + Backspace shortcut"
 
     dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
-    assert "Выбрать игру для фарма ▾" in dash_tsx, "LiveDashboard must contain 'Выбрать игру для фарма ▾' button"
+    assert "Выбрать игру для фарма <ChevronDown" in dash_tsx, "LiveDashboard must contain the 'Выбрать игру для фарма' button"
     assert "Фарм вне очереди" in dash_tsx, "LiveDashboard must contain clear title 'Фарм вне очереди'"
     assert "activeTwitchDropsGames" in dash_tsx, "LiveDashboard must filter only active Twitch Drops games"
-    assert "⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС:" in dash_tsx, "LiveDashboard must contain Active Forced Focus banner"
+    assert "<Zap className=\"ui-icon\" aria-hidden=\"true\" focusable=\"false\" /> ПРИНУДИТЕЛЬНЫЙ ФОКУС:" in dash_tsx, "LiveDashboard must contain Active Forced Focus banner"
     assert "Сбросить фокус / В авто" in dash_tsx, "LiveDashboard must contain cancel button 'Сбросить фокус / В авто'"
     assert "showFullCatalogModal" in dash_tsx, "LiveDashboard must contain showFullCatalogModal state"
     assert "Каталог игр Twitch & Steam" in dash_tsx, "LiveDashboard must contain Full Catalog Modal title"
@@ -2429,7 +2429,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     assert "console.warn('LiveDashboard: не удалось сохранить состояние консоли'" in dash, "a failed save is reported, not swallowed"
     assert "safeRecentLogs.map((l) =>" in dash, "Copy still takes the untouched full journal"
     assert "hardware.is_paused" in dash and "Автосбор включён · Сейчас ожидает" in dash and 'id="heroDropTitle">{starting' in dash and "'Ожидание кампаний'" in dash, "idle hero states the farm switch"
-    for new in ("🎯 Режим: только очередь", "⚡ Режим: очередь + любые", "Показать игры вне очереди", "Собирать сейчас", "Сейчас · отменить"):
+    for new in ("Режим: только очередь", "Режим: очередь + любые", "Показать игры вне очереди", "Собирать сейчас", "Сейчас · отменить"):
         assert new in dash, new
     for old in ("Только очередь ⇄", "Очередь + любые ⇄", "'ФОКУС'", "'FORCE'", "Фармить вне очереди\n"):
         assert old not in dash, old
@@ -3074,7 +3074,7 @@ def test_login_code_copy_and_activate_link():
     assert d["linkAlready"] == "https://www.twitch.tv/activate?device-code=ABCD1234"
     assert d["linkNoUri"] == "https://www.twitch.tv/activate?device-code=AB%20CD"
     dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
-    assert "Скопировано ✓" in dash and "Не удалось скопировать, выделите код вручную" in dash and "userSelect: 'all'" in dash
+    assert "'Скопировано'" in dash and "Не удалось скопировать, выделите код вручную" in dash and "userSelect: 'all'" in dash
     shutil.rmtree(out_dir, ignore_errors=True)
 
 

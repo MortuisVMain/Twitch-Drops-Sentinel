@@ -43,10 +43,10 @@ const STATUS_COLOR: Record<string, string> = {
 // The shape differs per status, so the state never rests on colour alone
 const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
   const props = { size: 18, 'aria-hidden': true, style: { color: STATUS_COLOR[status] ?? 'var(--text-muted)', flexShrink: 0 } };
-  if (status === 'ok') return <CircleCheck {...props} />;
-  if (status === 'todo') return <CircleX {...props} />;
-  if (status === 'warning') return <TriangleAlert {...props} />;
-  return <Info {...props} />;
+  if (status === 'ok') return <CircleCheck {...props} aria-hidden="true" focusable="false" />;
+  if (status === 'todo') return <CircleX {...props} aria-hidden="true" focusable="false" />;
+  if (status === 'warning') return <TriangleAlert {...props} aria-hidden="true" focusable="false" />;
+  return <Info {...props} aria-hidden="true" focusable="false" />;
 };
 
 const rowStyle: React.CSSProperties = {
@@ -231,7 +231,7 @@ export const GiveawaysReadiness: React.FC<GiveawaysReadinessProps> = (props) => 
           <button className="tactile-btn" onClick={() => props.onRecheck()} disabled={loading}><RefreshCw size={14} aria-hidden="true" /> Проверить ещё раз</button>
           <button className="tactile-btn" onClick={handleCopy} disabled={!showData}>
             <ClipboardCopy size={14} aria-hidden="true" />
-            {copyState === 'done' ? 'Скопировано ✓' : copyState === 'failed' ? 'Не удалось скопировать' : 'Скопировать отчёт'}
+            {copyState === 'done' ? 'Скопировано' : copyState === 'failed' ? 'Не удалось скопировать' : 'Скопировать отчёт'}
           </button>
         </div>
 

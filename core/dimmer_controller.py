@@ -38,7 +38,7 @@ class DimmerController:
         self._monitors: List[dict] = [
             {
                 "id": "disp-primary",
-                "name": "🖥 #1 Внешний монитор",
+                "name": "#1 Внешний монитор",
                 "device_name": r"\\.\DISPLAY1",
                 "is_primary": True,
                 "is_laptop_internal": False,
@@ -50,7 +50,7 @@ class DimmerController:
             },
             {
                 "id": "disp-secondary",
-                "name": "💻 #2 Встроенный дисплей ноутбука",
+                "name": "#2 Встроенный дисплей ноутбука",
                 "device_name": "Laptop_Internal",
                 "is_primary": False,
                 "is_laptop_internal": True,

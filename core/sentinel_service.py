@@ -774,7 +774,7 @@ class SentinelSupervisor:
                             "is_installed": False,
                             "has_drops": False,
                             "is_active_now": False,
-                            "category": f"🏆 Собрано ({c_claimed})",
+                            "category": f"Собрано ({c_claimed})",
                             "box_art": getattr(camp.game, "box_art", "") or "",
                             "claimed_drops": c_claimed,
                             "total_drops": getattr(camp, "total_drops", c_claimed) or c_claimed,
@@ -1709,7 +1709,7 @@ class SentinelSupervisor:
                         if should_pause:
                             logger.info(f"Hardware Guard: Paused farming (Reason: {detected_game or 'Battery'})")
                             if self.settings.get("native_toasts", True):
-                                send_windows_toast("Twitch Drops Sentinel 🛡️", f"Пауза: обнаружена игра {detected_game}")
+                                send_windows_toast("Twitch Drops Sentinel", f"Пауза: обнаружена игра {detected_game}")
                         else:
                             logger.info("Hardware Guard: Resumed farming.")
 
@@ -1741,10 +1741,10 @@ class SentinelSupervisor:
                 self.luna_fired = step.fired
                 if step.cancelled:
                     logger.info(f"Luna Auto-Shutdown cancelled: enabled={enabled}, all priority drops claimed={done}")
-                    send_windows_toast("Luna Auto-Shutdown 🌙", "Автовыключение отменено.")
+                    send_windows_toast("Luna Auto-Shutdown", "Автовыключение отменено.")
                 elif step.countdown is not None and not was_counting:
                     logger.info("All priority drops completed! Triggering Luna Auto-Shutdown in 60s...")
-                    send_windows_toast("Luna Auto-Shutdown 🌙", "Все дропы собраны! Выключение через 60 секунд.")
+                    send_windows_toast("Luna Auto-Shutdown", "Все дропы собраны! Выключение через 60 секунд.")
                 if step.fire:
                     mode = self.settings.get("auto_shutdown_mode", "shutdown")
                     logger.info(f"Luna Auto-Shutdown executing: {mode}")
