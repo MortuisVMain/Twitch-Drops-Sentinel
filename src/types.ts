@@ -129,6 +129,7 @@ export interface FullSentinelState {
   installed_games: GameItem[];
   all_catalog_games: GameItem[];
   ignored_games?: string[];
+  covers?: Record<string, string>; // cover found by name for games shown without working art
   trophies: TrophyItem[];
   recent_logs?: SentinelLogEntry[];
   /** Cursor of the journal: the console asks GET /api/logs?after=<log_seq>&session=<log_session> when it moves. */

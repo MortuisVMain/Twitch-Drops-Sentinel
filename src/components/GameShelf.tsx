@@ -3,7 +3,7 @@ import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../u
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
-import { resolveGameBoxArtSources, isBlankCover, isSteamArt } from '../utils/gameBoxArts';
+import { resolveGameBoxArtSources, isBlankCover, isSteamArt, serverCoverFor } from '../utils/gameBoxArts';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface GameShelfProps {
@@ -32,7 +32,8 @@ interface GameShelfProps {
 
 // compact: a thumbnail-sized cover (the fallback drops its caption and shrinks the initials)
 export const CartridgeCover: React.FC<{ name: string; boxArt?: string; compact?: boolean }> = ({ name, boxArt, compact = false }) => {
-  const sources = useMemo(() => resolveGameBoxArtSources(name, [boxArt]), [name, boxArt]);
+  const found = serverCoverFor(name); // arrives with a later poll: the list is rebuilt then
+  const sources = useMemo(() => resolveGameBoxArtSources(name, [boxArt]), [name, boxArt, found]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [failed, setFailed] = useState(false);
 

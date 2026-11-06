@@ -472,6 +472,19 @@ function collectBoxArtSources(
 
 const STEAM_APP_URL = /\/steam\/apps\/(\d+)\//;
 
+// Covers the service found by name (state.covers) for games shown without working art: no campaign, dead link.
+// Keyed like the service's cover keeper: lowercase, anything but letters and digits is a space.
+const coverKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9а-яё]+/g, ' ').trim();
+let serverCovers = new Map<string, string>();
+
+/** Called with each state poll; the last cover in every source list. */
+export function setServerCovers(covers: Record<string, string> | null | undefined): void {
+  serverCovers = new Map(Object.entries(covers || {}).map(([name, url]) => [coverKey(name), url]));
+}
+
+/** The service's cover for a game, if it found one. */
+export const serverCoverFor = (gameName: string): string | undefined => serverCovers.get(coverKey(gameName || ''));
+
 /**
  * The ordered covers to try. New Steam games have no direct library_600x900.jpg, so after the known
  * sources we also try header and capsule of every Steam app we have seen; the caller shows initials
@@ -501,6 +514,8 @@ export function resolveGameBoxArtSources(
       }
     }
   }
+  const found = serverCoverFor(gameName);
+  if (found && !seen.has(found)) sources.push(found);
   return sources;
 }
 

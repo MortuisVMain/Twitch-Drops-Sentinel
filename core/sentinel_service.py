@@ -196,7 +196,7 @@ from updater import UPDATER
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import set_enabled as set_native_toasts
-from cover_keeper import COVER_KEEPER
+from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
 
 # One file grows without limit (70 MB seen: Notepad cannot open it). The current file plus 5 backups
 # (sentinel_service.log.1 ... .5), 10 MB each, 60 MB at most, is plenty for support. Only this process writes them.
@@ -816,6 +816,8 @@ class SentinelSupervisor:
             "all_catalog_games": catalog_games,
             "installed_games": installed_games,
             "ignored_games": sorted(list(self.scanner.load_ignored_games())) if hasattr(self.scanner, "load_ignored_games") else [],
+            # found covers by name, for any game the app shows without working art (no campaign, dead link)
+            "covers": covers_by_name(COVER_KEEPER, [g.get("name", "") for g in catalog_games] + self.shelf_game_names(trophies)),
         }
 
     async def handle_get_state(self, request: web.Request) -> web.Response:
@@ -1805,13 +1807,18 @@ class SentinelSupervisor:
         except ValueError:
             logger.warning(f"Unknown language '{language}' in config.json, keeping {_.current}.")
 
+    def shelf_game_names(self, trophies: list) -> list:
+        """Games the app shows without a campaign: queue, excluded, linked, hidden and trophy games."""
+        ignored = self.scanner.load_ignored_games() if hasattr(self.scanner, "load_ignored_games") else []
+        return shelf_names(self.settings, trophies, sorted(ignored))
+
     async def cover_keeper_loop(self):
         """Every half hour: check the covers of games not judged yet and find replacements for the broken or missing ones."""
         from box_art_resolver import keep_covers_alive
         await asyncio.sleep(60)
         while self.is_running:
             try:
-                found = await keep_covers_alive(list(CAMPAIGNS_FETCHER.get_catalog()))
+                found = await keep_covers_alive(cover_targets(list(CAMPAIGNS_FETCHER.get_catalog()), self.shelf_game_names(self.load_trophies())))
                 if found:
                     logger.info("Cover keeper: found %d replacement covers", found)
             except Exception as exc:
