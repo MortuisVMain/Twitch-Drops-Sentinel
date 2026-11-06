@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import unicodedata
+import uuid
 from time import time
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,16 @@ from typing import Any, Optional
 from translate import _
 
 logger = logging.getLogger("TwitchDrops.HeadlessGUI")
+
+# Journal kept for the console, "copy logs" and the diagnostic report. Counter runs are folded on write (one hourly sync
+# alone writes ~104 "(n/104)" lines). Lines are kept by age: the console must show at least the last 5 hours of farming,
+# so they live 6 h (a margin, so a line is never dropped at 4 h 59 min).
+LOG_RETENTION_SECONDS = 6 * 3600
+# Safety net only, for a runaway logger inside the window: 5000 lines is a few MB of dicts and ~830 lines/hour sustained over the full 6 h.
+LOG_HARD_CAP = 5000
+# /api/state is polled every 3 s, so it carries only this tail; the whole journal comes from /api/logs?after=<seq>.
+STATE_LOG_TAIL = 50
+_COUNTER_RE = re.compile(r"^(.*?)\s*\(\d+\s*/\s*\d+\)\s*$")
 
 # Shared state singleton accessible by HTTP / WebSocket API
 class SentinelStateBridge:
@@ -39,21 +50,66 @@ class SentinelStateBridge:
         self.oauth_code: Optional[str] = None
         self.oauth_uri: Optional[str] = None
         self.recent_logs: list[dict] = []
+        # Entries are numbered (seq) so a client asks only for what is newer; a new service run is a new session, because
+        # its numbers start again and a client holding the old ones must start over.
+        self.log_seq: int = 0
+        self.log_session: str = uuid.uuid4().hex[:12]
         self.lock = asyncio.Lock()
 
     def add_log(self, level: str, msg: str):
+        now = time()
         now_str = datetime.now().strftime("%H:%M:%S")
         clean_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
         clean_msg = re.sub(r"""(auth_token|client_secret|token|password)=['"]?[a-zA-Z0-9_\-]+['"]?""", r"\1=[REDACTED]", clean_msg, flags=re.IGNORECASE)
-        if self.recent_logs and self.recent_logs[-1]["message"] == clean_msg:
-            return
-        self.recent_logs.append({
+        entry = {
             "time": now_str,
             "level": level.upper(),
             "message": clean_msg,
-        })
-        if len(self.recent_logs) > 60:
-            self.recent_logs.pop(0)
+            "ts": now,
+        }
+        last = self.recent_logs[-1] if self.recent_logs else None
+        if last:
+            if last["message"] == clean_msg:
+                return
+            # "... (7/104)" then "... (8/104)": only the newest of a counter run is kept; `replaces` tells a client that
+            # already holds the older line to swap it
+            new_run, old_run = _COUNTER_RE.match(clean_msg), _COUNTER_RE.match(last["message"])
+            if new_run and old_run and new_run.group(1) == old_run.group(1) and last["level"] == entry["level"]:
+                self.log_seq += 1
+                entry["seq"], entry["replaces"] = self.log_seq, last.get("seq")
+                self.recent_logs[-1] = entry
+                return
+        self.log_seq += 1
+        entry["seq"] = self.log_seq
+        self.recent_logs.append(entry)
+        cutoff = now - LOG_RETENTION_SECONDS
+        stale = 0
+        while stale < len(self.recent_logs) and self.recent_logs[stale].get("ts", now) < cutoff:
+            stale += 1
+        drop = max(stale, len(self.recent_logs) - LOG_HARD_CAP)
+        if drop:
+            del self.recent_logs[:drop]
+
+    def state_log_fields(self) -> dict:
+        """What /api/state carries: a short tail plus the cursor that tells the console whether it is behind."""
+        return {
+            "recent_logs": self.recent_logs[-STATE_LOG_TAIL:],
+            "log_seq": self.log_seq,
+            "log_session": self.log_session,
+        }
+
+    def logs_after(self, after: int, session: Optional[str]) -> dict:
+        """Entries newer than `after`. `reset` means the client's copy is void (another run of the service, or a cursor
+        from the future) and `entries` is the whole journal."""
+        reset = (session is not None and session != self.log_session) or after > self.log_seq
+        if reset:
+            after = 0
+        return {
+            "session": self.log_session,
+            "last_seq": self.log_seq,
+            "reset": reset,
+            "entries": [e for e in self.recent_logs if e.get("seq", 0) > after],
+        }
 
 STATE_BRIDGE = SentinelStateBridge()
 

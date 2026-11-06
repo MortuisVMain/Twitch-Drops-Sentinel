@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { 
   KeyRound, ShieldAlert, Copy, Check, ExternalLink, RefreshCw, 
   Search, X, RotateCcw, Flame, CheckCircle2, Tv, AlertTriangle,
@@ -11,9 +11,12 @@ import { CartridgeCover } from './GameShelf';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
-import { collapseLogs, CONSOLE_COLLAPSED_KEY, filterLogs, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
+import { collapseLogs, CONSOLE_COLLAPSED_KEY, filterLogs, hostCanOpenLogFile, openLogFile, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
 import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueView, type CampaignState, type QueueFilter } from '../utils/campaignState';
+
+// Narrowest compact off-queue card (a 36 px cover, a name, a chip); the columns that fit this are the columns shown.
+const OVERRIDE_CARD_MIN_REM = 12.5;
 
 export interface LiveDashboardProps {
   activeDrop: ActiveDrop | null;
@@ -27,6 +30,8 @@ export interface LiveDashboardProps {
   statusText?: string;
   watchingChannel?: string | null;
   recentLogs?: SentinelLogEntry[];
+  /** The older part of the journal could not be fetched: the console shows only what /api/state carries. */
+  logHistoryFailed?: boolean;
   watchdogStatus?: string | null;
   oauthCode?: string | null;
   oauthUri?: string | null;
@@ -98,6 +103,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   statusText,
   watchingChannel,
   recentLogs = [],
+  logHistoryFailed = false,
   watchdogStatus,
   oauthCode,
   oauthUri,
@@ -168,8 +174,8 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     isDashboardScrollBottomRef.current = scrollHeight - scrollTop - clientHeight <= 45;
   };
 
-  // Auto-scroll terminal on new logs inside console container only if user is at bottom
-  useEffect(() => {
+  // Auto-scroll terminal on new logs inside console container only if user is at bottom (before paint: no flash of the oldest line)
+  useLayoutEffect(() => {
     if (consoleViewportRef.current && isDashboardScrollBottomRef.current) {
       consoleViewportRef.current.scrollTop = consoleViewportRef.current.scrollHeight;
     }
@@ -178,7 +184,10 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   // Copy logs handler
   const handleCopyLogs = () => {
     playClick();
-    const text = safeRecentLogs.map((l) => `[${l.time || l.timestamp || ''}] [${l.level || l.category || 'SYS'}] ${l.message}`).join('\n');
+    const text = safeRecentLogs.map((l) => {
+      const level = l.level || l.category || 'SYS';
+      return `[${l.time || l.timestamp || ''}] [${level}] ${withoutLevelPrefix(l.message, String(level).toUpperCase())}`;
+    }).join('\n');
     navigator.clipboard.writeText(text);
     setCopiedLogs(true);
     setTimeout(() => setCopiedLogs(false), 2000);
@@ -431,15 +440,33 @@ const endingSoonGame = useMemo(() => {
     if (!consoleCollapsed && consoleViewportRef.current) consoleViewportRef.current.scrollTop = consoleViewportRef.current.scrollHeight;
   }, [consoleCollapsed]);
 
+  // Farming: compact cards in two rows, as many columns as the panel's real width holds (measured, so the cards span the panel).
+  // Idle: poster cards, a fixed number.
+  const overrideGridRef = useRef<HTMLDivElement>(null);
+  const [overrideCols, setOverrideCols] = useState(3);
+  useLayoutEffect(() => {
+    const grid = overrideGridRef.current;
+    if (!grid) return;
+    const measure = () => {
+      const style = getComputedStyle(grid);
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const gap = parseFloat(style.columnGap) || 0;
+      const width = grid.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+      setOverrideCols(Math.max(1, Math.floor((width + gap) / (OVERRIDE_CARD_MIN_REM * rem + gap))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
   // The height freed by a collapsed console goes to the off-queue block
-  const OVERRIDE_VISIBLE = consoleCollapsed ? 12 : 6;
+  const OVERRIDE_VISIBLE = consoleCollapsed ? 12 : overrideCols * 2;
   const overrideGames = overrideAll.slice(0, OVERRIDE_VISIBLE);
 
   // Filtered console logs
 const filteredLogs = useMemo(() => {
-    const base = filterLogs(safeRecentLogs, logFilter);
     // display only: progress spam and repeated lines are folded, "Copy" still takes the full journal
-    return collapseLogs(base.slice(-200), { expandSync: logFilter === 'CORE' }).slice(-60);
+    return collapseLogs(filterLogs(safeRecentLogs, logFilter), { expandSync: logFilter === 'CORE' });
   }, [safeRecentLogs, logFilter]);
   // the collapsed line has no filter chips, so it always shows the newest event of the ALL view
   const lastEvent = useMemo(() => {
@@ -1161,6 +1188,15 @@ const filteredLogs = useMemo(() => {
                   Ядро
                 </button>
                 </>)}
+                {hostCanOpenLogFile() && (
+                  <button
+                    className="node-chip"
+                    onClick={() => { playClick(); openLogFile(); }}
+                    title="Показать файл логов в Проводнике: sentinel_service.log"
+                  >
+                    📄 Файл логов
+                  </button>
+                )}
                 <button
                   className="node-chip"
                   onClick={handleCopyLogs}
@@ -1199,8 +1235,17 @@ const filteredLogs = useMemo(() => {
               onScroll={handleDashboardConsoleScroll}
               className="obsidian-well console-log-viewport" 
               id="mainConsoleViewport" 
+              tabIndex={0}
+              role="log"
+              aria-live="off"
+              aria-label="Журнал операций"
               style={{ minHeight: 0, flex: 1, overflowY: 'auto' }}
             >
+              {logHistoryFailed && (
+                <div role="status" style={{ color: 'var(--led-amber)', padding: '2px 0 6px' }}>
+                  Не удалось загрузить историю журнала: показаны последние строки
+                </div>
+              )}
               {filteredLogs.length === 0 ? (
                 <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '8px' }}>
                   Журнал операций ожидает входящих событий...
@@ -1294,7 +1339,7 @@ const filteredLogs = useMemo(() => {
               </div>
             </div>
 
-            <div className={`override-scroll-grid ${consoleCollapsed ? 'is-poster' : 'is-compact'}`} id="overrideGrid" style={consoleCollapsed ? { maxHeight: 'none', overflowY: 'auto', flex: '1 1 auto' } : { maxHeight: 'none', overflow: 'visible' }}>
+            <div ref={overrideGridRef} className={`override-scroll-grid ${consoleCollapsed ? 'is-poster' : 'is-compact'}`} id="overrideGrid" style={consoleCollapsed ? { maxHeight: 'none', overflowY: 'auto', flex: '1 1 auto' } : ({ maxHeight: 'none', overflow: 'visible', '--override-cols': overrideCols } as React.CSSProperties)}>
               {overrideGames.length === 0 ? (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--fs-xs)' }}>
                   {starting ? 'Загружаем кампании…' : 'Нет подходящих кампаний для ручного переключения'}

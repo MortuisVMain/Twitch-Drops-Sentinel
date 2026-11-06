@@ -790,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.14", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.14") == (3, 5, 14)
+    assert __version__ == "3.5.15", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.15") == (3, 5, 15)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.14") > parse_version("3.5.6")
+    assert parse_version("v3.5.15") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -2584,13 +2584,15 @@ def test_listed_but_unfarmable_campaign_never_reads_as_available():
 
 
 def test_short_window_console_minimum_leaves_the_collapsed_console_alone():
-    print("[usability] the short-window console minimum and the off-queue cap apply only while the console is expanded...")
+    print("[usability] the short-window console minimum applies only while the console is expanded, with a fixed flex basis, and the off-queue list keeps its two rows...")
     css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
     block = re.search(r"@media \(max-height: 800px\)\s*\{(.*?)\n  \}", css, re.S)
     assert block, "the short-window block exists"
     rules = block.group(1)
-    assert ".middle-console-island:not(.console-collapsed) {" in rules and "min-height: 8.5rem" in rules, "console minimum skips the collapsed console"
-    assert ".middle-console-island:not(.console-collapsed) ~ #overrideSection .override-scroll-grid {" in rules, "grid cap only while expanded"
+    assert ".middle-console-island:not(.console-collapsed) {" in rules and "min-height: 12rem" in rules, "console minimum skips the collapsed console"
+    # an `auto` basis grew the console to the whole 5-hour journal (62 000 px measured)
+    assert "flex: 1 0 12rem !important" in rules and "flex: 1 0 auto" not in rules, "the console basis must be fixed"
+    assert "#overrideSection .override-scroll-grid" not in rules, "the off-queue list is no longer cut to one row in a short window"
     assert not re.search(r"\.right-deck-col \.(middle-console-island|override-scroll-grid) \{", rules), "no unscoped rule is left"
     print("      Collapsed console: PASS [OK]")
 
@@ -3104,7 +3106,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.14'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.15'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -6429,6 +6431,353 @@ def test_diagnostic_report_shows_the_real_drop_and_a_readable_journal():
     print("      Diagnostic report: PASS [OK]")
 
 
+def test_claim_status_decides_what_is_announced_and_journaled():
+    print("[claims] Only a new claim is announced and journaled; an already claimed drop is silent; repeat rewards are recorded...")
+    import asyncio
+    import types
+    core_dir = SANDBOX / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    import notifications
+    import inventory
+    from inventory import DropsCampaign
+    from settings import Settings
+    from twitch import Twitch
+
+    class Args:
+        tray = False
+        log = False
+        dump = False
+        logging_level = 20
+        debug_ws = 0
+        debug_gql = 0
+
+    t = Twitch(Settings(Args()))
+    printed, toasts = [], []
+    t.print = printed.append
+
+    def drop(camp_id, drop_id, reward="Dragonfire Chest", claim_id=None):
+        camp = DropsCampaign(t, {
+            "id": camp_id, "name": "Weekly " + camp_id, "status": "ACTIVE", "self": {"isAccountConnected": True},
+            "game": {"id": 1, "displayName": "Albion Online"},
+            "startAt": "2026-01-01T00:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+            "timeBasedDrops": [{
+                "id": drop_id, "name": reward, "requiredMinutesWatched": 60,
+                "startAt": "2026-01-01T00:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+                "benefitEdges": [{"benefit": {"id": drop_id + "_b", "name": reward, "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}],
+                "self": {"currentMinutesWatched": 60, "isClaimed": False},
+            }],
+        }, {})
+        d = camp.timed_drops[drop_id]
+        d.update_claim(claim_id or f"u#{camp_id}#{drop_id}")
+        return d
+
+    def stub(d, status):
+        async def fake():
+            return status
+        d._claim = fake
+
+    trophies = Path(inventory.__file__).resolve().parent.parent / "Trophies.md"
+    assert Path(trophies).resolve().is_relative_to(Path(SANDBOX).resolve()), f"must be the sandbox copy, not the live journal: {trophies}"
+    original = trophies.read_bytes() if trophies.exists() else None
+    saved_notify = notifications.NOTIFIER.notify
+    notifications.NOTIFIER.notify = lambda *a, **k: toasts.append(a) or True
+
+    def rows():
+        return [ln for ln in trophies.read_text(encoding="utf-8").splitlines() if "Dragonfire Chest" in ln and "Albion Online" in ln]
+
+    try:
+        header = "# Journal\n\n| Date | Game | Drop | Campaign | Status |\n|---|---|---|---|---|\n"
+        old_row = "| 2026-11-01 07:00 | **Albion Online** | Dragonfire Chest | Weekly old | ✅ Забран |\n"
+        trophies.write_text(header + old_row, encoding="utf-8")
+
+        # the HTTP answer: ELIGIBLE_FOR_ALL is new, DROP_INSTANCE_ALREADY_CLAIMED is not, anything else fails
+        class Resp:
+            def __init__(self, data):
+                self.data = data
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def json(self):
+                return self.data
+
+        async def auth():
+            return types.SimpleNamespace(access_token="x", user_id="u")
+
+        async def no_gql(_op):
+            return {"data": {"errors": ["boom"]}}
+
+        def status_of(payload):
+            d = drop("map", "d_map")
+            t.get_auth, t.request, t.gql_request = auth, (lambda *a, **k: Resp(payload)), no_gql
+            return asyncio.run(d._claim())
+
+        assert status_of({"data": {"claimDropRewards": {"status": "ELIGIBLE_FOR_ALL"}}}) == "claimed"
+        assert status_of({"data": {"claimDropRewards": {"status": "DROP_INSTANCE_ALREADY_CLAIMED"}}}) == "already_claimed"
+        assert status_of({"errors": [{"message": "x"}]}) is None
+
+        # 1. already claimed on Twitch: the drop is marked, nothing is printed, toasted or journaled
+        d = drop("c1", "d1")
+        stub(d, "already_claimed")
+        assert asyncio.run(d.claim()) is True and d.is_claimed
+        assert printed == [] and toasts == [] and len(rows()) == 1, (printed, toasts, rows())
+
+        # 2. a new claim of a reward that is already in the journal from an earlier week is recorded once
+        d = drop("c2", "d2")
+        stub(d, "claimed")
+        assert asyncio.run(d.claim()) is True and d.is_claimed
+        assert len(printed) == 1 and len(toasts) == 1 and len(rows()) == 2, (printed, toasts, rows())
+
+        # 3. the same claim instance seen again (a fresh object after an inventory sync) changes nothing
+        again = drop("c2", "d2")
+        stub(again, "claimed")
+        assert asyncio.run(again.claim()) is True
+        assert len(printed) == 1 and len(toasts) == 1 and len(rows()) == 2, (printed, toasts, rows())
+
+        # 4. the next week's campaign (another claim instance) of the same reward is recorded
+        nxt = drop("c3", "d3")
+        stub(nxt, "claimed")
+        asyncio.run(nxt.claim())
+        assert len(printed) == 2 and len(toasts) == 2 and len(rows()) == 3, (printed, toasts, rows())
+
+        # 5. a failed claim records nothing
+        bad = drop("c4", "d4")
+        stub(bad, None)
+        assert asyncio.run(bad.claim()) is False
+        assert not bad.is_claimed and len(rows()) == 3 and len(printed) == 2
+
+        # 6. a drop that reached 100% while watched is new even when Twitch answers "already claimed" (it may count it itself)
+        live = drop("c5", "d5")
+        stub(live, "already_claimed")
+        assert asyncio.run(live.claim(completed_live=True)) is True
+        assert len(printed) == 3 and len(toasts) == 3 and len(rows()) == 4, (printed, toasts, rows())
+        old = drop("c6", "d6")
+        stub(old, "already_claimed")
+        assert asyncio.run(old.claim()) is True and len(printed) == 3 and len(rows()) == 4, "an old drop seen again stays silent"
+
+        # the file only grew: the old row is still the first one
+        assert trophies.read_text(encoding="utf-8").startswith(header + old_row)
+    finally:
+        notifications.NOTIFIER.notify = saved_notify
+        if original is None:
+            trophies.unlink(missing_ok=True)
+        else:
+            trophies.write_bytes(original)
+    print("      Claim status, one journal row per claim instance: PASS [OK]")
+
+
+def test_console_log_buffer_keeps_an_hour_and_folds_counters():
+    print("[logs] The log buffer folds counter runs, keeps older lines and the report tail is long enough...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    from gui_headless import SentinelStateBridge, STATE_BRIDGE
+    import gui_headless
+    from sentinel_service import generate_sanitized_diagnostic_report, report_log_tail
+    bridge = SentinelStateBridge()
+    # one hour of the live log: discovery lines, the 104-line "(n/104)" sync, more lines
+    for n in range(30):
+        bridge.add_log("INFO", f"Discovery {n}")
+    for n in range(1, 105):
+        bridge.add_log("STATUS", f"[STATUS] Adding campaigns to inventory... ({n}/104)")
+    for n in range(30):
+        bridge.add_log("INFO", f"After sync {n}")
+    messages = [e["message"] for e in bridge.recent_logs]
+    assert "Discovery 0" in messages and "After sync 29" in messages, "an hour of lines must not push the oldest out"
+    progress = [m for m in messages if "Adding campaigns" in m]
+    assert progress == ["[STATUS] Adding campaigns to inventory... (104/104)"], progress
+    assert len(bridge.recent_logs) == 61, len(bridge.recent_logs)
+    # another level or another prefix is a different line
+    bridge.add_log("INFO", "Adding campaigns to inventory... (1/104)")
+    bridge.add_log("INFO", "Syncing (1/3)")
+    bridge.add_log("INFO", "Syncing (2/3)")
+    bridge.add_log("INFO", "Other (3/3)")
+    tail = [e["message"] for e in bridge.recent_logs][-3:]
+    assert tail == ["Adding campaigns to inventory... (1/104)", "Syncing (2/3)", "Other (3/3)"], tail
+    # capacity: far more than the old 60, and still bounded
+    big = SentinelStateBridge()
+    total = gui_headless.LOG_HARD_CAP + 200
+    for n in range(total):
+        big.add_log("INFO", f"Line {n}")
+    assert len(big.recent_logs) == gui_headless.LOG_HARD_CAP and gui_headless.LOG_HARD_CAP >= 400
+    assert big.recent_logs[-1]["message"] == f"Line {total - 1}"
+    # the report takes a longer tail than before
+    lines = [{"time": "t", "level": "INFO", "message": f"Row {n}"} for n in range(300)]
+    kept = report_log_tail(lines)
+    assert len(kept) >= 100 and kept[-1]["message"] == "Row 299", len(kept)
+    saved = STATE_BRIDGE.recent_logs
+    try:
+        STATE_BRIDGE.recent_logs = lines
+        text = generate_sanitized_diagnostic_report({"priority_games": [], "game_directories": []}, {"cpu_percent": 1, "on_battery": False, "is_gaming": False})
+        assert "Row 299" in text and f"Row {300 - len(kept)}" in text and f"Row {299 - len(kept)}" not in text
+    finally:
+        STATE_BRIDGE.recent_logs = saved
+    print("      Log buffer and report tail: PASS [OK]")
+
+def test_console_journal_keeps_five_hours_and_serves_only_new_lines():
+    print("[logs] The journal keeps 5+ hours by age under a hard cap, /api/logs serves only newer lines, /api/state stays small...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import types
+    import gui_headless
+    from gui_headless import SentinelStateBridge
+    import sentinel_service as svc
+
+    hour = 3600.0
+    assert gui_headless.LOG_RETENTION_SECONDS >= 5 * hour, "the console must reach back at least five hours"
+    assert gui_headless.LOG_HARD_CAP >= 1000 and gui_headless.STATE_LOG_TAIL <= 100, "a safety cap above the real rate, a short tail for /api/state"
+
+    clock = [1_800_000_000.0]
+    saved_time = gui_headless.time
+    gui_headless.time = lambda: clock[0]
+    try:
+        # Age: a line is kept for the whole retention window and dropped after it, however few lines came since
+        bridge = SentinelStateBridge()
+        bridge.add_log("INFO", "five hours ago")
+        for _ in range(10):
+            clock[0] += 0.5 * hour
+            bridge.add_log("INFO", f"tick {clock[0]}")
+        assert bridge.recent_logs[0]["message"] == "five hours ago", "5 h old lines must still be there"
+        clock[0] += gui_headless.LOG_RETENTION_SECONDS + 1
+        bridge.add_log("INFO", "much later")
+        assert [e["message"] for e in bridge.recent_logs] == ["much later"], [e["message"] for e in bridge.recent_logs]
+
+        # Count: the cap holds the newest lines when a flood arrives inside the window
+        flood = SentinelStateBridge()
+        for n in range(gui_headless.LOG_HARD_CAP + 250):
+            flood.add_log("INFO", f"Flood {n}")
+        assert len(flood.recent_logs) == gui_headless.LOG_HARD_CAP
+        assert flood.recent_logs[-1]["message"] == f"Flood {gui_headless.LOG_HARD_CAP + 249}" and flood.recent_logs[0]["message"] == "Flood 250"
+
+        # Sequence numbers: ever growing; a folded counter line replaces its predecessor and says which one
+        seq = SentinelStateBridge()
+        for n in range(1, 6):
+            seq.add_log("INFO", f"Line {n}")
+        seq.add_log("STATUS", "Sync (1/3)")
+        first = seq.recent_logs[-1]["seq"]
+        seq.add_log("STATUS", "Sync (2/3)")
+        seqs = [e["seq"] for e in seq.recent_logs]
+        assert seqs == sorted(set(seqs)) and seq.log_seq == seqs[-1] and len(seqs) == 6, seqs
+        assert seq.recent_logs[-1]["replaces"] == first and seq.recent_logs[-1]["seq"] > first
+        assert all("ts" in e for e in seq.recent_logs)
+
+        # Incremental read: only entries after the cursor, the same session
+        got = seq.logs_after(seqs[2], seq.log_session)
+        assert got["reset"] is False and got["session"] == seq.log_session and got["last_seq"] == seq.log_seq
+        assert [e["seq"] for e in got["entries"]] == seqs[3:], got
+        assert seq.logs_after(seq.log_seq, seq.log_session)["entries"] == [], "nothing new: an empty answer"
+        everything = seq.logs_after(0, None)
+        assert everything["reset"] is False and len(everything["entries"]) == 6, "first read: all of it"
+
+        # Restart: a new service starts counting again, a client holding the old session or a cursor beyond the end starts over
+        restarted = SentinelStateBridge()
+        assert restarted.log_session != seq.log_session
+        for n in range(3):
+            restarted.add_log("INFO", f"After restart {n}")
+        over = restarted.logs_after(seq.log_seq + 40, seq.log_session)
+        assert over["reset"] is True and [e["message"] for e in over["entries"]] == [f"After restart {n}" for n in range(3)], over
+        same_session_ahead = restarted.logs_after(999, restarted.log_session)
+        assert same_session_ahead["reset"] is True and len(same_session_ahead["entries"]) == 3, "a cursor beyond the end is a reset too"
+
+        # /api/state carries a short tail and the cursor, never hours of lines
+        for n in range(2000):
+            bridge.add_log("INFO", f"Busy {n}")
+        fields = bridge.state_log_fields()
+        assert len(fields["recent_logs"]) == gui_headless.STATE_LOG_TAIL and fields["recent_logs"][-1]["message"] == "Busy 1999", len(fields["recent_logs"])
+        assert fields["log_seq"] == bridge.log_seq and fields["log_session"] == bridge.log_session
+        assert len(json.dumps(fields)) < 20_000, "the polled state must stay light"
+    finally:
+        gui_headless.time = saved_time
+
+    # The endpoint: registered, reads the cursor from the query, refuses nonsense with 400
+    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/logs", self.handle_get_logs)' in service_py, "GET /api/logs must be routed"
+    assert "**STATE_BRIDGE.state_log_fields()" in service_py and '"recent_logs": STATE_BRIDGE.recent_logs,' not in service_py,         "get_full_state must send the short tail, not the whole journal"
+    live = gui_headless.STATE_BRIDGE
+    saved_state = (live.recent_logs, live.log_seq, live.log_session)
+    try:
+        live.recent_logs, live.log_seq = [], 0
+        for n in range(5):
+            live.add_log("INFO", f"Endpoint line {n}")
+
+        def get(query):
+            fake = types.SimpleNamespace(query=query)
+            try:
+                response = asyncio.run(svc.SentinelSupervisor.handle_get_logs(None, fake))
+                return response.status, json.loads(response.text)
+            except svc.web.HTTPException as exc:
+                return exc.status, json.loads(exc.text) if exc.text else {}
+
+        status, body = get({})
+        assert status == 200 and len(body["entries"]) == 5 and body["session"] == live.log_session, (status, body)
+        status, body = get({"after": str(live.log_seq - 1), "session": live.log_session})
+        assert status == 200 and [e["message"] for e in body["entries"]] == ["Endpoint line 4"], body
+        for bad in ("abc", "-3", "1.5", ""):
+            status, body = get({"after": bad})
+            assert status == 400 and body.get("detail"), (bad, status, body)
+    finally:
+        live.recent_logs, live.log_seq, live.log_session = saved_state
+    print("      Journal retention, /api/logs, light /api/state: PASS [OK]")
+
+
+def test_service_log_file_rotates_and_stays_utf8():
+    print("[logs] sentinel_service.log rotates (10 MB x 5), keeps its name and UTF-8, and no packaging step ships the backups...")
+    import logging
+    import logging.handlers
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import sentinel_service as svc
+
+    assert svc.LOG_FILE_MAX_BYTES == 10 * 1024 * 1024 and svc.LOG_FILE_BACKUPS == 5
+    work = Path(tempfile.mkdtemp(prefix="log_rotation_", dir=SANDBOX))
+    target = work / "sentinel_service.log"
+    handler = svc.make_file_log_handler(target, max_bytes=2000, backups=3)
+    probe = logging.getLogger("rotation_probe")
+    probe.propagate = False
+    probe.setLevel(logging.INFO)
+    probe.addHandler(handler)
+    try:
+        assert isinstance(handler, logging.handlers.RotatingFileHandler) and handler.encoding == "utf-8"
+        assert Path(handler.baseFilename).name == "sentinel_service.log", "the file keeps its name"
+        for n in range(120):
+            probe.info("Фарм продолжается: строка %d, награда получена", n)
+    finally:
+        probe.removeHandler(handler)
+        handler.close()
+    names = sorted(p.name for p in work.iterdir())
+    assert names == ["sentinel_service.log", "sentinel_service.log.1", "sentinel_service.log.2", "sentinel_service.log.3"], names
+    for p in work.iterdir():
+        assert p.stat().st_size <= 2000 + 200, f"{p.name} is {p.stat().st_size} bytes"
+        assert "Фарм продолжается" in p.read_text(encoding="utf-8"), f"{p.name} must stay readable UTF-8"
+    assert "Фарм продолжается: строка 119" in target.read_text(encoding="utf-8"), "the newest lines are in the base file"
+
+    # The service itself logs through it, to the same path as before
+    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'make_file_log_handler(CORE_DIR / "sentinel_service.log")' in service_py
+    assert "logging.FileHandler(CORE_DIR" not in service_py, "a plain FileHandler grows forever (70 MB seen)"
+    # Rotated copies are runtime data too: not committed, not packaged into a release
+    ignore = (WORKSPACE / ".gitignore").read_text(encoding="utf-8")
+    assert "core/sentinel_service.log.*" in ignore.splitlines(), "backups must be ignored by git"
+    release = (WORKSPACE / "tools" / "create_clean_release.py").read_text(encoding="utf-8")
+    assert 'rel.name.startswith("sentinel_service.log")' in release, "a release must not ship sentinel_service.log.1..5"
+    print("      Log rotation: PASS [OK]")
+
+def test_host_opens_the_log_file_from_its_own_path():
+    print("[logs] The host opens sentinel_service.log in Explorer from its own path; the page sends only the request name...")
+    host = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    start = host.index('type == "OPEN_LOG_FILE"')
+    branch = host[start:host.index('type == "SET_PIP_MODE"', start)]
+    assert "FindServiceLogFile()" in branch and "explorer.exe" in branch and '"/select,' in branch
+    assert "root.TryGetProperty" not in branch and "GetString" not in branch, "no path or argument may be read from the message"
+    finder = host[host.index("private static string? FindServiceLogFile()"):]
+    finder = finder[:finder.index("private static void LogDesktopError")]
+    assert '"sentinel_service.log"' in finder and "sentinel_service.py" in finder and "Path.GetFullPath" in finder
+    assert host.index("AppOriginPolicy.IsAppUri(e.Source)") < start, "the origin check runs before any message is handled"
+    page = (WORKSPACE / "src" / "utils" / "consoleLog.ts").read_text(encoding="utf-8")
+    assert "postMessage({ type: 'OPEN_LOG_FILE' })" in page, "the page posts the request name and nothing else"
+    print("      Open log file: PASS [OK]")
+
+
 def test_giveaways_browser_choice_in_the_service():
     print("[browser-choice] Giveaways: the setting, the environment of a run, the readiness options, one record of sign-ins per browser...")
     import logging
@@ -6898,6 +7247,11 @@ if __name__ == "__main__":
         test_logout_failure_paths_never_keep_the_old_session,
         test_channel_point_chest_uses_the_real_login_state,
         test_diagnostic_report_shows_the_real_drop_and_a_readable_journal,
+        test_claim_status_decides_what_is_announced_and_journaled,
+        test_console_log_buffer_keeps_an_hour_and_folds_counters,
+        test_console_journal_keeps_five_hours_and_serves_only_new_lines,
+        test_service_log_file_rotates_and_stays_utf8,
+        test_host_opens_the_log_file_from_its_own_path,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

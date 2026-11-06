@@ -15,6 +15,7 @@ core/cookies.jar
 sentinel_stdout.log
 sentinel_stderr.log
 core/sentinel_service.log
+core/sentinel_service.log.*
 core/sentinel_stdout.log
 crash.log
 

@@ -24,6 +24,7 @@ import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils
 import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
+import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
 import { 
@@ -340,6 +341,7 @@ export const App: React.FC = () => {
     connectionPhase,
 
   } = useSentinelState(showToast, playRewardChime, playClick);
+  const { logs: consoleLogs, historyFailed: logHistoryFailed } = useConsoleLogs(sentinelState.log_seq, sentinelState.log_session, sentinelState.recent_logs);
 
 
 
@@ -1654,7 +1656,9 @@ export const App: React.FC = () => {
 
               watchingChannel={sentinelState.watching_channel}
 
-              recentLogs={sentinelState.recent_logs}
+              recentLogs={consoleLogs}
+
+              logHistoryFailed={logHistoryFailed}
 
               watchdogStatus={sentinelState.watchdog_status}
 
@@ -2126,7 +2130,7 @@ export const App: React.FC = () => {
 
                 <p className="text-xs text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '3.5.14'}
+                  Текущая версия: v{sentinelState.version || '3.5.15'}
 
                 </p>
 

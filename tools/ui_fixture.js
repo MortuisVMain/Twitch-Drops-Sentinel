@@ -10,8 +10,16 @@
 // ?service=slow|down makes fetch of /api/state and /api/updates/check reject (the local service is not up yet): slow for the first 5 s, then it answers; down always. Startup states: tools/check_startup_states.cjs.
 // ?grace=<ms> shortens the start grace period of the connection check (the app reads window.__SENTINEL_START_GRACE_MS, which only this fixture sets).
 // ?pip=short serves short game/reward/channel names, ?pip=idle serves no active drop and no channel (default: the long names above), for the mini-window checks (tools/check_pip_layout.cjs).
+// ?games=<n> serves n campaigns instead of 14 (the extra ones have drops and no queue slot), for the off-queue panel checks (tools/check_override_cards.cjs).
+// ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
+// only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
+// ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
+  if (q.get('host') === '1') {
+    window.__hostMessages = [];
+    window.chrome = Object.assign(window.chrome || {}, { webview: { postMessage: function (m) { window.__hostMessages.push(m); }, addEventListener: function () {}, removeEventListener: function () {} } });
+  }
   if (q.get('grace') && isFinite(Number(q.get('grace')))) window.__SENTINEL_START_GRACE_MS = Number(q.get('grace'));
   var serviceMode = q.get('service'), serviceUpAt = Date.now() + 5000;
   try {
@@ -42,8 +50,13 @@
     }
     return game;
   });
+  for (var extra = games.length; extra < (Number(q.get('games')) || 0); extra++) {
+    games.push({ id: 'g' + extra, name: 'Extra Campaign Number ' + extra, is_installed: false, has_drops: true, category: 'Game', drops_start_at: '2026-10-20T10:00:00Z',
+      drops_end_at: '2026-11-1' + (extra % 5) + 'T20:00:00Z', is_active_now: true, rewards_count: 3, is_account_connected: true, is_finished: false, progress_percent: 0,
+      claimed_drops: 0, total_drops: 4, farmable: true, allowed_channels: [] });
+  }
   var state = {
-    version: '3.5.14', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.5.15', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
@@ -143,7 +156,51 @@
     var remaining = items.filter(function (it) { return it.status === 'todo'; }).length;
     return { ready: remaining === 0, remaining: remaining, checkedAt: '2026-11-03T12:00:00Z', full: !quick, engineInstall: { running: false, error: null }, items: items };
   }
-  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.14', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.14', remote_version: '3.5.14', error: null };
+  // The journal behind /api/logs (see the header): lines, a cursor and a session, like the service keeps them
+  var logsMode = q.get('logs');
+  var journal = { session: 's1', seq: 0, entries: [] };
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function clock(ms) { var d = new Date(ms); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()); }
+  function journalLine(n, total, ts) {
+    var level = n % 40 === 0 ? 'CLAIM' : n % 10 === 0 ? 'WATCH' : n % 25 === 0 ? 'CORE' : 'INFO';
+    var text = n === 1 ? 'Журнал: самая старая строка (около 5 часов назад)' : n === total ? 'Журнал: самая новая строка'
+      : level === 'CLAIM' ? '[CLAIM] Получен трофей номер ' + n : level === 'WATCH' ? '[WATCH] Просмотр канала: demo_streamer_' + n : level === 'CORE' ? '[CORE] Проверка ядра ' + n : 'Строка журнала ' + n + ' с текстом обычной длины для проверки';
+    return { time: clock(ts), level: level, message: text, ts: ts / 1000, seq: ++journal.seq };
+  }
+  function syncJournalState() {
+    state.recent_logs = journal.entries.slice(-50); state.log_seq = journal.seq; state.log_session = journal.session;
+  }
+  if (logsMode) {
+    var total = logsMode === '5h' ? 3000 : Math.max(1, Number(logsMode) || 3000), now0 = Date.now(), span = 4.95 * 3600 * 1000;
+    for (var ln = 1; ln <= total; ln++) journal.entries.push(journalLine(ln, total, now0 - span + (ln - 1) * (span / Math.max(1, total - 1))));
+    syncJournalState();
+    window.__logRequests = [];
+    window.__pushLog = function (count) {
+      for (var k = 0; k < count; k++) { var added = journalLine(7, -1, Date.now()); added.message = 'Новая строка ' + k; journal.entries.push(added); }
+      journal.entries[journal.entries.length - 1].message = 'Новая строка после загрузки';
+      syncJournalState();
+    };
+    window.__restartLogs = function () {
+      journal = { session: 's2', seq: 0, entries: [] };
+      for (var r = 1; r <= 5; r++) { var e = journalLine(7, -1, Date.now()); e.message = 'После перезапуска ' + r; journal.entries.push(e); }
+      syncJournalState();
+    };
+  }
+  function logsAnswer(url) {
+    var params = new URLSearchParams(String(url).split('?')[1] || ''), after = Number(params.get('after') || 0), session = params.get('session');
+    window.__logRequests.push(String(url));
+    var reset = (session !== null && session !== journal.session) || after > journal.seq;
+    if (reset) after = 0;
+    return { session: journal.session, last_seq: journal.seq, reset: reset, entries: journal.entries.filter(function (e) { return e.seq > after; }) };
+  }
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.5.15', remote_version: '3.6.0', release_notes: '', error: null } : { update_available: false, local_version: '3.5.15', remote_version: '3.5.15', error: null };
+  // the plain-text diagnostic report: many lines, a few of them very long (paths, URLs), like the real one
+  function diagReport() {
+    var out = ['==================================================', 'TWITCH DROPS SENTINEL v3.5.15 - DIAGNOSTIC REPORT', '==================================================', 'OS: Windows 11 (Build 10.0.26300)', 'Active Drop Name: Pouch of Violet Dust', 'RECENT LOGS:'];
+    for (var n = 0; n < 120; n++) out.push('[06:' + (10 + n % 50) + ':00] [INFO] Line ' + n + (n % 17 === 0 ? ' C:/Users/someone/AppData/Local/Programs/TwitchDropsSentinel/core/cookies.jar [PRESENT] ' + new Array(12).join('segment-of-a-very-long-unbroken-path-name/') : ''));
+    out.push('END OF DIAGNOSTIC REPORT');
+    return out.join('\n');
+  }
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
@@ -167,7 +224,10 @@
       var gReply = { ok: true, status: 200, json: function () { return Promise.resolve(gBody); }, text: function () { return Promise.resolve(JSON.stringify(gBody)); } };
       return gMode === 'slow' ? new Promise(function (res) { setTimeout(function () { res({ ok: true, status: 200, json: function () { return Promise.resolve(giveaways); }, text: function () { return Promise.resolve(''); } }); }, SLOW_MS); }) : Promise.resolve(gReply);
     }
+    if (path === '/api/logs' && logsMode) { var answer = logsAnswer(url); return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(answer); }, text: function () { return Promise.resolve(JSON.stringify(answer)); } }); }
+    if (path === '/api/diagnostic-report') return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(diagReport()); } });
     var body = path === '/api/v1/giveaways/readiness' ? readinessBody(q.get('readiness'), /[?&]quick=1/.test(String(url))) : routes[path] || { status: 'ok' };
+    if (path === '/api/state' && logsMode) body = JSON.parse(JSON.stringify(body));
     if (path === '/api/v1/giveaways/readiness' && q.get('readiness') === 'error') return Promise.resolve({ ok: false, status: 500, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } });
     // the dimmer normally gets its state from the WebView2 host: replay it as a window message
     if (path === '/api/v1/dimmer/state' && dMode !== 'none') {

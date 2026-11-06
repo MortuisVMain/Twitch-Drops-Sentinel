@@ -1268,7 +1268,7 @@ class Twitch:
                                     if gql_drop.claim_id is None:
                                         with suppress(Exception):
                                             await gql_drop.generate_claim()
-                                    await gql_drop.claim()
+                                    await gql_drop.claim(completed_live=True)
                                     gql_drop.display()
                                     if not gql_drop.campaign.can_earn(channel):
                                         self.change_state(State.GAMES_UPDATE)
@@ -1627,7 +1627,7 @@ class Twitch:
                     if drop.claim_id is None:
                         with suppress(Exception):
                             await drop.generate_claim()
-                    await drop.claim()
+                    await drop.claim(completed_live=True)
                     drop.display()
                     if not drop.campaign.can_earn(watching):
                         self.change_state(State.GAMES_UPDATE)
