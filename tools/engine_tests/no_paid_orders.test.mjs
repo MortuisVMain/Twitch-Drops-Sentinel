@@ -253,8 +253,12 @@ test('sources and bundles hold no bare order click and use the gate', () => {
     for (const bare of BARE_ORDER_CLICKS) assert.ok(!code.includes(bare), `${name} still has ${bare}`);
     assert.ok(code.includes('clickOnlyIfFree'), `${name} must use the gate (rebuild dist?)`);
   }
-  assert.ok(!/urls\.push\(/.test(epic), 'epic-games.js must not queue games again: that loop never ended');
-  assert.ok(!read('dist/epic-games.mjs').includes('urls.push('), 'dist/epic-games.mjs still queues games again');
+  // A game is queued again only once, after Epic's account confirmation: an unbounded re-queue once never ended
+  assert.equal((epic.match(/urls\.push\(/g) || []).length, 1, 'epic-games.js queues a game again in one place only');
+  assert.ok(/if \(confirmed === 'confirmed' && !retriedAfterConfirm\.has\(url\)\)[\s\S]{0,400}retriedAfterConfirm\.add\(url\);[\s\S]{0,200}urls\.push\(url\)/.test(epic),
+    'the one re-queue is guarded: once per game, only after a confirmed account');
+  assert.equal((read('dist/epic-games.mjs').match(/urls\.push\(/g) || []).length, 1, 'dist/epic-games.mjs matches the source: one guarded re-queue (rebuild dist?)');
+  assert.ok(read('dist/epic-games.mjs').includes('retriedAfterConfirm.has(url)'), 'dist/epic-games.mjs carries the once-per-game guard');
   assert.ok(read('dist/epic-games.mjs').includes('clickGetIfFree') && read('dist/fab.mjs').includes('clickBuyNowIfFree'));
   // any other click in these two scripts must not be aimed at an order, purchase or checkout
   for (const [name, code] of [['epic-games.js', epic], ['fab.js', fab]]) {
@@ -741,4 +745,35 @@ test('Epic Get: the price block is read until the sale has rendered, and an unde
   const charged = await orders.clickGetIfFree(getButton(['Pay now ₹589.00\nGet', '-100%\nFree\nGet'], paid), 'Get', page, { promoFree: true });
   assert.equal(charged.refused, true, 'a charge is final, it is not read again');
   assert.deepEqual(paid, []);
+});
+
+// ---------- Epic "Confirm Your Account" (switch-account) after Get ----------
+const confirmPage = ({ url, afterClick, tiles = ['MORTUIS_V'], password = false }) => {
+  const state = { url, clicked: [] };
+  return {
+    state,
+    url: () => state.url,
+    getByText: (text, opts) => ({
+      first() { return this; },
+      waitFor: async () => { if (!tiles.includes(text) || !opts?.exact) throw new Error('Timeout: no tile'); },
+      click: async () => { state.clicked.push(text); state.url = afterClick ?? state.url; },
+    }),
+    locator: () => ({ first() { return this; }, isVisible: async () => password }),
+    waitForTimeout: async () => {},
+  };
+};
+const SWITCH = 'https://www.epicgames.com/id/login/switch-account?redirect_uri=https%3A%2F%2Fstore.epicgames.com%2Fp%2Fflotsam';
+test('Epic confirm account: the exact remembered account is picked and the store return counts as confirmed', async () => {
+  const back = confirmPage({ url: SWITCH, afterClick: 'https://store.epicgames.com/p/flotsam-266287?purchaseIntentId=x' });
+  assert.equal(await orders.confirmEpicAccount(back, 'MORTUIS_V', { timeout: 50 }), 'confirmed');
+  assert.deepEqual(back.state.clicked, ['MORTUIS_V']);
+  const pw = confirmPage({ url: SWITCH, password: true });
+  assert.equal(await orders.confirmEpicAccount(pw, 'MORTUIS_V', { timeout: 50 }), 'password');
+  const other = confirmPage({ url: SWITCH, tiles: ['SOMEONE_ELSE'] });
+  assert.equal(await orders.confirmEpicAccount(other, 'MORTUIS_V', { timeout: 50 }), 'unknown');
+  assert.deepEqual(other.state.clicked, [], 'another account is never picked');
+  const login = confirmPage({ url: 'https://www.epicgames.com/id/login?x=1' });
+  assert.equal(await orders.confirmEpicAccount(login, 'MORTUIS_V', { timeout: 50 }), 'unknown', 'only the switch-account page is handled');
+  assert.deepEqual(login.state.clicked, []);
+  assert.equal(await orders.confirmEpicAccount(back, '', { timeout: 50 }), 'unknown', 'no user, no click');
 });

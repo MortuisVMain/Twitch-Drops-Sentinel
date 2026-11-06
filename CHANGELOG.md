@@ -2,6 +2,9 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.16] - 2026-11-06
+- Giveaways, Epic: when Epic asks to confirm your account after Get, the remembered account you are signed in with is picked automatically, so the claim goes on. No password is typed; a password request still asks you to sign in.
+
 ## [3.5.15] - 2026-11-06
 - Drops: every new claim is recorded in Trophies.md, also a reward you got before from an earlier campaign. Drops claimed long ago are no longer announced again every hour.
 - Console: keeps the last hours of farming (at least five), and Copy takes all of it. A new button opens the log file in Explorer. The log file is rotated at 10 MB, five old parts are kept.

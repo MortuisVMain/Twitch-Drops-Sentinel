@@ -51,6 +51,37 @@ export const isEpicLoginPage = url => {
   }
 };
 
+/**
+ * Epic's "Confirm Your Account" step after Get (/id/login/switch-account): it lists the remembered account. Picking the
+ * account the store is signed in with is a sign-in choice, not an order; no credential is typed. Returns 'confirmed' when
+ * Epic sends the browser back to the store, 'password' when it asks for a password (the user has to sign in), and
+ * 'unknown' when there is no tile for this exact account or nothing happens in time.
+ */
+export const confirmEpicAccount = async (page, user, { timeout = 30000 } = {}) => {
+  if (!user || !/\/id\/login\/switch-account/.test(new URL(page.url()).pathname)) return 'unknown';
+  const tile = page.getByText(user, { exact: true }).first();
+  try {
+    await tile.waitFor({ state: 'visible', timeout: 10000 });
+    await tile.click({ timeout: 5000 });
+  } catch (err) {
+    console.warn(`  Cannot pick the account ${user} on Epic's confirmation page: ${String(err.message).split(/\r?\n/)[0]}`);
+    return 'unknown';
+  }
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    let host = '';
+    try {
+      host = new URL(page.url()).hostname;
+    } catch (err) {
+      console.warn(`  Unreadable page address after the account choice: ${err.message}`);
+    }
+    if (host === 'store.epicgames.com') return 'confirmed';
+    if (await page.locator('input[type="password"]').first().isVisible().catch(() => false)) return 'password';
+    await page.waitForTimeout(500);
+  }
+  return 'unknown';
+};
+
 // ---------- Epic: is this game free? Positive evidence only ----------
 
 const PROMOTIONS_URL = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US';

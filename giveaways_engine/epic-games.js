@@ -6,7 +6,7 @@ import { existsSync, writeFileSync } from 'fs';
 import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { clickOnlyIfFree } from './src/checkout.js';
-import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, isEpicLoginPage, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
+import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, confirmEpicAccount, isEpicLoginPage, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
 import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
@@ -218,6 +218,7 @@ try {
   // Epic's promotions list, read once: a "Get" is clicked only if this (or the price block of the page) says the game is free
   const promoSlugs = await fetchFreePromoSlugs();
 
+  const retriedAfterConfirm = new Set(); // one more try per game after Epic's account confirmation
   for (const url of urls) {
     if (cfg.time) console.time('claim game');
     await ensureAgeCookies(context);
@@ -470,7 +471,19 @@ try {
         } else {
           // No order dialog — the button may already be flipping to "In Library", which the check below must see
           if (isEpicLoginPage(page.url())) {
-            console.error('  Epic asks to sign in again (account page after Get): sign in from the store card, then run again.');
+            // "Confirm Your Account": Epic lists the remembered account before a checkout; picking it signs nothing new in
+            const confirmed = await confirmEpicAccount(page, user);
+            if (confirmed === 'confirmed' && !retriedAfterConfirm.has(url)) {
+              console.log('  Epic asked to confirm the account: confirmed, trying this game again...');
+              retriedAfterConfirm.add(url);
+              notify_games.splice(notify_games.indexOf(notify_game), 1); // the second attempt reports this game
+              urls.push(url);
+              if (cfg.time) console.timeEnd('claim game');
+              continue;
+            }
+            console.error(confirmed === 'password'
+              ? '  Epic asks for the password to confirm the account: sign in from the store card, then run again.'
+              : '  Epic asks to sign in again (account page after Get): sign in from the store card, then run again.');
             db.data[user][game_id].status = notify_game.status = 'failed:login-required';
             if (cfg.time) console.timeEnd('claim game');
             continue;
