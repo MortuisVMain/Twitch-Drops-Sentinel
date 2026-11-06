@@ -145,3 +145,46 @@ export const CONSOLE_COLLAPSED_KEY = 'sentinel_console_collapsed';
 /** An explicit user choice ('1' collapsed, '0' expanded) always wins; with none (or junk) the console is collapsed while idle. */
 export const resolveConsoleCollapsed = (stored: string | null, isIdle: boolean): boolean =>
   stored === '1' ? true : stored === '0' ? false : isIdle;
+
+/** What the console holds, mirrored from core/gui_headless.py (LOG_HARD_CAP, LOG_RETENTION_SECONDS): at least 5 hours, a count cap as a safety net. */
+export const CONSOLE_LOG_LIMIT = 5000;
+export const CONSOLE_LOG_RETENTION_MS = 6 * 3600 * 1000;
+
+/**
+ * New lines from GET /api/logs go onto the end of what the console has. A line the service numbered at or below our last one is
+ * ignored, a folded counter line (`replaces`) swaps the line it supersedes, `reset` (another service run) starts over.
+ */
+export const mergeConsoleLogs = (
+  prev: SentinelLogEntry[],
+  incoming: SentinelLogEntry[],
+  reset: boolean,
+  now: number = Date.now(),
+): SentinelLogEntry[] => {
+  const out = reset ? [] : prev.slice();
+  for (const entry of incoming) {
+    const lastSeq = out.length ? out[out.length - 1].seq ?? 0 : 0;
+    if (entry.seq !== undefined && entry.seq <= lastSeq) continue;
+    if (entry.replaces != null) {
+      for (let i = out.length - 1; i >= 0 && i >= out.length - 50; i--) {
+        if (out[i].seq === entry.replaces) {
+          out.splice(i, 1);
+          break;
+        }
+      }
+    }
+    out.push(entry);
+  }
+  const cutoff = (now - CONSOLE_LOG_RETENTION_MS) / 1000;
+  let drop = Math.max(0, out.length - CONSOLE_LOG_LIMIT);
+  while (drop < out.length && (out[drop].ts ?? Infinity) < cutoff) drop += 1;
+  return drop ? out.slice(drop) : out;
+};
+
+/** Only the WebView2 host can open the log file; in a browser or the test fixture there is nothing to ask. */
+export const hostCanOpenLogFile = (): boolean =>
+  typeof (window as unknown as { chrome?: { webview?: { postMessage?: unknown } } }).chrome?.webview?.postMessage === 'function';
+
+/** The host knows where the file is (next to the service); the page sends the request name and nothing else. */
+export const openLogFile = (): void => {
+  (window as unknown as { chrome: { webview: { postMessage: (m: unknown) => void } } }).chrome.webview.postMessage({ type: 'OPEN_LOG_FILE' });
+};

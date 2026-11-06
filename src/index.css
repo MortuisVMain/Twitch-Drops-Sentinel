@@ -1143,6 +1143,16 @@
     border: 1px solid var(--border-subtle);
   }
 
+  /* Diagnostic report window: opaque (ClearType), own layer, no outer shadow. The text box wraps and scrolls on its own; it must not
+     take .tabular, whose white-space: nowrap beats the utility classes and squashed the report into one line. */
+  .report-dialog { transform: translateZ(0); background: var(--bg-island); }
+  .report-text {
+    background: linear-gradient(var(--bg-well), var(--bg-well)), var(--bg-island);
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace; line-height: 1.6;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 60vh; min-height: 200px; overflow-x: hidden; overflow-y: auto;
+  }
+
   .engraved-header {
     display: flex; align-items: center; justify-content: space-between;
     padding-bottom: 5px; margin-bottom: 7px; border-bottom: 1px solid var(--border-subtle);
@@ -1449,7 +1459,8 @@
   }
   .override-scroll-grid.is-poster .override-cover { aspect-ratio: 3 / 4; width: 100%; }
   .override-scroll-grid.is-poster .override-pill-card > .version-chip { justify-self: start; }
-  .override-scroll-grid.is-compact { align-content: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr)); }
+  /* Columns are counted by the dashboard from the grid's real width (--override-cols), so the cards of the two rows span the panel. */
+  .override-scroll-grid.is-compact { align-content: start; grid-template-columns: repeat(var(--override-cols, 3), minmax(0, 1fr)); }
   .override-scroll-grid.is-compact .override-pill-card {
     display: grid; grid-template-columns: 36px minmax(0, 1fr); grid-template-rows: auto auto; align-content: center; gap: 3px 8px;
   }
@@ -1843,7 +1854,7 @@
     .dashboard-bento { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow-y: auto; overflow-x: hidden; }
     .dashboard-shelf-island { height: auto; max-height: none; min-height: 22rem; }
     .right-deck-col { height: auto; overflow: visible; order: -1; }
-    .right-deck-col .middle-console-island { flex: none !important; min-height: 16rem !important; }
+    .right-deck-col .middle-console-island { flex: none !important; height: 24rem !important; min-height: 16rem !important; }
     .right-deck-col .middle-console-island.console-collapsed { min-height: 0 !important; }
     .chrono-hero-grid { grid-template-columns: auto auto minmax(0, 1fr); }
     .chrono-hero-grid > .streamer-viewfinder { grid-column: 1 / -1; }
@@ -1877,12 +1888,12 @@
   .override-pill-card { gap: 4px 6px; flex-wrap: wrap; }
   .override-pill-card > div:first-child { min-width: 0; flex: 1 1 10rem; }
 
-  /* Short side-by-side window (e.g. 1180x750): the console keeps a readable minimum, the override list shows one
-     scrollable row, and the right column scrolls instead of squeezing the console to a header strip. */
+  /* Short side-by-side window (e.g. 1180x750): the console keeps a readable minimum, the override list keeps its two rows
+     (fewer columns, the dashboard counts them), and the right column scrolls instead of squeezing the console to a header strip. */
   @media (max-height: 800px) {
     @container stage (width > 64em) and (width > 800px) {
       .right-deck-col { overflow-y: auto !important; overflow-x: hidden !important; }
-      .right-deck-col .middle-console-island:not(.console-collapsed) { flex: 1 0 auto !important; min-height: 8.5rem !important; }
-      .right-deck-col .middle-console-island:not(.console-collapsed) ~ #overrideSection .override-scroll-grid { max-height: 4.7rem !important; overflow-y: auto !important; }
+      /* A fixed basis, not `auto`: the journal now holds hours of lines and an auto basis would grow the console to all of them. */
+      .right-deck-col .middle-console-island:not(.console-collapsed) { flex: 1 0 12rem !important; min-height: 12rem !important; }
     }
   }

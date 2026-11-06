@@ -1916,6 +1916,37 @@ namespace TwitchDropsSentinel
 
                 }
 
+                else if (type == "OPEN_LOG_FILE")
+
+                {
+
+                    // The page sends only the request name: the path is found here, next to the service script, never taken from the message.
+                    try
+
+                    {
+
+                        string? logPath = FindServiceLogFile();
+
+                        if (logPath == null)
+                        {
+                            LogDesktopError("открытие файла логов", new FileNotFoundException("core/sentinel_service.py was not found next to the app"));
+                        }
+                        else if (File.Exists(logPath))
+                        {
+                            Process.Start(new ProcessStartInfo("explorer.exe") { Arguments = "/select,\"" + logPath + "\"", UseShellExecute = false });
+                        }
+                        else
+                        {
+                            // not written yet: open the folder instead of failing
+                            Process.Start(new ProcessStartInfo("explorer.exe") { Arguments = "\"" + Path.GetDirectoryName(logPath) + "\"", UseShellExecute = false });
+                        }
+
+                    }
+
+                    catch (Exception ex) { LogDesktopError("открытие файла логов", ex); }
+
+                }
+
                 else if (type == "SET_PIP_MODE")
 
                 {
@@ -3709,6 +3740,27 @@ else
                 Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
             }
             catch (Exception ex) { LogDesktopError("open external link (" + source + ")", ex); }
+        }
+
+        /// <summary>core/sentinel_service.log next to the service script, searched in the same places the host looks for the script.</summary>
+        private static string? FindServiceLogFile()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] coreDirs =
+            {
+                Path.Combine(baseDir, "core"),
+                Path.Combine(baseDir, "..", "core"),
+                Path.Combine(baseDir, "..", "..", "..", "..", "core"),
+                Path.Combine(Directory.GetCurrentDirectory(), "core"),
+            };
+            foreach (string coreDir in coreDirs)
+            {
+                if (File.Exists(Path.Combine(coreDir, "sentinel_service.py")))
+                {
+                    return Path.GetFullPath(Path.Combine(coreDir, "sentinel_service.log"));
+                }
+            }
+            return null;
         }
 
         private static void LogDesktopError(string context, Exception ex)

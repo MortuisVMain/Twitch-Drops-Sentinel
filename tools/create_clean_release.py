@@ -71,7 +71,7 @@ def create_release():
         if item.is_file():
             rel = item.relative_to(core_src)
             # Skip caches, cookies, logs, user settings
-            if "__pycache__" in rel.parts or rel.name in banned_files or rel.suffix in (".log", ".pyc", ".pyo"):
+            if "__pycache__" in rel.parts or rel.name in banned_files or rel.name.startswith("sentinel_service.log") or rel.suffix in (".log", ".pyc", ".pyo"):
                 continue
             target = core_dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)

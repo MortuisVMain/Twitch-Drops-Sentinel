@@ -108,6 +108,10 @@ export interface SentinelLogEntry {
   message: string;
   timestamp?: string;
   category?: string;
+  /** Set by the service: the number of the line, when it was written (epoch seconds) and the older line a folded counter line replaces. */
+  seq?: number;
+  ts?: number;
+  replaces?: number | null;
 }
 
 export interface FullSentinelState {
@@ -127,6 +131,9 @@ export interface FullSentinelState {
   ignored_games?: string[];
   trophies: TrophyItem[];
   recent_logs?: SentinelLogEntry[];
+  /** Cursor of the journal: the console asks GET /api/logs?after=<log_seq>&session=<log_session> when it moves. */
+  log_seq?: number;
+  log_session?: string;
   watchdog_status?: string | null;
   oauth_code?: string | null;
   oauth_uri?: string | null;

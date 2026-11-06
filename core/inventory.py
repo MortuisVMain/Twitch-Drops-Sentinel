@@ -26,6 +26,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger("TwitchDrops")
 DIMS_PATTERN = re.compile(r'-\d+x\d+(?=\.(?:jpg|png|gif)$)', re.I)
 
+# What _claim() tells its caller: a claim made now, or a drop Twitch already had as claimed (nothing to announce).
+CLAIM_NEW = "claimed"
+CLAIM_ALREADY = "already_claimed"
+# Claim instances announced and journaled by this process: one row per instance, never one per game and reward text.
+_RECORDED_CLAIMS: set[str] = set()
+
 
 def remove_dimensions(url: URLType) -> URLType:
     return URLType(DIMS_PATTERN.sub('', url))
@@ -216,80 +222,77 @@ class BaseDrop:
     def rewards_text(self, delim: str = ", ") -> str:
         return delim.join(benefit.name for benefit in self.benefits)
 
-    async def claim(self) -> bool:
-        result = await self._claim()
-        if result:
-            self.is_claimed = result
-            claim_text = (
-                f"{self.campaign.game.name}\n"
-                f"{self.rewards_text()} "
-                f"({self.campaign.claimed_drops}/{self.campaign.total_drops})"
-            )
-            # two different claim texts, becase a new line after the game name
-            # looks ugly in the output window - replace it with a space
-            self._twitch.print(
-                _("status", "claimed_drop").format(drop=claim_text.replace('\n', ' '))
-            )
+    async def claim(self, completed_live: bool = False) -> bool:
+        """True when the drop is claimed. Only a claim made now is announced and journaled.
 
-            # One toast per claimed drop; honours the "Windows notifications" switch
-            try:
-                from notifications import NOTIFIER
-                NOTIFIER.notify(
-                    "drop_claimed",
-                    self.id,
-                    "Twitch Drops Sentinel 🏆",
-                    f"Получен дроп: {self.rewards_text()} ({self.campaign.game.name})",
-                )
-            except Exception as exc:
-                logger.warning("Toast notification failed: %s", exc, exc_info=True)
-            try:
-                from pathlib import Path
-                trophies_path = Path(__file__).resolve().parent.parent / "Trophies.md"
-                if not trophies_path.exists():
-                    trophies_path = Path(__file__).resolve().parent / "Trophies.md"
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                reward = self.rewards_text().replace("|", "/")
-                game = self.campaign.game.name.replace("|", "/")
-                camp = self.campaign.name.replace("|", "/")
-                # Deduplication check: do not record the same trophy twice for the same game
-                is_duplicate = False
-                if trophies_path.exists():
-                    try:
-                        existing_text = trophies_path.read_text(encoding="utf-8").lower()
-                        g_low = game.lower().strip()
-                        r_low = reward.lower().strip()
-                        for line in existing_text.splitlines():
-                            if g_low in line and r_low in line and ("забран" in line or "✅" in line):
-                                is_duplicate = True
-                                break
-                    except Exception as exc:
-                        logger.debug("Trophy duplication check failed: %s", exc)
-
-                if not is_duplicate:
-                    row = f"| {now_str} | **{game}** | {reward} | {camp} | ✅ Забран |\n"
-                    with open(trophies_path, "a", encoding="utf-8") as tf:
-                        tf.write(row)
-                if hasattr(self._twitch, "gui") and hasattr(self._twitch.gui, "trophies"):
-                    self._twitch.gui._root.after(0, self._twitch.gui.trophies.load_trophies)
-            except Exception as e:
-                logger.error(f"Error recording trophy: {e}")
-        else:
-            logger.error(f"Drop claim has potentially failed! Drop ID: {self.id}")
-        return result
-
-    async def _claim(self) -> bool:
+        `completed_live`: the drop reached 100% while this process watched it, so it is new even if Twitch already counted it.
         """
-        Returns True if the claim succeeded, False otherwise.
+        status = await self._claim()
+        logger.info("Claim of drop %s (%s): %s%s", self.id, self.name, status, " (completed while watching)" if completed_live else "")
+        if not status:
+            logger.error(f"Drop claim has potentially failed! Drop ID: {self.id}")
+            return False
+        self.is_claimed = True
+        instance = self.claim_id or self.id
+        if (status == CLAIM_ALREADY and not completed_live) or instance in _RECORDED_CLAIMS:
+            logger.debug("Drop %s (%s) was already claimed: not announced, not journaled", self.id, instance)
+            return True
+        _RECORDED_CLAIMS.add(instance)
+        claim_text = (
+            f"{self.campaign.game.name}\n"
+            f"{self.rewards_text()} "
+            f"({self.campaign.claimed_drops}/{self.campaign.total_drops})"
+        )
+        # two different claim texts, becase a new line after the game name
+        # looks ugly in the output window - replace it with a space
+        self._twitch.print(
+            _("status", "claimed_drop").format(drop=claim_text.replace('\n', ' '))
+        )
+
+        # One toast per claimed drop; honours the "Windows notifications" switch
+        try:
+            from notifications import NOTIFIER
+            NOTIFIER.notify(
+                "drop_claimed",
+                instance,
+                "Twitch Drops Sentinel 🏆",
+                f"Получен дроп: {self.rewards_text()} ({self.campaign.game.name})",
+            )
+        except Exception as exc:
+            logger.warning("Toast notification failed: %s", exc, exc_info=True)
+        try:
+            from pathlib import Path
+            trophies_path = Path(__file__).resolve().parent.parent / "Trophies.md"
+            if not trophies_path.exists():
+                trophies_path = Path(__file__).resolve().parent / "Trophies.md"
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            reward = self.rewards_text().replace("|", "/")
+            game = self.campaign.game.name.replace("|", "/")
+            camp = self.campaign.name.replace("|", "/")
+            # Append-only; the same reward of a later campaign or week is a new row
+            row = f"| {now_str} | **{game}** | {reward} | {camp} | ✅ Забран |\n"
+            with open(trophies_path, "a", encoding="utf-8") as tf:
+                tf.write(row)
+            if hasattr(self._twitch, "gui") and hasattr(self._twitch.gui, "trophies"):
+                self._twitch.gui._root.after(0, self._twitch.gui.trophies.load_trophies)
+        except Exception as e:
+            logger.error(f"Error recording trophy: {e}")
+        return True
+
+    async def _claim(self) -> str | None:
+        """
+        Returns CLAIM_NEW for a claim made now, CLAIM_ALREADY when Twitch already had the drop
+        as claimed, None when the claim failed.
         """
         if self.is_claimed:
-            return True
+            return CLAIM_ALREADY
         if self.claim_id is None:
             try:
                 await self.generate_claim()
             except Exception as e:
                 logger.debug(f"Could not auto-generate claim_id for {self.id}: {e}")
         if not self.can_claim or not self.claim_id:
-            return False
+            return None
         # Priority 1: Twitch Android App Client-ID bypasses web integrity check
         try:
             auth_state = await self._twitch.get_auth()
@@ -311,10 +314,12 @@ class BaseDrop:
                 data = await resp.json()
                 if isinstance(data, dict) and "data" in data and data["data"] and "claimDropRewards" in data["data"]:
                     payload = data["data"]["claimDropRewards"]
-                    if payload and payload.get("status") in ("ELIGIBLE_FOR_ALL", "DROP_INSTANCE_ALREADY_CLAIMED"):
-                        return True
+                    if payload and payload.get("status") == "ELIGIBLE_FOR_ALL":
+                        return CLAIM_NEW
+                    elif payload and payload.get("status") == "DROP_INSTANCE_ALREADY_CLAIMED":
+                        return CLAIM_ALREADY
                     elif payload is None and not data.get("errors"):
-                        return True
+                        return CLAIM_ALREADY
         except Exception as exc:
             logger.debug(f"Android client claim fallback for {self.id}: {exc}")
 
@@ -326,21 +331,21 @@ class BaseDrop:
             )
         except GQLException as err:
             logger.warning("GraphQL error claiming drop %s: %s", self.id, err)
-            return False
+            return None
         data = response.get("data") or {}
         if "errors" in data and data["errors"]:
-            return False
+            return None
         elif "claimDropRewards" in data:
             claim_rewards = data.get("claimDropRewards")
             if not claim_rewards:
                 # Twitch returned empty response (already claimed or unlinked)
-                return True
-            elif (
-                isinstance(claim_rewards, dict) and
-                claim_rewards.get("status") in ("ELIGIBLE_FOR_ALL", "DROP_INSTANCE_ALREADY_CLAIMED")
-            ):
-                return True
-        return False
+                return CLAIM_ALREADY
+            elif isinstance(claim_rewards, dict):
+                if claim_rewards.get("status") == "ELIGIBLE_FOR_ALL":
+                    return CLAIM_NEW
+                if claim_rewards.get("status") == "DROP_INSTANCE_ALREADY_CLAIMED":
+                    return CLAIM_ALREADY
+        return None
 
 
 class TimedDrop(BaseDrop):
@@ -447,8 +452,8 @@ class TimedDrop(BaseDrop):
                 return True
         return False
 
-    async def claim(self) -> bool:
-        result = await super().claim()
+    async def claim(self, completed_live: bool = False) -> bool:
+        result = await super().claim(completed_live)
         if result:
             self.real_current_minutes = self.required_minutes
             self.extra_current_minutes = 0

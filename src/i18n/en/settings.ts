@@ -105,4 +105,5 @@ export const SETTINGS: Record<string, string> = {
   '🩺 ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ': '🩺 SYSTEM DIAGNOSTIC REPORT',
   'Все секретные токены и cookies очищены перед отображением': 'All secret tokens and cookies were scrubbed before display',
   '📋 Скопировать отчет': '📋 Copy report',
+  'Текст диагностического отчета': 'Diagnostic report text',
 };

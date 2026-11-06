@@ -15,6 +15,7 @@ import asyncio
 import ctypes
 import json
 import logging
+import logging.handlers
 import os
 import platform
 import re
@@ -100,7 +101,7 @@ def set_autostart_status(enabled: bool) -> bool:
 _PROGRESS_COUNTER_RE = re.compile(r'^(.*?)\s*\((\d+)\s*/\s*(\d+)\)\s*$')
 
 
-def report_log_tail(logs: list, limit: int = 40) -> list:
+def report_log_tail(logs: list, limit: int = 120) -> list:
     """Journal entries for the report: level prefix shown once, counter runs folded, then the last `limit`."""
     entries = []
     for item in logs:
@@ -197,6 +198,16 @@ from dimmer_controller import DimmerController
 from notifications import set_enabled as set_native_toasts
 from cover_keeper import COVER_KEEPER
 
+# One file grows without limit (70 MB seen: Notepad cannot open it). The current file plus 5 backups
+# (sentinel_service.log.1 ... .5), 10 MB each, 60 MB at most, is plenty for support. Only this process writes them.
+LOG_FILE_MAX_BYTES = 10 * 1024 * 1024
+LOG_FILE_BACKUPS = 5
+
+
+def make_file_log_handler(path, max_bytes: int = LOG_FILE_MAX_BYTES, backups: int = LOG_FILE_BACKUPS) -> logging.Handler:
+    return logging.handlers.RotatingFileHandler(path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8")
+
+
 class LiveLogCaptureHandler(logging.Handler):
     def emit(self, record):
         try:
@@ -224,7 +235,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(CORE_DIR / "sentinel_service.log", encoding="utf-8"),
+        make_file_log_handler(CORE_DIR / "sentinel_service.log"),
         log_capture,
     ],
 )
@@ -526,6 +537,7 @@ class SentinelSupervisor:
 
     def _setup_routes(self):
         self.app.router.add_get("/api/state", self.handle_get_state)
+        self.app.router.add_get("/api/logs", self.handle_get_logs)
         self.app.router.add_get("/api/catalog", self.handle_get_catalog)
         self.app.router.add_get("/api/verify-game", self.handle_verify_game)
         self.app.router.add_get("/api/search-games", self.handle_search_games)
@@ -800,7 +812,7 @@ class SentinelSupervisor:
             },
             "settings": self.settings,
             "trophies": trophies,
-            "recent_logs": STATE_BRIDGE.recent_logs,
+            **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
             "installed_games": installed_games,
             "ignored_games": sorted(list(self.scanner.load_ignored_games())) if hasattr(self.scanner, "load_ignored_games") else [],
@@ -809,6 +821,13 @@ class SentinelSupervisor:
     async def handle_get_state(self, request: web.Request) -> web.Response:
         state = await self.get_full_state()
         return web.json_response(state)
+
+    async def handle_get_logs(self, request: web.Request) -> web.Response:
+        """The console journal after a cursor: ?after=<seq>&session=<id>. A missing cursor means everything."""
+        raw = request.query.get("after", "0")
+        if not raw.isascii() or not raw.isdigit():
+            raise web.HTTPBadRequest(text=json.dumps({"detail": "after must be a whole number, 0 or more"}), content_type="application/json")
+        return web.json_response(STATE_BRIDGE.logs_after(int(raw), request.query.get("session")))
 
     async def handle_get_catalog(self, request: web.Request) -> web.Response:
         catalog = CAMPAIGNS_FETCHER.get_catalog()

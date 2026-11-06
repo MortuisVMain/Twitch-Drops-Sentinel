@@ -721,7 +721,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       {/* Diagnostic Report Modal (diagModal) */}
       {showDiagModal && (
         <div 
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-in fade-in"
           onClick={() => setShowDiagModal(false)}
         >
           <div 
@@ -730,7 +730,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             aria-modal="true"
             aria-labelledby="diag-title"
             tabIndex={-1}
-            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-6 space-y-4 outline-none"
+            className="report-dialog w-full max-w-4xl border border-[var(--border-main)] rounded-2xl p-6 space-y-4 outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
@@ -751,8 +751,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div 
-              className="obsidian-well p-4 tabular text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-y-auto max-h-[420px]"
-              style={{ lineHeight: 1.6 }}
+              className="obsidian-well report-text p-4 text-xs text-[var(--text-secondary)]"
+              role="region"
+              aria-label="Текст диагностического отчета"
+              tabIndex={0}
             >
               {isLoadingDiag ? 'Сбор телеметрии системы...' : diagContent}
             </div>
