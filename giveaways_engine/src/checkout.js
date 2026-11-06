@@ -4,7 +4,7 @@ const NUMBER = '\\d(?:[\\d\\s.,]*\\d)?';
 const AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|руб)`;
 const WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, 'u');
 const STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, 'u');
-const TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+const TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|to pay now|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 const NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i; // a saving next to the word "total" is not what gets charged
 const FREE_WORD = /^(?:free|бесплатно)\.?$/iu; // Epic and Fab may write the word where the amount would be
 const FREE_STATEMENT = /^This is free\.(?:\s|$)/; // the exact sentence of the checkout, not "free for members"
@@ -43,7 +43,10 @@ export const orderTotalState = (text, { freeWord = false } = {}) => {
     if (!match) continue;
     // A saving is skipped only when the saving word comes before the amount: "Total savings $5.00", but not "Total $9.99 (includes discount)"
     if (NOT_THE_PRICE.test(match[2].split(/\d/)[0])) continue;
-    const amount = match[2] || lines[i + 1] || '';
+    // A "Total" column heading is followed by the asset's name ("2D Minimal - Character Maker"), not by its amount:
+    // digits glued to letters with no money on the line are a name. Anything else on the next line still counts.
+    const next = lines[i + 1] || '';
+    const amount = match[2] || (/^\d+\p{L}/u.test(next) && !hasNonZeroAmount(next) ? '' : next);
     if (hasNonZeroDigit(amount)) return 'paid'; // also a price in a form we cannot read: the order stops either way
     if (WHOLE_AMOUNT.test(amount) || (freeWord && FREE_WORD.test(amount))) {
       state = 'free';

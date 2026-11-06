@@ -299,6 +299,24 @@ test('order totals: a line that says what is charged makes the order paid', () =
   assert.equal(orderTotalState('Survive 100 days, then escape.\nTotal $0.00'), 'free');
 });
 
+// ---------- totals: a "Total" column heading is followed by an asset name, not by the amount ----------
+test('order totals: an asset name such as "2D Minimal" under a Total heading is not a price', () => {
+  // the live Unity checkout (Russian) after the coupon: the item table, then the summary
+  const unity = 'Обзор\nЦена\nКоличество\nВсего\n2D Minimal - Character Maker\n$39.99\n1\n$0.00\nСкидка: -$39.99\n' +
+    'Заплатить немедленно\nСводка\nПокупки (1)\n$39.99\nСкидка\n- $39.99\nПромежуточный итог\n$0.00\nНалог\n$0.00\nК оплате\n$0.00';
+  assert.equal(orderTotalState(unity), 'free');
+  assert.equal(orderTotalState(unity.replace(/К оплате\n\$0\.00$/, 'К оплате\n$23.59')), 'paid');
+  // the same checkout in English names its total "To pay now"
+  const english = 'Overview\nPrice\nQuantity\nTotal\n2D Minimal - Character Maker\n$39.99\n1\n$0.00\nDiscount: -$39.99\n' +
+    'Pay now\nSummary\nPurchases (1)\n$39.99\nDiscount\n- $39.99\nSubtotal\n$0.00\nTax\n$0.00\nTo pay now\n$0.00\nYour coupon code\nLAYERLAB';
+  assert.equal(orderTotalState(english), 'free');
+  assert.equal(orderTotalState(english.replace('To pay now\n$0.00', 'To pay now\n$23.59')), 'paid');
+  // a next line that is or holds money still counts, glued letters or not
+  for (const text of ['Total\n9.99', 'Total\n10руб', 'Total\n9.99USD', 'Total\n2x $5', 'Всего\n3D pack $4.99', 'Total\n2 D-pack', 'Total\nUSD 9.99\nTotal $0.00']) {
+    assert.notEqual(orderTotalState(text), 'free', JSON.stringify(text));
+  }
+});
+
 // ---------- modal loop: a dismissal is an exact label ----------
 test('modal labels: only an exact harmless label is dismissed', () => {
   for (const label of ['Continue', 'continue', ' CONTINUE ', 'Продолжить', 'View Product', 'Agree', 'I Agree', 'Accept', 'I Accept', 'Принять', 'Согласен', 'I understand']) {

@@ -5473,7 +5473,7 @@ var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
 var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
 var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
 var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
-var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
+var TOTAL_LINE = /(?<![\p{L}\d])(?<!sub[\s-])(order total|grand total|total due|total to pay|to pay now|amount due|total|итого к оплате|всего к оплате|сумма к оплате|к оплате|итого|всего|сумма)(?=[\s:(]|$)[\s:]*(?:\([^)]*\))?[\s:]*(.*)$/iu;
 var NOT_THE_PRICE = /saving|saved|discount|скидк|эконом/i;
 var FREE_WORD = /^(?:free|бесплатно)\.?$/iu;
 var FREE_STATEMENT = /^This is free\.(?:\s|$)/;
@@ -5494,7 +5494,8 @@ var orderTotalState = (text, { freeWord = false } = {}) => {
     const match = TOTAL_LINE.exec(line);
     if (!match) continue;
     if (NOT_THE_PRICE.test(match[2].split(/\d/)[0])) continue;
-    const amount = match[2] || lines[i + 1] || "";
+    const next = lines[i + 1] || "";
+    const amount = match[2] || (/^\d+\p{L}/u.test(next) && !hasNonZeroAmount(next) ? "" : next);
     if (hasNonZeroDigit(amount)) return "paid";
     if (WHOLE_AMOUNT.test(amount) || freeWord && FREE_WORD.test(amount)) {
       state = "free";
@@ -5634,8 +5635,17 @@ try {
     const bannerText = await bannerContainer.innerText().catch(() => "") || await page.evaluate(() => document.body.innerText);
     const match = bannerText.match(/coupon code\s+([A-Z0-9_-]+)/i);
     const couponCode = match ? match[1].trim() : null;
-    const giftBtn = page.locator('a:has-text("GET YOUR FREE GIFT")').first();
-    const assetHref = await giftBtn.getAttribute("href").catch(() => null) || "";
+    const assetHref = await page.evaluate(() => {
+      const heading = [...document.querySelectorAll("*")].find((el) => el.children.length === 0 && /^PUBLISHER ASSET GIVEAWAY$/i.test(el.textContent.trim()));
+      for (let block = heading; block; block = block.parentElement) {
+        const link = block.querySelector('a[href*="/packages/"]');
+        if (link) return link.getAttribute("href") || "";
+      }
+      return "";
+    }).catch((err) => {
+      console.warn(`[WARN] Could not read the giveaway link: ${err.message}`);
+      return "";
+    });
     if (!couponCode || !assetHref) {
       console.warn(`[WARN] Could not parse giveaway details: coupon=${couponCode}, href=${assetHref}`);
     } else {
@@ -5703,6 +5713,7 @@ try {
           }
           await page.waitForTimeout(3e3);
           const addressForm = page.locator("#org_address_form");
+          await addressForm.waitFor({ state: "visible", timeout: 15e3 }).catch((err) => console.warn(`[WARN] Unity billing form did not appear: ${err.message.split("\n")[0]}`));
           if (await addressForm.isVisible().catch(() => false)) {
             const missing = [];
             for (const field of ["firstName", "lastName", "email", "phoneNumber", "streetAddress", "postalCode", "locality"]) {
@@ -5715,25 +5726,26 @@ try {
             }
             const vatNoLabel = page.locator('label[for="vatRegisteredNo"]');
             if (await vatNoLabel.isVisible().catch(() => false)) {
-              await vatNoLabel.click().catch(() => {
-              });
+              await vatNoLabel.click().catch((err) => console.warn(`[WARN] Could not answer the Unity tax question: ${err.message.split("\n")[0]}`));
               await page.waitForTimeout(1e3);
+              console.log(`    Tax question answered "No": ${await page.locator("#vatRegisteredNo").isChecked().catch(() => false)}`);
             }
           }
-          const couponActive = await page.locator(`text=${couponCode}`).count() > 0;
-          if (!couponActive) {
-            console.log(`    Applying coupon: ${couponCode}...`);
-            const couponInput = page.locator('dd.input input[type="text"]:visible, input[placeholder*="Coupon" i], input[placeholder*="Promo" i]').first();
-            const applyBtn = page.locator('dd.input button.btn:visible, button:has-text("Apply"), button:has-text("\u041F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C")').first();
-            if (await couponInput.isVisible()) {
-              await couponInput.fill(couponCode);
-              await page.waitForTimeout(1e3);
-              await applyBtn.click();
-              await page.waitForTimeout(4e3);
-            }
+          const couponInput = page.locator('dd.input input[type="text"]:visible, input[placeholder*="Coupon" i]:visible, input[placeholder*="Promo" i]:visible').first();
+          const applyBtn = page.locator("dd.input button.btn:visible").first();
+          const isFree = async () => orderTotalState(await readPageText(page)) === "free";
+          await couponInput.waitFor({ state: "visible", timeout: 15e3 }).catch((err) => console.warn(`[WARN] Unity coupon field did not appear: ${err.message.split("\n")[0]}`));
+          for (let attempt = 1; attempt <= 3 && !await isFree() && await couponInput.isVisible(); attempt++) {
+            console.log(`    Applying coupon: ${couponCode} (attempt ${attempt})...`);
+            await couponInput.fill(couponCode);
+            await page.waitForTimeout(1e3);
+            await applyBtn.click();
+            for (let waited = 0; waited < 8e3 && !await isFree(); waited += 1e3) await page.waitForTimeout(1e3);
           }
           console.log("    Verifying cart total is strictly $0.00 / 0.00...");
           if (!await waitForFreeOrder(page)) {
+            const said = await page.evaluate(() => (document.querySelector("dd.input")?.closest("dl")?.parentElement?.innerText || "").split("\n").map((l) => l.trim()).filter(Boolean).join(" / ").slice(0, 300)).catch((err) => `unreadable: ${err.message}`);
+            console.log(`    Unity coupon block says: ${said || "(nothing)"}`);
             throw new Error("Safety guard tripped: Cart total is not a clear 0. Aborting checkout to prevent accidental charges.");
           }
           console.log("    Accepting purchase terms...");
@@ -5747,7 +5759,7 @@ try {
           await page.waitForTimeout(1e3);
           const payLocator = page.locator([
             'button[type="submit"]:not([disabled])',
-            "button.btn:visible",
+            "button.btn",
             'button:has-text("Pay now")',
             'button:has-text("Complete order")',
             'button:has-text("Confirm")',
@@ -5755,7 +5767,7 @@ try {
             'button:has-text("\u041E\u043F\u043B\u0430\u0442\u0438\u0442\u044C")',
             'button:has-text("\u0417\u0430\u043F\u043B\u0430\u0442\u0438\u0442\u044C \u043D\u0435\u043C\u0435\u0434\u043B\u0435\u043D\u043D\u043E")',
             'button:has-text("\u041F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044C")'
-          ].join(", ")).filter({ hasText: /pay|complete|confirm|order|оплат|подтверд|заказ|немедленно/i }).first();
+          ].map((selector) => `${selector}:visible`).join(", ")).filter({ hasText: /pay|complete|confirm|order|оплат|подтверд|заказ|немедленно/i }).first();
           await payLocator.scrollIntoViewIfNeeded().catch(() => {
           });
           const payBtn = await payLocator.elementHandle({ timeout: 5e3 }).catch(() => null);
@@ -5770,7 +5782,7 @@ try {
             throw new Error(`The checkout button changed right before the order (was "${buttonText}"). Aborting checkout to prevent accidental charges.`);
           }
           console.log("    Submitting final order...");
-          await payBtn.click({ timeout: 2e3 });
+          await payBtn.click({ timeout: 2e3, noWaitAfter: true });
           let orderConfirmed = false;
           for (let i = 0; i < 25; i++) {
             await page.waitForTimeout(1e3);
