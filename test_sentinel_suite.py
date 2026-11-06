@@ -6478,7 +6478,7 @@ def test_claim_status_decides_what_is_announced_and_journaled():
         d._claim = fake
 
     trophies = Path(inventory.__file__).resolve().parent.parent / "Trophies.md"
-    assert str(trophies).startswith(str(SANDBOX)), f"must be the sandbox copy, not the live journal: {trophies}"
+    assert Path(trophies).resolve().is_relative_to(Path(SANDBOX).resolve()), f"must be the sandbox copy, not the live journal: {trophies}"
     original = trophies.read_bytes() if trophies.exists() else None
     saved_notify = notifications.NOTIFIER.notify
     notifications.NOTIFIER.notify = lambda *a, **k: toasts.append(a) or True
