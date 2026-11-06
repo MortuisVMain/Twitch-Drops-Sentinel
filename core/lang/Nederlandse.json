@@ -90,9 +90,9 @@
         "channels": {
             "name": "Kanaal",
             "switch": "Wisselen",
-            "online": "ONLINE ✔",
-            "pending": "OFFLINE ⏳",
-            "offline": "OFFLINE ❌",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Kanaal",
                 "status": "Status",
@@ -112,13 +112,13 @@
                 "refresh": "Vernieuwen"
             },
             "status": {
-                "linked": "Gekoppeld ✔",
-                "not_linked": "Niet gekoppeld ❌",
-                "active": "Actief ✔",
-                "upcoming": "Verwacht ⏳",
-                "expired": "Verlopen ❌",
-                "claimed": "Verkregen ✔",
-                "ready_to_claim": "Klaar om te verkrijgen ⏳"
+                "linked": "Gekoppeld",
+                "not_linked": "Niet gekoppeld",
+                "active": "Actief",
+                "upcoming": "Verwacht",
+                "expired": "Verlopen",
+                "claimed": "Verkregen",
+                "ready_to_claim": "Klaar om te verkrijgen"
             },
             "starts": "Begint: {time}",
             "ends": "Eindigt: {time}",

@@ -1,3 +1,4 @@
+import { ClipboardCopy, Folder, Hourglass, Lock, Moon, Package, Plus, Power, RefreshCw, Stethoscope, Target, Timer, Trash2, TriangleAlert, X, Zap } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
@@ -41,8 +42,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 }) => {
   const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
-  const [scanLabel, setScanLabel] = useState<string>('↻ Пересканировать все диски');
-  const [backupLabel, setBackupLabel] = useState<string>('📦 Бэкап профиля (.zip)');
+  const [scanLabel, setScanLabel] = useState<string>('Пересканировать все диски');
+  const [backupLabel, setBackupLabel] = useState<string>('Бэкап профиля (.zip)');
   const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | null>(null);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
   const diagDialogRef = useRef<HTMLDivElement>(null);
@@ -166,31 +167,31 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
   const handleBackupProfile = async () => {
     playClick();
-    setBackupLabel('📦 Создание архива...');
+    setBackupLabel('Создание архива...');
     try {
       const res = await fetch('http://127.0.0.1:28492/api/backup', { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       playRewardChime();
-      setBackupLabel('✓ БЭКАП СОХРАНЕН (.ZIP)');
+      setBackupLabel('БЭКАП СОХРАНЕН (.ZIP)');
     } catch {
       setBackupLabel('Ошибка создания бэкапа');
     }
     setTimeout(() => {
-      setBackupLabel('📦 Бэкап профиля (.zip)');
+      setBackupLabel('Бэкап профиля (.zip)');
     }, 3500);
   };
 
   const handleRescanClick = async () => {
     playClick();
-    setScanLabel('↻ Сканирование библиотек...');
+    setScanLabel('Сканирование библиотек...');
     try {
       const count = await onRescanGames?.();
-      setScanLabel(typeof count === 'number' ? `✓ Найдено игр: ${count}` : 'Сканирование не подтверждено');
+      setScanLabel(typeof count === 'number' ? `Найдено игр: ${count}` : 'Сканирование не подтверждено');
     } catch (error) {
       setScanLabel('Ошибка сканирования');
     }
     setTimeout(() => {
-      setScanLabel('↻ Пересканировать все диски');
+      setScanLabel('Пересканировать все диски');
     }, 3000);
   };
 
@@ -506,7 +507,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   onUpdateSettings({ auto_shutdown_mode: 'sleep' });
                 }}
               >
-                🌙 Сон (Sleep)
+                <Moon className="ui-icon" aria-hidden="true" focusable="false" /> Сон (Sleep)
               </button>
               <button 
                 className={`tactile-btn ${settings.auto_shutdown_mode === 'shutdown' ? 'active-amber' : ''}`}
@@ -515,7 +516,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   onUpdateSettings({ auto_shutdown_mode: 'shutdown' });
                 }}
               >
-                ⏻ Выключение
+                <Power className="ui-icon" aria-hidden="true" focusable="false" /> Выключение
               </button>
               <button 
                 className={`tactile-btn ${settings.auto_shutdown_mode === 'lock' ? 'active-amber' : ''}`}
@@ -524,7 +525,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   onUpdateSettings({ auto_shutdown_mode: 'lock' });
                 }}
               >
-                🔒 Блокировка
+                <Lock className="ui-icon" aria-hidden="true" focusable="false" /> Блокировка
               </button>
             </div>
             <button
@@ -535,7 +536,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
               title="Только отсчёт на экране: ПК не будет выключен, усыплён или заблокирован"
             >
-              {testCountdown !== null ? `⏱ Отмена (${testCountdown} с)` : '⏱ Проверить таймер (5 с, ПК не затронет)'}
+              <Timer className="ui-icon" aria-hidden="true" focusable="false" /> {testCountdown !== null ? `Отмена (${testCountdown} с)` : 'Проверить таймер (5 с, ПК не затронет)'}
             </button>
           </div>
         </div>
@@ -558,7 +559,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
             >
               <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
-                🎯 Только очередь (рекомендуется)
+                <Target className="ui-icon" aria-hidden="true" focusable="false" /> Только очередь (рекомендуется)
               </div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Фармит только игры из вашей очереди.
@@ -573,7 +574,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
             >
               <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
-                ⚡ Очередь, а если пусто — любые доступные
+                <Zap className="ui-icon" aria-hidden="true" focusable="false" /> Очередь, а если пусто — любые доступные
               </div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Если по очереди нечего фармить (нет кампаний или стримеры офлайн), временно берёт любые доступные дропы.
@@ -588,7 +589,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               }}
             >
               <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
-                ⏳ Очередь, затем кампании, которые скоро закончатся
+                <Hourglass className="ui-icon" aria-hidden="true" focusable="false" /> Очередь, затем кампании, которые скоро закончатся
               </div>
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Сначала ваша очередь, потом кампании с наименьшим оставшимся временем.
@@ -603,14 +604,14 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
               <button className="tactile-btn active-mint" style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
-                + Добавить папку
+                <Plus className="ui-icon" aria-hidden="true" focusable="false" /> Добавить папку
               </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {directories.map((dir, idx) => (
                 <div key={idx} className="obsidian-well tabular" style={{ padding: '6px 10px', fontSize: 'var(--fs-xs)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '340px' }}>📁 {dir}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '340px' }}><Folder className="ui-icon" aria-hidden="true" focusable="false" /> {dir}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ color: 'var(--led-mint)', fontSize: 'var(--fs-xs)' }}>[НАСТРОЕН]</span>
                     <button
@@ -619,7 +620,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                       onClick={() => handleRemoveFolder(dir)}
                       title="Удалить папку"
                     >
-                      ✕
+                      <X className="ui-icon" aria-hidden="true" focusable="false" />
                     </button>
                   </div>
                 </div>
@@ -627,16 +628,16 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div className="obsidian-well tabular" style={{ padding: '7px 10px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>📁 Настроено папок: {directories.length}</span>
+              <span><Folder className="ui-icon" aria-hidden="true" focusable="false" /> Настроено папок: {directories.length}</span>
               <span>Обнаружено игр: {installedCount}</span>
             </div>
 
             <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
               <button className="chunky-cta" style={{ flex: 1 }} onClick={handleRescanClick}>
-                {scanLabel}
+                <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> {scanLabel}
               </button>
               <button className="tactile-btn danger-hover" onClick={handleClearInstalledGames} title="Очистить список">
-                🗑 Очистить кэш / Очистить список
+                <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Очистить кэш / Очистить список
               </button>
             </div>
           </div>
@@ -645,7 +646,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
       {/* Danger zone: destructive actions live apart from everyday buttons and always ask first */}
       <div className="danger-zone" role="group" aria-label="Опасная зона">
-        <span className="danger-zone-title">⚠ Опасная зона</span>
+        <span className="danger-zone-title"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Опасная зона</span>
         <div className="danger-zone-item">
           {pendingDanger === 'trophies' ? (
             <>
@@ -692,7 +693,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
             
             <button className="tactile-btn" onClick={handleBackupProfile}>
-              {backupLabel}
+              <Package className="ui-icon" aria-hidden="true" focusable="false" /> {backupLabel}
             </button>
           </div>
 
@@ -713,7 +714,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               {isCheckingUpdates ? 'Проверка...' : 'Проверить обновления'}
             </button>
             <button className="tactile-btn" onClick={handleOpenDiag} title="Диагностический отчет">
-              🩺 Отчет
+              <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Отчет
             </button>
           </div>
         </div>
@@ -737,7 +738,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <div className="flex items-center gap-2">
                 <span className="led-dot"></span>
                 <h3 id="diag-title" className="text-sm font-bold tracking-[0.04em] uppercase text-[var(--text-primary)]">
-                  🩺 ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ
+                  <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> ДИАГНОСТИЧЕСКИЙ ОТЧЕТ СИСТЕМЫ
                 </h3>
               </div>
               <button 
@@ -746,7 +747,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 style={{ height: '24px', width: '24px', padding: 0 }}
                 onClick={() => setShowDiagModal(false)}
               >
-                ✕
+                <X className="ui-icon" aria-hidden="true" focusable="false" />
               </button>
             </div>
 
@@ -767,7 +768,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 className="tactile-btn active-mint"
                 onClick={handleCopyDiagnosticReport}
               >
-                📋 Скопировать отчет
+                <ClipboardCopy className="ui-icon" aria-hidden="true" focusable="false" /> Скопировать отчет
               </button>
             </div>
           </div>

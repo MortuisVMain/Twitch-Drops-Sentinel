@@ -743,10 +743,10 @@ class Twitch:
                     forced_campaigns = [c for c in self.inventory if _is_forced(c.game.name)]
                     all_finished = bool(forced_campaigns and all(c.finished for c in forced_campaigns))
                     if all_finished:
-                        logger.info(f"[FORCED FARM] 🏆 Все доступные Drops для игры '{forced_game_target}' уже получены (100%)! Возврат в авто-режим.")
+                        logger.info(f"[FORCED FARM] Все доступные Drops для игры '{forced_game_target}' уже получены (100%)! Возврат в авто-режим.")
                         try:
                             from gui_headless import STATE_BRIDGE
-                            STATE_BRIDGE.add_log("INFO", f"🏆 Все награды для '{forced_game_target}' уже собраны (100%). Возврат в авто-режим.")
+                            STATE_BRIDGE.add_log("INFO", f"Все награды для '{forced_game_target}' уже собраны (100%). Возврат в авто-режим.")
                             STATE_BRIDGE.forced_game = None
                         except Exception as exc:
                             logger.debug("Could not notify STATE_BRIDGE of forced_game clear: %s", exc)
@@ -1082,14 +1082,14 @@ class Twitch:
             NOTIFIER.notify_new(
                 "campaign_started",
                 [(c.id, c.game.name) for c in queue_campaigns if c.linked],
-                "Twitch Drops Sentinel 🎮",
+                "Twitch Drops Sentinel",
                 lambda game: f"Началась кампания для игры из очереди: {game}",
                 lambda games: f"Начались кампании для игр из очереди ({len(games)}): {', '.join(games[:3])} и другие",
             )
             NOTIFIER.notify_new(
                 "needs_link",
                 [(c.id, c.game.name) for c in queue_campaigns if not c.linked],
-                "Twitch Drops Sentinel 🔗",
+                "Twitch Drops Sentinel",
                 lambda game: f"{game}: кампания ждёт привязки аккаунта игры",
                 lambda games: f"Кампании ждут привязки аккаунта ({len(games)}): {', '.join(games[:3])} и другие",
             )
@@ -1426,10 +1426,10 @@ class Twitch:
             from gui_headless import STATE_BRIDGE
             STATE_BRIDGE.forced_game = self.forced_game
             if self.forced_game:
-                STATE_BRIDGE.add_log("INFO", f"⚡ Принудительный фокус на игре: {self.forced_game}")
+                STATE_BRIDGE.add_log("INFO", f"Принудительный фокус на игре: {self.forced_game}")
                 logger.info(f"[FORCED FARM] Установлен принудительный фокус на игре: '{self.forced_game}'")
             else:
-                STATE_BRIDGE.add_log("INFO", "✕ Принудительный фокус сброшен. Возврат в авто-режим.")
+                STATE_BRIDGE.add_log("INFO", "Принудительный фокус сброшен. Возврат в авто-режим.")
                 logger.info("[FORCED FARM] Принудительный фокус сброшен.")
         except Exception as exc:
             logger.debug("Could not set forced_game in STATE_BRIDGE: %s", exc)
@@ -1538,8 +1538,8 @@ class Twitch:
                         # Channel stays ONLINE, but we can't watch it anymore
                         logger.info(
                             f"{channel.name} status has been updated, switching... "
-                            f"(🎁: {stream_before.drops_enabled and '✔' or '❌'} -> "
-                            f"{stream_after.drops_enabled and '✔' or '❌'})"
+                            f"(drops: {stream_before.drops_enabled and 'enabled' or 'disabled'} -> "
+                            f"{stream_after.drops_enabled and 'enabled' or 'disabled'})"
                         )
                     self.change_state(State.CHANNEL_SWITCH)
                 else:
@@ -1552,8 +1552,8 @@ class Twitch:
                 # Channel stays ONLINE, but has been updated
                 logger.info(
                     f"{channel.name} status has been updated "
-                    f"(🎁: {stream_before.drops_enabled and '✔' or '❌'} -> "
-                    f"{stream_after.drops_enabled and '✔' or '❌'})"
+                    f"(drops: {stream_before.drops_enabled and 'enabled' or 'disabled'} -> "
+                    f"{stream_after.drops_enabled and 'enabled' or 'disabled'})"
                 )
                 if self.should_switch(channel):
                     # ... and we should watch it
@@ -1676,7 +1676,7 @@ class Twitch:
                     await self.gql_request(claim_query)
                     from gui_headless import STATE_BRIDGE
                     STATE_BRIDGE.channel_points_earned += 50
-                    logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Успешно забран сундук через WebSocket! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
+                    logger.info(f"[БАЛЛЫ КАНАЛА] Успешно забран сундук через WebSocket! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
                 except Exception as e:
                     logger.debug(f"Error claiming points via PubSub: {e}")
 
@@ -1721,7 +1721,7 @@ class Twitch:
                     await asyncio.wait_for(self.gql_request(claim_query), timeout=15)
                     from gui_headless import STATE_BRIDGE
                     STATE_BRIDGE.channel_points_earned += 50
-                    logger.info(f"🪙 [БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
+                    logger.info(f"[БАЛЛЫ КАНАЛА] Забран бонусный сундук баллов на канале {channel.name}! (+50 баллов, всего: {STATE_BRIDGE.channel_points_earned})")
                     return 50
         except Exception as e:
             self._warn_points_once("request failed", f"ChannelPointsContext check for {channel.name} failed: {e}", exc_info=True)

@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import React, { useState } from 'react';
 import { PHOTO_BACKDROPS, PhotoPreview } from './PhotoBackdrop';
 import { ThemedThumb } from './ThemedThumb';
@@ -181,7 +182,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
             ))}
             <button type="button" className="ap-more" aria-expanded={classicOpen} onClick={() => setClassicOpen(o => !o)}>
               <span>Классические фоны · {CLASSIC_COUNT}</span>
-              <span aria-hidden="true">{classicOpen ? '▴' : '▾'}</span>
+              <span aria-hidden="true">{classicOpen ? <ChevronUp className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />}</span>
             </button>
             {classicOpen && <div className="ap-grid">{BACKDROPS.filter(b => b.group === 'classic').map(card)}</div>}
           </div>

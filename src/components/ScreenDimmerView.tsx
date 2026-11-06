@@ -1,3 +1,4 @@
+import { HardDrive, Keyboard, Laptop, Link, Monitor, Moon, Mouse, RefreshCw, Shield, Sun, Sunset, Unlink, VolumeX } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DisplayMonitor } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
@@ -9,11 +10,11 @@ interface ScreenDimmerViewProps {
 }
 
 const BRIGHTNESS_PRESETS = [
-  { label: '🌑 Блэкаут 0%', val: 0, hint: 'Блэкаут 0%' },
-  { label: '🌘 Ночь 15%', val: 15, hint: 'Ночь 15%' },
-  { label: '🌤️ Комфорт 40%', val: 40, hint: 'Комфорт 40%' },
-  { label: '☀️ Работа 75%', val: 75, hint: 'Работа 75%' },
-  { label: '✨ Максимум 100%', val: 100, hint: 'Максимум 100%' },
+  { label: 'Блэкаут 0%', val: 0, hint: 'Блэкаут 0%' },
+  { label: 'Ночь 15%', val: 15, hint: 'Ночь 15%' },
+  { label: 'Комфорт 40%', val: 40, hint: 'Комфорт 40%' },
+  { label: 'Работа 75%', val: 75, hint: 'Работа 75%' },
+  { label: 'Максимум 100%', val: 100, hint: 'Максимум 100%' },
 ];
 
 const SLEEP_TIMER_PRESETS = [
@@ -348,7 +349,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         solo_index: idx,
       });
       addBusLog(`Экран #${idx + 1} затемнён отдельно от остальных`, 'warn');
-      if (showToast) showToast(`🌑 Затемнён только экран #${idx + 1}`);
+      if (showToast) showToast(`Затемнён только экран #${idx + 1}`);
     }
   };
 
@@ -366,12 +367,12 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     });
 
     if (nextState) {
-      addBusLog('🌑 Ночной блэкаут (0%) включён. ПК не засыпает и продолжает фарм.', 'warn');
-      if (showToast) showToast('🌑 Ночной блэкаут включён: ПК не спит и продолжает фарм');
+      addBusLog('Ночной блэкаут (0%) включён. ПК не засыпает и продолжает фарм.', 'warn');
+      if (showToast) showToast('Ночной блэкаут включён: ПК не спит и продолжает фарм');
     } else {
       handleMasterChange(masterBrightness > 0 ? masterBrightness : 75);
-      addBusLog(`☀️ Экраны пробуждены (${masterBrightness || 75}%).`, 'success');
-      if (showToast) showToast(`☀️ Экраны пробуждены (${masterBrightness || 75}%)`);
+      addBusLog(`Экраны пробуждены (${masterBrightness || 75}%).`, 'success');
+      if (showToast) showToast(`Экраны пробуждены (${masterBrightness || 75}%)`);
     }
   };
 
@@ -388,8 +389,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
       return copy;
     });
     sendDimmerCommand('SAVE_BASELINE');
-    addBusLog(`💾 База для экрана #${idx + 1} (${monitorLabel(mon, idx)}): ${cur}%`, 'success');
-    if (showToast) showToast(`💾 База #${idx + 1} сохранена: ${cur}%`);
+    addBusLog(`База для экрана #${idx + 1} (${monitorLabel(mon, idx)}): ${cur}%`, 'success');
+    if (showToast) showToast(`База #${idx + 1} сохранена: ${cur}%`);
   };
 
   const handleRestoreSingleBaseline = (idx: number) => {
@@ -398,8 +399,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     if (!mon) return;
     const target = mon.baseline_brightness ?? mon.current_brightness;
     handleSingleMonitorChange(idx, target);
-    addBusLog(`☀️ Экран #${idx + 1} возвращён к базе: ${target}%`, 'success');
-    if (showToast) showToast(`☀️ Дисплей #${idx + 1} возвращен к базе ${target}%`);
+    addBusLog(`Экран #${idx + 1} возвращён к базе: ${target}%`, 'success');
+    if (showToast) showToast(`Дисплей #${idx + 1} возвращен к базе ${target}%`);
   };
 
   // Pro-Audio Rotary Drag: Relative delta tracking ensures ZERO jumping to 100% on start or near 0%
@@ -468,8 +469,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     sendDimmerCommand('SAVE_BASELINE');
     setMonitors(prev => prev.map(m => ({ ...m, baseline_brightness: m.current_brightness })));
     const summary = monitors.map((m, i) => `#${i + 1} (${monitorLabel(m, i)}): ${m.current_brightness}%`).join(' • ');
-    addBusLog(`💾 Базовый профиль сохранен: ${summary}`, 'success');
-    if (showToast) showToast(`💾 Базовая яркость сохранена! (${summary})`);
+    addBusLog(`Базовый профиль сохранен: ${summary}`, 'success');
+    if (showToast) showToast(`Базовая яркость сохранена! (${summary})`);
   };
 
   const handleRestoreBaseline = () => {
@@ -486,16 +487,16 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     const avg = targets.length > 0 ? Math.round(targets.reduce((a, b) => a + b, 0) / targets.length) : 75;
     setMasterBrightness(avg);
     const summary = monitors.map((m, i) => `#${i + 1}: ${m.baseline_brightness ?? m.current_brightness}%`).join(' • ');
-    addBusLog(`☀️ Восстановлена базовая яркость: ${summary} (общая: ${avg}%)`, 'success');
-    if (showToast) showToast(`☀️ Базовая яркость восстановлена! (${summary})`);
+    addBusLog(`Восстановлена базовая яркость: ${summary} (общая: ${avg}%)`, 'success');
+    if (showToast) showToast(`Базовая яркость восстановлена! (${summary})`);
   };
 
   const handleScanHardware = () => {
     playClick();
     setScanAttempt((n) => n + 1);
     sendDimmerCommand('SCAN_MONITORS');
-    addBusLog('🔄 Опрашиваю мониторы: читаю их реальную яркость...', 'info');
-    if (showToast) showToast('🔄 Опрос физических дисплеев выполнен');
+    addBusLog('Опрашиваю мониторы: читаю их реальную яркость...', 'info');
+    if (showToast) showToast('Опрос физических дисплеев выполнен');
   };
 
   const handleApplyScenario = (extBri: number, laptopBri: number, title: string) => {
@@ -523,7 +524,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     sendDimmerCommand('SET_TIMER', { minutes: mins });
     addBusLog(mins > 0 ? `Таймер сна: ${mins} минут` : 'Таймер сна отключен', 'info');
     if (showToast) {
-      showToast(mins > 0 ? `⏱️ Таймер сна установлен на ${mins} мин` : '⏱️ Таймер сна отключен');
+      showToast(mins > 0 ? `Таймер сна установлен на ${mins} мин` : 'Таймер сна отключен');
     }
   };
 
@@ -534,7 +535,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     sendDimmerCommand('SET_MUTE_ON_BLACKOUT', { enabled: next });
     addBusLog(`Отключение звука при затемнении: ${next ? 'включено' : 'выключено'}`, next ? 'warn' : 'info');
     if (showToast) {
-      showToast(next ? '🔇 Звук будет выключаться при затемнении' : '🔊 Звук при затемнении не выключается');
+      showToast(next ? 'Звук будет выключаться при затемнении' : 'Звук при затемнении не выключается');
     }
   };
 
@@ -545,7 +546,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
     sendDimmerCommand('SET_ULTRA_DARK', { enabled: next, tint: ultraDarkTint });
     addBusLog(`Сверхтемнота: ${next ? `включена (${ultraDarkTint}%)` : 'выключена'}`, next ? 'success' : 'info');
     if (showToast) {
-      showToast(next ? `🌌 Сверхтемнота активирована (${ultraDarkTint}%)` : 'Сверхтемнота отключена');
+      showToast(next ? `Сверхтемнота активирована (${ultraDarkTint}%)` : 'Сверхтемнота отключена');
     }
   };
 
@@ -589,11 +590,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 onClick={() => {
                   playClick();
                   setIsLinked(!isLinked);
-                  if (showToast) showToast(isLinked ? 'Мониторы регулируются раздельно' : '🔗 Все мониторы меняются вместе');
+                  if (showToast) showToast(isLinked ? 'Мониторы регулируются раздельно' : 'Все мониторы меняются вместе');
                 }}
                 title="Синхронно: общая яркость меняет все мониторы сразу. Раздельно: каждый монитор настраивается сам."
               >
-                {isLinked ? '🔗 Синхронно' : '🔓 Раздельно'}
+                {isLinked ? <Link className="ui-icon" aria-hidden="true" focusable="false" /> : <Unlink className="ui-icon" aria-hidden="true" focusable="false" />} {isLinked ? 'Синхронно' : 'Раздельно'}
               </button>
               <button
                 className="tactile-btn"
@@ -601,7 +602,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 onClick={handleScanHardware}
                 title="Перечитать реальную яркость мониторов"
               >
-                🔄 Опрос
+                <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Опрос
               </button>
               <span className="metric-badge" style={{ fontSize: 'var(--fs-xs)', padding: '2px 6px' }}>
                 {monitors.length ? `${monitors.length} ${monitors.length === 1 ? 'монитор' : monitors.length < 5 ? 'монитора' : 'мониторов'}` : phase === 'waiting' ? 'загрузка…' : phase === 'timeout' ? 'нет данных' : 'мониторы не найдены'}
@@ -654,7 +655,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0 }} title={`${mon.name}${mon.device_name ? ` • ${mon.device_name}` : ''}`}>
-                      <span style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.3 }}>{mon.is_laptop_internal ? '💻' : '🖥️'}</span>
+                      <span style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.3 }}>{mon.is_laptop_internal ? <Laptop className="ui-icon" aria-hidden="true" focusable="false" /> : <Monitor className="ui-icon" aria-hidden="true" focusable="false" />}</span>
                       <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>
                         #{idx + 1} {label}
                       </span>
@@ -692,7 +693,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>🌑</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}><Moon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                     <input
                       type="range"
                       min="0"
@@ -703,11 +704,11 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       onChange={e => handleSingleMonitorChange(idx, Number(e.target.value))}
                       style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent-mint)', cursor: locked ? 'not-allowed' : 'pointer' }}
                     />
-                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>☀️</span>
+                    <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}><Sun className="ui-icon" aria-hidden="true" focusable="false" /></span>
                   </div>
 
                   <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-                    {isSoloThis ? '● Затемнён отдельно' : isLinked ? '🔗 Синхронно с общей' : '🔓 Независимо'}
+                    {isSoloThis ? 'Затемнён отдельно' : isLinked ? 'Синхронно с общей' : 'Независимо'}
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
@@ -717,7 +718,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       onClick={() => handleSaveSingleBaseline(idx)}
                       title={`Запомнить текущие ${mon.current_brightness}% как базовую яркость этого монитора`}
                     >
-                      💾 Запомнить как базу
+                      <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> Запомнить как базу
                     </button>
                     <button
                       className="tactile-btn active-mint"
@@ -725,7 +726,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       onClick={() => handleRestoreSingleBaseline(idx)}
                       title={`Вернуть этот монитор к базовой яркости (${baseBri}%)`}
                     >
-                      ☀️ Вернуть к базе
+                      <Sun className="ui-icon" aria-hidden="true" focusable="false" /> Вернуть к базе
                     </button>
                     <button
                       className={`tactile-btn ${isSoloThis ? 'active-rose' : ''}`}
@@ -733,7 +734,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       onClick={() => handleToggleSoloBlackout(idx)}
                       title={isSoloThis ? 'Включить этот монитор обратно' : 'Погасить только этот монитор, остальные не трогать'}
                     >
-                      {isSoloThis ? '● Затемнён — включить' : '🌑 Затемнить только этот'}
+                      {isSoloThis ? 'Затемнён — включить' : 'Затемнить только этот'}
                     </button>
                   </div>
                 </div>
@@ -748,7 +749,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               onClick={handleSaveBaseline}
               title="Зафиксировать текущую яркость ВСЕХ мониторов как базовую"
             >
-              💾 Запомнить все как базу
+              <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> Запомнить все как базу
             </button>
             <button
               className="tactile-btn active-mint"
@@ -756,7 +757,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               onClick={handleRestoreBaseline}
               title="Вернуть базовую яркость всех мониторов"
             >
-              <span>☀️ Вернуть базу всем</span>
+              <span><Sun className="ui-icon" aria-hidden="true" focusable="false" /> Вернуть базу всем</span>
               <span style={{ fontSize: 'var(--fs-xs)', fontFamily: 'var(--font-ui)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,0,0,0.4)', color: '#ffffff' }}>
                 Alt+Shift+Backspace
               </span>
@@ -771,7 +772,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               <span className="led-dot"></span> <span title="Общая яркость всех дисплеев (диск)">ОБЩАЯ ЯРКОСТЬ</span>
             </span>
             <span className="metric-badge" style={{ color: 'var(--accent-mint)', fontWeight: 700 }}>
-              {monitors.length === 0 ? '—' : isBlackout ? '🌑 0%' : `☀️ ${masterBrightness}%`}
+              {monitors.length === 0 ? '—' : isBlackout ? '0%' : `${masterBrightness}%`}
             </span>
           </div>
 
@@ -909,26 +910,26 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             <button
               className="tactile-btn"
               style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
-              onClick={() => handleApplyScenario(85, 75, '☀️ День')}
+              onClick={() => handleApplyScenario(85, 75, 'День')}
               title="Внешние: 85%, ноутбук: 75%"
             >
-              ☀️ День
+              <Sun className="ui-icon" aria-hidden="true" focusable="false" /> День
             </button>
             <button
               className="tactile-btn"
               style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
-              onClick={() => handleApplyScenario(45, 40, '🌆 Вечер')}
+              onClick={() => handleApplyScenario(45, 40, 'Вечер')}
               title="Внешние: 45%, ноутбук: 40%"
             >
-              🌆 Вечер
+              <Sunset className="ui-icon" aria-hidden="true" focusable="false" /> Вечер
             </button>
             <button
               className="tactile-btn"
               style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
-              onClick={() => handleApplyScenario(15, 10, '🌑 Ночь')}
+              onClick={() => handleApplyScenario(15, 10, 'Ночь')}
               title="Внешние: 15%, ноутбук: 10%"
             >
-              🌑 Ночь
+              <Moon className="ui-icon" aria-hidden="true" focusable="false" /> Ночь
             </button>
           </div>
 
@@ -952,7 +953,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             onClick={handleTriggerBlackout}
             title="Мгновенно погасить все экраны до 0%. ПК продолжает работать на полной мощности."
           >
-            <span>{isBlackout ? '☀️ ПРОБУДИТЬ ЭКРАНЫ' : '🌑 НОЧНОЙ БЛЭКАУТ (0%)'}</span>
+            <span>{isBlackout ? <Sun className="ui-icon" aria-hidden="true" focusable="false" /> : <Moon className="ui-icon" aria-hidden="true" focusable="false" />} {isBlackout ? 'ПРОБУДИТЬ ЭКРАНЫ' : 'НОЧНОЙ БЛЭКАУТ (0%)'}</span>
             <span
               style={{
                 fontSize: 'var(--fs-xs)',
@@ -987,7 +988,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 color: sleepTimerMinutes > 0 ? 'var(--accent-mint)' : 'var(--text-muted)',
               }}
             >
-              {sleepTimerMinutes > 0 ? `● ${sleepTimerMinutes} мин` : '○ Отключен'}
+              {sleepTimerMinutes > 0 ? `${sleepTimerMinutes} мин` : 'Отключен'}
             </span>
           </div>
 
@@ -1044,7 +1045,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-heading)' }}>
-                  🔇 Выключать звук при затемнении
+                  <VolumeX className="ui-icon" aria-hidden="true" focusable="false" /> Выключать звук при затемнении
                 </span>
                 <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                   Звук возвращается, когда экраны просыпаются
@@ -1055,7 +1056,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                 style={{ minHeight: '20px', fontSize: 'var(--fs-xs)', padding: '0 6px' }}
                 onClick={handleToggleMuteAudio}
               >
-                {muteAudioOnBlackout ? '✓ ВКЛ' : 'ВЫКЛ'}
+                {muteAudioOnBlackout ? 'ВКЛ' : 'ВЫКЛ'}
               </button>
             </div>
 
@@ -1073,7 +1074,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
             >
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--text-heading)' }}>
-                  🛡️ Защита от случайных кликов
+                  <Shield className="ui-icon" aria-hidden="true" focusable="false" /> Защита от случайных кликов
                 </span>
                 <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
                   Блэкаут снимается только по Esc или Alt+Backspace
@@ -1098,7 +1099,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               onClick={handleToggleUltraDark}
               title="Включить затемнение сильнее, чем позволяет подсветка монитора"
             >
-              {ultraDarkActive ? '● АКТИВЕН' : '○ ВКЛЮЧИТЬ'}
+              {ultraDarkActive ? 'АКТИВЕН' : 'ВКЛЮЧИТЬ'}
             </button>
           </div>
 
@@ -1217,13 +1218,13 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span>⌨️ <strong style={{ color: 'var(--text-heading)' }}>Alt + Backspace:</strong> блэкаут (0%)</span>
+          <span><Keyboard className="ui-icon" aria-hidden="true" focusable="false" /> <strong style={{ color: 'var(--text-heading)' }}>Alt + Backspace:</strong> блэкаут (0%)</span>
           <span>•</span>
-          <span>⌨️ <strong style={{ color: 'var(--accent-mint)' }}>Alt + Shift + Backspace:</strong> вернуть базовую яркость (работает и из игр)</span>
+          <span><Keyboard className="ui-icon" aria-hidden="true" focusable="false" /> <strong style={{ color: 'var(--accent-mint)' }}>Alt + Shift + Backspace:</strong> вернуть базовую яркость (работает и из игр)</span>
           <span>•</span>
           <span><strong style={{ color: 'var(--text-heading)' }}>Esc:</strong> выйти из блэкаута</span>
           <span>•</span>
-          <span>🖱️ <strong style={{ color: 'var(--text-heading)' }}>Колесо над диском:</strong> ±5%</span>
+          <span><Mouse className="ui-icon" aria-hidden="true" focusable="false" /> <strong style={{ color: 'var(--text-heading)' }}>Колесо над диском:</strong> ±5%</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-mint)' }}>
           <span className="led-dot" style={{ width: '5px', height: '5px' }}></span>

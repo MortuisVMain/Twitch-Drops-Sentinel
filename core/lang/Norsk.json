@@ -90,9 +90,9 @@
     "channels": {
       "name": "Kanaler",
       "switch": "Bytt",
-      "online": "ONLINE  ✔",
-      "pending": "OFFLINE ⏳",
-      "offline": "OFFLINE ❌",
+      "online": "ONLINE",
+      "pending": "OFFLINE",
+      "offline": "OFFLINE",
       "headings": {
         "channel": "Kanal",
         "status": "Status",
@@ -112,13 +112,13 @@
         "refresh": "Oppdater"
       },
       "status": {
-        "linked": "Koblet ✔",
-        "not_linked": "Ikke koblet ❌",
-        "active": "Aktiv ✔",
-        "upcoming": "Kommende ⏳",
-        "expired": "Utløpt ❌",
-        "claimed": "Hentet ✔",
-        "ready_to_claim": "Klar til henting ⏳"
+        "linked": "Koblet",
+        "not_linked": "Ikke koblet",
+        "active": "Aktiv",
+        "upcoming": "Kommende",
+        "expired": "Utløpt",
+        "claimed": "Hentet",
+        "ready_to_claim": "Klar til henting"
       },
       "starts": "Starter: {time}",
       "ends": "Slutter: {time}",

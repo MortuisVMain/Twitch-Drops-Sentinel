@@ -303,7 +303,7 @@ export function useSentinelState(
       // Standalone mode
     }
 
-    showToast(isLinked ? `Привязка для "${gameName}" снята` : `"${gameName}" отмечена как привязанная ✓`);
+    showToast(isLinked ? `Привязка для "${gameName}" снята` : `"${gameName}" отмечена как привязанная`);
   };
 
   // The only way settings are saved: merge into the latest state, post just the changed fields
@@ -372,7 +372,7 @@ export function useSentinelState(
     }
 
     playRewardChime();
-    showToast(`🏆 Награда "${sentinelState.active_drop.name}" успешно зачислена в инвентарь!`);
+    showToast(`Награда "${sentinelState.active_drop.name}" успешно зачислена в инвентарь!`);
   };
 
   // Manual Refresh
@@ -394,10 +394,10 @@ export function useSentinelState(
           }));
         }
         setLastSyncAt(Date.now());
-        showToast('✓ Данные Twitch Drops успешно обновлены');
+        showToast('Данные Twitch Drops успешно обновлены');
       }
     } catch {
-      showToast('✓ Локальное состояние актуализировано');
+      showToast('Локальное состояние актуализировано');
     }
   };
 
@@ -420,7 +420,7 @@ export function useSentinelState(
       await handleManualRefresh();
       const count = data.installed_count ?? data.games?.length;
       if (typeof count !== 'number') throw new Error('В ответе сервиса нет количества найденных игр');
-      showToast(`✓ Найдено установленных игр: ${count}`);
+      showToast(`Найдено установленных игр: ${count}`);
       return count;
     } catch (error) {
       showToast(`Не удалось завершить сканирование: ${error instanceof Error ? error.message : String(error)}`);
@@ -456,13 +456,13 @@ export function useSentinelState(
     } catch {
       // Standalone mode
     }
-    showToast(willPause ? '⏸️ Фарм приостановлен пользователем' : '▶️ Фарм возобновлен в штатном режиме');
+    showToast(willPause ? 'Фарм приостановлен пользователем' : 'Фарм возобновлен в штатном режиме');
   };
 
   // Switch Streamer to next available channel in the current game campaign
   const handleSwitchStreamer = async (skipGame: boolean = false) => {
     playClick();
-    showToast(skipGame ? '🔀 Ротация игры: переход к следующей...' : '🔀 Смена стримера: поиск следующей активной трансляции...');
+    showToast(skipGame ? 'Ротация игры: переход к следующей...' : 'Смена стримера: поиск следующей активной трансляции...');
     try {
       await fetch('http://127.0.0.1:28492/api/switch-streamer', {
         method: 'POST',
@@ -471,7 +471,7 @@ export function useSentinelState(
       });
       setTimeout(handleManualRefresh, 1200);
     } catch {
-      showToast('✓ Команда ротации стримера отправлена');
+      showToast('Команда ротации стримера отправлена');
     }
   };
 
@@ -487,7 +487,7 @@ export function useSentinelState(
     // Swap positions
     [current[idx], current[targetIdx]] = [current[targetIdx], current[idx]];
     await saveSettingsChange({ priority_games: current });
-    showToast(`⭐ Приоритет обновлен: ${gameName} перемещен ${direction === 'up' ? 'выше' : 'ниже'}`);
+    showToast(`Приоритет обновлен: ${gameName} перемещен ${direction === 'up' ? 'выше' : 'ниже'}`);
   };
 
   // Manual Farm Override (Принудительный запуск фарма выбранной игры)
@@ -501,12 +501,12 @@ export function useSentinelState(
         body: JSON.stringify({ game: gameName }),
       });
       if (res.ok) {
-        showToast(`⚡ Принудительный фокус: ${gameName}`);
+        showToast(`Принудительный фокус: ${gameName}`);
       } else {
-        showToast(`⚠️ Не удалось переключить фарм на ${gameName}`);
+        showToast(`Не удалось переключить фарм на ${gameName}`);
       }
     } catch {
-      showToast(`⚡ Принудительный фокус: ${gameName}`);
+      showToast(`Принудительный фокус: ${gameName}`);
     }
   };
 
@@ -519,7 +519,7 @@ export function useSentinelState(
     const filtered = existing.filter((c) => c.name.toLowerCase() !== channelName.toLowerCase());
     const newIgnored = [...filtered, { name: channelName, until, reason }];
     await saveSettingsChange({ ignored_channels: newIgnored });
-    showToast(isSnooze2h ? `⏳ Канал "${channelName}" скрыт на 2 часа` : `🚫 Канал "${channelName}" добавлен в чёрный список`);
+    showToast(isSnooze2h ? `Канал "${channelName}" скрыт на 2 часа` : `Канал "${channelName}" добавлен в чёрный список`);
     handleSwitchStreamer(false);
   };
 
@@ -529,7 +529,7 @@ export function useSentinelState(
     const existing = sentinelState.settings.ignored_channels || [];
     const newIgnored = existing.filter((c) => c.name.toLowerCase() !== channelName.toLowerCase());
     await saveSettingsChange({ ignored_channels: newIgnored });
-    showToast(`✓ Канал "${channelName}" удалён из черного списка`);
+    showToast(`Канал "${channelName}" удалён из черного списка`);
   };
 
   // Cancel Manual Farm Override (Возврат в авто-очередь)
@@ -541,9 +541,9 @@ export function useSentinelState(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      showToast('✕ Ручной фокус сброшен. Возврат в авто-очередь.');
+      showToast('Ручной фокус сброшен. Возврат в авто-очередь.');
     } catch {
-      showToast('✕ Ручной фокус сброшен.');
+      showToast('Ручной фокус сброшен.');
     }
   };
 

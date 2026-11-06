@@ -1,3 +1,4 @@
+import { Ban, ChevronRight, ClipboardCopy, Clock, FileText, HardDrive, Play, Plus, SkipForward, Star, Zap } from 'lucide-react';
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { 
   KeyRound, ShieldAlert, Copy, Check, ExternalLink, RefreshCw, 
@@ -577,7 +578,7 @@ const filteredLogs = useMemo(() => {
                             disabled={!item.state.linkUrl}
                             title={item.state.linkUrl ? `Открыть страницу привязки: ${item.state.linkUrl}` : 'Ссылка на привязку не передана'}
                           >
-                            {campaignLabel(item.state)} ↗
+                            {campaignLabel(item.state)} <ExternalLink className="ui-icon" aria-hidden="true" focusable="false" />
                           </button>
                         ) : (
                           campaignLabel(item.state)
@@ -602,7 +603,7 @@ const filteredLogs = useMemo(() => {
                           style={{ opacity: item.priorityIndex === 0 ? 0.2 : 1 }}
                           title="Поднять в очереди"
                         >
-                          ▲
+                          <ChevronUp className="ui-icon" aria-hidden="true" focusable="false" />
                         </button>
                         <button
                           onClick={() => {
@@ -613,7 +614,7 @@ const filteredLogs = useMemo(() => {
                           style={{ opacity: item.priorityIndex === priorityList.length - 1 ? 0.2 : 1 }}
                           title="Опустить в очереди"
                         >
-                          ▼
+                          <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />
                         </button>
                       </div>
                     )}
@@ -658,7 +659,7 @@ const filteredLogs = useMemo(() => {
             onClick={() => handleIgnoreDetectedProcess(hardware.detected_game!)}
             title="Это не игра (Игнорировать)"
           >
-            ⚡ Это не игра (Игнорировать)
+            <Zap className="ui-icon" aria-hidden="true" focusable="false" /> Это не игра (Игнорировать)
           </button>
         </div>
       )}
@@ -667,7 +668,7 @@ const filteredLogs = useMemo(() => {
       {oauthCode && (
         <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
-            <KeyRound className="w-4 h-4 text-amber-400 animate-pulse" />
+            <KeyRound className="w-4 h-4 text-amber-400 animate-pulse" aria-hidden="true" focusable="false" />
             <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ТРЕБУЕТСЯ АВТОРИЗАЦИЯ TWITCH:</strong>
             <span style={{ color: 'var(--text-secondary)' }}>
               Код привязки устройства: <strong className="tabular" style={{ color: '#fff', fontSize: 'var(--fs-sm)', userSelect: 'all', cursor: 'text' }}>{oauthCode}</strong>
@@ -683,8 +684,8 @@ const filteredLogs = useMemo(() => {
               onClick={handleCopyCode}
               title="Скопировать код в буфер обмена"
             >
-              {codeCopy === 'copied' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              <span>{codeCopy === 'copied' ? 'Скопировано ✓' : 'Копировать'}</span>
+              {codeCopy === 'copied' ? <Check className="w-3 h-3" aria-hidden="true" focusable="false" /> : <Copy className="w-3 h-3" aria-hidden="true" focusable="false" />}
+              <span>{codeCopy === 'copied' ? 'Скопировано' : 'Копировать'}</span>
             </button>
             <a
               href={activateUrl(oauthUri, oauthCode)}
@@ -695,7 +696,7 @@ const filteredLogs = useMemo(() => {
               title="Откроет twitch.tv/activate с уже подставленным кодом"
             >
               <span>Открыть twitch.tv/activate</span>
-              <ExternalLink className="w-3 h-3" />
+              <ExternalLink className="w-3 h-3" aria-hidden="true" focusable="false" />
             </a>
           </div>
         </div>
@@ -720,7 +721,7 @@ const filteredLogs = useMemo(() => {
               onForceFarm?.(endingSoonGame.name);
             }}
           >
-            ⚡ Переключить в фокус сейчас
+            <Zap className="ui-icon" aria-hidden="true" focusable="false" /> Переключить в фокус сейчас
           </button>
           <button
   className="tactile-btn"
@@ -729,7 +730,7 @@ const filteredLogs = useMemo(() => {
   title="Скрыть это предупреждение"
   aria-label="Скрыть предупреждение о сгорающей кампании"
 >
-  ✕
+  <X className="ui-icon" aria-hidden="true" focusable="false" />
 </button>
 </div>
         </div>
@@ -761,7 +762,7 @@ const filteredLogs = useMemo(() => {
 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {forcedGame ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', fontWeight: 700 }}>
-                  <span>⚡ ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
+                  <span><Zap className="ui-icon" aria-hidden="true" focusable="false" /> ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
                   <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)' }}>
                     Сбросить фокус / В авто
                   </button>
@@ -773,7 +774,7 @@ const filteredLogs = useMemo(() => {
                   onClick={() => setShowFullCatalogModal(true)}
                   title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
                 >
-                  Выбрать игру для фарма ▾
+                  Выбрать игру для фарма <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />
                 </button>
               )}
               <button
@@ -787,7 +788,7 @@ const filteredLogs = useMemo(() => {
                   ? 'Постоянная настройка: сейчас фармятся только игры из очереди. Нажмите, чтобы после них брать и другие игры с активными кампаниями'
                   : 'Постоянная настройка: сначала игры из очереди, затем любые другие игры с активными кампаниями. Нажмите, чтобы фармить только очередь'}
               >
-                {settings.priority_mode === 0 ? '🎯 Режим: только очередь' : '⚡ Режим: очередь + любые'}
+                {settings.priority_mode === 0 ? 'Режим: только очередь' : 'Режим: очередь + любые'}
               </button>
             </div>
           </div>
@@ -810,7 +811,7 @@ const filteredLogs = useMemo(() => {
 
           {/* GQL SEARCH INPUT & DROPDOWN */}
           <div className="obsidian-well search-well relative">
-            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>🔍</span>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}><Search className="ui-icon" aria-hidden="true" focusable="false" /></span>
             <input
               type="text"
               id="gqlSearchInput"
@@ -824,7 +825,7 @@ const filteredLogs = useMemo(() => {
               <div className="gql-autocomplete" id="gqlDropdown" style={{ display: 'flex' }}>
                 <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', padding: '2px 6px' }}>
                   <span>ПРОВЕРКА TWITCH</span>
-                  <span>ENTER ➔ В ОЧЕРЕДЬ</span>
+                  <span>ENTER · В ОЧЕРЕДЬ</span>
                 </div>
                 {searchResults.map((item, idx) => (
                   <div
@@ -840,10 +841,10 @@ const filteredLogs = useMemo(() => {
                     <div>
                       <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{item.canonical_name || item.name}</div>
                       <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: item.has_active_drops ? 'var(--led-mint)' : 'var(--text-muted)' }}>
-                        {item.has_active_drops ? '● Активные Twitch Drops доступны' : '○ Нет активных дропов'}
+                        {item.has_active_drops ? 'Активные Twitch Drops доступны' : 'Нет активных дропов'}
                       </div>
                     </div>
-                    <span className="version-chip">+ В ОЧЕРЕДЬ</span>
+                    <span className="version-chip"><Plus className="ui-icon" aria-hidden="true" focusable="false" /> В ОЧЕРЕДЬ</span>
                   </div>
                 ))}
               </div>
@@ -869,7 +870,7 @@ const filteredLogs = useMemo(() => {
                       aria-expanded={showFinishedQueue}
                       title="Игры, где все награды уже получены; порядок приоритета сохраняется"
                     >
-                      <span>{showFinishedQueue ? '▾' : '▸'} Завершено · {finishedQueue.length}</span>
+                      <span>{showFinishedQueue ? <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" />} Завершено · {finishedQueue.length}</span>
                     </button>
                     {showFinishedQueue && finishedQueue.map(renderQueueRow)}
                   </>
@@ -911,7 +912,7 @@ const filteredLogs = useMemo(() => {
                     disabled={!u.url}
                     title={u.url ? `Открыть страницу привязки аккаунта: ${u.url}` : 'Ссылка на привязку не передана'}
                   >
-                    {shortGameName(u.name)}: {u.count} {pluralRu(u.count, 'дроп ждёт', 'дропа ждут', 'дропов ждут')} — привяжите аккаунт ↗
+                    {shortGameName(u.name)}: {u.count} {pluralRu(u.count, 'дроп ждёт', 'дропа ждут', 'дропов ждут')} — привяжите аккаунт <ExternalLink className="ui-icon" aria-hidden="true" focusable="false" />
                   </button>
                 ))}
                 {!starting && idleInfo.unlinked.length > 3 && (
@@ -988,10 +989,10 @@ const filteredLogs = useMemo(() => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px 6px', flexWrap: 'wrap' }}>
                   <span className="version-chip">ЭТАП 2 ИЗ 3</span>
                   <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} id="heroMins">
-                    ● {currentMinutes} ИЗ {requiredMinutes} МИН
+                    {currentMinutes} ИЗ {requiredMinutes} МИН
                   </span>
                   <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
-                    ● скорость 1x
+                    скорость 1x
                   </span>
                 </div>
                 <h2
@@ -1028,7 +1029,7 @@ const filteredLogs = useMemo(() => {
                     }}
                     title="Сменить текущего стримера на другого из той же игры"
                   >
-                    ↻ Сменить
+                    <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Сменить
                   </button>
                   <button
                     className="tactile-btn"
@@ -1039,7 +1040,7 @@ const filteredLogs = useMemo(() => {
                     }}
                     title="Пропустить текущую игру и перейти к следующей в очереди"
                   >
-                    ⏭ След. игра
+                    <SkipForward className="ui-icon" aria-hidden="true" focusable="false" /> След. игра
                   </button>
                   {activeStreamer && onBanStreamer && (
                     <>
@@ -1052,7 +1053,7 @@ const filteredLogs = useMemo(() => {
                         }}
                         title="Поставить стримера на паузу на 2 часа"
                       >
-                        💤 Сон 2ч
+                        <Clock className="ui-icon" aria-hidden="true" focusable="false" /> Скрыть на 2 ч
                       </button>
                       <button
                         className="tactile-btn danger-hover"
@@ -1061,9 +1062,9 @@ const filteredLogs = useMemo(() => {
                           playClick();
                           onBanStreamer(activeStreamer, false);
                         }}
-                        title="Заблокировать стримера навсегда"
+                        title="Исключить стримера из фарма навсегда"
                       >
-                        🚫 В бан
+                        <Ban className="ui-icon" aria-hidden="true" focusable="false" /> Исключить
                       </button>
                     </>
                   )}
@@ -1083,11 +1084,11 @@ const filteredLogs = useMemo(() => {
                         className="node-chip"
                         onClick={() => window.open(`https://twitch.tv/${activeStreamer}`, '_blank')}
                       >
-                        ↗ Twitch
+                        <ExternalLink className="ui-icon" aria-hidden="true" focusable="false" /> Twitch
                       </button>
                     )}
                     <span className="node-chip" title="Игнорируемые стримеры">
-                      🚫 {settings.ignored_channels?.length || 0}
+                      <Ban className="ui-icon" aria-hidden="true" focusable="false" /> {settings.ignored_channels?.length || 0}
                     </span>
                   </div>
                 </div>
@@ -1110,7 +1111,7 @@ const filteredLogs = useMemo(() => {
 
                 <div className="tabular" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2px 8px', fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '3px' }}>
                   <span title="Связь со стримом: SPADE HEAD каждые 20 с">Сигнал просмотра: каждые 20 с</span>
-                  <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? '● на связи' : '○ ожидание'}</span>
+                  <span style={{ color: 'var(--led-mint)' }}>{activeStreamer ? 'на связи' : 'ожидание'}</span>
                 </div>
               </div>
             </div>
@@ -1119,11 +1120,11 @@ const filteredLogs = useMemo(() => {
             <div className="obsidian-well sapphire-led-housing">
               <div className="campaign-stages-3">
                 <div className="stage-pill done">
-                  <span>✓ 1. Начальная награда</span>
+                  <span><Check className="ui-icon" aria-hidden="true" focusable="false" /> 1. Начальная награда</span>
                   <span className="tabular">100%</span>
                 </div>
                 <div className="stage-pill active">
-                  <span>▶ 2. {activeTitle || 'Текущая цель'}</span>
+                  <span><Play className="ui-icon" aria-hidden="true" focusable="false" /> 2. {activeTitle || 'Текущая цель'}</span>
                   <span className="tabular" id="stage2Pct">{progressPct}%</span>
                 </div>
                 <div className="stage-pill">
@@ -1160,7 +1161,7 @@ const filteredLogs = useMemo(() => {
                   aria-expanded={!consoleCollapsed}
                   title={consoleCollapsed ? 'Развернуть консоль: полный журнал событий' : 'Свернуть консоль до одной строки с последним событием'}
                 >
-                  {consoleCollapsed ? '▸' : '▾'} Журнал
+                  {consoleCollapsed ? <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />} Журнал
                 </button>
                 {!consoleCollapsed && (<>
                 <button
@@ -1194,7 +1195,7 @@ const filteredLogs = useMemo(() => {
                     onClick={() => { playClick(); openLogFile(); }}
                     title="Показать файл логов в Проводнике: sentinel_service.log"
                   >
-                    📄 Файл логов
+                    <FileText className="ui-icon" aria-hidden="true" focusable="false" /> Файл логов
                   </button>
                 )}
                 <button
@@ -1202,7 +1203,7 @@ const filteredLogs = useMemo(() => {
                   onClick={handleCopyLogs}
                   title="Скопировать журнал операций в буфер"
                 >
-                  {copiedLogs ? '✓ Скопировано' : '📋 Копировать'}
+                  {copiedLogs ? <Check className="ui-icon" aria-hidden="true" focusable="false" /> : <ClipboardCopy className="ui-icon" aria-hidden="true" focusable="false" />} {copiedLogs ? 'Скопировано' : 'Копировать'}
                 </button>
               </div>
             </div>
@@ -1278,7 +1279,7 @@ const filteredLogs = useMemo(() => {
                         [{cat}]
                       </span>
                       <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>
-                        {block ? (expandedSync.includes(syncKey(block)) ? '▾ ' : '▸ ') : ''}{withoutLevelPrefix(log.message, cat)}
+                        {block ? (expandedSync.includes(syncKey(block)) ? <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" />) : null}{withoutLevelPrefix(log.message, cat)}
                         {count > 1 && <span className="tabular" style={{ color: 'var(--text-muted)', marginLeft: '6px' }}>×{count}</span>}
                       </span>
                     </div>
@@ -1333,7 +1334,7 @@ const filteredLogs = useMemo(() => {
                       onCancelForceFarm?.();
                     }}
                   >
-                    ✕ В Авто
+                    <X className="ui-icon" aria-hidden="true" focusable="false" /> В Авто
                   </button>
                 )}
               </div>
@@ -1361,9 +1362,9 @@ const filteredLogs = useMemo(() => {
                   if (deadline && deadline.msLeft !== null) {
                     const left = formatTimeLeft(deadline.msLeft);
                     const watch = deadline.watchMinutes === null ? '' : formatTimeLeft(deadline.watchMinutes * 60000);
-                    if (deadline.watchMinutes === null) { deadlineText = `⏳ До конца ${left} · время просмотра неизвестно`; deadlineShort = `⏳ До конца ${left}`; }
-                    else if (deadline.verdict === 'late') { deadlineText = `⏳ Не успеть: до конца ${left}, смотреть ${watch}`; deadlineShort = `⏳ Не успеть: ${left}, смотреть ${watch}`; }
-                    else { deadlineText = `⏳ До конца ${left} · смотреть ${watch}`; deadlineShort = `⏳ ${left} · смотреть ${watch}`; }
+                    if (deadline.watchMinutes === null) { deadlineText = `До конца ${left} · время просмотра неизвестно`; deadlineShort = `До конца ${left}`; }
+                    else if (deadline.verdict === 'late') { deadlineText = `Не успеть: до конца ${left}, смотреть ${watch}`; deadlineShort = `Не успеть: ${left}, смотреть ${watch}`; }
+                    else { deadlineText = `До конца ${left} · смотреть ${watch}`; deadlineShort = `${left} · смотреть ${watch}`; }
                   }
                   return (
                     <div
@@ -1391,14 +1392,14 @@ const filteredLogs = useMemo(() => {
                           title={deadlineText ? `${deadlineText}. Время до конца кампании и сколько ещё нужно смотреть. Гарантии нет: игры фармятся по очереди.` : undefined}
                           style={{ fontSize: 'var(--fs-xs)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : endingSoonByGame.has(safeLower(g.name)) ? 'var(--led-amber)' : 'var(--text-muted)' }}
                         >
-                          {isForced ? '● В ФОКУСЕ' : isFinished ? '✓ Собрано (100%)' : endingSoonByGame.has(safeLower(g.name)) ? (deadlineShort ?? `⏳ сгорает через ${endingSoonByGame.get(safeLower(g.name))?.timeLeft}`) : g.has_drops ? '● Активные дропы' : '○ Ожидание'}
+                          {isForced ? 'В ФОКУСЕ' : isFinished ? 'Собрано (100%)' : endingSoonByGame.has(safeLower(g.name)) ? (deadlineShort ?? `сгорает через ${endingSoonByGame.get(safeLower(g.name))?.timeLeft}`) : g.has_drops ? 'Активные дропы' : 'Ожидание'}
                         </div>
                       </div>
                       <span
                         className="version-chip shrink-0"
                         style={{ color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : 'var(--led-mint)' }}
                       >
-                        {isForced ? 'Сейчас · отменить' : isFinished ? '✓ СОБРАНО' : 'Собирать сейчас'}
+                        {isForced ? 'Сейчас · отменить' : isFinished ? 'СОБРАНО' : 'Собирать сейчас'}
                       </span>
                     </div>
                   );
@@ -1443,7 +1444,7 @@ const filteredLogs = useMemo(() => {
                 <span className="led-dot amber" />
                 <div>
                   <h3 id="catalog-title" className="text-sm font-bold tracking-[0.04em] text-[var(--text-primary)]">
-                    ⚡ ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam • Каталог игр Twitch & Steam
+                    <Zap className="ui-icon" aria-hidden="true" focusable="false" /> ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam • Каталог игр Twitch & Steam
                   </h3>
                   <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
                     Все действующие кампании Twitch Drops ({activeTwitchDropsGames.length} игр в эфире)
@@ -1456,7 +1457,7 @@ const filteredLogs = useMemo(() => {
                 style={{ height: '26px', width: '26px', padding: 0 }} 
                 onClick={() => { playClick(); setShowFullCatalogModal(false); }}
               >
-                ✕
+                <X className="ui-icon" aria-hidden="true" focusable="false" />
               </button>
             </div>
 
@@ -1477,7 +1478,7 @@ const filteredLogs = useMemo(() => {
                     onCancelForceFarm?.();
                   }}
                 >
-                  ✕ Сбросить в авто
+                  <X className="ui-icon" aria-hidden="true" focusable="false" /> Сбросить в авто
                 </button>
               </div>
             )}
@@ -1485,7 +1486,7 @@ const filteredLogs = useMemo(() => {
             {/* Search Input and Filter Pills */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
               <div className="relative flex-1">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" aria-hidden="true" focusable="false" />
                 <input
                   type="text"
                   placeholder="Поиск по названию игры (например, Rust, Witcher, PoE, Cyberpunk)..."
@@ -1498,7 +1499,7 @@ const filteredLogs = useMemo(() => {
                     onClick={() => setCatalogModalSearch('')} 
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white"
                   >
-                    ✕
+                    <X className="ui-icon" aria-hidden="true" focusable="false" />
                   </button>
                 )}
               </div>
@@ -1515,14 +1516,14 @@ const filteredLogs = useMemo(() => {
                   style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
                 >
-                  ⭐ Очередь ({topPriorityCount})
+                  <Star className="ui-icon" aria-hidden="true" focusable="false" /> Очередь ({topPriorityCount})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
                   style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('INSTALLED'); }}
                 >
-                  💾 На ПК ({installedActiveCount})
+                  <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> На ПК ({installedActiveCount})
                 </button>
               </div>
             </div>
@@ -1564,12 +1565,12 @@ const filteredLogs = useMemo(() => {
                             </span>
                             {isTop && (
                               <span className="px-1.5 py-0.5 rounded text-[length:var(--fs-xs)] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                                ⭐ Очередь
+                                <Star className="ui-icon" aria-hidden="true" focusable="false" /> Очередь
                               </span>
                             )}
                             {g.is_installed && (
                               <span className="px-1.5 py-0.5 rounded text-[length:var(--fs-xs)] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                                💾 УСТАНОВЛЕНА
+                                <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> УСТАНОВЛЕНА
                               </span>
                             )}
                           </div>
@@ -1593,7 +1594,7 @@ const filteredLogs = useMemo(() => {
                           }}
                           title={isTop ? 'Удалить из приоритетной очереди' : 'Добавить в очередь'}
                         >
-                          {isTop ? '★ В очереди' : '+ В ОЧЕРЕДЬ'}
+                          {isTop ? <Star className="ui-icon" aria-hidden="true" focusable="false" /> : <Plus className="ui-icon" aria-hidden="true" focusable="false" />} {isTop ? 'В очереди' : 'В ОЧЕРЕДЬ'}
                         </button>
                         <button 
                           className={`tactile-btn ${isForced ? 'active-amber' : 'active-mint'}`}
@@ -1608,7 +1609,7 @@ const filteredLogs = useMemo(() => {
                             }
                           }}
                         >
-                          {isForced ? '✕ Отмена' : '⚡ Фармить сейчас'}
+                          {isForced ? <X className="ui-icon" aria-hidden="true" focusable="false" /> : <Zap className="ui-icon" aria-hidden="true" focusable="false" />} {isForced ? 'Отмена' : 'Фармить сейчас'}
                         </button>
                       </div>
                     </div>

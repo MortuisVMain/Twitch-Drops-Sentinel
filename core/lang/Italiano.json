@@ -90,9 +90,9 @@
         "channels": {
             "name": "Canali",
             "switch": "Cambia",
-            "online": "ONLINE  \u2714",
-            "pending": "OFFLINE \u23f3",
-            "offline": "OFFLINE \u274c",
+            "online": "ONLINE",
+            "pending": "OFFLINE",
+            "offline": "OFFLINE",
             "headings": {
                 "channel": "Canale",
                 "status": "Stato",
@@ -112,13 +112,13 @@
                 "refresh": "Aggiorna"
             },
             "status": {
-                "linked": "Collegato \u2714",
-                "not_linked": "Non collegato \u274c",
-                "active": "Attivo \u2714",
-                "upcoming": "In arrivo \u23f3",
-                "expired": "Scaduto \u274c",
-                "claimed": "Riscattato \u2714",
-                "ready_to_claim": "Pronto per essere riscattato \u23f3"
+                "linked": "Collegato",
+                "not_linked": "Non collegato",
+                "active": "Attivo",
+                "upcoming": "In arrivo",
+                "expired": "Scaduto",
+                "claimed": "Riscattato",
+                "ready_to_claim": "Pronto per essere riscattato"
             },
             "starts": "Inizia: {time}",
             "ends": "Finisce: {time}",

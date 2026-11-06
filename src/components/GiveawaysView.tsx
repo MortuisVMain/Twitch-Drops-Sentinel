@@ -1,3 +1,4 @@
+import { ArrowLeftRight, Check, ClipboardCopy, Crown, Diamond, ExternalLink, Eye, Gamepad2, Joystick, KeyRound, Package, Play, Square, TriangleAlert, Zap } from 'lucide-react';
 import { uiLocale } from '../i18n';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
@@ -26,19 +27,19 @@ interface StoreMeta {
   name: string;
   tag: string;
   badge?: string;
-  icon: string;
+  icon: import('lucide-react').LucideIcon;
   color: string;
   bg: string;
 }
 
 const STORES: StoreMeta[] = [
-  { id: 'epic', name: 'Epic Games', tag: 'EPIC GAMES', badge: 'забрано', icon: '⚡', color: '#3AD29F', bg: 'rgba(58, 210, 159, 0.1)' },
-  { id: 'gog', name: 'GOG.com', tag: 'GOG.COM', badge: 'забрано', icon: '🕹️', color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.1)' },
-  { id: 'steam', name: 'Steam', tag: 'STEAM', badge: 'забрано', icon: '🎮', color: '#60A5FA', bg: 'rgba(96, 165, 250, 0.1)' },
-  { id: 'fab', name: 'Fab', tag: 'FAB', badge: 'забрано', icon: '🔷', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
-  { id: 'unity', name: 'Unity Store', tag: 'UNITY STORE', badge: 'забрано', icon: '📦', color: '#F472B6', bg: 'rgba(244, 114, 182, 0.1)' },
-  { id: 'prime', name: 'Prime Gaming', tag: 'PRIME GAMING', badge: 'забрано', icon: '👑', color: '#FBBF24', bg: 'rgba(251, 191, 36, 0.1)' },
-  { id: 'itch', name: 'Itch.io', tag: 'ITCH.IO', badge: 'забрано', icon: '👾', color: '#FB7185', bg: 'rgba(251, 113, 133, 0.1)' },
+  { id: 'epic', name: 'Epic Games', tag: 'EPIC GAMES', badge: 'забрано', icon: Zap, color: '#3AD29F', bg: 'rgba(58, 210, 159, 0.1)' },
+  { id: 'gog', name: 'GOG.com', tag: 'GOG.COM', badge: 'забрано', icon: Joystick, color: '#A78BFA', bg: 'rgba(167, 139, 250, 0.1)' },
+  { id: 'steam', name: 'Steam', tag: 'STEAM', badge: 'забрано', icon: Gamepad2, color: '#60A5FA', bg: 'rgba(96, 165, 250, 0.1)' },
+  { id: 'fab', name: 'Fab', tag: 'FAB', badge: 'забрано', icon: Diamond, color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.1)' },
+  { id: 'unity', name: 'Unity Store', tag: 'UNITY STORE', badge: 'забрано', icon: Package, color: '#F472B6', bg: 'rgba(244, 114, 182, 0.1)' },
+  { id: 'prime', name: 'Prime Gaming', tag: 'PRIME GAMING', badge: 'забрано', icon: Crown, color: '#FBBF24', bg: 'rgba(251, 191, 36, 0.1)' },
+  { id: 'itch', name: 'Itch.io', tag: 'ITCH.IO', badge: 'забрано', icon: Gamepad2, color: '#FB7185', bg: 'rgba(251, 113, 133, 0.1)' },
 ];
 interface WeekDayDef {
   key: string;
@@ -393,10 +394,10 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   }, [selectedDays]);
 
   const schedulerButtonLabel = isSchedulerUnknown
-    ? '⚠ Планировщик не отвечает'
+    ? 'Планировщик не отвечает'
     : isSchedulerMissing
-      ? '○ Автосбор не настроен'
-      : isSchedulerActive ? `● Активен (${activeDayLabels})` : '○ Приостановлен';
+      ? 'Автосбор не настроен'
+      : isSchedulerActive ? `Активен (${activeDayLabels})` : 'Приостановлен';
   const schedulerButtonTitle = isSchedulerUnknown
     ? 'Не удалось получить состояние задания. Нажмите, чтобы попробовать ещё раз'
     : isSchedulerMissing
@@ -484,7 +485,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             title="Что уже готово для раздач и что осталось сделать"
             aria-haspopup="dialog"
           >
-            ✔ Проверить готовность
+            <Check className="ui-icon" aria-hidden="true" focusable="false" /> Проверить готовность
             {readiness.data && !readiness.failure && countTodo(readiness.data.items) > 0 && (
               <>
                 <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--led-rose)', flexShrink: 0 }} />
@@ -497,13 +498,13 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             onClick={handleToggleHeadless}
             title="Браузер работает скрыто: окно магазина не появляется на экране"
           >
-            👁 Фоновый режим: {headless ? 'вкл' : 'выкл'}
+            <Eye className="ui-icon" aria-hidden="true" focusable="false" /> Фоновый режим: {headless ? 'вкл' : 'выкл'}
           </button>
           <button 
             className={`chunky-cta ${isClaiming ? 'amber' : ''}`}
             onClick={handleClaimAll}
           >
-            {isClaiming ? '⏹ ОСТАНОВИТЬ КЛЕЙМ' : `▶ ЗАБРАТЬ ВСЁ (${selectedStores.length} МАГАЗИНОВ)`}
+            {isClaiming ? <Square className="ui-icon" aria-hidden="true" focusable="false" /> : <Play className="ui-icon" aria-hidden="true" focusable="false" />} {isClaiming ? 'ОСТАНОВИТЬ КЛЕЙМ' : `ЗАБРАТЬ ВСЁ (${selectedStores.length} МАГАЗИНОВ)`}
           </button>
         </div>
       </div>
@@ -527,11 +528,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             >
               <div className="store-pod-header">
                 <div className="store-pod-title">
-                  <span style={{ fontSize: 'var(--fs-sm)' }}>{store.icon}</span>
+                  <span style={{ fontSize: 'var(--fs-sm)' }}><store.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                   <strong>{store.name}</strong>
                 </div>
                 <span className={`store-select-badge ${isSelected ? 'active' : ''}`}>
-                  {isSelected ? '✓ ВКЛ' : 'ВЫКЛ'}
+                  {isSelected ? 'ВКЛ' : 'ВЫКЛ'}
                 </span>
               </div>
 
@@ -557,7 +558,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={isAuthed ? `Вы вошли как ${accountName}` : 'Нужно войти в аккаунт магазина'}
                   >
-                    {isAuthed ? accountName : '⚠ Требуется вход'}
+                    {isAuthed ? accountName : 'Требуется вход'}
                   </span>
                 )}
                 {isAuthed && (
@@ -571,7 +572,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     title="Сменить аккаунт"
                     aria-label={`Сменить аккаунт ${store.name}`}
                   >
-                    ⇄
+                    <ArrowLeftRight className="ui-icon" aria-hidden="true" focusable="false" />
                   </button>
                 )}
               </div>
@@ -586,7 +587,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     handleStoreAuth(store.id);
                   }}
                 >
-                  🔑 Войти в аккаунт
+                  <KeyRound className="ui-icon" aria-hidden="true" focusable="false" /> Войти в аккаунт
                 </button>
               )}
             </div>
@@ -619,7 +620,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       {(load.failure !== null) && (
         <div className="titanium-island" role={hasStaleData(load) ? 'status' : 'alert'} style={{ flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '10px', color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
           <span style={{ minWidth: 0 }}>
-            ⚠ {failureText(load.failure)}{' '}
+            <TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {failureText(load.failure)}{' '}
             {load.failure === 'http' && load.status ? <>Код ответа: {load.status}. </> : null}
             {hasStaleData(load) ? 'Показаны последние полученные данные.' : 'Данные раздач недоступны.'}
           </span>
@@ -631,13 +632,13 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
       {actionError && !readinessOpen && (
         <div className="titanium-island" role="alert" style={{ flexShrink: 0, color: 'var(--led-amber)', fontSize: 'var(--fs-xs)', fontWeight: 600 }}>
-          ⚠ {actionError}
+          <TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {actionError}
         </div>
       )}
 
       {loginStore && loginHintVisible(data?.stores?.[loginStore], loginAttemptAtRef.current, actionError) && (
         <div className="titanium-island" role="status" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', display: 'block' }}>
-          <strong>🔑 {STORES.find(s => s.id === loginStore)?.name}: </strong>
+          <strong><KeyRound className="ui-icon" aria-hidden="true" focusable="false" /> {STORES.find(s => s.id === loginStore)?.name}: </strong>
           {isClaiming
             ? <span>войдите в аккаунт в открывшемся окне браузера. Если окна не видно, найдите его на панели задач. На вход есть 3 минуты.</span>
             : <span>готовим браузер. При первом запуске он скачивается, это займёт несколько минут.</span>}
@@ -669,7 +670,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                   className={`claimed-tab-pill ${filterStore === s.id ? 'active' : ''}`}
                   onClick={() => setFilterStore(s.id)}
                 >
-                  <span>{s.icon}</span>
+                  <span><s.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                   <span>{s.name}</span>
                   <span style={{ opacity: 0.7 }}>({storeCounts[s.id] || 0})</span>
                 </button>
@@ -679,7 +680,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             <input 
               type="text" 
               className="claimed-search-box" 
-              placeholder="🔍 Поиск тайтла..." 
+              placeholder="Поиск тайтла..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -713,7 +714,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                       style={{ color: storeMeta.color, background: storeMeta.bg }}
                       title={`Магазин: ${storeMeta.name}`}
                     >
-                      {storeMeta.icon}
+                      <storeMeta.icon className="ui-icon" aria-hidden="true" focusable="false" />
                     </div>
 
                     <div className="claimed-card-body">
@@ -722,7 +723,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                           {storeMeta.tag}
                         </span>
                         <span style={{ color: 'var(--text-muted)' }}>
-                          ✓ {dateStr}
+                          <Check className="ui-icon" aria-hidden="true" focusable="false" /> {dateStr}
                         </span>
                       </div>
 
@@ -737,10 +738,10 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                         target="_blank" 
                         rel="noreferrer" 
                         className="claimed-ext-link"
-                        title="Открыть страницу тайтла в магазине ↗"
+                        title="Открыть страницу тайтла в магазине"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        ↗
+                        <ExternalLink className="ui-icon" aria-hidden="true" focusable="false" />
                       </a>
                     )}
                   </div>
@@ -772,7 +773,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 onClick={handleCopyLogs}
                 title="Скопировать все логи терминала в буфер обмена"
               >
-                <span>{copiedLogs ? '✓' : '📋'}</span>
+                <span>{copiedLogs ? <Check className="ui-icon" aria-hidden="true" focusable="false" /> : <ClipboardCopy className="ui-icon" aria-hidden="true" focusable="false" />}</span>
                 <span>{copiedLogs ? 'Скопировано!' : 'Копировать логи'}</span>
               </button>
               <button 
@@ -816,14 +817,14 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           )}
           {data?.scheduler?.repairError && (
             <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4 }}>
-              ⚠ {data.scheduler.repairError}
+              <TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {data.scheduler.repairError}
             </div>
           )}
           {data?.scheduler?.lastRunFailed && (
             <div role="alert" style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', color: 'var(--text-primary)', lineHeight: 1.4, overflowWrap: 'anywhere' }}>
               {data.scheduler.lastRunInterrupted
-                ? '⚠ Последний запуск по расписанию был прерван и не проверил все магазины.'
-                : '⚠ Последний запуск по расписанию завершился с ошибкой.'}
+                ? 'Последний запуск по расписанию был прерван и не проверил все магазины.'
+                : 'Последний запуск по расписанию завершился с ошибкой.'}
               {data.scheduler.logFile ? ` Лог: ${data.scheduler.logFile}` : null}
             </div>
           )}

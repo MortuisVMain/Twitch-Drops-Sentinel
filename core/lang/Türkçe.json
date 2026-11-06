@@ -90,9 +90,9 @@
         "channels": {
             "name": "Kanallar",
             "switch": "Değiştir",
-            "online": "ÇEVRİMİÇİ  ✔",
-            "pending": "ÇEVRİMDIŞI ⏳",
-            "offline": "ÇEVRİMDIŞI ❌",
+            "online": "ÇEVRİMİÇİ",
+            "pending": "ÇEVRİMDIŞI",
+            "offline": "ÇEVRİMDIŞI",
             "headings": {
                 "channel": "Kanal",
                 "status": "Durum",
@@ -112,13 +112,13 @@
                 "refresh": "Yenile"
             },
             "status": {
-                "linked": "Bağlı ✔",
-                "not_linked": "Bağlı Değil ❌",
-                "active": "Aktif ✔",
-                "upcoming": "Yaklaşan ⏳",
-                "expired": "Süresi Doldu ❌",
-                "claimed": "Alındı ✔",
-                "ready_to_claim": "Alınmaya hazır ⏳"
+                "linked": "Bağlı",
+                "not_linked": "Bağlı Değil",
+                "active": "Aktif",
+                "upcoming": "Yaklaşan",
+                "expired": "Süresi Doldu",
+                "claimed": "Alındı",
+                "ready_to_claim": "Alınmaya hazır"
             },
             "starts": "Başlangıç: {time}",
             "ends": "Bitiş: {time}",

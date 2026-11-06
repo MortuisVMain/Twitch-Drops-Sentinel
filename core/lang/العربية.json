@@ -90,9 +90,9 @@
         "channels": {
             "name": "القنوات",
             "switch": "تبديل",
-            "online": "\u2714  نشط",
-            "pending": "\u23f3 غير نشط",
-            "offline": "\u274c غير نشط",
+            "online": "نشط",
+            "pending": "غير نشط",
+            "offline": "غير نشط",
             "headings": {
                 "channel": "القناة",
                 "status": "الحالة",
@@ -112,13 +112,13 @@
                 "refresh": "تحديث"
             },
             "status": {
-                "linked": "\u2714 مرتبط",
-                "not_linked": "\u274c غير مرتبط",
-                "active": "\u2714 نشط",
-                "upcoming": "\u23f3 قادم",
-                "expired": "\u274c منتهي",
-                "claimed": "\u2714 تم الحصول عليه",
-                "ready_to_claim": "\u23f3 جاهز للحصول عليه"
+                "linked": "مرتبط",
+                "not_linked": "غير مرتبط",
+                "active": "نشط",
+                "upcoming": "قادم",
+                "expired": "منتهي",
+                "claimed": "تم الحصول عليه",
+                "ready_to_claim": "جاهز للحصول عليه"
             },
             "starts": "{time} :يبدأ",
             "ends": "{time} :ينتهي",

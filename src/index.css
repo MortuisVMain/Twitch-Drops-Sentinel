@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+.ui-icon {
+  display: inline-block;
+  inline-size: 1em;
+  block-size: 1em;
+  flex: none;
+  vertical-align: -0.125em;
+}
+
 /* ==========================================================================
      1. MULTI-THEME TOKEN ENGINE (6 BESPOKE DESIGN SYSTEMS)
      ========================================================================== */

@@ -2,6 +2,9 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.19] - 2026-11-06
+- Interface: one set of line icons across the whole app instead of colored emoji and mixed symbols, on every screen, menu, dialog and the mini-window. Some labels are clearer: Hide for 2 h instead of Sleep 2h, Exclude instead of Ban. Service messages and Windows notifications no longer carry decorative emoji.
+
 ## [3.5.18] - 2026-11-06
 - Game shelf: every game gets a cover, not only games with a running Twitch campaign. Covers are also looked up for queue, excluded, linked, hidden and trophy games, remembered by name, and used on every screen when a game has no art of its own or its art does not load.
 

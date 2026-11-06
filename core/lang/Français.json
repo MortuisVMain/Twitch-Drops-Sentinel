@@ -90,9 +90,9 @@
         "channels": {
             "name": "Chaînes",
             "switch": "Basculer",
-            "online": "EN LIGNE  ✔",
-            "pending": "HORS LIGNE ⏳",
-            "offline": "HORS LIGNE ❌",
+            "online": "EN LIGNE",
+            "pending": "HORS LIGNE",
+            "offline": "HORS LIGNE",
             "headings": {
                 "channel": "Chaîne",
                 "status": "Statut",
@@ -112,13 +112,13 @@
                 "refresh": "Actualiser"
             },
             "status": {
-                "linked": "Lié ✔",
-                "not_linked": "Non lié ❌",
-                "active": "Actif ✔",
-                "upcoming": "À venir ⏳",
-                "expired": "Expiré ❌",
-                "claimed": "Récupéré ✔",
-                "ready_to_claim": "Prêt à récupérer ⏳"
+                "linked": "Lié",
+                "not_linked": "Non lié",
+                "active": "Actif",
+                "upcoming": "À venir",
+                "expired": "Expiré",
+                "claimed": "Récupéré",
+                "ready_to_claim": "Prêt à récupérer"
             },
             "starts": "Début : {time}",
             "ends": "Fin : {time}",

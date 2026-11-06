@@ -1,3 +1,4 @@
+import { Ban, Check, ChevronDown, ChevronUp, Ellipsis, FileText, Flame, Gift, HardDrive, RefreshCw, Star, Timer, TriangleAlert, Trophy, Undo2, X, Zap } from 'lucide-react';
 import React, { useState, useMemo, useEffect } from 'react';
 import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
@@ -147,7 +148,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     }
   };
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
-  const [syncLabel, setSyncLabel] = useState<string>('↻ Обновить');
+  const [syncLabel, setSyncLabel] = useState<string>('Обновить');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showListsMenu, setShowListsMenu] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'tiles' | 'list'>(() => {
@@ -305,7 +306,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
 
   const handleSyncClick = async () => {
     playClick();
-    setSyncLabel('↻ Обновляю...');
+    setSyncLabel('Обновляю...');
     let synced = true;
     try {
       if (onManualRefresh) {
@@ -315,9 +316,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       synced = false;
       console.error('GameShelf: синхронизация не удалась', err);
     }
-    setSyncLabel(synced ? `✓ Обновлено (${games.length})` : '✗ Не удалось обновить');
+    setSyncLabel(synced ? `Обновлено (${games.length})` : 'Не удалось обновить');
     setTimeout(() => {
-      setSyncLabel('↻ Обновить');
+      setSyncLabel('Обновить');
     }, 3000);
   };
 
@@ -402,7 +403,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             is_installed: false,
             has_drops: false,
             is_active_now: false,
-            category: `🏆 Трофеев: ${items.length}`
+            category: `Трофеев: ${items.length}`
           });
         }
       });
@@ -510,7 +511,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             {game.name}
           </div>
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>
-            {isExcluded ? '🚫 В исключениях' : isRemoved ? '🗑 В удалённых' : isForced ? '⚡ Принудительный фарм' : isInPriority ? `⭐ #${priorityIndex + 1} в очереди` : game.is_installed ? '💾 Установлено на ПК' : ' '}
+            {isExcluded ? 'В исключениях' : isRemoved ? 'В удалённых' : isForced ? 'Принудительный фарм' : isInPriority ? `#${priorityIndex + 1} в очереди` : game.is_installed ? 'Установлено на ПК' : ' '}
           </div>
           {dates && (
             <div className={`campaign-dates ${dates.startedRecently ? 'fresh' : ''}`} title={facts.timeLeft ? `Осталось: ${facts.timeLeft}` : undefined}>
@@ -519,21 +520,21 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           )}
         </div>
         <span className={`campaign-fact ${facts.urgent ? 'warn' : ''}`} title="Сколько осталось до конца кампании">
-          {facts.timeLeft ? `⏱ ${facts.timeLeft}` : '—'}
+          {facts.timeLeft ? <><Timer className="ui-icon" aria-hidden="true" focusable="false" /> {facts.timeLeft}</> : '—'}
         </span>
         <span className="campaign-fact" title="Сколько дропов осталось получить">
-          {facts.drops ? `🎁 ${facts.drops}` : '—'}
+          {facts.drops ? <><Gift className="ui-icon" aria-hidden="true" focusable="false" /> {facts.drops}</> : '—'}
         </span>
         <span
           className={`campaign-fact ${facts.link === 'linked' ? 'ok' : facts.link === 'needs' ? 'warn' : ''}`}
           title={facts.link === 'linked' ? 'Аккаунт Twitch привязан к игре' : facts.link === 'needs' ? 'Нужно привязать аккаунт игры' : ''}
         >
-          {facts.link === 'linked' ? '✓ привязан' : facts.link === 'needs' ? '⚠ нужна привязка' : '—'}
+          {facts.link === 'linked' ? 'привязан' : facts.link === 'needs' ? 'нужна привязка' : '—'}
         </span>
         <div className="campaign-row-actions">
           {blocked ? (
             <button className="tactile-btn" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={() => { playClick(); handleRestoreGame(game.name); }}>
-              ↩ Восстановить
+              <Undo2 className="ui-icon" aria-hidden="true" focusable="false" /> Восстановить
             </button>
           ) : (
             <>
@@ -550,7 +551,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 }}
                 title={isForced ? 'Отменить принудительный фарм' : 'Фармить эту игру прямо сейчас, вне очереди'}
               >
-                {isForced ? '⚡ Отменить' : '⚡ Сейчас'}
+                {isForced ? <X className="ui-icon" aria-hidden="true" focusable="false" /> : <Zap className="ui-icon" aria-hidden="true" focusable="false" />} {isForced ? 'Отменить' : 'Сейчас'}
               </button>
               <button
                 className={`tactile-btn ${isInPriority ? 'active-mint' : ''}`}
@@ -562,7 +563,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 }}
                 title={isInPriority ? 'Убрать из очереди' : 'Добавить в очередь'}
               >
-                ⭐
+                <Star className="ui-icon" aria-hidden="true" focusable="false" />
               </button>
               <button
                 className="tactile-btn"
@@ -570,7 +571,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 onClick={() => { playClick(); onAddToExcluded(game.name); }}
                 title="Скрыть игру / в исключения"
               >
-                🚫
+                <Ban className="ui-icon" aria-hidden="true" focusable="false" />
               </button>
             </>
           )}
@@ -588,26 +589,26 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             className={`tactile-btn ${activeFilter === 'all' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('all'); }}
           >
-            🔥 Активные кампании ({dropsCount})
+            <Flame className="ui-icon" aria-hidden="true" focusable="false" /> Активные кампании ({dropsCount})
           </button>
           <button
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('priority'); }}
           >
-            ⭐ В моей очереди ({priorityList.length})
+            <Star className="ui-icon" aria-hidden="true" focusable="false" /> В моей очереди ({priorityList.length})
           </button>
           <button 
             className={`tactile-btn ${activeFilter === 'claimed' ? 'active-amber' : ''}`}
             onClick={() => { playClick(); setActiveFilter('claimed'); }}
             title="Показать игры с полученными наградами и блок трофеев"
           >
-            🏆 Собрано ({claimedCount})
+            <Trophy className="ui-icon" aria-hidden="true" focusable="false" /> Собрано ({claimedCount})
           </button>
           <button 
             className={`tactile-btn ${activeFilter === 'installed' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('installed'); }}
           >
-            💾 Установлено на ПК ({installedCount})
+            <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> Установлено на ПК ({installedCount})
           </button>
           {activeFilter === 'all' && (
             <div className="campaign-sort" role="group" aria-label="Порядок кампаний">
@@ -641,7 +642,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="🔍 Быстрый поиск игры..."
+              placeholder="Быстрый поиск игры..."
               style={{
                 background: 'var(--bg-well)',
                 border: '1px solid var(--border-subtle)',
@@ -670,7 +671,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 }}
                 title="Очистить поиск"
               >
-                ✕
+                <X className="ui-icon" aria-hidden="true" focusable="false" />
               </button>
             )}
           </div>
@@ -684,7 +685,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               aria-expanded={showListsMenu}
               aria-label="Исключения и удалённые игры"
             >
-              {activeFilter === 'excluded' ? `🚫 Исключения (${excludedList.length})` : activeFilter === 'removed' ? `🗑️ Удалённые (${removedCount})` : '⋯'}
+              {activeFilter === 'excluded' ? <Ban className="ui-icon" aria-hidden="true" focusable="false" /> : activeFilter === 'removed' ? <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> : <Ellipsis className="ui-icon" aria-hidden="true" focusable="false" />}
+              {activeFilter === 'excluded' ? `Исключения (${excludedList.length})` : activeFilter === 'removed' ? `Удалённые (${removedCount})` : ''}
             </button>
             <div className={`more-menu ${showListsMenu ? 'open' : ''}`} role="menu" style={{ left: 0, right: 'auto' }}>
               <button
@@ -692,7 +694,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 role="menuitem"
                 onClick={() => { playClick(); setShowListsMenu(false); setActiveFilter('excluded'); }}
               >
-                <span>🚫 Исключения</span>
+                <span><Ban className="ui-icon" aria-hidden="true" focusable="false" /> Исключения</span>
                 <span className="more-hint">{excludedList.length}</span>
               </button>
               <button
@@ -700,7 +702,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 role="menuitem"
                 onClick={() => { playClick(); setShowListsMenu(false); setActiveFilter('removed'); }}
               >
-                <span>🗑️ Удалённые</span>
+                <span><Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Удалённые</span>
                 <span className="more-hint">{removedCount}</span>
               </button>
             </div>
@@ -717,7 +719,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             </span>
           )}
           <button className="chunky-cta" onClick={handleSyncClick} title="Заново запросить кампании у Twitch">
-            {syncLabel}
+            <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> {syncLabel}
           </button>
         </div>
       </div>
@@ -731,7 +733,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <span className="tag" style={{ color: 'var(--led-amber)' }}>
-                <span title="Журнал полученных наград (Trophies.md)">🏆 Трофеи</span>
+                <span title="Журнал полученных наград (Trophies.md)"><Trophy className="ui-icon" aria-hidden="true" focusable="false" /> Трофеи</span>
               </span>
               <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={trophyLine}>
                 {trophyLine.replace(/^Трофеи\s*·?\s*/, '')}
@@ -745,11 +747,11 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   onClick={() => { playClick(); toggleTrophyVault(); }}
                   title="Свернуть или развернуть блок трофеев"
                 >
-                  {showTrophyVault ? '▲ Свернуть' : '▼ Развернуть'}
+                  {showTrophyVault ? <ChevronUp className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />} {showTrophyVault ? 'Свернуть' : 'Развернуть'}
                 </button>
               )}
               <button className="tactile-btn" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={handleOpenTrophies}>
-                📄 Открыть Trophies.md
+                <FileText className="ui-icon" aria-hidden="true" focusable="false" /> Открыть Trophies.md
               </button>
             </div>
           </div>
@@ -769,7 +771,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       {dropTitle}
                     </div>
                     <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}>
-                      ★ Получено автоматически
+                      <Star className="ui-icon" aria-hidden="true" focusable="false" /> Получено автоматически
                     </div>
                   </div>
                 );
@@ -788,7 +790,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           >
             <div style={{ fontSize: 'var(--fs-md)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
               {activeFilter === 'claimed'
-                ? '🏆 Наград пока не собрано'
+                ? 'Наград пока не собрано'
                 : activeFilter === 'removed'
                   ? 'Список удалённых пуст'
                   : 'Игры не найдены'}
@@ -815,24 +817,24 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             let subtitle = 'Ожидание новой раздачи';
             let subtitleColor = 'var(--text-muted)';
             if (isExcluded) {
-              subtitle = '🚫 В исключениях (нельзя в очередь)';
+              subtitle = 'В исключениях (нельзя в очередь)';
               subtitleColor = 'var(--text-muted)';
             } else if (isRemoved) {
-              subtitle = '🗑 В удалённых (нельзя в очередь)';
+              subtitle = 'В удалённых (нельзя в очередь)';
               subtitleColor = 'var(--text-muted)';
             } else if (isForced) {
-              subtitle = '⚡ ПРИНУДИТЕЛЬНЫЙ ФАРМ #1';
+              subtitle = 'ПРИНУДИТЕЛЬНЫЙ ФАРМ #1';
               subtitleColor = 'var(--led-amber)';
             } else if (isInPriority) {
               const rewardsTxt = game.rewards_count || (game as any).drops_count;
-              subtitle = `⭐ #${priorityIndex + 1} в очереди • ${rewardsTxt ? `${rewardsTxt} наград` : 'награды уточняются'}`;
+              subtitle = `#${priorityIndex + 1} в очереди • ${rewardsTxt ? `${rewardsTxt} наград` : 'награды уточняются'}`;
               subtitleColor = 'var(--led-amber)';
             } else if (game.is_installed) {
-              subtitle = '💾 Установлено на ПК';
+              subtitle = 'Установлено на ПК';
               subtitleColor = 'var(--led-mint)';
             } else if (game.has_drops || game.is_active_now || (game as any).is_drop_active) {
               const rewardsTxt = game.rewards_count || (game as any).drops_count;
-              subtitle = `🔥 Дропы активны • ${rewardsTxt ? `${rewardsTxt} наград` : 'Активная кампания'}`;
+              subtitle = `Дропы активны • ${rewardsTxt ? `${rewardsTxt} наград` : 'Активная кампания'}`;
               subtitleColor = 'var(--led-mint)';
             }
 
@@ -891,7 +893,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       }}
                       title="Аккаунт привязан к Twitch (нажмите, чтобы изменить статус)"
                     >
-                      <span style={{ fontSize: 'var(--fs-xs)' }}>✓</span>
+                      <span style={{ fontSize: 'var(--fs-xs)' }}><Check className="ui-icon" aria-hidden="true" focusable="false" /></span>
                       <span>Привязан</span>
                     </div>
                   )}
@@ -934,7 +936,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         }}
                         title="Нажмите, чтобы открыть страницу привязки аккаунта"
                       >
-                        <span>⚠️ Требуется привязка</span>
+                        <span><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Требуется привязка</span>
                       </a>
                       <button
                         onClick={(e) => {
@@ -958,7 +960,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         }}
                         title="Отметить аккаунт как уже привязанный"
                       >
-                        ✓
+                        <Check className="ui-icon" aria-hidden="true" focusable="false" />
                       </button>
                     </div>
                   )}
@@ -973,8 +975,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   </div>
                   {(facts.timeLeft || facts.drops) && (
                     <div className="campaign-facts">
-                      {facts.timeLeft && <span className={facts.urgent ? 'warn' : ''} title="Сколько осталось до конца кампании">⏱ {facts.timeLeft}</span>}
-                      {facts.drops && <span title="Сколько дропов осталось получить">🎁 {facts.drops}</span>}
+                      {facts.timeLeft && <span className={facts.urgent ? 'warn' : ''} title="Сколько осталось до конца кампании"><Timer className="ui-icon" aria-hidden="true" focusable="false" /> {facts.timeLeft}</span>}
+                      {facts.drops && <span title="Сколько дропов осталось получить"><Gift className="ui-icon" aria-hidden="true" focusable="false" /> {facts.drops}</span>}
                     </div>
                   )}
                   {dates && (
@@ -998,7 +1000,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       if (onRemoveFromExcluded) onRemoveFromExcluded(game.name);
                     }}
                   >
-                    ↩ Восстановить из исключений
+                    <Undo2 className="ui-icon" aria-hidden="true" focusable="false" /> Восстановить из исключений
                   </button>
                 ) : isRemoved ? (
                   <button
@@ -1009,7 +1011,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       handleRestoreGame(game.name);
                     }}
                   >
-                    ↩ Восстановить
+                    <Undo2 className="ui-icon" aria-hidden="true" focusable="false" /> Восстановить
                   </button>
                 ) : (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '20px' }}>
@@ -1027,7 +1029,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                             onReorderPriority(game.name, 'up');
                           }}
                         >
-                          ▲
+                          <ChevronUp className="ui-icon" aria-hidden="true" focusable="false" />
                         </button>
                         <button
                           className="node-chip"
@@ -1040,7 +1042,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                             onReorderPriority(game.name, 'down');
                           }}
                         >
-                          ▼
+                          <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />
                         </button>
                         <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>#{priorityIndex + 1}</span>
                       </div>
@@ -1057,7 +1059,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                           onAddToExcluded(game.name);
                         }}
                       >
-                        <span aria-hidden="true">🚫</span>
+                        <span aria-hidden="true"><Ban className="ui-icon" aria-hidden="true" focusable="false" /></span>
                       </button>
                       {game.is_installed && (
                         <button
@@ -1070,7 +1072,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                             handleRemoveInstalled(game.name);
                           }}
                         >
-                          <Trash2 style={{ width: '10px', height: '10px' }} />
+                          <Trash2 style={{ width: '10px', height: '10px' }} aria-hidden="true" focusable="false" />
                         </button>
                       )}
                     </div>

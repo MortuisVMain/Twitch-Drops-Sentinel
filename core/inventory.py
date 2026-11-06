@@ -255,7 +255,7 @@ class BaseDrop:
             NOTIFIER.notify(
                 "drop_claimed",
                 instance,
-                "Twitch Drops Sentinel 🏆",
+                "Twitch Drops Sentinel",
                 f"Получен дроп: {self.rewards_text()} ({self.campaign.game.name})",
             )
         except Exception as exc:
@@ -270,7 +270,7 @@ class BaseDrop:
             game = self.campaign.game.name.replace("|", "/")
             camp = self.campaign.name.replace("|", "/")
             # Append-only; the same reward of a later campaign or week is a new row
-            row = f"| {now_str} | **{game}** | {reward} | {camp} | ✅ Забран |\n"
+            row = f"| {now_str} | **{game}** | {reward} | {camp} | Забран |\n"
             with open(trophies_path, "a", encoding="utf-8") as tf:
                 tf.write(row)
             if hasattr(self._twitch, "gui") and hasattr(self._twitch.gui, "trophies"):
