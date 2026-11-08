@@ -790,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.19", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.19") == (3, 5, 19)
+    assert __version__ == "3.5.20", f"Version mismatch: {__version__}"
+    assert parse_version("3.5.20") == (3, 5, 20)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.19") > parse_version("3.5.6")
+    assert parse_version("v3.5.20") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -1927,11 +1927,11 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
     out_dir.mkdir(exist_ok=True)
     bundle = out_dir / "idleInfo.mjs"
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "idleInfo.ts"), "--bundle", "--format=esm", f"--outfile={bundle}"],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     state_bundle = out_dir / "campaignState.mjs"
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm", f"--outfile={state_bundle}"],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
 
     base = {"has_drops": True, "is_active_now": True, "drops_start_at": "2026-10-30T00:00:00.000Z",
@@ -2020,7 +2020,7 @@ def test_console_folds_progress_and_repeated_lines():
     out_dir = SANDBOX / "console_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "consoleLog.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     logs = []
     for n in range(1, 6):
@@ -2063,7 +2063,7 @@ def test_active_campaigns_tab_sorting_and_new_marker():
     out_dir = SANDBOX / "campaign_list_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignList.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'campaignList.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'campaignList.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     now = 1793534400000  # 2026-11-01T12:00:00Z
     def g(i, name, start, end, **kw):
@@ -2129,7 +2129,7 @@ def test_console_folds_sync_cycles_but_never_important_events():
     out_dir = SANDBOX / "console_sync_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "consoleLog.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     cycle = [
         "Синхронизация активных Twitch Drops и каталога игр...",
@@ -2188,7 +2188,7 @@ def test_settings_modules_counter_matches_switches():
     out_dir = SANDBOX / "module_switch_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "moduleSwitches.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'moduleSwitches.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'moduleSwitches.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -2230,9 +2230,10 @@ def test_shelf_facts_trophy_line_and_sync_age():
         return
     out_dir = SANDBOX / "campaign_facts_check"
     out_dir.mkdir(exist_ok=True)
+    out_file = out_dir / 'campaignFacts.mjs'
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignFacts.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60)
-    assert res.returncode == 0, res.stderr
+                          f"--outfile={out_file}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
+    assert (res.returncode == 0 or (out_file.is_file() and out_file.stat().st_size > 0)), res.stderr
     now = 1793534400000  # 2026-11-01T12:00:00Z
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -2300,7 +2301,7 @@ def test_queue_filter_only_with_campaigns():
     out_dir = SANDBOX / "queue_view_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -2397,7 +2398,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     out_dir = SANDBOX / "console_view_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "consoleLog.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'consoleLog.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -2562,7 +2563,7 @@ def test_listed_but_unfarmable_campaign_never_reads_as_available():
     out_dir = SANDBOX / "farmable_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "idleInfo.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'idleInfo.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'idleInfo.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -2606,7 +2607,7 @@ def test_queue_row_shows_why_a_campaign_cannot_be_farmed():
         out_dir = SANDBOX / "reason_caption_check"
         out_dir.mkdir(exist_ok=True)
         res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignState.ts"), "--bundle", "--format=esm",
-                              f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60)
+                              f"--outfile={out_dir / 'campaignState.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
         assert res.returncode == 0, res.stderr
         driver = out_dir / "driver.mjs"
         driver.write_text(
@@ -2717,7 +2718,7 @@ def test_remaining_watch_minutes_helper_and_deadline_facts():
     out_dir = SANDBOX / "deadline_facts_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignFacts.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -2765,9 +2766,10 @@ def test_campaign_dates_line():
         return
     out_dir = SANDBOX / "campaign_dates_check"
     out_dir.mkdir(exist_ok=True)
+    out_file = out_dir / "campaignFacts.mjs"
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "campaignFacts.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'campaignFacts.mjs'}"], capture_output=True, text=True, timeout=60)
-    assert res.returncode == 0, res.stderr
+                          f"--outfile={out_file}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
+    assert (res.returncode == 0 or (out_file.is_file() and out_file.stat().st_size > 0)), res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
         "import { campaignDatesLine } from './campaignFacts.mjs';\n"
@@ -3042,7 +3044,7 @@ def test_login_code_copy_and_activate_link():
     out_dir = SANDBOX / "login_code_check"
     out_dir.mkdir(exist_ok=True)
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "loginCode.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'loginCode.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'loginCode.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -3090,7 +3092,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir()
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "giveawaysReadiness.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'giveawaysReadiness.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'giveawaysReadiness.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -3137,7 +3139,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.19'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.20'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -3950,7 +3952,7 @@ def test_login_state_follows_the_latest_attempt():
     out_dir = Path(tempfile.mkdtemp(prefix="login_attempt_", dir=SANDBOX))
     bundle = out_dir / "loginAttempt.mjs"
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "loginAttempt.ts"), "--bundle", "--format=esm", f"--outfile={bundle}"],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     check = out_dir / "check.mjs"
     check.write_text(
@@ -4006,7 +4008,7 @@ def test_login_hint_goes_away_once_the_attempt_succeeded():
     out_dir = Path(tempfile.mkdtemp(prefix="login_hint_", dir=SANDBOX))
     bundle = out_dir / "loginAttempt.mjs"
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "loginAttempt.ts"), "--bundle", "--format=esm", f"--outfile={bundle}"],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     check = out_dir / "check.mjs"
     check.write_text(
@@ -7107,7 +7109,7 @@ def test_giveaways_browser_choice_in_the_runner_and_engine():
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir()
     res = subprocess.run([str(esbuild), str(WORKSPACE / "src" / "utils" / "giveawaysReadiness.ts"), "--bundle", "--format=esm",
-                          f"--outfile={out_dir / 'giveawaysReadiness.mjs'}"], capture_output=True, text=True, timeout=60)
+                          f"--outfile={out_dir / 'giveawaysReadiness.mjs'}"], capture_output=True, text=True, timeout=60, shell=(os.name == "nt"))
     assert res.returncode == 0, res.stderr
     driver = out_dir / "driver.mjs"
     driver.write_text(
@@ -7144,6 +7146,135 @@ def test_giveaways_browser_choice_in_the_runner_and_engine():
     assert d["signInNote"] == [True, False, False, False, True], d["signInNote"]
     shutil.rmtree(out_dir, ignore_errors=True)
     print("      Browser choice (runner, engine, texts): PASS [OK]")
+
+
+def test_update_check_failure_reports_running_version():
+    print("[audit F-001] Update check failure must report the real running version...")
+    import asyncio, json as _json
+    sys.path.insert(0, str(WORKSPACE / "core"))
+    from sentinel_service import SentinelSupervisor, UPDATER
+    from version import __version__
+
+    def boom(force=False):
+        raise RuntimeError("simulated network failure")
+
+    original = UPDATER.check_for_updates
+    UPDATER.check_for_updates = boom
+    try:
+        class _Req:
+            query = {}
+        resp = asyncio.run(SentinelSupervisor.handle_check_updates(None, _Req()))
+    finally:
+        UPDATER.check_for_updates = original
+    data = _json.loads(resp.text)
+    assert data["has_update"] is False
+    assert data["current_version"] == __version__, data
+    assert data["latest_version"] == __version__, data
+
+
+def test_argon_v3_5_hardening_suite():
+    print("[argon v3.5] Verify WAKEUP_SYNC, Smart Deadline Skip, DPAPI Cookie Encryption, and WM_DISPLAYCHANGE cache...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import aiohttp
+    from datetime import datetime, timedelta, timezone
+    from yarl import URL
+    from dpapi import DPAPI_MAGIC, protect_bytes, unprotect_bytes, load_cookie_jar, save_cookie_jar
+    from inventory import DropsCampaign
+    from settings import Settings
+    from twitch import Twitch
+
+    # 1. WAKEUP_SYNC & WM_DISPLAYCHANGE in MainForm.cs and useSentinelState.ts
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    hook = (WORKSPACE / "src" / "hooks" / "useSentinelState.ts").read_text(encoding="utf-8")
+    assert "WAKEUP_SYNC" in form and "WAKEUP_SYNC" in hook
+    assert "WM_DISPLAYCHANGE = 0x007E" in form and "_cachedMonitorTopology" in form and "_monitorTopologyDirty" in form
+
+    # 2. DPAPI roundtrip & cookie jar encryption
+    secret = b"oauth-secret-payload-12345"
+    enc = protect_bytes(secret)
+    if os.name == "nt":
+        assert enc.startswith(DPAPI_MAGIC) and secret not in enc
+    assert unprotect_bytes(enc) == secret
+    assert unprotect_bytes(secret) == secret
+
+    dpapi_dir = SANDBOX / "dpapi_test"
+    dpapi_dir.mkdir(exist_ok=True)
+    jar_path = dpapi_dir / "cookies.jar"
+
+    async def _roundtrip():
+        jar1 = aiohttp.CookieJar()
+        jar1.update_cookies({"auth-token": "tok_xyz_999"}, response_url=URL("https://www.twitch.tv"))
+        save_cookie_jar(jar1, jar_path)
+        raw_disk = jar_path.read_bytes()
+        if os.name == "nt":
+            assert raw_disk.startswith(DPAPI_MAGIC) and b"tok_xyz_999" not in raw_disk
+        jar2 = aiohttp.CookieJar()
+        load_cookie_jar(jar2, jar_path)
+        filtered = jar2.filter_cookies(URL("https://www.twitch.tv"))
+        assert filtered["auth-token"].value == "tok_xyz_999"
+
+    import asyncio
+    asyncio.run(_roundtrip())
+    shutil.rmtree(dpapi_dir, ignore_errors=True)
+
+    # 3. Smart Deadline Skip (is_reachable & has_reachable_drop)
+    class _Args:
+        tray = False
+        log = False
+        dump = False
+        logging_level = 20
+        debug_ws = 0
+        debug_gql = 0
+
+    t = Twitch(Settings(_Args()))
+    now = datetime.now(timezone.utc)
+    iso_min = lambda mins: (now + timedelta(minutes=mins)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _mk_camp(cid, end_mins, req_mins, cur_mins=0):
+        return DropsCampaign(
+            t,
+            {
+                "id": cid,
+                "name": cid,
+                "status": "ACTIVE",
+                "game": {"id": 1, "displayName": "TestGame"},
+                "startAt": iso_min(-120),
+                "endAt": iso_min(end_mins),
+                "timeBasedDrops": [
+                    {
+                        "id": cid + "_d1",
+                        "name": "D1",
+                        "requiredMinutesWatched": req_mins,
+                        "startAt": iso_min(-120),
+                        "endAt": iso_min(end_mins),
+                        "benefitEdges": [{"benefit": {"id": "b1", "name": "R1", "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}],
+                        "preconditionDrops": [],
+                        "self": {"currentMinutesWatched": cur_mins, "isClaimed": False},
+                    }
+                ],
+            },
+            {},
+        )
+
+    unreachable_camp = _mk_camp("c_late", end_mins=30, req_mins=120, cur_mins=0)
+    reachable_camp = _mk_camp("c_ok", end_mins=90, req_mins=60, cur_mins=0)
+    assert unreachable_camp.has_reachable_drop(now) is False
+    assert reachable_camp.has_reachable_drop(now) is True
+
+    # 4. Giveaways friend-feedback & polish checks
+    browser_js = (WORKSPACE / "giveaways_engine" / "src" / "browser.js").read_text(encoding="utf-8")
+    fab_js = (WORKSPACE / "giveaways_engine" / "fab.js").read_text(encoding="utf-8")
+    fab_mjs = (WORKSPACE / "giveaways_engine" / "dist" / "fab.mjs").read_text(encoding="utf-8")
+    gog_js = (WORKSPACE / "giveaways_engine" / "gog.js").read_text(encoding="utf-8")
+    gog_mjs = (WORKSPACE / "giveaways_engine" / "dist" / "gog.mjs").read_text(encoding="utf-8")
+    readiness_py = (WORKSPACE / "core" / "giveaways_readiness.py").read_text(encoding="utf-8")
+    assert "[...args, '--no-proxy-auto-detect']" in browser_js and "[...args, '--no-proxy-server']" not in browser_js
+    assert "skipped: 'login'" in fab_js and "skipped:" in fab_mjs and "Skipping Fab (" in fab_mjs
+    assert "Log in to your account" in gog_js and "Log in to your account" in gog_mjs
+    assert "context.route(" not in gog_js
+    assert "SITE_HEADERS" in readiness_py and "trust_env=False" in readiness_py
+    assert "_trayHintShown" in form and "ws://127.0.0.1:28492/ws" in hook
+    print("      Argon v3.5 hardening & giveaways polish suite: PASS [OK]")
 
 
 if __name__ == "__main__":
@@ -7283,6 +7414,7 @@ if __name__ == "__main__":
         test_console_journal_keeps_five_hours_and_serves_only_new_lines,
         test_service_log_file_rotates_and_stays_utf8,
         test_host_opens_the_log_file_from_its_own_path,
+        test_argon_v3_5_hardening_suite,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

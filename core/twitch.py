@@ -72,6 +72,7 @@ if TYPE_CHECKING:
 import re
 
 from utils import smart_game_match, clean_title, trophies_show_completed
+from dpapi import load_cookie_jar, save_cookie_jar
 _clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
@@ -437,7 +438,7 @@ class _AuthState:
             login_form.update(_("gui", "login", "logged_in"), self.user_id, username=username)
             # update our cookie and save it
             jar.update_cookies(cookie, client_info.CLIENT_URL)
-            jar.save(COOKIES_PATH)
+            save_cookie_jar(jar, COOKIES_PATH)
         self._twitch.gui.help._invalidate_button.config(state="normal")
         self._logged_in.set()
 
@@ -492,21 +493,7 @@ class Twitch:
         cookie_jar = aiohttp.CookieJar()
         try:
             if COOKIES_PATH.exists():
-                data_bytes = COOKIES_PATH.read_bytes()
-                clean_bytes = data_bytes.lstrip(b"\xef\xbb\xbf \t\r\n")
-                if clean_bytes.startswith(b"{"):
-                    import json
-                    raw_cookies = json.loads(clean_bytes.decode("utf-8"))
-                    for domain, cookies_dict in raw_cookies.items():
-                        dom = domain.split('|')[0].lstrip('.').strip()
-                        if not dom:
-                            continue
-                        url = URL(f"https://{dom}")
-                        for name, cdata in cookies_dict.items():
-                            val = cdata.get("value", "") if isinstance(cdata, dict) else str(cdata)
-                            cookie_jar.update_cookies({name: val}, response_url=url)
-                else:
-                    cookie_jar.load(COOKIES_PATH)
+                load_cookie_jar(cookie_jar, COOKIES_PATH)
         except Exception as err:
             logger.warning(f"Error loading cookies: {err}")
         # create timeouts
@@ -549,7 +536,7 @@ class Twitch:
             for cookie_key, cookie in list(cookie_jar._cookies.items()):
                 if not cookie:
                     del cookie_jar._cookies[cookie_key]
-            cookie_jar.save(COOKIES_PATH)
+            save_cookie_jar(cookie_jar, COOKIES_PATH)
             await self._session.close()
             self._session = None
         self._drops.clear()
@@ -779,6 +766,8 @@ class Twitch:
                         and (not priority_only or is_this_forced or _fuzzy_priority(game.name) != MAX_INT)
                         # and can be progressed within the next hour
                         and campaign.can_earn_within(next_hour)
+                        # and has at least one mathematically reachable drop before ends_at
+                        and (is_this_forced or campaign.has_reachable_drop())
                     ):
                         self.wanted_games.append(game)
 

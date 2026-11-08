@@ -4,6 +4,7 @@
 import { resolve, jsonDb, datetime, filenamify, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { launchContext } from './src/browser.js';
+import { writeRunReport } from './src/runsummary.js';
 
 // A third-party OAuth page can carry itch.io in its query string: only the host and the path tell a login is done.
 const isItchPage = url => (url.hostname === 'itch.io' || url.hostname.endsWith('.itch.io')) && !url.pathname.includes('/login');
@@ -74,7 +75,9 @@ async function main() {
   if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
   const page = context.pages().length ? context.pages()[0] : await context.newPage();
-  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+  if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+    await page.setViewportSize({ width: cfg.width, height: cfg.height });
+  }
 
   const notify_games = [];
 
@@ -93,8 +96,9 @@ async function main() {
       if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
         console.log('Skipping Itch.io (requires interactive login once via --show).');
         await notify('Itch.io: Not signed in. Run "ClaimGames.cmd --show --claim itch" to log in.');
+        writeRunReport([], { skipped: 'login' });
         await context.close();
-        return;
+        process.exit(0);
       } else {
         console.log('Waiting for manual login in the browser window (up to 3 minutes)...');
         await page.waitForURL(isItchPage, { timeout: cfg.login_timeout || 180000 });
@@ -171,6 +175,7 @@ async function main() {
     }
   } finally {
     await db.write();
+    writeRunReport(notify_games);
     if (notify_games.filter(g => g.status === 'claimed' || g.status === 'failed').length) {
       const statsSummary = await getStatsSummary().catch(() => null);
       notify(`Itch.io (${user}):<br>${html_game_list(notify_games, statsSummary)}`);

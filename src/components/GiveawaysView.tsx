@@ -717,17 +717,20 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                       <storeMeta.icon className="ui-icon" aria-hidden="true" focusable="false" />
                     </div>
 
-                    <div className="claimed-card-body">
+                    <div className="claimed-card-body min-w-0">
                       <div className="claimed-card-header-row">
                         <span style={{ color: storeMeta.color, fontWeight: 700 }} title={storeMeta.id === 'fab' ? 'Fab (магазин Unreal Engine 5)' : storeMeta.name}>
                           {storeMeta.tag}
                         </span>
-                        <span style={{ color: 'var(--text-muted)' }}>
-                          <Check className="ui-icon" aria-hidden="true" focusable="false" /> {dateStr}
-                        </span>
+                        {dateStr && (
+                          <span style={{ color: 'var(--text-muted)' }} className="whitespace-nowrap tabular-nums text-[length:var(--fs-xs)] flex items-center gap-1 shrink-0" title={`Получено: ${dateStr}`}>
+                            <Check className="ui-icon shrink-0" aria-hidden="true" focusable="false" />
+                            <span>{dateStr}</span>
+                          </span>
+                        )}
                       </div>
 
-                      <div className="claimed-card-title" title={item.title}>
+                      <div className="claimed-card-title line-clamp-2" title={item.title}>
                         {item.title}
                       </div>
                     </div>

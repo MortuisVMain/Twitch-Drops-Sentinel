@@ -37,7 +37,9 @@ handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
 const page = context.pages().length ? context.pages()[0] : await context.newPage();
-await page.setViewportSize({ width: cfg.width, height: cfg.height });
+if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 
 try {
   // 1. Check user login session on Fab
@@ -68,6 +70,14 @@ try {
 
   if (!isLoggedIn) {
     const errorMsg = 'Not signed in to Fab. Please run with --show to login: ClaimGames.cmd --show --claim fab';
+    if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+      console.warn(`[WARN] ${errorMsg}`);
+      console.log('Skipping Fab (requires interactive login once via --show).');
+      await notify(`Fab: ${errorMsg}`);
+      writeRunReport([], { skipped: 'login' });
+      await context.close();
+      process.exit(0);
+    }
     console.error(errorMsg);
     notify(`Fab: ${errorMsg}`);
     throw new Error(errorMsg);

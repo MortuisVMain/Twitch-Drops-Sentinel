@@ -3,6 +3,7 @@ import { authenticator } from 'otplib';
 import chalk from 'chalk';
 import { resolve, jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
+import { writeRunReport } from './src/runsummary.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'prime-gaming', ...a);
 
@@ -37,7 +38,9 @@ handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
 const page = context.pages().length ? context.pages()[0] : await context.newPage(); // should always exist
-await page.setViewportSize({ width: cfg.width, height: cfg.height }); // TODO workaround for https://github.com/vogler/free-games-claimer/issues/277 until Playwright fixes it
+if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height }); // TODO workaround for https://github.com/vogler/free-games-claimer/issues/277 until Playwright fixes it
+}
 // console.debug('userAgent:', await page.evaluate(() => navigator.userAgent));
 
 // confirm() answers nothing without a terminal: say why the game is skipped instead of skipping it silently
@@ -54,6 +57,13 @@ try {
   while (await page.locator('button:has-text("Sign in")').count() > 0) {
     console.error('Not signed in anymore.');
     await markSignedOut('prime');
+    if ((!cfg.show || process.env.FGC_MINIMIZE == '1') && !(cfg.pg_email && cfg.pg_password)) {
+      console.log('Skipping Prime Gaming (requires interactive login once via --show).');
+      await notify('Prime Gaming: Not signed in. Run "ClaimGames.cmd --show --claim prime" to log in.');
+      writeRunReport([], { skipped: 'login' });
+      await context.close();
+      process.exit(0);
+    }
     await page.click('button:has-text("Sign in")');
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give user some extra time to log in
     console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
@@ -90,6 +100,12 @@ try {
     } else {
       console.log('Waiting for you to login in the browser.');
       await notify('prime-gaming: no longer signed in and not enough options set for automatic login.');
+      if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+        console.log('Skipping Prime Gaming (requires interactive login once via --show).');
+        writeRunReport([], { skipped: 'login' });
+        await context.close();
+        process.exit(0);
+      }
       if (cfg.headless) {
         console.log('Run `SHOW=1 node prime-gaming` to login in the opened browser.');
         await context.close(); // finishes potential recording
@@ -474,6 +490,7 @@ try {
   if (notify_games.length) { // list should only include claimed games
     notify(`prime-gaming (${user}):<br>${html_game_list(notify_games)}`);
   }
+  writeRunReport(notify_games);
 }
 if (page.video()) console.log('Recorded video:', await page.video().path());
 await context.close();

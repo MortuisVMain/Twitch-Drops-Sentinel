@@ -76,6 +76,48 @@ export function useSentinelState(
     const markUnreachable = () => {
       if (isMounted && (hasAnswered || Date.now() - mountedAt >= startGraceMs())) setServiceLost(true);
     };
+    const applyStateData = (data: any) => {
+      if (!isMounted || !data || typeof data !== 'object') return;
+      hasAnswered = true;
+      setServiceLost(false);
+      setSentinelState((prev) => {
+        let mergedActiveDrop = data.active_drop;
+        if (
+          prev.active_drop &&
+          data.active_drop &&
+          prev.active_drop.id === data.active_drop.id &&
+          prev.active_drop.current_minutes === data.active_drop.current_minutes
+        ) {
+          const diff = Math.abs((prev.active_drop.remaining_seconds || 0) - (data.active_drop.remaining_seconds || 0));
+          if (diff <= 6) {
+            mergedActiveDrop = {
+              ...data.active_drop,
+              remaining_seconds: prev.active_drop.remaining_seconds,
+            };
+          }
+        }
+        followBackendLanguage(data.settings?.language);
+        followBackendTextScale((data.settings as { ui_text_scale?: unknown } | undefined)?.ui_text_scale);
+        setServerCovers(data.covers);
+        return {
+          ...prev,
+          ...data,
+          active_drop: mergedActiveDrop,
+          connected: true,
+          settings: {
+            ...prev.settings,
+            ...(data.settings || {}),
+            ignored_channels: Array.isArray(data.settings?.ignored_channels)
+              ? data.settings.ignored_channels
+              : (prev.settings.ignored_channels || []),
+          },
+          installed_games: data.installed_games || prev.installed_games,
+          all_catalog_games: data.all_catalog_games || prev.all_catalog_games,
+          ignored_games: data.ignored_games || prev.ignored_games || [],
+        };
+      });
+    };
+
     const fetchState = async () => {
       if (!hasAnswered) markUnreachable(); // a request that hangs must not keep "starting" forever
       try {
@@ -92,46 +134,7 @@ export function useSentinelState(
           return;
         }
         const data = await res.json();
-        if (isMounted) {
-          hasAnswered = true;
-          setServiceLost(false);
-          setSentinelState((prev) => {
-              let mergedActiveDrop = data.active_drop;
-              if (
-                prev.active_drop &&
-                data.active_drop &&
-                prev.active_drop.id === data.active_drop.id &&
-                prev.active_drop.current_minutes === data.active_drop.current_minutes
-              ) {
-                const diff = Math.abs((prev.active_drop.remaining_seconds || 0) - (data.active_drop.remaining_seconds || 0));
-                if (diff <= 6) {
-                  mergedActiveDrop = {
-                    ...data.active_drop,
-                    remaining_seconds: prev.active_drop.remaining_seconds,
-                  };
-                }
-              }
-              followBackendLanguage(data.settings?.language);
-              followBackendTextScale((data.settings as { ui_text_scale?: unknown } | undefined)?.ui_text_scale);
-              setServerCovers(data.covers);
-              return {
-                ...prev,
-                ...data,
-                active_drop: mergedActiveDrop,
-                connected: true,
-                settings: {
-                  ...prev.settings,
-                  ...(data.settings || {}),
-                  ignored_channels: Array.isArray(data.settings?.ignored_channels)
-                    ? data.settings.ignored_channels
-                    : (prev.settings.ignored_channels || []),
-                },
-                installed_games: data.installed_games || prev.installed_games,
-                all_catalog_games: data.all_catalog_games || prev.all_catalog_games,
-                ignored_games: data.ignored_games || prev.ignored_games || [],
-              };
-          });
-        }
+        applyStateData(data);
       } catch (error) {
         markUnreachable();
         if (isMounted) {
@@ -153,10 +156,60 @@ export function useSentinelState(
       })
       .catch(() => {});
 
+    let ws: WebSocket | null = null;
+    let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    const connectWs = () => {
+      if (!isMounted || typeof WebSocket === 'undefined' || window.location?.protocol === 'file:') return;
+      try {
+        ws = new WebSocket('ws://127.0.0.1:28492/ws');
+        ws.onmessage = (ev) => {
+          try {
+            const payload = JSON.parse(ev.data);
+            if (payload && typeof payload === 'object' && ('status_text' in payload || 'settings' in payload)) {
+              applyStateData(payload);
+            }
+          } catch {}
+        };
+        ws.onclose = () => {
+          if (isMounted) {
+            wsReconnectTimer = setTimeout(connectWs, 5000);
+          }
+        };
+        ws.onerror = () => {
+          try { ws?.close(); } catch {}
+        };
+      } catch {}
+    };
+    connectWs();
+
+    const handleWakeupMsg = (event: any) => {
+      try {
+        const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (msg?.type === 'WAKEUP_SYNC') {
+          fetchState();
+        }
+      } catch {}
+    };
+    const handleFocusWakeup = () => {
+      if (document.visibilityState === 'visible') {
+        fetchState();
+      }
+    };
+    window.addEventListener('message', handleWakeupMsg);
+    (window as any).chrome?.webview?.addEventListener('message', handleWakeupMsg);
+    window.addEventListener('focus', handleFocusWakeup);
+    document.addEventListener('visibilitychange', handleFocusWakeup);
+
     const interval = setInterval(fetchState, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      try { ws?.close(); } catch {}
+      window.removeEventListener('message', handleWakeupMsg);
+      (window as any).chrome?.webview?.removeEventListener('message', handleWakeupMsg);
+      window.removeEventListener('focus', handleFocusWakeup);
+      document.removeEventListener('visibilitychange', handleFocusWakeup);
     };
   }, []);
 

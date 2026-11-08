@@ -33,7 +33,9 @@ handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
 const page = context.pages().length ? context.pages()[0] : await context.newPage();
-await page.setViewportSize({ width: cfg.width, height: cfg.height });
+if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 
 try {
   // 1. Check login state: the cart page asks the store's API who is signed in, "Anonymous" (id 0) when nobody is.

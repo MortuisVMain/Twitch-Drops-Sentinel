@@ -5054,10 +5054,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     const linuxGlArgs = ["--use-gl", "--use-angle"];
     options.args = (options.args ?? []).filter((a) => !linuxGlArgs.some((p) => a.startsWith(p)));
   }
-  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect"];
+  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server", "--no-proxy-auto-detect"];
   const args = options.args ?? [];
   const hasProxyArg = args.some((a) => proxyArgs.some((p) => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, "--no-proxy-server"];
+  if (!hasProxyArg) options.args = [...args, "--no-proxy-auto-detect"];
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") {
     const offscreenArgs = [
       "--window-position=-32000,-32000",
@@ -5453,6 +5453,43 @@ var escapeHtml = (unsafe) => unsafe.replaceAll("&", "&amp;").replaceAll("<", "&l
 var html_game_list = (games, statsSummary = null) => {
   const list = games.map((g) => `- <a href="${g.url}">${escapeHtml(g.title)}</a> (${g.status}${g.price ? ` - $${g.price}` : ""})`).join("<br>");
   return statsSummary ? `${list}<br><br><b>${escapeHtml(statsSummary)}</b>` : list;
+};
+
+// src/runsummary.js
+import { readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
+
+// src/checkout.js
+var CURRENCY = "\\p{Sc}";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
+var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
+var LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|\u0440\u0443\u0431)`;
+
+// src/runsummary.js
+var tallyGames = (games) => {
+  const tally = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  for (const { status } of games) {
+    const text = String(status ?? "");
+    if (text === "claimed") tally.claimed++;
+    else if (text === "existed") tally.existed++;
+    else if (text === NOT_FREE || text === TOTAL_UNKNOWN) tally.refused++;
+    else if (text.startsWith("failed")) tally.failed++;
+    else tally.other++;
+  }
+  return tally;
+};
+var writeRunReport = (games, extra = {}) => {
+  const file = process.env.SENTINEL_RUN_REPORT;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify({ ...tallyGames(games), ...extra }));
+  } catch (err) {
+    console.warn(`[SENTINEL] \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0438\u0442\u043E\u0433 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: ${err.message}`);
+  }
 };
 
 // node_modules/chalk/source/vendor/ansi-styles/index.js
@@ -5987,6 +6024,13 @@ var isSignedIn = async () => await page.locator("#account_pulldown").count() > 0
 var signIn = async () => {
   console.error("Not signed in anymore.");
   await markSignedOut("steam");
+  if ((!cfg.show || process.env.FGC_MINIMIZE == "1") && !(cfg.steam_username && cfg.steam_password)) {
+    console.log("Skipping Steam (requires interactive login once via --show).");
+    await notify('Steam: Not signed in. Run "ClaimGames.cmd --show --claim steam" to log in.');
+    writeRunReport([], { skipped: "login" });
+    await context.close();
+    process.exit(0);
+  }
   await page.goto(URL_LOGIN, { waitUntil: "domcontentloaded" });
   if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout);
   console.info(`Login timeout is ${cfg.login_timeout / 1e3} seconds!`);
@@ -5997,6 +6041,12 @@ var signIn = async () => {
   if (!password) {
     console.log("Waiting for you to login in the browser.");
     await notify("steam: no longer signed in and not enough options set for automatic login.");
+    if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+      console.log("Skipping Steam (requires interactive login once via --show).");
+      writeRunReport([], { skipped: "login" });
+      await context.close();
+      process.exit(0);
+    }
     if (cfg.headless) {
       console.log("Run `SHOW=1 node steam` to login in the opened browser.");
       await context.close();
@@ -6101,6 +6151,7 @@ try {
   if (notify_games.filter((g) => g.status != "existed").length) {
     notify(`Steam (${user}):<br>${html_game_list(notify_games)}`);
   }
+  writeRunReport(notify_games);
   await context.close();
 }
 console.log(datetime(), "finished checking steam");

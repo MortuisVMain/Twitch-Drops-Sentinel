@@ -98,12 +98,12 @@ export const launchContext = async (cfg, options, deps = {}) => {
   }
   // On Windows, Chrome resolves the system proxy configuration (WinINET, including WPAD
   // auto-detection) on its first request, which can block the first navigation for 30s+
-  // before the store is even contacted. The storefront scripts use no proxy, so force
-  // direct access. An explicitly configured proxy in `args` is left untouched.
-  const proxyArgs = ['--proxy-server', '--proxy-pac-url', '--proxy-auto-detect'];
+  // before the store is even contacted. Disable WPAD auto-detection while preserving any
+  // explicit system proxy / VPN configured by the user.
+  const proxyArgs = ['--proxy-server', '--proxy-pac-url', '--proxy-auto-detect', '--no-proxy-server', '--no-proxy-auto-detect'];
   const args = options.args ?? [];
   const hasProxyArg = args.some(a => proxyArgs.some(p => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, '--no-proxy-server'];
+  if (!hasProxyArg) options.args = [...args, '--no-proxy-auto-detect'];
 
   // If running in background/minimized mode, launch directly off-screen with unthrottled background timers
   if (options.headless === false && process.env.FGC_MINIMIZE == '1') {

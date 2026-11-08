@@ -5054,10 +5054,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     const linuxGlArgs = ["--use-gl", "--use-angle"];
     options.args = (options.args ?? []).filter((a) => !linuxGlArgs.some((p) => a.startsWith(p)));
   }
-  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect"];
+  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server", "--no-proxy-auto-detect"];
   const args = options.args ?? [];
   const hasProxyArg = args.some((a) => proxyArgs.some((p) => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, "--no-proxy-server"];
+  if (!hasProxyArg) options.args = [...args, "--no-proxy-auto-detect"];
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") {
     const offscreenArgs = [
       "--window-position=-32000,-32000",
@@ -6034,10 +6034,11 @@ var context = await launchContext(cfg, {
 handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 var page = context.pages().length ? context.pages()[0] : await context.newPage();
-await page.setViewportSize({ width: cfg.width, height: cfg.height });
+if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 var notify_games = [];
 var user;
-await context.route(/(cookiebot|googletagmanager|google-analytics|newrelic|nr-data)/, (route) => route.abort());
 try {
   await context.addCookies([
     {
@@ -6095,6 +6096,13 @@ try {
     }
     console.error("Not signed in anymore.");
     await markSignedOut("gog");
+    if ((!cfg.show || process.env.FGC_MINIMIZE == "1") && !(cfg.gog_email && cfg.gog_password)) {
+      console.log("Skipping GOG (requires interactive login once via --show).");
+      await notify('GOG: Not signed in. Run "ClaimGames.cmd --show --claim gog" to log in.');
+      writeRunReport([], { skipped: "login" });
+      await context.close();
+      process.exit(0);
+    }
     await signIn.waitFor({ timeout: 1e4 }).catch((_) => {
     });
     if (await signIn.count() == 0) {
@@ -6104,6 +6112,12 @@ try {
     await signIn.click();
     await page.waitForSelector("#GalaxyAccountsFrameContainer iframe");
     const iframe = page.frameLocator("#GalaxyAccountsFrameContainer iframe");
+    const loginSwitch = iframe.locator('a:has-text("Log in to your account"), button:has-text("Log in to your account"), #login_switch').first();
+    if (await loginSwitch.isVisible().catch(() => false)) {
+      await loginSwitch.click().catch(() => {
+      });
+      await page.waitForTimeout(500);
+    }
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout);
     console.info(`Login timeout is ${cfg.login_timeout / 1e3} seconds!`);
     if (cfg.gog_email && cfg.gog_password) console.info("Using email and password from environment.");
@@ -6137,6 +6151,7 @@ try {
       });
     } else {
       console.log("Waiting for you to login in the browser.");
+      console.log("[SENTINEL] \u0412\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 GOG \u0432 \u043E\u0442\u043A\u0440\u044B\u0432\u0448\u0435\u043C\u0441\u044F \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 (\u0444\u043E\u0440\u043C\u0430 \u0432\u0445\u043E\u0434\u0430 \xABLog in\xBB, \u0430 \u043D\u0435 \u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0446\u0438\u044F \xABJoin GOG\xBB).");
       await notify("gog: no longer signed in and not enough options set for automatic login.");
       if (cfg.headless) {
         console.log("Run `SHOW=1 node gog` to login in the opened browser.");

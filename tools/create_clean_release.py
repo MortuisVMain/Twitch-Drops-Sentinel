@@ -10,6 +10,7 @@ import os
 import sys
 import shutil
 import zipfile
+import hashlib
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -25,6 +26,8 @@ DIST_STAGING = WORKSPACE / "dist_release"
 RELEASE_DIR = DIST_STAGING / f"Twitch Drops Sentinel v{__version__}"
 ZIP_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"
 PATCH_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
+PATCH_OUTPUT_ALT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Patch.zip"
+SHA256_OUTPUT = WORKSPACE / "SHA256SUMS.txt"
 LICENSE_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.md")
 
 def create_release():
@@ -196,25 +199,59 @@ def create_release():
     patch_mb = PATCH_OUTPUT.stat().st_size / (1024 * 1024)
     print(f"      [PASS] Hot-Patch created successfully! Size: {patch_mb:.2f} MB")
 
-    # 13. Security Audit on Created ZIPs
+    # 12b. Also produce alternate patch name (Twitch_Drops_Sentinel_v<version>_Patch.zip)
+    shutil.copy2(PATCH_OUTPUT, PATCH_OUTPUT_ALT)
+    print(f"      [PASS] Copied alternate patch archive: {PATCH_OUTPUT_ALT.name}")
+
+    # 13. Security Audit on Created ZIPs (Strict ZERO-DATA-LEAK)
     print("[*] Performing Security Audit on generated archives...")
-    for target_zip in (ZIP_OUTPUT, PATCH_OUTPUT):
+    audited_zips = (ZIP_OUTPUT, PATCH_OUTPUT, PATCH_OUTPUT_ALT)
+    for target_zip in audited_zips:
         with zipfile.ZipFile(target_zip, "r") as zf:
             namelist = zf.namelist()
             for name in namelist:
                 nl = name.lower()
                 assert "cookies.jar" not in nl, f"CRITICAL: Found cookies.jar in {target_zip.name}! {name}"
                 assert not nl.endswith(".log"), f"CRITICAL: Found log file in {target_zip.name}! {name}"
+                assert not nl.endswith(".pdb"), f"CRITICAL: Found raw PDB in {target_zip.name}! {name}"
+                assert ".git" not in nl.split("/"), f"CRITICAL: Found .git folder in {target_zip.name}! {name}"
                 assert "settings.json" not in nl or "lang" in nl, f"CRITICAL: Found settings.json in {target_zip.name}! {name}"
                 assert "data/browser" not in nl, f"CRITICAL: Found Chromium profile data in {target_zip.name}! {name}"
                 assert not nl.endswith(".pma"), f"CRITICAL: Found browser metrics in {target_zip.name}! {name}"
                 assert "login data" not in nl, f"CRITICAL: Found login data in {target_zip.name}! {name}"
+            # Verify clean Trophies.md content inside full release
+            if "Twitch Drops Sentinel v" in target_zip.name and not "Patch" in target_zip.name:
+                trophies_entry = [n for n in namelist if n.endswith("Trophies.md")]
+                if trophies_entry:
+                    raw_trophies = zf.read(trophies_entry[0]).decode("utf-8")
+                    lines = [line.strip() for line in raw_trophies.strip().splitlines() if line.strip() and not line.startswith("#") and not line.startswith("|") and not "Журнал" in line]
+                    assert len(lines) == 0, f"CRITICAL: User trophies leaked into template Trophies.md! {lines}"
+                config_entry = [n for n in namelist if n.endswith("config.json")]
+                if config_entry:
+                    raw_config = zf.read(config_entry[0]).decode("utf-8")
+                    assert "github_token" not in raw_config, "CRITICAL: Private github_token found in config.json!"
+                    assert "cookie" not in raw_config.lower(), "CRITICAL: Cookie string found in config.json!"
 
-    print(f"      [PASS] Security Audit Passed: ZERO private tokens, 0 cookies, 0 personal logs.")
+    print(f"      [PASS] Security Audit Passed: ZERO private tokens, 0 cookies, 0 personal logs, 0 git history.")
+
+    # 14. Compute and write SHA256 checksums
+    print("[*] Computing SHA-256 checksums for release distribution...")
+    sha256_lines = []
+    release_files = [ZIP_OUTPUT, PATCH_OUTPUT, PATCH_OUTPUT_ALT]
+    for rf in release_files:
+        h = hashlib.sha256(rf.read_bytes()).hexdigest()
+        sha256_lines.append(f"{h}  {rf.name}")
+        print(f"      {rf.name}: {h} ({rf.stat().st_size / (1024*1024):.2f} MB)")
+
+    SHA256_OUTPUT.write_text("\n".join(sha256_lines) + "\n", encoding="utf-8")
+    print(f"      [PASS] Checksums written to {SHA256_OUTPUT.name}")
+
     print("=" * 65)
-    print(f"  READY FOR DISTRIBUTION:")
-    print(f"  1. Full Standalone: {ZIP_OUTPUT}")
-    print(f"  2. Hot-Patch Update: {PATCH_OUTPUT}")
+    print(f"  READY FOR DISTRIBUTION (v{__version__}):")
+    print(f"  1. Full Standalone: {ZIP_OUTPUT.name}")
+    print(f"  2. Hot-Patch Update: {PATCH_OUTPUT.name}")
+    print(f"  3. Hot-Patch (Alt): {PATCH_OUTPUT_ALT.name}")
+    print(f"  4. Checksums: {SHA256_OUTPUT.name}")
     print("=" * 65)
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
 import { launchContext } from './src/browser.js';
 import { jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
+import { writeRunReport } from './src/runsummary.js';
 import chalk from 'chalk';
 
 const lavender = chalk.hex('#b57edc'); // color for game names
@@ -65,6 +66,13 @@ const isSignedIn = async () => await page.locator('#account_pulldown').count() >
 const signIn = async () => {
   console.error('Not signed in anymore.');
   await markSignedOut('steam');
+  if ((!cfg.show || process.env.FGC_MINIMIZE == '1') && !(cfg.steam_username && cfg.steam_password)) {
+    console.log('Skipping Steam (requires interactive login once via --show).');
+    await notify('Steam: Not signed in. Run "ClaimGames.cmd --show --claim steam" to log in.');
+    writeRunReport([], { skipped: 'login' });
+    await context.close();
+    process.exit(0);
+  }
   await page.goto(URL_LOGIN, { waitUntil: 'domcontentloaded' });
   if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give the user extra time to log in
   console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
@@ -75,6 +83,12 @@ const signIn = async () => {
   if (!password) {
     console.log('Waiting for you to login in the browser.');
     await notify('steam: no longer signed in and not enough options set for automatic login.');
+    if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+      console.log('Skipping Steam (requires interactive login once via --show).');
+      writeRunReport([], { skipped: 'login' });
+      await context.close();
+      process.exit(0);
+    }
     if (cfg.headless) {
       console.log('Run `SHOW=1 node steam` to login in the opened browser.');
       await context.close();
@@ -200,6 +214,7 @@ try {
   if (notify_games.filter(g => g.status != 'existed').length) {
     notify(`Steam (${user}):<br>${html_game_list(notify_games)}`);
   }
+  writeRunReport(notify_games);
   await context.close();
 }
 

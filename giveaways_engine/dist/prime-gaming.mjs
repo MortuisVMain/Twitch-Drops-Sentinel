@@ -5802,10 +5802,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     const linuxGlArgs = ["--use-gl", "--use-angle"];
     options.args = (options.args ?? []).filter((a) => !linuxGlArgs.some((p) => a.startsWith(p)));
   }
-  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect"];
+  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server", "--no-proxy-auto-detect"];
   const args = options.args ?? [];
   const hasProxyArg = args.some((a) => proxyArgs.some((p) => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, "--no-proxy-server"];
+  if (!hasProxyArg) options.args = [...args, "--no-proxy-auto-detect"];
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") {
     const offscreenArgs = [
       "--window-position=-32000,-32000",
@@ -6697,6 +6697,43 @@ var html_game_list = (games, statsSummary = null) => {
   return statsSummary ? `${list}<br><br><b>${escapeHtml(statsSummary)}</b>` : list;
 };
 
+// src/runsummary.js
+import { readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
+
+// src/checkout.js
+var CURRENCY = "\\p{Sc}";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
+var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
+var LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|\u0440\u0443\u0431)`;
+
+// src/runsummary.js
+var tallyGames = (games) => {
+  const tally = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  for (const { status } of games) {
+    const text = String(status ?? "");
+    if (text === "claimed") tally.claimed++;
+    else if (text === "existed") tally.existed++;
+    else if (text === NOT_FREE || text === TOTAL_UNKNOWN) tally.refused++;
+    else if (text.startsWith("failed")) tally.failed++;
+    else tally.other++;
+  }
+  return tally;
+};
+var writeRunReport = (games, extra = {}) => {
+  const file = process.env.SENTINEL_RUN_REPORT;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify({ ...tallyGames(games), ...extra }));
+  } catch (err) {
+    console.warn(`[SENTINEL] \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0438\u0442\u043E\u0433 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: ${err.message}`);
+  }
+};
+
 // prime-gaming.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "prime-gaming", ...a);
 var BASE_URL = "https://luna.amazon.com";
@@ -6726,7 +6763,9 @@ var context = await launchContext(cfg, {
 handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 var page = context.pages().length ? context.pages()[0] : await context.newPage();
-await page.setViewportSize({ width: cfg.width, height: cfg.height });
+if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 var confirmClaim = async () => await confirm() || (console.log("[SENTINEL] \u0418\u0433\u0440\u0430 \u043F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u0430: INTERACTIVE=1 \u043F\u0440\u043E\u0441\u0438\u0442 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435, \u0430 \u043E\u0442\u0432\u0435\u0442\u0438\u0442\u044C \u043D\u0435\u0433\u0434\u0435 (\u043D\u0435\u0442 \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B\u0430)."), false);
 var notify_games = [];
 var user;
@@ -6738,6 +6777,13 @@ try {
   while (await page.locator('button:has-text("Sign in")').count() > 0) {
     console.error("Not signed in anymore.");
     await markSignedOut("prime");
+    if ((!cfg.show || process.env.FGC_MINIMIZE == "1") && !(cfg.pg_email && cfg.pg_password)) {
+      console.log("Skipping Prime Gaming (requires interactive login once via --show).");
+      await notify('Prime Gaming: Not signed in. Run "ClaimGames.cmd --show --claim prime" to log in.');
+      writeRunReport([], { skipped: "login" });
+      await context.close();
+      process.exit(0);
+    }
     await page.click('button:has-text("Sign in")');
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout);
     console.info(`Login timeout is ${cfg.login_timeout / 1e3} seconds!`);
@@ -6773,6 +6819,12 @@ try {
     } else {
       console.log("Waiting for you to login in the browser.");
       await notify("prime-gaming: no longer signed in and not enough options set for automatic login.");
+      if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+        console.log("Skipping Prime Gaming (requires interactive login once via --show).");
+        writeRunReport([], { skipped: "login" });
+        await context.close();
+        process.exit(0);
+      }
       if (cfg.headless) {
         console.log("Run `SHOW=1 node prime-gaming` to login in the opened browser.");
         await context.close();
@@ -7098,6 +7150,7 @@ try {
   if (notify_games.length) {
     notify(`prime-gaming (${user}):<br>${html_game_list(notify_games)}`);
   }
+  writeRunReport(notify_games);
 }
 if (page.video()) console.log("Recorded video:", await page.video().path());
 await context.close();

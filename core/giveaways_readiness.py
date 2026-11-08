@@ -16,7 +16,12 @@ import giveaways_controller as gc
 
 logger = logging.getLogger("sentinel.giveaways")
 
-SITE_TIMEOUT_SECONDS = 5.0
+SITE_TIMEOUT_SECONDS = 8.0
+SITE_HEADERS: Dict[str, str] = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ru,en-US;q=0.9,en;q=0.8",
+}
 NODE_DOWNLOAD_URL = "https://nodejs.org"
 STORE_SITES: Dict[str, str] = {
     "epic": "https://store.epicgames.com/",
@@ -118,14 +123,25 @@ async def _site_reachable(session: aiohttp.ClientSession, url: str) -> bool:
     try:
         async with session.head(url, allow_redirects=False):
             return True
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logger.info(f"Readiness: {url} is not reachable: {type(e).__name__}: {e}")
-        return False
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        pass
+    try:
+        async with session.get(url, allow_redirects=False):
+            return True
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+        try:
+            timeout = aiohttp.ClientTimeout(total=SITE_TIMEOUT_SECONDS)
+            async with aiohttp.ClientSession(timeout=timeout, trust_env=False, headers=SITE_HEADERS) as direct_session:
+                async with direct_session.get(url, allow_redirects=False):
+                    return True
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            logger.info(f"Readiness: {url} is not reachable: {type(e).__name__}: {e}")
+            return False
 
 
 async def _site_items(stores: List[str]) -> List[dict]:
     timeout = aiohttp.ClientTimeout(total=SITE_TIMEOUT_SECONDS)
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True, headers=SITE_HEADERS) as session:
         answers = await asyncio.gather(*(_site_reachable(session, STORE_SITES[s]) for s in stores), return_exceptions=True)
     items = []
     for store, answer in zip(stores, answers):

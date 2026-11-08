@@ -5414,10 +5414,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     const linuxGlArgs = ["--use-gl", "--use-angle"];
     options.args = (options.args ?? []).filter((a) => !linuxGlArgs.some((p) => a.startsWith(p)));
   }
-  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect"];
+  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server", "--no-proxy-auto-detect"];
   const args = options.args ?? [];
   const hasProxyArg = args.some((a) => proxyArgs.some((p) => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, "--no-proxy-server"];
+  if (!hasProxyArg) options.args = [...args, "--no-proxy-auto-detect"];
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") {
     const offscreenArgs = [
       "--window-position=-32000,-32000",
@@ -5465,6 +5465,43 @@ var launchContext = async (cfg2, options, deps = {}) => {
     console.log("[SENTINEL] \u0412\u044B\u0445\u043E\u0434 \u0438\u0437 \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u0430 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D: \u0432\u043E\u0439\u0434\u0438\u0442\u0435 \u0432 \u043D\u0443\u0436\u043D\u044B\u0439 \u0430\u043A\u043A\u0430\u0443\u043D\u0442 \u0432 \u043E\u043A\u043D\u0435 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430.");
   }
   return context;
+};
+
+// src/runsummary.js
+import { readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
+
+// src/checkout.js
+var CURRENCY = "\\p{Sc}";
+var NUMBER = "\\d(?:[\\d\\s.,]*\\d)?";
+var AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|[A-Z]{3}\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|[A-Z]{3}\\b|\u0440\u0443\u0431)`;
+var WHOLE_AMOUNT = new RegExp(`^-?(?:${AMOUNT})\\.?$`, "u");
+var STARTS_LIKE_AMOUNT = new RegExp(`^-?(?:${CURRENCY}|\\d)`, "u");
+var NOT_FREE = "failed:not-free";
+var TOTAL_UNKNOWN = "failed:total-unknown";
+var ISO_CODES = "USD|EUR|GBP|INR|RUB|JPY|CNY|CAD|AUD|CHF|BRL|MXN|PLN|TRY|UAH|KRW|SEK|NOK|DKK|CZK|HUF|NZD|SGD|HKD|ZAR|AED|SAR|ILS|THB|IDR|MYR|PHP|VND|ARS|CLP|COP|PEN|KZT|BYN";
+var LISTING_AMOUNT = `(?:[A-Z]{0,2}${CURRENCY}|(?:${ISO_CODES})\\s)\\s*${NUMBER}|${NUMBER}\\s*(?:${CURRENCY}|(?:${ISO_CODES})\\b|\u0440\u0443\u0431)`;
+
+// src/runsummary.js
+var tallyGames = (games) => {
+  const tally = { claimed: 0, existed: 0, refused: 0, failed: 0, other: 0 };
+  for (const { status } of games) {
+    const text = String(status ?? "");
+    if (text === "claimed") tally.claimed++;
+    else if (text === "existed") tally.existed++;
+    else if (text === NOT_FREE || text === TOTAL_UNKNOWN) tally.refused++;
+    else if (text.startsWith("failed")) tally.failed++;
+    else tally.other++;
+  }
+  return tally;
+};
+var writeRunReport = (games, extra = {}) => {
+  const file = process.env.SENTINEL_RUN_REPORT;
+  if (!file) return;
+  try {
+    writeFileSync(file, JSON.stringify({ ...tallyGames(games), ...extra }));
+  } catch (err) {
+    console.warn(`[SENTINEL] \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0438\u0442\u043E\u0433 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: ${err.message}`);
+  }
 };
 
 // itch.js
@@ -5521,7 +5558,9 @@ async function main() {
   handleSIGINT(context);
   if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
   const page = context.pages().length ? context.pages()[0] : await context.newPage();
-  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+  if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+    await page.setViewportSize({ width: cfg.width, height: cfg.height });
+  }
   const notify_games = [];
   try {
     console.log("Checking Itch.io login status...");
@@ -5535,8 +5574,9 @@ async function main() {
       if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
         console.log("Skipping Itch.io (requires interactive login once via --show).");
         await notify('Itch.io: Not signed in. Run "ClaimGames.cmd --show --claim itch" to log in.');
+        writeRunReport([], { skipped: "login" });
         await context.close();
-        return;
+        process.exit(0);
       } else {
         console.log("Waiting for manual login in the browser window (up to 3 minutes)...");
         await page.waitForURL(isItchPage, { timeout: cfg.login_timeout || 18e4 });
@@ -5601,6 +5641,7 @@ async function main() {
     }
   } finally {
     await db.write();
+    writeRunReport(notify_games);
     if (notify_games.filter((g) => g.status === "claimed" || g.status === "failed").length) {
       const statsSummary = await getStatsSummary().catch(() => null);
       notify(`Itch.io (${user}):<br>${html_game_list(notify_games, statsSummary)}`);

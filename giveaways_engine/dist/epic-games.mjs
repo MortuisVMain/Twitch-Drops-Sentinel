@@ -5802,10 +5802,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     const linuxGlArgs = ["--use-gl", "--use-angle"];
     options.args = (options.args ?? []).filter((a) => !linuxGlArgs.some((p) => a.startsWith(p)));
   }
-  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect"];
+  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server", "--no-proxy-auto-detect"];
   const args = options.args ?? [];
   const hasProxyArg = args.some((a) => proxyArgs.some((p) => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, "--no-proxy-server"];
+  if (!hasProxyArg) options.args = [...args, "--no-proxy-auto-detect"];
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") {
     const offscreenArgs = [
       "--window-position=-32000,-32000",
@@ -7193,7 +7193,9 @@ var context = await launchContext(cfg, {
 handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 var page = context.pages().length ? context.pages()[0] : await context.newPage();
-await page.setViewportSize({ width: cfg.width, height: cfg.height });
+if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 if (cfg.debug) console.debug(await page.evaluate(() => [(({ width, height, availWidth, availHeight }) => ({ width, height, availWidth, availHeight }))(window.screen), navigator.userAgent, navigator.platform, navigator.vendor]));
 if (cfg.debug_network) {
   const filter = (r) => r.url().includes("store.epicgames.com");
@@ -7235,6 +7237,13 @@ try {
   while (await page.locator("egs-navigation").getAttribute("isloggedin") != "true") {
     console.error("Not signed in anymore. Please login in the browser or here in the terminal.");
     await markSignedOut("epic");
+    if ((!cfg.show || process.env.FGC_MINIMIZE == "1") && !(cfg.eg_email && cfg.eg_password)) {
+      console.log("Skipping Epic Games (requires interactive login once via --show).");
+      await notify('Epic Games: Not signed in. Run "ClaimGames.cmd --show --claim epic" to log in.');
+      writeRunReport([], { skipped: "login" });
+      await context.close();
+      process.exit(0);
+    }
     if (cfg.novnc_port) console.info(`Open http://localhost:${cfg.novnc_port} to login inside the docker container.`);
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout);
     console.info(`Login timeout is ${cfg.login_timeout / 1e3} seconds!`);
@@ -7244,6 +7253,12 @@ try {
     const notifyBrowserLogin = async () => {
       console.log("Waiting for you to login in the browser.");
       await notify("epic-games: no longer signed in and not enough options set for automatic login.");
+      if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+        console.log("Skipping Epic Games (requires interactive login once via --show).");
+        writeRunReport([], { skipped: "login" });
+        await context.close();
+        process.exit(0);
+      }
       if (cfg.headless) {
         console.log("Run `SHOW=1 node epic-games` to login in the opened browser.");
         await context.close();

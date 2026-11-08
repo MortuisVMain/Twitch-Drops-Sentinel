@@ -5414,10 +5414,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     const linuxGlArgs = ["--use-gl", "--use-angle"];
     options.args = (options.args ?? []).filter((a) => !linuxGlArgs.some((p) => a.startsWith(p)));
   }
-  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect"];
+  const proxyArgs = ["--proxy-server", "--proxy-pac-url", "--proxy-auto-detect", "--no-proxy-server", "--no-proxy-auto-detect"];
   const args = options.args ?? [];
   const hasProxyArg = args.some((a) => proxyArgs.some((p) => a.startsWith(p)));
-  if (!hasProxyArg) options.args = [...args, "--no-proxy-server"];
+  if (!hasProxyArg) options.args = [...args, "--no-proxy-auto-detect"];
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") {
     const offscreenArgs = [
       "--window-position=-32000,-32000",
@@ -5672,7 +5672,9 @@ var context = await launchContext(cfg, {
 handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 var page = context.pages().length ? context.pages()[0] : await context.newPage();
-await page.setViewportSize({ width: cfg.width, height: cfg.height });
+if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 try {
   console.log("Navigating to Fab limited-time free page...");
   await page.goto("https://www.fab.com/limited-time-free", { waitUntil: "domcontentloaded" });
@@ -5698,6 +5700,14 @@ try {
   }
   if (!isLoggedIn) {
     const errorMsg = "Not signed in to Fab. Please run with --show to login: ClaimGames.cmd --show --claim fab";
+    if (!cfg.show || process.env.FGC_MINIMIZE == "1") {
+      console.warn(`[WARN] ${errorMsg}`);
+      console.log("Skipping Fab (requires interactive login once via --show).");
+      await notify(`Fab: ${errorMsg}`);
+      writeRunReport([], { skipped: "login" });
+      await context.close();
+      process.exit(0);
+    }
     console.error(errorMsg);
     notify(`Fab: ${errorMsg}`);
     throw new Error(errorMsg);

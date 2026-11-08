@@ -410,7 +410,7 @@ namespace TwitchDropsSentinel
         private bool _wasMaximizedBeforePip;
 
         // Mini-window size in DIP: the one place it is defined (tools/check_pip_layout.cjs reads PipWidthDip / PipHeightDip from here)
-        private const int PipWidthDip = 560, PipHeightDip = 247, PipMinWidthDip = 320, PipMinHeightDip = 150;
+        private const int PipWidthDip = 560, PipHeightDip = 247, PipMinWidthDip = 320, PipMinHeightDip = 247;
 
         private static Size PipSize(float dpiScale) => new Size((int)Math.Round(PipWidthDip * dpiScale), (int)Math.Round(PipHeightDip * dpiScale));
 
@@ -786,7 +786,7 @@ namespace TwitchDropsSentinel
 
 
 
-        private static async Task<bool> CheckBackendAliveAsync()
+        private async Task<bool> CheckBackendAliveAsync()
 
         {
 
@@ -798,7 +798,41 @@ namespace TwitchDropsSentinel
 
                 var res = await client.GetAsync("http://127.0.0.1:28492/api/state");
 
-                return res.IsSuccessStatusCode;
+                if (!res.IsSuccessStatusCode) return false;
+
+                try
+                {
+                    if (_trayIcon != null)
+                    {
+                        string json = await res.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+                        string tip = "Twitch Drops Sentinel";
+                        if (root.TryGetProperty("hardware", out var hw) && hw.ValueKind == JsonValueKind.Object &&
+                            hw.TryGetProperty("is_paused", out var pausedProp) && pausedProp.ValueKind == JsonValueKind.True)
+                        {
+                            tip = "Sentinel • На паузе";
+                        }
+                        else if (root.TryGetProperty("active_drop", out var drop) && drop.ValueKind == JsonValueKind.Object)
+                        {
+                            string game = drop.TryGetProperty("game", out var gProp) && gProp.ValueKind == JsonValueKind.String ? gProp.GetString() ?? "" : "";
+                            int pct = drop.TryGetProperty("progress_percent", out var pProp) && pProp.ValueKind == JsonValueKind.Number ? pProp.GetInt32() : 0;
+                            if (!string.IsNullOrWhiteSpace(game))
+                            {
+                                tip = $"Sentinel • {game} ({pct}%)";
+                            }
+                        }
+                        else
+                        {
+                            tip = "Sentinel • Ожидание дропов";
+                        }
+                        if (tip.Length > 63) tip = tip.Substring(0, 62) + "…";
+                        if (_trayIcon.Text != tip) _trayIcon.Text = tip;
+                    }
+                }
+                catch { }
+
+                return true;
 
             }
 
@@ -810,6 +844,51 @@ namespace TwitchDropsSentinel
 
             }
 
+        }
+
+        private static void CleanupStalePort28492()
+        {
+            try
+            {
+                var listeners = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+                    .GetActiveTcpListeners();
+                if (!listeners.Any(ep => ep.Port == 28492)) return;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/c netstat -ano -p tcp | findstr :28492",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true
+                };
+                using var proc = Process.Start(psi);
+                if (proc == null) return;
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(2000);
+
+                foreach (string line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (line.Contains("LISTENING"))
+                    {
+                        var parts = line.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 5 && int.TryParse(parts[parts.Length - 1], out int pid) && pid > 0)
+                        {
+                            try
+                            {
+                                var staleProc = Process.GetProcessById(pid);
+                                if (!staleProc.HasExited && staleProc.ProcessName.ToLowerInvariant().Contains("python"))
+                                {
+                                    staleProc.Kill(true);
+                                    staleProc.WaitForExit(1500);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
 
@@ -877,6 +956,10 @@ namespace TwitchDropsSentinel
                     _pythonBackendProcess = null;
 
                 }
+
+
+
+                CleanupStalePort28492();
 
 
 
@@ -2391,6 +2474,22 @@ namespace TwitchDropsSentinel
 
                 Hide();
 
+                try
+
+                {
+
+                    if (_webView?.CoreWebView2 != null)
+
+                    {
+
+                        _ = _webView.CoreWebView2.TrySuspendAsync();
+
+                    }
+
+                }
+
+                catch { }
+
                 if (_trayIcon != null)
 
                 {
@@ -2510,7 +2609,14 @@ else
 
             const int WM_ENDSESSION = 0x0016;
 
+            const int WM_DISPLAYCHANGE = 0x007E;
+
             const int WM_HOTKEY = 0x0312;
+
+            if (m.Msg == WM_DISPLAYCHANGE)
+            {
+                _monitorTopologyDirty = true;
+            }
 
             if (m.Msg == WM_QUERYENDSESSION || m.Msg == WM_ENDSESSION)
 
@@ -2920,25 +3026,7 @@ else
 
             {
 
-                if (WindowState != FormWindowState.Minimized)
-
-                {
-
-                    _lastNonMinimizedState = WindowState;
-
-                }
-
-                Hide();
-
-                if (_trayIcon != null)
-
-                {
-
-                    _trayIcon.Visible = true;
-
-                    ShowTrayHint();
-
-                }
+                HideToTray();
 
                 return;
 
@@ -3150,8 +3238,12 @@ else
             }
         }
 
+        private bool _trayHintShown = false;
+
         private void ShowTrayHint()
         {
+            if (_trayHintShown) return;
+            _trayHintShown = true;
             _trayIcon?.ShowBalloonTip(5000, "Twitch Drops Sentinel", "Окно скрыто, фарм продолжается в трее. Открыть: клик по значку. Выйти полностью: правый клик по значку → «Выход из Sentinel».", ToolTipIcon.Info);
         }
 
@@ -3162,6 +3254,14 @@ else
                 _lastNonMinimizedState = WindowState;
             }
             Hide();
+            try
+            {
+                if (_webView?.CoreWebView2 != null)
+                {
+                    _ = _webView.CoreWebView2.TrySuspendAsync();
+                }
+            }
+            catch { }
             if (_trayIcon != null)
             {
                 _trayIcon.Visible = true;
@@ -3269,6 +3369,25 @@ else
 
 
 
+                try
+
+                {
+
+                    if (_webView?.CoreWebView2 != null)
+
+                    {
+
+                        _webView.CoreWebView2.Resume();
+                        _webView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"WAKEUP_SYNC\"}");
+
+                    }
+
+                }
+
+                catch { }
+
+
+
                 _webView?.Invalidate();
 
             }
@@ -3315,6 +3434,8 @@ else
 
         private readonly BrightnessDebouncer _brightnessDebouncer;
         private readonly CancellationTokenSource _hardwareCts = new();
+        private List<NativeMonitorInfo>? _cachedMonitorTopology = null;
+        private volatile bool _monitorTopologyDirty = true;
 
 
 
@@ -3348,6 +3469,27 @@ else
         private List<NativeMonitorInfo> GetHardwareMonitors(bool explicitRefresh = false)
 
         {
+            if (!explicitRefresh && !_monitorTopologyDirty && _cachedMonitorTopology != null && _cachedMonitorTopology.Count > 0)
+            {
+                return _cachedMonitorTopology.Select(m =>
+                {
+                    int currentBri = BrightnessReading.Resolve(_monitorBrightnessMap, m.Id, m.CurrentBrightness, _masterBrightness, false, _brightnessDebouncer.IsPending(m.Id));
+                    int baselineBri = _baselineBrightnessMap.TryGetValue(m.Id, out int savedBase) ? savedBase : m.BaselineBrightness;
+                    return new NativeMonitorInfo
+                    {
+                        Id = m.Id,
+                        Name = m.Name,
+                        DeviceName = m.DeviceName,
+                        IsPrimary = m.IsPrimary,
+                        IsLaptopInternal = m.IsLaptopInternal,
+                        CurrentBrightness = currentBri,
+                        BaselineBrightness = baselineBri,
+                        MinBrightness = m.MinBrightness,
+                        MaxBrightness = m.MaxBrightness,
+                        SupportsControl = m.SupportsControl
+                    };
+                }).ToList();
+            }
 
             var list = new List<NativeMonitorInfo>();
 
@@ -3568,6 +3710,8 @@ else
 
 
 
+            _cachedMonitorTopology = list;
+            _monitorTopologyDirty = false;
             return list;
 
         }

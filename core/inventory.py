@@ -421,6 +421,16 @@ class TimedDrop(BaseDrop):
             return ((self.ends_at - now).total_seconds() / 60) / self.total_remaining_minutes
         return math.inf
 
+    def is_reachable(self, now: datetime | None = None) -> bool:
+        if self.is_claimed or self.remaining_minutes <= 0:
+            return True
+        now_dt = now or datetime.now(timezone.utc)
+        effective_end = min(self.ends_at, self.campaign.ends_at)
+        if now_dt >= effective_end:
+            return False
+        minutes_left = (effective_end - now_dt).total_seconds() / 60.0
+        return minutes_left >= self.total_remaining_minutes
+
     def _base_earn_conditions(self) -> bool:
         return (
             super()._base_earn_conditions()
@@ -586,9 +596,16 @@ class DropsCampaign:
     def first_drop(self) -> TimedDrop | None:
         drops: list[TimedDrop] = sorted(
             (drop for drop in self.drops if drop.can_earn()),
-            key=lambda d: d.remaining_minutes,
+            key=lambda d: (0 if d.is_reachable() else 1, d.remaining_minutes),
         )
         return drops[0] if drops else None
+
+    def has_reachable_drop(self, now: datetime | None = None) -> bool:
+        now_dt = now or datetime.now(timezone.utc)
+        earnable = [d for d in self.drops if not d.is_claimed and d.remaining_minutes > 0]
+        if not earnable:
+            return True
+        return any(d.is_reachable(now_dt) for d in earnable)
 
     def _update_real_minutes(self, delta: int) -> None:
         for drop in self.drops:

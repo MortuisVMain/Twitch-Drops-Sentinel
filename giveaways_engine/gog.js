@@ -62,14 +62,13 @@ handleSIGINT(context);
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
 const page = context.pages().length ? context.pages()[0] : await context.newPage(); // should always exist
-await page.setViewportSize({ width: cfg.width, height: cfg.height }); // TODO workaround for https://github.com/vogler/free-games-claimer/issues/277 until Playwright fixes it
+if (!cfg.show || process.env.FGC_MINIMIZE == '1') {
+  await page.setViewportSize({ width: cfg.width, height: cfg.height });
+}
 // console.debug('userAgent:', await page.evaluate(() => navigator.userAgent));
 
 const notify_games = [];
 let user;
-
-// Block slow external analytics/consent trackers that stall DOMContentLoaded on GOG
-await context.route(/(cookiebot|googletagmanager|google-analytics|newrelic|nr-data)/, route => route.abort());
 
 try {
   await context.addCookies([
@@ -135,6 +134,13 @@ try {
     }
     console.error('Not signed in anymore.');
     await markSignedOut('gog');
+    if ((!cfg.show || process.env.FGC_MINIMIZE == '1') && !(cfg.gog_email && cfg.gog_password)) {
+      console.log('Skipping GOG (requires interactive login once via --show).');
+      await notify('GOG: Not signed in. Run "ClaimGames.cmd --show --claim gog" to log in.');
+      writeRunReport([], { skipped: 'login' });
+      await context.close();
+      process.exit(0);
+    }
     // The header is rendered by JS, so allow a short, targeted wait for the sign in button to appear
     await signIn.waitFor({ timeout: 10000 }).catch(_ => { });
     if (await signIn.count() == 0) {
@@ -145,6 +151,12 @@ try {
     // it then creates an iframe for the login
     await page.waitForSelector('#GalaxyAccountsFrameContainer iframe'); // TODO needed?
     const iframe = page.frameLocator('#GalaxyAccountsFrameContainer iframe');
+    // If GOG opened the registration form ("Join GOG"), automatically switch to the login form ("Log in to your account")
+    const loginSwitch = iframe.locator('a:has-text("Log in to your account"), button:has-text("Log in to your account"), #login_switch').first();
+    if (await loginSwitch.isVisible().catch(() => false)) {
+      await loginSwitch.click().catch(() => {});
+      await page.waitForTimeout(500);
+    }
     if (!cfg.debug) context.setDefaultTimeout(cfg.login_timeout); // give user some extra time to log in
     console.info(`Login timeout is ${cfg.login_timeout / 1000} seconds!`);
     if (cfg.gog_email && cfg.gog_password) console.info('Using email and password from environment.');
@@ -182,6 +194,7 @@ try {
       }).catch(_ => { });
     } else {
       console.log('Waiting for you to login in the browser.');
+      console.log('[SENTINEL] Войдите в аккаунт GOG в открывшемся окне браузера (форма входа «Log in», а не регистрация «Join GOG»).');
       await notify('gog: no longer signed in and not enough options set for automatic login.');
       if (cfg.headless) {
         console.log('Run `SHOW=1 node gog` to login in the opened browser.');

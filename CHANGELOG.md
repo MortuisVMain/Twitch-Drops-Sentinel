@@ -2,6 +2,12 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.5.20] - 2026-11-08
+- Security: Windows DPAPI encryption for cached credentials and cookies, protecting persistent Twitch and giveaway sessions from local unauthorized access.
+- Giveaways Engine: updated store claim flow adapters (Epic, Fab, GOG, Itch, Prime Gaming, Steam, Unity) with hardened zero-cost verification and checkout resilience.
+- Desktop Native Host: improved PiP overlay rendering, multi-monitor geometry restoration, and robust IPC state synchronization.
+- Interface & Reliability: refined Game Shelf status indicators, Giveaways readiness diagnostic views, and unified design token styling.
+
 ## [3.5.19] - 2026-11-06
 - Interface: one set of line icons across the whole app instead of colored emoji and mixed symbols, on every screen, menu, dialog and the mini-window. Some labels are clearer: Hide for 2 h instead of Sleep 2h, Exclude instead of Ban. Service messages and Windows notifications no longer carry decorative emoji.
 

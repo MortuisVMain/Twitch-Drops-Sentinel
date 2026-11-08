@@ -203,26 +203,46 @@ const HOTKEYS_LIST = [
 export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab = 'dashboard' }) => {
   const { playClick } = useTactileAudio();
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory>('dashboard');
+  const triggerElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
+      triggerElementRef.current = document.activeElement as HTMLElement | null;
       if (activeTab === 'giveaways') setSelectedCategory('giveaways');
       else if (activeTab === 'shelf') setSelectedCategory('shelf');
       else if (activeTab === 'dimmer') setSelectedCategory('dimmer');
       else if (activeTab === 'settings') setSelectedCategory('settings');
       else setSelectedCategory('dashboard');
+    } else if (triggerElementRef.current) {
+      triggerElementRef.current?.focus?.();
+      triggerElementRef.current = null;
     }
   }, [isOpen, activeTab]);
 
+  useEffect(() => {
+    return () => {
+      triggerElementRef.current?.focus?.();
+    };
+  }, []);
+
+  const handleClose = () => {
+    playClick();
+    onClose();
+    triggerElementRef.current?.focus?.();
+  };
+
   const dialogRef = useRef<HTMLDivElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose);
+  useModalFocus(isOpen, dialogRef, handleClose);
 
   if (!isOpen) return null;
 
   return (
     <div 
       className="fixed inset-0 z-50 bg-[#0c100f]/75 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
-      onClick={onClose}
+      onClick={() => {
+        onClose();
+        triggerElementRef.current?.focus?.();
+      }}
     >
       <div 
         className="w-[min(920px,92vw)] outline-none bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
@@ -250,10 +270,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           </div>
 
           <button
-            onClick={() => {
-              playClick();
-              onClose();
-            }}
+            onClick={handleClose}
             aria-label="Закрыть"
             className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
           >
@@ -395,10 +412,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           </div>
 
           <button
-            onClick={() => {
-              playClick();
-              onClose();
-            }}
+            onClick={handleClose}
             className="px-4 py-1.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-md shrink-0 whitespace-nowrap"
           >
             <Check size={13} aria-hidden="true" focusable="false" />

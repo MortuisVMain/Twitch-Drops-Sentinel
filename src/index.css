@@ -1257,14 +1257,14 @@
   .campaign-dates { margin-top: 2px; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .campaign-dates.fresh { color: var(--led-mint); }
   .campaign-row {
-    display: grid; grid-template-columns: 36px minmax(0, 26rem) 96px 110px 138px auto; justify-content: start; align-items: center; gap: 12px;
+    display: grid; grid-template-columns: 36px 300px 100px 110px 130px auto; justify-content: start; align-items: center; gap: 12px;
     padding: 6px 12px; background: var(--bg-island); border: 1px solid var(--border-main); border-radius: 10px;
   }
   .campaign-row:hover { border-color: rgba(255, 255, 255, 0.24); }
-  .campaign-row .row-cover { width: 36px; height: 48px; border-radius: 6px; overflow: hidden; background: var(--bg-well); }
+  .campaign-row .row-cover { width: 36px; height: 48px; border-radius: 6px; overflow: hidden; background: var(--bg-well); flex-shrink: 0; }
   .campaign-row .new-campaign-chip { position: static; display: inline-block; margin-right: 6px; vertical-align: middle; }
   .campaign-fact { font-size: var(--fs-xs); color: var(--text-secondary); white-space: nowrap; }
-  .campaign-row-actions { display: flex; gap: 5px; }
+  .campaign-row-actions { display: flex; gap: 5px; flex-shrink: 0; }
   .new-campaign-chip {
     position: absolute; top: 8px; left: 8px; z-index: 3; padding: 1px 7px; border-radius: 5px;
     font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.04em;

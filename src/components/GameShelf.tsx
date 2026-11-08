@@ -505,7 +505,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         <div className="row-cover">
           <CartridgeCover name={game.name} boxArt={game.box_art} />
         </div>
-        <div style={{ minWidth: 0 }}>
+        <div className="campaign-row-info" style={{ minWidth: 0 }}>
           <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={game.name}>
             {activeFilter === 'all' && isNewCampaign(game, seenAtOpen) && <span className="new-campaign-chip" title="Кампания появилась после вашего прошлого визита">НОВАЯ</span>}
             {game.name}
