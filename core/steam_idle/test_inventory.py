@@ -1,7 +1,8 @@
 """Offline provider-contract checks; no Steam APIs or account access."""
+import threading
 import unittest
 
-from core.steam_idle.inventory import InventoryError, InventoryStore, aggregate
+from steam_idle.inventory import InventoryError, InventoryStore, aggregate
 
 
 def item(app_id=10, **changes):
@@ -95,6 +96,55 @@ class InventoryTests(unittest.TestCase):
                 store.refresh("old", switched(store, fail))
             self.assertEqual(store.current.account_epoch, "new")
             self.assertIsNone(store.last_complete)
+
+    def test_returning_to_the_same_account_cannot_revive_a_stale_refresh(self):
+        store = InventoryStore("fixture", "A")
+
+        def stale():
+            store.switch_epoch("B")
+            store.switch_epoch("A")  # the caller identity repeats, the internal token must not
+            yield page([item()])
+
+        with self.assertRaises(InventoryError):
+            store.refresh("A", stale())
+        self.assertEqual(store.current.status, "unknown")
+        self.assertIsNone(store.last_complete)
+        self.assertEqual(store.refresh("A", [page([item(7)])]).status, "complete")
+
+    def test_stale_failure_does_not_clobber_the_new_generation(self):
+        store = InventoryStore("fixture", "A")
+        store.refresh("A", [page([item()])])
+
+        def stale_fail():
+            store.switch_epoch("B")
+            store.switch_epoch("A")
+            store.refresh("A", [page([item(9)])])
+            raise OSError("fixture failure")
+            yield
+
+        with self.assertRaises(InventoryError):
+            store.refresh("A", stale_fail())
+        self.assertEqual([row.app_id for row in store.current.items], [9])
+
+    def test_refresh_and_switch_are_safe_across_threads(self):
+        store = InventoryStore("fixture", "e0")
+        errors = []
+
+        def refresher():
+            for _ in range(200):
+                try:
+                    store.refresh(store.current.account_epoch, [page([item()])])
+                except InventoryError:
+                    pass  # rejected by a concurrent switch: expected
+                except Exception as error:  # noqa: BLE001 - any other type is a defect
+                    errors.append(error)
+
+        thread = threading.Thread(target=refresher)
+        thread.start()
+        for index in range(1, 200):
+            store.switch_epoch(f"e{index}")
+        thread.join()
+        self.assertEqual(errors, [])
 
     def test_large_library_and_malformed_page(self):
         result = aggregate("fixture", "epoch", [page([item(app_id) for app_id in range(1, 9001)])])

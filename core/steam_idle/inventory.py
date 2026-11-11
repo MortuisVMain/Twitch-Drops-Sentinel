@@ -5,6 +5,7 @@ An adapter must establish completeness and ownership evidence independently.
 `subscribed` is a subscription observation, not permanent ownership. Installed
 state never supplies ownership evidence. No status authorizes game actions.
 """
+import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -116,16 +117,24 @@ class InventoryStore:
     results are rejected; callers must serialize refreshes within an epoch.
     Last complete data survives failures as explicitly stale fallback only.
     No persistence, time-based expiry or account identity validation is implied.
+    Threading: refresh may run in a worker thread while switch_epoch runs on the event loop;
+    the check-and-assign steps hold a lock, enumeration itself runs outside it.
+    Staleness is judged by an internal monotonic token, so an account identity may repeat (A, B, A).
     """
     def __init__(self, source: str, account_epoch: str):
+        self._lock = threading.Lock()
+        self._generation = 0
         self.current = aggregate(source, account_epoch, ())
         self.last_complete: Snapshot | None = None
 
     def switch_epoch(self, account_epoch: str) -> None:
-        if account_epoch == self.current.account_epoch:
-            raise InventoryError("account change requires a new epoch")
-        self.current = aggregate(self.current.source, account_epoch, ())
-        self.last_complete = None
+        fresh = aggregate(self.current.source, account_epoch, ())
+        with self._lock:
+            if account_epoch == self.current.account_epoch:
+                raise InventoryError("account change requires a new epoch")
+            self._generation += 1
+            self.current = fresh
+            self.last_complete = None
 
     @property
     def fallback(self) -> Snapshot:
@@ -135,19 +144,23 @@ class InventoryStore:
         return self.current
 
     def refresh(self, account_epoch: str, pages: Iterable[Mapping]) -> Snapshot:
-        if account_epoch != self.current.account_epoch:
-            raise InventoryError("inactive account epoch")
+        with self._lock:
+            if account_epoch != self.current.account_epoch:
+                raise InventoryError("inactive account epoch")
+            token = self._generation
         source = self.current.source
         try:
             snapshot = aggregate(source, account_epoch, pages)
         except InventoryError:
-            if account_epoch == self.current.account_epoch:
-                self.current = Snapshot(source, account_epoch, "unknown")
+            with self._lock:
+                if token == self._generation:
+                    self.current = Snapshot(source, account_epoch, "unknown")
             raise
         # A provider iterator may have yielded control to an account switch.
-        if account_epoch != self.current.account_epoch:
-            raise InventoryError("account epoch changed during enumeration")
-        self.current = snapshot
-        if snapshot.status == "complete":
-            self.last_complete = snapshot
+        with self._lock:
+            if token != self._generation:
+                raise InventoryError("account epoch changed during enumeration")
+            self.current = snapshot
+            if snapshot.status == "complete":
+                self.last_complete = snapshot
         return snapshot

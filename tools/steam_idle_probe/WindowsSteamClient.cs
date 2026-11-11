@@ -19,7 +19,9 @@ internal sealed class WindowsSteamClient : IClientIdentityNative, IClientAppsNat
     private nint _user;
     private nint _apps;
 
-    private WindowsSteamClient() { }
+    internal WindowsSteamClient(params nint[] modules) => _modules.AddRange(modules);
+
+    internal bool ReleaseFailed { get; private set; }
 
     internal static WindowsSteamClient Load(TrustedClient installation)
     {
@@ -105,8 +107,8 @@ internal sealed class WindowsSteamClient : IClientIdentityNative, IClientAppsNat
         for (int index = _modules.Count - 1; index >= 0; index--)
             released &= FreeLibrary(_modules[index]);
         _modules.Clear();
-        if (!released)
-            throw new ProbeException("client_library_release_failed");
+        // Never throw from Dispose: it would mask the exception that is already unwinding.
+        ReleaseFailed |= !released;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

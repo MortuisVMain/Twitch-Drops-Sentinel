@@ -35,8 +35,10 @@ internal static class IdentityWorker
         new("connected", "expected_account_confirmed", null, false, true),
         new("connected", "expected_account_confirmed", null, true, false),
         new("connected", "expected_account_confirmed", null, true, true),
+        new("not_connected", "unverified", "client_signer_untrusted"),
     ];
     private const int FirstResult = 64;
+    private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(3);
 
     internal static int Encode(IdentityResult result)
     {
@@ -44,24 +46,30 @@ internal static class IdentityWorker
         return index < 0 ? 1 : index + FirstResult;
     }
 
-    internal static ProcessStartInfo StartInfo(ulong steamId, uint? appId = null)
+    internal static ProcessStartInfo StartInfo(ulong steamId, uint? appId = null) =>
+        WorkerStart(appId is null ? "--identity-worker" : "--app-worker", steamId, appId);
+
+    /// <summary>Command line for a worker mode; every worker gets the parent identity for its death watchdog.</summary>
+    internal static ProcessStartInfo WorkerStart(string mode, ulong steamId, uint? appId = null)
     {
         var start = new ProcessStartInfo(Environment.ProcessPath!);
         if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             start.ArgumentList.Add(typeof(IdentityWorker).Assembly.Location);
-        start.ArgumentList.Add(appId is null ? "--identity-worker" : "--app-worker");
+        start.ArgumentList.Add(mode);
         start.ArgumentList.Add(steamId.ToString(CultureInfo.InvariantCulture));
         if (appId is uint candidate)
-        {
             start.ArgumentList.Add(candidate.ToString(CultureInfo.InvariantCulture));
-            using var parent = Process.GetCurrentProcess();
-            start.ArgumentList.Add(parent.Id.ToString(CultureInfo.InvariantCulture));
-            start.ArgumentList.Add(parent.StartTime.ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture));
-        }
+        using var parent = Process.GetCurrentProcess();
+        start.ArgumentList.Add(parent.Id.ToString(CultureInfo.InvariantCulture));
+        start.ArgumentList.Add(parent.StartTime.ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture));
         return start;
     }
 
-    internal static Process? WatchParent(int parentId, long parentStarted)
+    /// <summary>
+    /// Exits this process when the parent dies. With <paramref name="graceful"/> the token is cancelled first so the
+    /// worker can release its Steam handles, and the exit is forced after a short grace period.
+    /// </summary>
+    internal static Process? WatchParent(int parentId, long parentStarted, CancellationTokenSource? graceful = null)
     {
         Process? parent = null;
         try
@@ -74,7 +82,15 @@ internal static class IdentityWorker
                 parent.Dispose();
                 return null;
             }
-            _ = parent.WaitForExitAsync().ContinueWith(_ => Environment.Exit(1),
+            _ = parent.WaitForExitAsync().ContinueWith(_ =>
+                {
+                    if (graceful is not null)
+                    {
+                        graceful.Cancel();
+                        Thread.Sleep(ExitGrace);
+                    }
+                    Environment.Exit(1);
+                },
                 CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
             return parent;
         }
@@ -148,6 +164,21 @@ internal static class IdentityWorker
             child.Kill();
         }
         catch (Exception ex) when ((ex is Win32Exception or InvalidOperationException) && child.HasExited)
+        {
+            // The child exited between HasExited and Kill.
+            return true;
+        }
+        return child.WaitForExit(1000);
+    }
+
+    /// <summary>Kills the worker and everything it started.</summary>
+    internal static bool TerminateTree(Process child)
+    {
+        try
+        {
+            child.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when ((ex is Win32Exception or InvalidOperationException or AggregateException) && child.HasExited)
         {
             // The child exited between HasExited and Kill.
             return true;
