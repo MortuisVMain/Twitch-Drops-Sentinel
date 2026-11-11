@@ -16,18 +16,34 @@ def out(**fields):
     print(json.dumps({"protocolVersion": VERSION, **fields}), flush=True)
 
 
-def sleep_with_child():
+def spawn_child():
     import os
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
     with open(pidfile, "w") as handle:
         handle.write(f"{os.getpid()} {child.pid}")
+
+
+def sleep_with_child():
+    spawn_child()
     time.sleep(300)
 
 
+def carriage_return_failure():
+    out(status="failed", error="carriage_return")
+    sys.exit(4)
+
+
 if command == "apps":
-    ids = [int(token) for token in sys.stdin.read().split()]
+    data = sys.stdin.buffer.read()  # bytes: text mode would hide a carriage return
+    ids = [int(token) for token in data.split()]
+    if mode == "nocr" and b"\r" in data:
+        carriage_return_failure()
     if mode == "hang":
         sleep_with_child()
+    if mode == "orphan":  # garbage, then exit while a grandchild is still running
+        spawn_child()
+        print("not json", flush=True)
+        sys.exit(0)
     if mode == "garbage":
         print("not json", flush=True)
         sys.exit(0)
@@ -52,16 +68,24 @@ if command == "hold":
         out(status="failed", error="not_subscribed")
         sys.exit(4)
     if mode == "garbage":
+        spawn_child()  # before the output, so the pidfile exists whenever the controller reacts
         print("garbage", flush=True)
-        sleep_with_child()
+        time.sleep(300)
     if mode == "hang":
         sleep_with_child()
+    if mode == "ignorestop":
+        spawn_child()  # before the output, so the pidfile exists whenever the controller reacts
     out(status="holding", appId=app_id + 1 if mode == "wrongapp" else app_id)
     if mode == "ignorestop":
-        sleep_with_child()
-    for line in sys.stdin:
-        if line.strip() == "stop":
+        time.sleep(300)
+    for line in sys.stdin.buffer:
+        if mode == "nocr" and b"\r" in line:
+            carriage_return_failure()
+        if line.strip() == b"stop":
             break
+    if mode == "failonstop":
+        out(status="failed", error="release_denied")
+        sys.exit(4)
     out(status="released")
     sys.exit(0)
 

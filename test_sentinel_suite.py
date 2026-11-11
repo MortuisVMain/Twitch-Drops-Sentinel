@@ -7281,13 +7281,25 @@ def test_steam_idle_package_unit_tests():
     print("[steam idle] Run the steam_idle unittest modules against the sandbox copy of core...")
     import io
     import unittest
+    import logging
     core_dir = SANDBOX / "core"
-    if str(core_dir) not in sys.path:
+    added_path = str(core_dir) not in sys.path
+    if added_path:
         sys.path.insert(0, str(core_dir))
-    suite = unittest.defaultTestLoader.discover(str(core_dir / "steam_idle"), pattern="test_*.py", top_level_dir=str(core_dir))
-    assert suite.countTestCases() > 0, "no steam_idle tests were discovered"
-    stream = io.StringIO()
-    result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    package_logger = logging.getLogger("steam_idle")
+    old_level = package_logger.level
+    package_logger.setLevel(logging.CRITICAL)  # expected-failure log lines would flood the suite output
+    try:
+        suite = unittest.defaultTestLoader.discover(str(core_dir / "steam_idle"), pattern="test_*.py", top_level_dir=str(core_dir))
+        assert suite.countTestCases() > 0, "no steam_idle tests were discovered"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        package_logger.setLevel(old_level)
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in [m for m in sys.modules if m == "steam_idle" or m.startswith("steam_idle.")]:
+            del sys.modules[name]
     assert result.wasSuccessful(), f"steam_idle unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
     print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
 

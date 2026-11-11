@@ -97,7 +97,8 @@ internal static class StreamProtocol
             if (FailedCode(end.RootElement) is { } error)
                 return error;
             if (!HasShape(end.RootElement, "protocolVersion", "status", "count") || !IsStatus(end.RootElement, "complete") ||
-                !end.RootElement.GetProperty("count").TryGetInt32(out int count) || count != ids.Count)
+                end.RootElement.GetProperty("count") is not { ValueKind: JsonValueKind.Number } countValue ||
+                !countValue.TryGetInt32(out int count) || count != ids.Count)
                 return Violation;
             return ReadBoundedLine(output) is null ? null : Violation;
         }
@@ -119,7 +120,8 @@ internal static class StreamProtocol
             if (FailedCode(root) is { } failure)
                 return failure;
             bool valid = appId is uint id
-                ? HasShape(root, "protocolVersion", "status", "appId") && root.GetProperty("appId").TryGetUInt32(out uint seen) && seen == id
+                ? HasShape(root, "protocolVersion", "status", "appId") && root.GetProperty("appId") is { ValueKind: JsonValueKind.Number } appValue &&
+                  appValue.TryGetUInt32(out uint seen) && seen == id
                 : HasShape(root, "protocolVersion", "status");
             return valid && IsStatus(root, status) ? null : Violation;
         }
@@ -164,7 +166,8 @@ internal static class StreamProtocol
     {
         flags = new(expectedId, false, false);
         if (!HasShape(root, "protocolVersion", "appId", "subscribed", "installed") ||
-            !root.GetProperty("appId").TryGetUInt32(out uint id) || id != expectedId)
+            root.GetProperty("appId") is not { ValueKind: JsonValueKind.Number } appValue ||
+            !appValue.TryGetUInt32(out uint id) || id != expectedId)
             return false;
         var subscribed = root.GetProperty("subscribed").ValueKind;
         var installed = root.GetProperty("installed").ValueKind;

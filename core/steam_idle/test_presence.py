@@ -64,7 +64,7 @@ class PresenceTests(unittest.TestCase):
 
     def test_helper_hanging_before_holding_times_out_and_is_killed(self):
         with self.assertRaises(PresenceError) as caught:
-            self.start("hang", timeout=3.0)
+            self.start("hang", timeout=2.0)
         self.assertEqual(caught.exception.code, "timeout")
         self.assert_tree_gone()
         self.assertFalse(self.presence.is_running())
@@ -72,10 +72,37 @@ class PresenceTests(unittest.TestCase):
     def test_stop_when_helper_ignores_stop_kills_the_tree(self):
         self.start("ignorestop")
         with self.assertRaises(PresenceError) as caught:
-            self.presence.stop(timeout=1.5)
+            self.presence.stop(timeout=0.5)
         self.assertEqual(caught.exception.code, "stop_timeout")
         self.assert_tree_gone()
         self.assertFalse(self.presence.is_running())
+
+    def test_stop_sends_exact_lf_bytes(self):
+        self.start("nocr")
+        self.presence.stop()
+        self.assertFalse(self.presence.is_running())
+
+    def test_failed_line_during_stop_raises_with_the_helper_code(self):
+        self.start("failonstop")
+        with self.assertRaises(PresenceError) as caught:
+            self.presence.stop()
+        self.assertEqual(caught.exception.code, "release_denied")
+        self.assertFalse(self.presence.is_running())
+
+    def test_exit_error_does_not_replace_the_body_exception(self):
+        presence = Presence()
+        with self.assertLogs("steam_idle.presence", level="ERROR"), self.assertRaises(KeyError):
+            with presence:
+                presence.start(fake_command("failonstop", self.pidfile), STEAM_ID, 730)
+                raise KeyError("body")
+        self.assertFalse(presence.is_running())
+
+    def test_exit_error_propagates_when_the_body_succeeded(self):
+        presence = Presence()
+        with self.assertRaises(PresenceError) as caught:
+            with presence:
+                presence.start(fake_command("failonstop", self.pidfile), STEAM_ID, 730)
+        self.assertEqual(caught.exception.code, "release_denied")
 
     def test_double_start_raises_and_keeps_the_first_helper(self):
         self.start("ok")

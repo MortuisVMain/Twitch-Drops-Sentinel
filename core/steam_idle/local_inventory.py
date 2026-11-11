@@ -13,27 +13,18 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from ._helper import PROTOCOL_VERSION, command, kill_tree, spawn
+from ._helper import PROTOCOL_VERSION, command, kill_tree, spawn, steam_account_id
 from .inventory import MAX_ITEMS, InventoryError, Snapshot, aggregate
 
 logger = logging.getLogger(__name__)
 
 SOURCE = "local_cache_candidates"
 HELPER_TIMEOUT = 60.0
-_STEAM_ID_PREFIX = 0x0110000100000000
 _ERROR_CODE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 
 
 class _ProtocolError(Exception):
     """The helper's output broke the `apps` contract; carries a short, account-free reason."""
-
-
-def _account_id(expected: str) -> int:
-    if (not isinstance(expected, str) or not re.fullmatch(r"[1-9][0-9]{16}", expected)
-            or int(expected) >> 32 != _STEAM_ID_PREFIX >> 32
-            or not 0 < int(expected) & 0xffffffff):
-        raise InventoryError("invalid expected SteamID64")
-    return int(expected) & 0xffffffff
 
 
 def _candidates(root: Path, account_id: int, deadline: float) -> tuple[int, ...] | None:
@@ -139,7 +130,9 @@ def _run_batch(helper: "Path | Sequence[str]", expected: str, app_ids: Sequence[
     except OSError as error:
         raise _failure(None, "start_failed") from error
     try:
-        stdout, _ = proc.communicate("".join(f"{app_id}\n" for app_id in app_ids), timeout=HELPER_TIMEOUT)
+        proc.stdin.buffer.write("".join(f"{app_id}\n" for app_id in app_ids).encode("ascii"))  # exact LF bytes
+        proc.stdin.close()
+        stdout, _ = proc.communicate(timeout=HELPER_TIMEOUT)
     except subprocess.TimeoutExpired as error:
         kill_tree(proc)
         try:
@@ -165,7 +158,7 @@ def observe(steam_root: Path, expected_steam_id: str, account_epoch: str,
     the observation. Callers can feed snapshot items into an incomplete page for
     InventoryStore; neither this provider nor that store authorizes game actions.
     """
-    account_id = _account_id(expected_steam_id)
+    account_id = steam_account_id(expected_steam_id)
     aggregate(SOURCE, account_epoch, ())  # Validate epoch before filesystem work.
     deadline = time.monotonic() + 30
     try:

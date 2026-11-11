@@ -61,13 +61,25 @@ class LocalInventoryTests(unittest.TestCase):
 
     def test_protocol_violations_never_return_success(self):
         self.cache_with("10.json", "11.json")
-        for mode in ("garbage", "failed", "badorder", "missingkey", "truncated", "badcount", "badexit"):
+        reasons = {"garbage": "not_json", "failed": "helper_error_identity_mismatch", "badorder": "invalid_item",
+                   "missingkey": "missing_item_field", "truncated": "missing_final_status",
+                   "badcount": "count_mismatch", "badexit": "nonzero_exit"}
+        for mode, reason in reasons.items():
             with self.subTest(mode=mode), self.assertRaises(InventoryError) as caught:
                 observe(self.root, STEAM_ID, "epoch", self.fake(mode))
             self.assertIn("rc=", str(caught.exception))
-        with self.assertRaises(InventoryError) as caught:
-            observe(self.root, STEAM_ID, "epoch", self.fake("failed"))
-        self.assertIn("identity_mismatch", str(caught.exception))
+            self.assertIn(reason, str(caught.exception))
+
+    def test_batch_stdin_has_exact_lf_bytes(self):
+        self.cache_with("10.json", "11.json")
+        self.assertEqual(len(observe(self.root, STEAM_ID, "epoch", self.fake("nocr")).items), 2)
+
+    def test_garbage_then_exit_still_kills_the_grandchild(self):
+        self.cache_with("10.json")
+        with patch("steam_idle.local_inventory.HELPER_TIMEOUT", 1.0), self.assertRaises(InventoryError):
+            observe(self.root, STEAM_ID, "epoch", self.fake("orphan"))  # the grandchild keeps the pipe open
+        self.assertTrue(self.pidfile.exists())
+        self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
 
     def test_failures_are_logged_with_the_module_logger(self):
         self.cache_with("10.json")
@@ -81,7 +93,7 @@ class LocalInventoryTests(unittest.TestCase):
 
     def test_timeout_kills_the_whole_process_tree(self):
         self.cache_with("10.json")
-        with patch("steam_idle.local_inventory.HELPER_TIMEOUT", 3.0), self.assertRaises(InventoryError) as caught:
+        with patch("steam_idle.local_inventory.HELPER_TIMEOUT", 1.0), self.assertRaises(InventoryError) as caught:
             observe(self.root, STEAM_ID, "epoch", self.fake("hang"))
         self.assertIn("timeout", str(caught.exception))
         self.assertIn("rc=", str(caught.exception))

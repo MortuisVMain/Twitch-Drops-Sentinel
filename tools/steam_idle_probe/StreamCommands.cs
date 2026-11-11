@@ -14,6 +14,8 @@ internal static class StreamCommands
     {
         if (ids.Count == 0)
         {
+            // Offline contract smoke test only: no worker runs, so this does NOT confirm the client or the account.
+
             output.WriteLine(StreamProtocol.CompleteLine(0));
             return 0;
         }

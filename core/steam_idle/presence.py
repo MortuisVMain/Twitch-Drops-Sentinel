@@ -10,9 +10,8 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from ._helper import PROTOCOL_VERSION, command, kill_tree, spawn
+from ._helper import PROTOCOL_VERSION, command, kill_tree, spawn, steam_account_id
 from .inventory import InventoryError
-from .local_inventory import _account_id
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +48,11 @@ def _status(line: str) -> dict:
     return value
 
 
+def _error_code(value: dict) -> str:
+    code = value.get("error")
+    return code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else "helper_error"
+
+
 class Presence:
     """Holds one app as 'in game' through a helper process. Not thread-safe; call from one thread."""
 
@@ -67,14 +71,19 @@ class Presence:
     def __enter__(self) -> "Presence":
         return self
 
-    def __exit__(self, *exc_info: object) -> None:
-        self.stop()
+    def __exit__(self, exc_type: object, *_: object) -> None:
+        try:
+            self.stop()
+        except PresenceError as err:
+            if exc_type is None:
+                raise
+            logger.error("hold stop failed while handling another error: %s", err)  # the body's error wins
 
     def start(self, helper_exe: "Path | Sequence[str]", steam_id64: str, app_id: int, timeout: float = 10.0) -> None:
         if self._proc is not None:
             raise PresenceError("already_started")
         try:
-            _account_id(steam_id64)
+            steam_account_id(steam_id64)
         except InventoryError as error:
             raise PresenceError("invalid_steam_id") from error
         if type(app_id) is not int or not 0 < app_id < 2**32:
@@ -105,8 +114,7 @@ class Presence:
             raise PresenceError("helper_exited")
         value = _status(line)
         if value["status"] == "failed":
-            code = value.get("error")
-            raise PresenceError(code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else "helper_error")
+            raise PresenceError(_error_code(value))
         seen = value.get("appId")
         if value["status"] != "holding" or type(seen) is not int or seen != app_id:
             raise PresenceError("protocol")
@@ -127,7 +135,7 @@ class Presence:
 
     def _release(self, proc: subprocess.Popen, deadline: float) -> None:
         try:
-            proc.stdin.write("stop\n")
+            proc.stdin.buffer.write(b"stop\n")  # exact LF bytes, no text-mode CRLF translation
             proc.stdin.flush()
             proc.stdin.close()
         except (OSError, ValueError) as err:
@@ -139,7 +147,10 @@ class Presence:
                 raise PresenceError("stop_timeout") from error
             if line is None:
                 raise PresenceError("helper_exited")
-            if _status(line)["status"] == "released":
+            value = _status(line)
+            if value["status"] == "failed":
+                raise PresenceError(_error_code(value))
+            if value["status"] == "released":
                 break
         try:
             proc.wait(timeout=max(deadline - time.monotonic(), 0.1))

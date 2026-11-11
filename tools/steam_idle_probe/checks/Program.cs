@@ -236,10 +236,14 @@ try
     CheckAppsOutputValidation();
     CheckAppsWorker();
     await CheckAppsParent(fixture.FullName);
+    await CheckAppsLargeList();
     await CheckAppsCommand();
     await CheckHoldWorker();
     await CheckHoldParent(fixture.FullName);
+    Require(Environment.GetEnvironmentVariable("SteamAppId") is null, "hold parent flow leaves no SteamAppId in the parent environment");
+    await CheckHoldReleaseTimeout(fixture.FullName);
     await CheckHoldCommand();
+    CheckTrustedFiles(fixture.FullName);
 }
 finally
 {
@@ -248,6 +252,8 @@ finally
     File.Delete(Path.Combine(fixture.FullName, "steamclient.dll"));
     fixture.Delete(true);
 }
+const string HoldingTen = """{"protocolVersion":2,"status":"holding","appId":10}""";
+const string Released = """{"protocolVersion":2,"status":"released"}""";
 Console.WriteLine("Steam probe offline checks passed.");
 return 0;
 
@@ -267,9 +273,6 @@ static string AppLine(uint id, bool subscribed, bool installed) =>
 static string Failed(string code) => $$"""{"protocolVersion":2,"status":"failed","error":"{{code}}"}""";
 
 static string Complete(int count) => $$"""{"protocolVersion":2,"status":"complete","count":{{count}}}""";
-
-const string HoldingTen = """{"protocolVersion":2,"status":"holding","appId":10}""";
-const string Released = """{"protocolVersion":2,"status":"released"}""";
 
 static void CheckGameContextGuard()
 {
@@ -328,6 +331,28 @@ static void CheckAppsOutputValidation()
     };
     foreach (var text in violations)
         Require(Validate(text, []) == "worker_protocol_violation", "stream violation rejected");
+    var wrongTypes = new[]
+    {
+        $"{a10.Replace("\"appId\":10", "\"appId\":\"10\"")}\n{a11}\n{done}\n",
+        $"{a10.Replace("\"appId\":10", "\"appId\":10.5")}\n{a11}\n{done}\n",
+        $"{a10.Replace("\"appId\":10", "\"appId\":-10")}\n{a11}\n{done}\n",
+        $"{a10.Replace("\"appId\":10", "\"appId\":null")}\n{a11}\n{done}\n",
+        $"{a10.Replace("\"subscribed\":true", "\"subscribed\":1")}\n{a11}\n{done}\n",
+        $"{a10.Replace("\"installed\":false", "\"installed\":0")}\n{a11}\n{done}\n",
+        $"{a10}\n{a11}\n{done.Replace("\"count\":2", "\"count\":\"2\"")}\n",
+        $"{a10}\n{a11}\n{done.Replace("\"count\":2", "\"count\":2.5")}\n",
+        $"{a10}\n{a11}\n{done.Replace("\"count\":2", "\"count\":-2")}\n",
+        $"{a10}\n{a11}\n{done.Replace("\"count\":2", "\"count\":true")}\n",
+        $"{a10}\n{a11}\n{done.Replace("\"count\":2", "\"count\":null")}\n",
+    };
+    foreach (var text in wrongTypes)
+        Require(Validate(text, []) == "worker_protocol_violation", "wrongly typed number or flag is a protocol violation");
+    foreach (var wrongApp in new[] { "\"10\"", "10.5", "-10", "true", "false", "null", "1" })
+    {
+        string status = HoldingTen.Replace("\"appId\":10", $"\"appId\":{wrongApp}");
+        string? result = StreamProtocol.ReadStatusLine(new StringReader(status + "\n"), "holding", 10);
+        Require(result == "worker_protocol_violation", $"holding line with appId {wrongApp} is a protocol violation");
+    }
     Require(Validate($"{a10}\n", []) == "worker_failed", "truncated stream");
     Require(Validate($"{a10}\n{a11}\n", []) == "worker_failed", "missing completion");
     Require(Validate($"{a10}\n{Failed("account_mismatch")}\n", []) == "account_mismatch", "worker failure code passes through");
@@ -417,6 +442,33 @@ static async Task CheckAppsParent(string scratch)
     var empty = new StringWriter();
     Require(await StreamCommands.RunApps(new ProcessStartInfo("no-such-worker.exe"), [], empty, TimeSpan.FromSeconds(1)) == 0 &&
         Lines(empty).SequenceEqual([Complete(0)]), "empty list completes without a worker");
+}
+
+static async Task CheckAppsLargeList()
+{
+    // 10000 ids both ways through the real pipes: the parent must read while it writes.
+    uint[] ids = Enumerable.Range(1, StreamProtocol.MaxApps).Select(number => (uint)number).ToArray();
+    var output = new StringWriter();
+    var started = Stopwatch.StartNew();
+    int exit = await StreamCommands.RunApps(FixtureWorker("apps-ok"), ids, output, TimeSpan.FromSeconds(90));
+    var lines = Lines(output);
+    Require(exit == 0 && lines.Length == ids.Length + 1, $"10000 ids complete without deadlock ({started.Elapsed})");
+    Require(lines[^1] == Complete(ids.Length), "10000 ids reported with the right count");
+    for (int index = 0; index < ids.Length; index++)
+        if (lines[index] != AppLine(ids[index], ids[index] % 2 == 0, ids[index] % 3 == 0))
+            throw new InvalidOperationException($"Failed: order preserved for 10000 ids (line {index})");
+}
+
+static async Task CheckHoldReleaseTimeout(string scratch)
+{
+    string pidFile = Path.Combine(scratch, "hold-nostop.pid");
+    var output = new StringWriter();
+    var started = Stopwatch.StartNew();
+    int exit = await StreamCommands.RunHold(FixtureWorker("hold-nostop", pidFile), 10, new StringReader("stop\n"), output,
+        TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(2));
+    Require(exit == 4 && Lines(output).SequenceEqual([HoldingTen, Failed("worker_timeout")]) &&
+        started.Elapsed < TimeSpan.FromSeconds(15), "worker that hangs after stop is killed and reported");
+    await RequireGone(pidFile);
 }
 
 static async Task CheckAppsCommand()
@@ -543,6 +595,134 @@ static async Task CheckHoldCommand()
         leaked == Environment.GetEnvironmentVariable("SteamAppId"), "only hold sets SteamAppId");
 }
 
+static void RequireRejected(Action action, string code, string scenario)
+{
+    try
+    {
+        action();
+    }
+    catch (ProbeException ex)
+    {
+        Require(ex.Message == code, $"{scenario}: expected {code}, got {ex.Message}");
+        return;
+    }
+    throw new InvalidOperationException($"Failed: {scenario}");
+}
+
+static void CheckTrustedFiles(string scratch)
+{
+    string root = Directory.CreateDirectory(Path.Combine(scratch, "trusted")).FullName;
+    string real = Directory.CreateDirectory(Path.Combine(root, "real")).FullName;
+    string other = Directory.CreateDirectory(Path.Combine(root, "other")).FullName;
+    foreach (var name in new[] { "steam.exe", "tier0_s64.dll", "vstdlib_s64.dll", "steamclient64.dll" })
+    {
+        File.WriteAllBytes(Path.Combine(real, name), [0x4d, 0x5a]);
+        File.WriteAllBytes(Path.Combine(other, name), [0x4d, 0x5a]);
+    }
+    string client = Path.Combine(real, "steam.exe");
+
+    using (TrustedClient.OpenApprovedFile(client)) { }
+    using (TrustedClient.OpenApprovedFile(client.ToUpperInvariant())) { }
+    RequireRejected(() => TrustedClient.OpenApprovedFile(Path.Combine(real, "missing.dll")).Dispose(),
+        "client_path_untrusted", "missing file rejected");
+
+    string junction = Path.Combine(root, "junction");
+    var mklink = new ProcessStartInfo("cmd") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+    foreach (var argument in new[] { "/c", "mklink", "/J", junction, other })
+        mklink.ArgumentList.Add(argument);
+    using (var made = Process.Start(mklink)!)
+    {
+        made.StandardOutput.ReadToEnd();
+        made.WaitForExit();
+        Require(made.ExitCode == 0 && Directory.Exists(junction), "junction fixture created");
+    }
+    try
+    {
+        RequireRejected(() => TrustedClient.OpenApprovedFile(Path.Combine(junction, "steam.exe")).Dispose(),
+            "client_path_untrusted", "file reached through a junction rejected");
+    }
+    finally
+    {
+        Directory.Delete(junction);
+    }
+
+    string symlink = Path.Combine(real, "link.dll");
+    try
+    {
+        File.CreateSymbolicLink(symlink, Path.Combine(other, "steam.exe"));
+        RequireRejected(() => TrustedClient.OpenApprovedFile(symlink).Dispose(),
+            "client_path_untrusted", "file symlink pointing elsewhere rejected");
+    }
+    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+    {
+        Console.WriteLine($"SKIPPED file-symlink sub-case: cannot create a symlink without privilege ({ex.Message}).");
+    }
+
+    SignaturePolicyFixture(client);
+
+    static FileSignature ValveSignature() => new(true, Cert("CN=Valve Corp., O=Valve Corp."));
+    static FileSignature OtherSignature() => new(true, Cert("CN=Other Corp., O=Other Corp."));
+    static void SignaturePolicyFixture(string image)
+    {
+        string directory = Path.GetDirectoryName(image)!;
+        var locks = new List<IDisposable>();
+        try
+        {
+            var trusted = new FactorySignature(ValveSignature);
+            TrustedClient.VerifyInstallation(image, trusted, locks);
+            Require(trusted.Calls == 4, "client image and the three libraries are all verified");
+            Require(locks.Count > 0, "approved files stay locked");
+        }
+        finally
+        {
+            foreach (var held in locks)
+                held.Dispose();
+        }
+
+        // Only steam.exe exists here: the DLLs must not even be opened once the client image is rejected.
+        string lonely = Directory.CreateDirectory(Path.Combine(directory, "..", "lonely")).FullName;
+        string lonelyClient = Path.Combine(lonely, "steam.exe");
+        File.WriteAllBytes(lonelyClient, [0x4d, 0x5a]);
+        foreach (var (factory, code) in new (Func<FileSignature>, string)[] { (OtherSignature, "client_signer_untrusted"),
+            (() => new(false, null), "client_build_unverified"), (() => throw new InvalidOperationException("synthetic"), "client_build_unverified") })
+        {
+            var reader = new FactorySignature(factory);
+            locks = [];
+            try
+            {
+                RequireRejected(() => TrustedClient.VerifyInstallation(lonelyClient, reader, locks), code,
+                    $"untrusted steam.exe rejected with {code}");
+                Require(reader.Calls == 1, "no library is checked after the client image is rejected");
+            }
+            finally
+            {
+                foreach (var held in locks)
+                    held.Dispose();
+            }
+        }
+        using (File.OpenHandle(lonelyClient, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            // Reaching here means the failed check did not leave steam.exe locked.
+        }
+
+        // A trusted client image does not excuse an untrusted library.
+        int mixedCalls = 0;
+        var mixed = new FactorySignature(() => ++mixedCalls == 1 ? ValveSignature() : OtherSignature());
+        locks = [];
+        try
+        {
+            RequireRejected(() => TrustedClient.VerifyInstallation(image, mixed, locks), "client_signer_untrusted",
+                "untrusted library rejected after a trusted client image");
+        }
+        finally
+        {
+            foreach (var held in locks)
+                held.Dispose();
+        }
+        using (File.OpenHandle(image, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+    }
+}
+
 static X509Certificate2 Cert(string subject)
 {
     using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -553,15 +733,22 @@ static X509Certificate2 Cert(string subject)
 static void CheckSignatureTrust(string scratch)
 {
     using var anyFile = File.OpenHandle(typeof(Discovery).Assembly.Location);
-    using var valve = Cert("CN=Valve Corp., O=Valve Corp., L=Bellevue, S=Washington, C=US");
-    using var other = Cert("CN=Other Corp., O=Other Corp.");
-    using var half = Cert("CN=Valve Corp., O=Evil Corp.");
-    using var lookalike = Cert("CN=Valve Corp. Fake, O=Valve Corp. Fake");
-    Require(SignaturePolicy.Check(new FakeSignature(new(true, valve)), anyFile) is null, "Valve signer trusted");
-    foreach (var wrongSigner in new[] { other, half, lookalike })
+    // The policy takes ownership of the leaf and disposes it, so every call gets a fresh certificate.
+    const string ValveSubject = "CN=Valve Corp., O=Valve Corp., L=Bellevue, S=Washington, C=US";
+    var leafCheck = Cert(ValveSubject);
+    Require(SignaturePolicy.Check(new FakeSignature(new(true, leafCheck)), anyFile) is null, "Valve signer trusted");
+    Require(leafCheck.Handle == IntPtr.Zero, "leaf certificate disposed after the check");
+    foreach (var wrongSubject in new[] { "CN=Other Corp., O=Other Corp.", "CN=Valve Corp., O=Evil Corp.",
+        "CN=Valve Corp. Fake, O=Valve Corp. Fake", "CN=Valve Corp., CN=Valve Corp., O=Valve Corp.",
+        "CN=Valve Corp., O=Valve Corp., O=Valve Corp.", "CN=Valve Corp., CN=Evil Corp., O=Valve Corp.",
+        "CN=Valve Corp., O=Valve Corp., O=Evil Corp.", "CN=Valve Corp.", "O=Valve Corp." })
+    {
+        var wrongSigner = Cert(wrongSubject);
         Require(SignaturePolicy.Check(new FakeSignature(new(true, wrongSigner)), anyFile) == "client_signer_untrusted",
-            "valid signature from another signer has its own code");
-    foreach (var broken in new FileSignature[] { new(false, null), new(false, valve), new(true, null) })
+            $"valid signature from another signer has its own code: {wrongSubject}");
+        Require(wrongSigner.Handle == IntPtr.Zero, "rejected leaf certificate disposed");
+    }
+    foreach (var broken in new FileSignature[] { new(false, null), new(false, Cert(ValveSubject)), new(true, null) })
         Require(SignaturePolicy.Check(new FakeSignature(broken), anyFile) == "client_build_unverified",
             "unsigned or tampered file rejected");
     Require(SignaturePolicy.Check(new FakeSignature(null), anyFile) == "client_build_unverified",
@@ -579,7 +766,11 @@ static void CheckSignatureTrust(string scratch)
     string fresh = Path.Combine(scratch, "fresh.dll");
     File.WriteAllBytes(fresh, [0x4d, 0x5a, 0x90, 0x00]);
     using (var file = File.OpenHandle(fresh))
+    {
+        var unsigned = real.Read(file);
+        Require(!unsigned.Valid && unsigned.Leaf is null, "freshly written file has no signature");
         Require(SignaturePolicy.Check(real, file) == "client_build_unverified", "freshly written file untrusted");
+    }
     string tampered = Path.Combine(scratch, "tampered.dll");
     File.Copy(signed, tampered, overwrite: true);
     using (var write = File.OpenHandle(tampered, FileMode.Open, FileAccess.Write))
@@ -640,6 +831,8 @@ static async Task<int> StreamFixture(string mode, string[] rest)
         if (mode == "hold-died")
             return 5;
         while (Console.In.ReadLine() is { } line && line != "stop") { }
+        if (mode == "hold-nostop")
+            await Task.Delay(Timeout.InfiniteTimeSpan);
         Console.WriteLine(StreamProtocol.ReleasedLine);
         return 0;
     }
@@ -765,6 +958,17 @@ internal delegate nint AbiUser();
 internal sealed class FakeSignature(FileSignature? result) : ISignatureReader
 {
     public FileSignature Read(SafeFileHandle file) => result ?? throw new InvalidOperationException("Synthetic verifier failure.");
+}
+
+internal sealed class FactorySignature(Func<FileSignature> next) : ISignatureReader
+{
+    internal int Calls { get; private set; }
+
+    public FileSignature Read(SafeFileHandle file)
+    {
+        Calls++;
+        return next();
+    }
 }
 
 internal sealed class BlockingReader : TextReader

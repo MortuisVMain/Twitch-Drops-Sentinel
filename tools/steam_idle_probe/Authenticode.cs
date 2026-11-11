@@ -16,7 +16,7 @@ internal static class SignaturePolicy
 {
     private const string CommonName = "2.5.4.3", Organization = "2.5.4.10", ValveName = "Valve Corp.";
 
-    /// <summary>Returns null when the file carries a valid signature by Valve, else the rejection code.</summary>
+    /// <summary>Returns null when the file carries a valid signature by Valve, else the rejection code. Disposes the leaf.</summary>
     internal static string? Check(ISignatureReader reader, SafeFileHandle file)
     {
         FileSignature signature;
@@ -29,25 +29,34 @@ internal static class SignaturePolicy
             // Fail closed: a verifier that cannot answer never counts as verified.
             return "client_build_unverified";
         }
-        if (!signature.Valid || signature.Leaf is null)
-            return "client_build_unverified";
-        return IsValve(signature.Leaf) ? null : "client_signer_untrusted";
+        using (signature.Leaf)
+        {
+            if (!signature.Valid || signature.Leaf is null)
+                return "client_build_unverified";
+            return IsValve(signature.Leaf) ? null : "client_signer_untrusted";
+        }
     }
 
     // Match on the subject's organisation and common name rather than a thumbprint, so certificate renewals keep working.
+    // Exactly one CN and one O element, both Valve: a repeated or extra value could smuggle in another identity.
     internal static bool IsValve(X509Certificate2 leaf)
     {
-        bool commonName = false, organization = false;
+        int commonNames = 0, organizations = 0;
         foreach (var rdn in leaf.SubjectName.EnumerateRelativeDistinguishedNames())
         {
             if (rdn.HasMultipleElements)
                 return false;
             string type = rdn.GetSingleElementType().Value ?? "";
-            bool valve = rdn.GetSingleElementValue() == ValveName;
-            commonName |= type == CommonName && valve;
-            organization |= type == Organization && valve;
+            if (type != CommonName && type != Organization)
+                continue;
+            if (rdn.GetSingleElementValue() != ValveName)
+                return false;
+            if (type == CommonName)
+                commonNames++;
+            else
+                organizations++;
         }
-        return commonName && organization;
+        return commonNames == 1 && organizations == 1;
     }
 }
 
