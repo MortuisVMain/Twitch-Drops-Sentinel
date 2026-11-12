@@ -179,11 +179,11 @@ from gui_headless import STATE_BRIDGE, send_windows_toast
 from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
-from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
+from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE, STEAM_IDLE_LIVE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
-from steam_idle.controller import create_controller as create_steam_idle_controller
+from steam_idle.controller import create_controller as create_steam_idle_controller, steam_idle_backend_kind
 from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
@@ -391,7 +391,7 @@ class SentinelSupervisor:
         self.steam_idle = create_steam_idle_controller(
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
             lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
-            inert=TEST_MODE)
+            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert")
         self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
@@ -614,6 +614,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/ack", steam_idle.ack)
         self.app.router.add_post("/api/v1/steam-idle/login", steam_idle.login)
         self.app.router.add_post("/api/v1/steam-idle/check", steam_idle.check)
+        self.app.router.add_post("/api/v1/steam-idle/scan", steam_idle.scan)
         self.app.router.add_post("/api/v1/steam-idle/farm/start", steam_idle.farm_start)
         self.app.router.add_post("/api/v1/steam-idle/farm/stop", steam_idle.farm_stop)
         self.app.router.add_post("/api/v1/steam-idle/farm/pause", steam_idle.farm_pause)

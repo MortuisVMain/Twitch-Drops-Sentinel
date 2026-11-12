@@ -32,6 +32,9 @@ class SteamIdleRoutes:
     async def check(self, request: web.Request) -> web.Response:
         return self._reply(self._c.check(), 202)
 
+    async def scan(self, request: web.Request) -> web.Response:
+        return self._reply(self._c.scan(), 202)
+
     async def farm_start(self, request: web.Request) -> web.Response:
         return self._reply(self._c.start())
 

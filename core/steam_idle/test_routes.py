@@ -60,6 +60,10 @@ class RoutesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply(await self.routes.login(FakeRequest())), (202, {"ok": True}))
         self.assertEqual(reply(await self.routes.check(FakeRequest())), (202, {"ok": True}))
 
+    async def test_scan_answers_202(self):
+        self.assertEqual(reply(await self.routes.scan(FakeRequest())), (202, {"ok": True}))
+        self.assertEqual(self.controller.calls, [("scan", None)])
+
     async def test_farm_commands_answer_200_and_call_the_matching_method(self):
         for name in ("start", "stop", "pause", "resume", "skip"):
             self.assertEqual(reply(await getattr(self.routes, f"farm_{name}")(FakeRequest())), (200, {"ok": True}))
@@ -67,7 +71,7 @@ class RoutesTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_refusals_answer_409_with_the_code(self):
         routes = SteamIdleRoutes(StubController("risk_not_acknowledged"))
-        for handler in (routes.login, routes.check, routes.farm_start, routes.farm_stop, routes.farm_pause,
+        for handler in (routes.login, routes.check, routes.scan, routes.farm_start, routes.farm_stop, routes.farm_pause,
                         routes.farm_resume, routes.farm_skip):
             self.assertEqual(reply(await handler(FakeRequest())), (409, {"error": "risk_not_acknowledged"}))
 

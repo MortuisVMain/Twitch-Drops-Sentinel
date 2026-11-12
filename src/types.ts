@@ -222,6 +222,17 @@ export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaini
 export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }
 export interface SteamIdleFailedGame { appId: number; name: string; reason: string }
 
+export type SteamIdlePreviewStatus = 'none' | 'scanning' | 'ready' | 'failed';
+export interface SteamIdlePreviewGame { appId: number; name: string; dropsRemaining: number; playtimeHours: number }
+/** Farmable games read on demand; absent when the service is older than the scan command. */
+export interface SteamIdlePreview {
+  status: SteamIdlePreviewStatus;
+  ageSeconds: number | null;
+  error: string | null;
+  games: SteamIdlePreviewGame[];
+  totalDropsRemaining: number;
+}
+
 export interface SteamIdleState {
   available: boolean;
   unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | null;
@@ -241,6 +252,7 @@ export interface SteamIdleState {
     suspended: boolean;
   };
   library: { count: number | null };
+  preview?: SteamIdlePreview;
 }
 
 export interface DisplayMonitor {

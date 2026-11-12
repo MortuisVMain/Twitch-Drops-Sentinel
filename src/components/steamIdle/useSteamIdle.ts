@@ -9,9 +9,9 @@ const SLOW_POLL_MS = 15000;
 const SLOW_AFTER_FAILS = 3;
 const COMMAND_TIMEOUT_MS = 15000;
 
-export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'start' | 'stop' | 'pause' | 'resume' | 'skip';
+export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip';
 const PATHS: Record<SteamIdleCommand, string> = {
-  ack: '/ack', login: '/login', check: '/check',
+  ack: '/ack', login: '/login', check: '/check', scan: '/scan',
   start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip',
 };
 
@@ -21,10 +21,15 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 const isNumOrNull = (v: unknown): boolean => v === null || isNum(v);
 const hasGame = (g: unknown): g is Rec => isRec(g) && isNum(g.appId) && typeof g.name === 'string';
 const REASONS = ['helper_missing', 'node_missing', 'unsupported'];
+const PREVIEW_STATUSES = ['none', 'scanning', 'ready', 'failed'];
+const isPreview = (p: unknown): boolean => isRec(p) && typeof p.status === 'string' && PREVIEW_STATUSES.includes(p.status)
+  && isNumOrNull(p.ageSeconds) && (p.error === null || typeof p.error === 'string') && isNum(p.totalDropsRemaining)
+  && Array.isArray(p.games) && p.games.every((g) => hasGame(g) && isNum(g.dropsRemaining) && isNum(g.playtimeHours));
 const SESSIONS = ['unknown', 'checking', 'signed_in', 'signed_out', 'login_open', 'account_mismatch', 'error'];
 
 /** Checks the whole contract (progress.txt, "Service API contract v1"). Only library, totalDropsRemaining and
- * lastReadAgeSeconds may be absent: they get neutral defaults so their lines are simply omitted. farm.state may be any string. */
+ * lastReadAgeSeconds may be absent: they get neutral defaults so their lines are simply omitted. farm.state may be any string.
+ * The whole preview key may be absent (older service): the preview section is then not shown. */
 export const parseState = (json: unknown): SteamIdleState | null => {
   if (!isRec(json) || !isRec(json.steam) || !isRec(json.community) || !isRec(json.farm)) return null;
   const { steam, community, farm } = json;
@@ -41,7 +46,8 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     && Array.isArray(farm.failed) && farm.failed.every((g) => hasGame(g) && typeof g.reason === 'string')
     && optNum(farm.totalDropsRemaining) && optNumOrNull(farm.lastReadAgeSeconds)
     && (farm.lastError === null || typeof farm.lastError === 'string')
-    && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)));
+    && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)))
+    && (json.preview === undefined || isPreview(json.preview));
   if (!ok) return null;
   const base = json as unknown as SteamIdleState;
   return {

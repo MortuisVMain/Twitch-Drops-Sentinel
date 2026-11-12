@@ -54,6 +54,11 @@ jobs:
           dotnet publish desktop/TwitchDropsSentinel.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish_exe
           Copy-Item -Path publish_exe/TwitchDropsSentinel.exe -Destination TwitchDropsSentinel.exe -Force
 
+      - name: Build Steam idle helper
+        run: |
+          dotnet publish tools/steam_idle_probe/SteamIdleProbe.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o tools/steam_idle_probe/publish
+          if (-not (Test-Path tools/steam_idle_probe/publish/SteamIdleProbe.exe)) { throw 'SteamIdleProbe.exe was not published' }
+
       - name: Setup Portable Python Runtime
         run: |
           python tools/setup_portable_runtime.py

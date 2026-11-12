@@ -11,7 +11,7 @@ from unittest import mock
 
 from steam_idle.community import CommunityError, GameDrops, OwnedGame
 from steam_idle.controller import (SteamClient, SteamIdleController, Tools, create_controller, find_tools,
-                                   read_steam_client, steam_id64)
+                                   read_steam_client, steam_id64, steam_idle_backend_kind)
 from steam_idle.farm import FarmRules
 
 ACCOUNT, OTHER = 38734272, 1234567
@@ -57,6 +57,7 @@ class Env:
         self.presences, self.login_commands, self.login_gate = [], [], None
         self.now, self.sleeps, self.on_sleep, self.freeze_at = 1000.0, [], None, None
         self.read_gate, self.read_entered, self.kills, self.start_error = None, threading.Event(), 0, None
+        self.read_threads = []
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
@@ -78,6 +79,7 @@ class Env:
 
     def read_drops(self, command, expected_steam_id64=None):
         self.drops_calls += 1
+        self.read_threads.append(threading.get_ident())
         if self.read_gate is not None:
             self.read_entered.set()
             self.read_gate.wait(5)
@@ -208,7 +210,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctl.start(), None)
         await self.env.settle()
         state = ctl.state()
-        self.assertEqual(set(state), {"available", "unavailableReason", "riskAcknowledged", "steam", "community", "farm", "library"})
+        self.assertEqual(set(state), {"available", "unavailableReason", "riskAcknowledged", "steam", "community", "farm", "library", "preview"})
         self.assertEqual(set(state["steam"]), {"running", "signedIn"})
         self.assertEqual(set(state["community"]), {"session", "checkedAgeSeconds"})
         self.assertEqual(set(state["farm"]), FARM_KEYS)
@@ -613,6 +615,210 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.01)
         await asyncio.wait_for(ctl.shutdown(), 5)
         self.assertEqual(self.env.status_calls, [])
+
+
+PREVIEW_KEYS = {"status", "ageSeconds", "error", "games", "totalDropsRemaining"}
+GAME_KEYS = {"appId", "name", "dropsRemaining", "playtimeHours"}
+NO_PREVIEW = {"status": "none", "ageSeconds": None, "error": None, "games": [], "totalDropsRemaining": 0}
+
+
+class PreviewTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self):
+        await self.env.ctl.shutdown()
+
+    def make(self, **over):
+        self.env = Env(**over)
+        self.env.signed_in()
+        return self.env.ctl
+
+    def preview(self):
+        return self.env.ctl.state()["preview"]
+
+    async def test_idle_preview_is_none_and_has_the_exact_shape(self):
+        self.make()
+        self.assertEqual(self.preview(), NO_PREVIEW)
+
+    async def test_every_refusal_code(self):
+        env = self.env = Env()
+        ctl, seen = env.ctl, set()
+
+        def expect(code):
+            seen.add(code)
+            self.assertEqual(ctl.scan(), code)
+
+        env.tools = Tools("node_missing")
+        expect("unavailable")
+        env.tools = Tools(None, Path("h.exe"), ("node", "s.js"))
+        env.settings["steam_idle_risk_ack"] = False
+        expect("risk_not_acknowledged")
+        env.settings["steam_idle_risk_ack"] = True
+        env.client = SteamClient(False, 0)
+        expect("steam_not_running")
+        env.client = SteamClient(True, 0)
+        expect("steam_signed_out")
+        env.client = SteamClient(True, ACCOUNT)
+        expect("community_signed_out")
+        ctl._session, ctl._checked_account = "signed_in", OTHER
+        expect("account_mismatch")
+        ctl._session = "account_mismatch"
+        expect("account_mismatch")
+        ctl._session = "checking"
+        ctl._check_task = asyncio.get_running_loop().create_future()
+        expect("busy")
+        ctl._check_task.cancel()
+        self.assertEqual(seen, REFUSALS)
+        self.assertEqual(env.drops_calls, 0)
+        await ctl.shutdown()
+
+    async def test_scan_is_busy_during_a_scan_and_a_farm_run_and_blocks_other_commands(self):
+        ctl = self.make(read_gate=threading.Event())
+        self.assertIsNone(ctl.scan())
+        self.assertEqual(ctl.scan(), "busy")
+        self.assertEqual(ctl.start(), "busy")
+        self.assertEqual(ctl.check(), "busy")
+        self.assertEqual(ctl.login(), "busy")
+        self.env.read_gate.set()
+        await self.env.settle()
+        self.env.drops = [[gd(100, 5)]]
+        self.env.freeze_at = len(self.env.sleeps) + 3
+        self.assertIsNone(ctl.start())
+        await self.env.wait_running()
+        self.assertEqual(ctl.scan(), "busy")
+
+    async def test_happy_path_reads_off_the_event_loop_for_the_current_account(self):
+        ctl = self.make(drops=[[gd(7, 3), gd(8, 0), gd(9, 1)]])
+        self.assertIsNone(ctl.scan())
+        self.assertEqual(self.preview()["status"], "scanning")
+        await self.env.settle()
+        preview = self.preview()
+        self.assertEqual((preview["status"], preview["error"], preview["ageSeconds"]), ("ready", None, 0.0))
+        self.assertEqual([g["appId"] for g in preview["games"]], [9, 7], "only games with drops, closest to done first")
+        self.assertEqual(preview["games"][0], {"appId": 9, "name": "Game 9", "dropsRemaining": 1, "playtimeHours": 1.0})
+        self.assertEqual(preview["totalDropsRemaining"], 4)
+        self.assertEqual(self.env.expected_seen, [str(BASE_ID + ACCOUNT)])
+        self.assertNotIn(threading.get_ident(), self.env.read_threads)
+        self.assertEqual(self.env.presences, [])
+        self.env.now += 90
+        self.assertEqual(self.preview()["ageSeconds"], 90.0)
+
+    async def test_empty_ready_list(self):
+        ctl = self.make(drops=[[gd(7, 0)]])
+        ctl.scan()
+        await self.env.settle()
+        preview = self.preview()
+        self.assertEqual((preview["status"], preview["games"], preview["totalDropsRemaining"]), ("ready", [], 0))
+
+    async def test_failed_scan_without_a_previous_list_is_failed_and_empty(self):
+        ctl = self.make(drops=[CommunityError("timeout")])
+        ctl.scan()
+        await self.env.settle()
+        preview = self.preview()
+        self.assertEqual((preview["status"], preview["error"], preview["games"]), ("failed", "timeout", []))
+
+    async def test_failed_scan_keeps_the_previous_ready_list(self):
+        ctl = self.make(drops=[[gd(7, 3)], CommunityError("failed:boom")])
+        ctl.scan()
+        await self.env.settle()
+        self.env.now += 30
+        ctl.scan()
+        await self.env.settle()
+        preview = self.preview()
+        self.assertEqual((preview["status"], preview["error"]), ("failed", "failed"))
+        self.assertEqual([g["appId"] for g in preview["games"]], [7])
+        self.assertEqual(preview["ageSeconds"], 30.0)
+        self.env.drops = [[gd(8, 2)]]
+        ctl.scan()
+        await self.env.settle()
+        self.assertEqual((self.preview()["status"], self.preview()["error"]), ("ready", None))
+
+    async def test_scan_session_errors_drop_the_preview_and_set_the_session(self):
+        for code in ("signed_out", "account_mismatch"):
+            ctl = self.make(drops=[[gd(7, 3)], CommunityError(code)])
+            ctl.scan()
+            await self.env.settle()
+            ctl.scan()
+            await self.env.settle()
+            self.assertEqual(ctl.state()["community"]["session"], code)
+            self.assertEqual(self.preview(), NO_PREVIEW)
+            await ctl.shutdown()
+
+    async def test_auto_scan_after_a_successful_check_once(self):
+        ctl = self.make(drops=[[gd(7, 3)]])
+        ctl._session = "unknown"
+        self.assertIsNone(ctl.check())
+        await self.env.settle()
+        self.assertEqual(ctl.state()["community"]["session"], "signed_in")
+        self.assertEqual((self.env.drops_calls, self.preview()["status"]), (1, "ready"))
+        ctl.check()
+        await self.env.settle()
+        self.assertEqual(self.env.drops_calls, 1, "a ready preview for the account is not read again")
+
+    async def test_no_auto_scan_after_a_failed_check(self):
+        ctl = self.make(status_error="signed_out")
+        ctl.check()
+        await self.env.settle()
+        self.assertEqual((self.env.drops_calls, self.preview()["status"]), (0, "none"))
+
+    async def test_preview_is_dropped_when_the_client_account_changes(self):
+        ctl = self.make(drops=[[gd(7, 3)]])
+        ctl.scan()
+        await self.env.settle()
+        self.env.client = SteamClient(True, 0)
+        self.assertEqual(self.preview()["status"], "ready", "a signed-out hop alone keeps it")
+        self.env.client = SteamClient(True, OTHER)
+        self.assertEqual(self.preview(), NO_PREVIEW)
+        self.env.client = SteamClient(True, ACCOUNT)
+        self.assertEqual(self.preview(), NO_PREVIEW, "it does not come back")
+
+    async def test_preview_is_dropped_when_the_session_signs_out(self):
+        ctl = self.make(drops=[[gd(7, 3)]])
+        ctl.scan()
+        await self.env.settle()
+        for session in ("signed_out", "account_mismatch"):
+            ctl._session = session
+            self.assertEqual(self.preview(), NO_PREVIEW)
+            ctl._session = "signed_in"
+
+    async def test_a_farm_read_refreshes_the_preview(self):
+        ctl = self.make(drops=[[gd(7, 3)], [gd(7, 3), gd(9, 1)]], freeze_at=3)
+        ctl.scan()
+        await self.env.settle()
+        self.assertEqual([g["appId"] for g in self.preview()["games"]], [7])
+        self.assertIsNone(ctl.start())
+        await self.env.wait_running()
+        self.assertEqual([g["appId"] for g in self.preview()["games"]], [9, 7])
+        self.assertEqual(self.preview()["totalDropsRemaining"], 4)
+
+    async def test_shutdown_during_a_blocked_scan_kills_the_read_and_stores_nothing(self):
+        ctl = self.make(read_gate=threading.Event())
+        ctl.scan()
+        self.assertTrue(await asyncio.to_thread(self.env.read_entered.wait, 5))
+        await asyncio.wait_for(ctl.shutdown(), 8)
+        self.assertEqual(self.env.kills, 1)
+        self.assertEqual(self.env.presences, [])
+        self.assertEqual(self.preview(), NO_PREVIEW)
+        self.assertEqual(ctl.scan(), "busy", "no new read after shutdown")
+        self.assertEqual(self.env.drops_calls, 1)
+
+    async def test_payload_is_capped_at_200_games_but_the_total_counts_all(self):
+        ctl = self.make(drops=[[gd(i, 1) for i in range(1, 251)]])
+        ctl.scan()
+        await self.env.settle()
+        preview = self.preview()
+        self.assertEqual((len(preview["games"]), preview["totalDropsRemaining"]), (200, 250))
+        self.assertEqual(set(preview), PREVIEW_KEYS)
+        self.assertEqual(set(preview["games"][0]), GAME_KEYS)
+        dumped = json.dumps(ctl.state())
+        self.assertIsNone(re.search(r"\d{17}", dumped))
+        self.assertIsNone(re.search(str(ACCOUNT), dumped))
+
+
+class BackendKindTests(unittest.TestCase):
+    def test_only_test_mode_without_the_live_flag_is_inert(self):
+        self.assertEqual(steam_idle_backend_kind(False, False), "real")
+        self.assertEqual(steam_idle_backend_kind(False, True), "real")
+        self.assertEqual(steam_idle_backend_kind(True, False), "inert")
+        self.assertEqual(steam_idle_backend_kind(True, True), "real")
 
 
 class FactoryTests(unittest.IsolatedAsyncioTestCase):

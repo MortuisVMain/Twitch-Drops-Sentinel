@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { failureText, hasStaleData } from '../utils/dataLoad';
-import { FarmPanel, Lists, Readiness, RiskGate, Skeleton, UnavailablePanel } from './steamIdle/SteamIdleParts';
+import { FarmPanel, Lists, PreviewPanel, Readiness, RiskGate, Skeleton, UnavailablePanel } from './steamIdle/SteamIdleParts';
 import { refusalText } from './steamIdle/steamIdleText';
 import { useSteamIdle } from './steamIdle/useSteamIdle';
 
@@ -42,6 +42,7 @@ export const SteamIdleView: React.FC = () => {
             : (
               <>
                 <FarmPanel s={s} busy={busy} takeFocus={gateSeen.current} send={send} />
+                <PreviewPanel s={s} busy={busy} send={send} />
                 <Lists s={s} />
               </>
             )}

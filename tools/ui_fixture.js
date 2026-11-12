@@ -13,7 +13,7 @@
 // ?games=<n> serves n campaigns instead of 14 (the extra ones have drops and no queue slot), for the off-queue panel checks (tools/check_override_cards.cjs).
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
-// ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key.
+// ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check and the farm ones) answer 409 with that code. Commands land in window.__steamIdlePosts.
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
@@ -214,7 +214,14 @@
     community: { session: 'signed_in', checkedAgeSeconds: 40 },
     farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false },
     library: { count: 30 },
+    preview: { status: 'none', ageSeconds: null, error: null, games: [], totalDropsRemaining: 0 },
   };
+  function siPreviewGames() {
+    return [[0, 1, 0.4], [1, 2, 12.5], [2, 2, 3], [3, 3, 56], [4, 3, 110.2], [5, 4, 7]].map(function (r) { return { appId: 910000 + r[0], name: SI_NAMES[r[0]], dropsRemaining: r[1], playtimeHours: r[2] }; });
+  }
+  function siPreviewReady(games) {
+    si.preview = { status: 'ready', ageSeconds: 0, error: null, games: games, totalDropsRemaining: games.reduce(function (n, g) { return n + g.dropsRemaining; }, 0) };
+  }
   function siTotal() {
     var f = si.farm;
     f.totalDropsRemaining = f.queue.reduce(function (n, g) { return n + g.dropsRemaining; }, 0) + (f.current ? f.current.dropsRemaining : 0);
@@ -230,6 +237,10 @@
     f.queue = [siGame(0, 3), siGame(1, 4), siGame(2, 2), siGame(3, 3), siGame(4, 2)];
     f.done = [siDone(5), siDone(6)]; f.failed = []; f.lastReadAgeSeconds = 95;
   }
+  if (siMode === 'idle') { siPreviewReady(siPreviewGames()); si.preview.ageSeconds = 240; }
+  else if (siMode === 'previewempty') { siPreviewReady([]); si.preview.ageSeconds = 240; }
+  else if (siMode === 'previewscanning') si.preview.status = 'scanning';
+  else if (siMode === 'previewfailed') { siPreviewReady(siPreviewGames().slice(0, 3)); si.preview.status = 'failed'; si.preview.error = 'timeout'; si.preview.ageSeconds = 900; }
   if (siMode === 'ack') si.riskAcknowledged = false;
   else if (siMode === 'signedout') { si.community = { session: 'signed_out', checkedAgeSeconds: 12 }; si.farm.state = 'needs_login'; }
   else if (siMode === 'mismatch') si.community = { session: 'account_mismatch', checkedAgeSeconds: 12 };
@@ -247,6 +258,12 @@
     var f = si.farm;
     if (cmd === 'ack') si.riskAcknowledged = true;
     else if (cmd === 'login') si.community = { session: 'login_open', checkedAgeSeconds: null };
+    else if (cmd === 'scan') {
+      if (si.preview.status !== 'scanning') {
+        si.preview.status = 'scanning'; si.preview.error = null;
+        setTimeout(function () { siPreviewReady(siPreviewGames()); }, 1500);
+      }
+    }
     else if (cmd === 'check') si.community = { session: si.community.session === 'login_open' ? 'login_open' : 'signed_in', checkedAgeSeconds: 0 };
     else if (cmd === 'farm/start') { if (!f.queue.length && !f.current) siFill(); f.done = f.done.slice(0, 2); f.failed = []; siHold(); }
     else if (cmd === 'farm/stop') { f.state = 'stopped'; f.current = null; f.paused = false; }

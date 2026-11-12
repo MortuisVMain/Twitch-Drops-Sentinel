@@ -34,8 +34,20 @@ _RELEASE_SECONDS = 3.0
 _SESSION_BY_CODE = {"signed_out": "signed_out", "account_mismatch": "account_mismatch"}
 
 
+_PREVIEW_CAP = 200
+
+
 def steam_id64(account_id: int) -> str:
     return str(_STEAM_ID_BASE + account_id)
+
+
+def steam_idle_backend_kind(test_mode: bool, live_flag: bool) -> str:
+    """"inert" only in test mode without the explicit SENTINEL_STEAM_IDLE_LIVE opt-in, otherwise "real"."""
+    return "inert" if test_mode and not live_flag else "real"
+
+
+def _preview_error(code: str) -> str:
+    return "failed" if code.startswith("failed:") else code
 
 
 @dataclass(frozen=True)
@@ -146,6 +158,10 @@ class SteamIdleController:
         self._run_account = 0
         self._run_error: str | None = None
         self._library_fetched = False
+        self._scan_task = None
+        self._closed = False
+        self._preview: tuple[int, list, float] | None = None  # account id, farmable games, read time
+        self._preview_error: str | None = None
 
     # payload
     def state(self) -> dict:
@@ -163,7 +179,28 @@ class SteamIdleController:
             "community": {"session": self._session, "checkedAgeSeconds": age},
             "farm": farm,
             "library": {"count": self._library_count},
+            "preview": self._preview_payload(client.account_id),
         }
+
+    def _preview_payload(self, account_id: int) -> dict:
+        """The farmable games read on demand. Dropped lazily when the account changed or the session signed out."""
+        preview = self._preview
+        if self._session in ("signed_out", "account_mismatch") or (preview and account_id not in (0, preview[0])):
+            self._preview = preview = self._preview_error = None
+        games, age = (preview[1], self._clock() - preview[2]) if preview else ([], None)
+        if self._scan_running():
+            status = "scanning"
+        else:
+            status = "failed" if self._preview_error else "ready" if preview else "none"
+        return {
+            "status": status, "ageSeconds": age, "error": self._preview_error,
+            "games": [{"appId": g.app_id, "name": g.name, "dropsRemaining": g.drops_remaining,
+                       "playtimeHours": g.playtime_hours} for g in games[:_PREVIEW_CAP]],
+            "totalDropsRemaining": sum(g.drops_remaining for g in games),
+        }
+
+    def _store_preview(self, account_id: int, drops: list) -> None:
+        self._preview, self._preview_error = (account_id, community.farmable(drops), self._clock()), None
 
     # commands: None = accepted, otherwise a refusal code
     def acknowledge(self, accepted: bool) -> None:
@@ -190,6 +227,25 @@ class SteamIdleController:
         self._run_error, self._library_fetched = None, False
         self._farm.start()
         self._task = asyncio.get_running_loop().create_task(self._run_loop())
+        return None
+
+    def scan(self) -> str | None:
+        """Read the card drops on demand for the preview; same gates as start, never while another job runs."""
+        tools = self._find_tools()
+        if tools.unavailable:
+            return "unavailable"
+        if not self._get_setting(RISK_ACK_KEY, False):
+            return "risk_not_acknowledged"
+        client = self._client_state()
+        if (refusal := self._client_refusal(client)) is not None:
+            return refusal
+        if self._closed or self._busy() or self._running():
+            return "busy"
+        if self._session == "account_mismatch" or (self._session == "signed_in" and self._checked_account != client.account_id):
+            return "account_mismatch"
+        if self._session != "signed_in":
+            return "community_signed_out"
+        self._start_scan(tools, client.account_id)
         return None
 
     def stop(self) -> str | None:
@@ -235,13 +291,17 @@ class SteamIdleController:
             self._farm.set_suspended(flag)
 
     async def join(self) -> None:
-        tasks = [task for task in (self._task, self._login_task, self._check_task) if task is not None]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        while tasks := [task for task in self._tasks() if not task.done()]:  # a check may start the auto-scan
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _tasks(self) -> list:
+        return [task for task in (self._task, self._login_task, self._check_task, self._scan_task) if task is not None]
 
     async def shutdown(self) -> None:
         """Close the farm for good, end the tasks and any read in flight, and release every held game within seconds."""
+        self._closed = True
         self._farm.close()
-        tasks = [task for task in (self._task, self._login_task, self._check_task) if task is not None and not task.done()]
+        tasks = [task for task in self._tasks() if not task.done()]
         for task in tasks:
             task.cancel()
         if tasks:
@@ -269,7 +329,13 @@ class SteamIdleController:
         return None if client.signed_in else "steam_signed_out"
 
     def _busy(self) -> bool:
-        return any(task is not None and not task.done() for task in (self._login_task, self._check_task))
+        return any(task is not None and not task.done() for task in (self._login_task, self._check_task, self._scan_task))
+
+    def _scan_running(self) -> bool:
+        return self._scan_task is not None and not self._scan_task.done()
+
+    def _start_scan(self, tools: Tools, account_id: int) -> None:
+        self._scan_task = asyncio.get_running_loop().create_task(self._do_scan(tools, account_id))
 
     def _running(self) -> bool:
         return self._task is not None and not self._task.done()
@@ -306,6 +372,7 @@ class SteamIdleController:
                 raise CommunityError("signed_out") from error  # the farm ends in needs_login
             raise
         self._checked_at = self._clock()
+        self._store_preview(self._run_account, drops)
         if not self._library_fetched:
             self._library_fetched = True
             try:
@@ -373,7 +440,29 @@ class SteamIdleController:
             self._session = _SESSION_BY_CODE.get(error.code, "error")
         else:
             self._session, self._checked_account = "signed_in", account_id
+            if (not self._closed and not self._running() and not self._scan_running()
+                    and not (self._preview and self._preview[0] == account_id)):
+                self._start_scan(tools, account_id)
         self._checked_at = self._clock()
+
+    async def _do_scan(self, tools: Tools, account_id: int) -> None:
+        """One drops read in a worker thread; a failure keeps the previous list and records the error."""
+        self._preview_error = None
+        try:
+            drops = await asyncio.to_thread(self._read_drops_fn, tools.community,
+                                            expected_steam_id64=steam_id64(account_id))
+        except CommunityError as error:
+            logger.error("preview scan failed: %s", error.code)
+            if error.code in _SESSION_BY_CODE:
+                self._session = _SESSION_BY_CODE[error.code]
+            else:
+                self._preview_error = _preview_error(error.code)
+        except Exception:
+            logger.error("preview scan crashed", exc_info=True)
+            self._preview_error = "internal_error"
+        else:
+            self._checked_at = self._clock()
+            self._store_preview(account_id, drops)
 
 
 def _never(*args: object, **kwargs: object):

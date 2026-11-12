@@ -3,7 +3,8 @@ import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
 import { SteamIdleState } from '../../types';
 import { SteamIdleCommand } from './useSteamIdle';
 import {
-  KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, steamClientText, unavailableHelp,
+  KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
+  steamClientText, unavailableHelp,
 } from './steamIdleText';
 
 type Send = (command: SteamIdleCommand) => void;
@@ -120,7 +121,7 @@ export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
           </span>
         </div>
       )}
-      {nothing && s.available && s.community.session !== 'signed_out' && (
+      {nothing && !s.preview && s.available && s.community.session !== 'signed_out' && (
         <>
           <p className="sidle-text">Карточек для фарма нет</p>
           {hasCount(s.library?.count) && <p className="sidle-meta"><span>игр в библиотеке: <b className="tabular">{s.library.count}</b></span></p>}
@@ -152,6 +153,58 @@ const NameRow: React.FC<{ name: string; end?: React.ReactNode; note?: string }> 
     {end}
   </li>
 );
+
+/** Games with card drops, read on demand, shown while the farm is not active (an active farm shows its queue instead). */
+export const PreviewPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: Send }> = ({ s, busy, send }) => {
+  const p = s.preview;
+  if (!p || !PRIMARY_STATES.has(s.farm.state)) return null;
+  const scanning = p.status === 'scanning';
+  const off = busy !== null || scanning || !s.available;
+  return (
+    <section className="titanium-island sidle-preview" aria-labelledby="sidle-preview-title" aria-busy={scanning}>
+      <div className="sidle-preview-head">
+        <h2 id="sidle-preview-title" className="sidle-title">Игры с карточками{p.games.length > 0 && <span className="sidle-count tabular"> {p.games.length}</span>}</h2>
+        <button type="button" className="tactile-btn" aria-disabled={off} onClick={() => { if (!off) send('scan'); }}>
+          <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Обновить список
+        </button>
+      </div>
+      {p.status === 'failed' && p.error !== null && (
+        <p className="sidle-refusal" role="status"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {previewErrorText(p.error)}</p>
+      )}
+      {scanning && p.games.length === 0 && (
+        <div aria-hidden="true">
+          {[0, 1, 2].map((n) => <span key={n} className="sk-bar" style={{ width: `${85 - n * 15}%`, height: '1em', marginTop: n ? 10 : 0 }} />)}
+          <span className="sr-only" role="status" data-overflow-ok>Читаем список карточек</span>
+        </div>
+      )}
+      {p.games.length > 0 && (
+        <ul className="sidle-list-rows" tabIndex={0} aria-labelledby="sidle-preview-title">
+          {p.games.map((g) => (
+            <li key={g.appId} className="sidle-row">
+              <span className="sidle-row-main">
+                <span className="sidle-row-name" title={g.name}>{g.name}</span>
+                <span className="sidle-row-note">осталось карточек: <b className="tabular">{g.dropsRemaining}</b></span>
+              </span>
+              <span className="sidle-row-end tabular">{hoursNumber(g.playtimeHours)} ч</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {p.ageSeconds !== null && (
+        <p className="sidle-meta">
+          {p.games.length > 0 && <span>всего осталось карточек: <b className="tabular">{p.totalDropsRemaining}</b></span>}
+          <span>проверено <Dur s={p.ageSeconds} /> назад</span>
+        </p>
+      )}
+      {p.status === 'ready' && p.games.length === 0 && (
+        <>
+          <p className="sidle-text">Карточек для фарма нет</p>
+          {hasCount(s.library?.count) && <p className="sidle-meta"><span>игр в библиотеке: <b className="tabular">{s.library.count}</b></span></p>}
+        </>
+      )}
+    </section>
+  );
+};
 
 export const Lists: React.FC<{ s: SteamIdleState }> = ({ s }) => {
   const { queue, done, failed } = s.farm;

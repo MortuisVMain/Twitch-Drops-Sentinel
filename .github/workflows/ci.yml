@@ -28,6 +28,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Build UI bundle
         run: |
           npm ci
@@ -42,3 +47,15 @@ jobs:
         env:
           CI: '1'
         run: python test_sentinel_suite.py
+
+      - name: Engine tests
+        run: node --test "tools/engine_tests/*.test.mjs"
+
+      - name: Build Steam idle helper and run its offline checks
+        run: |
+          dotnet build tools/steam_idle_probe/SteamIdleProbe.csproj -c Release
+          Push-Location tools/steam_idle_probe/checks
+          dotnet run -c Release --project SteamIdleProbe.Checks.csproj
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "Helper checks failed with exit code $code" }

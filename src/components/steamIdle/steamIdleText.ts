@@ -1,4 +1,5 @@
 // Words for the Steam IDLE tab: the service sends codes, the screen shows sentences.
+import { uiLocale } from '../../i18n';
 import { SteamIdleCommunitySession, SteamIdleFarmState, SteamIdleState } from '../../types';
 
 export type Tone = 'ok' | 'warn' | 'plain';
@@ -71,7 +72,13 @@ export const failedReasonText = (reason: string): string => {
   return 'не удалось запустить';
 };
 
-export const refusalText = (code: string | null): string => {
+export const previewErrorText = (code: string): string =>
+  code === 'timeout' ? 'Steam не ответил вовремя. Список не обновлён.' : 'Не удалось обновить список. Повторите позже.';
+
+/** Playtime with one decimal at most ("12.5", "3"). */
+export const hoursNumber = (hours: number): string => (Math.round(hours * 10) / 10).toLocaleString(uiLocale());
+
+export const refusalText =(code: string | null): string => {
   switch (code) {
     case 'risk_not_acknowledged': return 'Сначала подтвердите, что понимаете риск для аккаунта.';
     case 'unavailable': return 'Steam IDLE недоступен: не хватает компонентов.';
