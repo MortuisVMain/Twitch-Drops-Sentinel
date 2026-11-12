@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace SteamIdleProbe;
 
 internal sealed record AchievementInfo(string ApiName, string Name, string Description, bool Hidden, bool Achieved, uint UnlockTime);
@@ -23,8 +25,26 @@ internal static class AchievementReader
     internal const int MaxDescription = 2048;
     private const string Implausible = "stats_implausible";
 
-    /// <summary>1 to 128 printable ASCII characters (0x20-0x7E), nothing else.</summary>
-    internal static bool IsApiName(string text) => text.Length is >= 1 and <= 128 && text.All(c => c is >= ' ' and <= '~');
+    internal const int MaxApiNameBytes = 256;
+    private static readonly UTF8Encoding Strict = new(false, true);
+
+    /// <summary>
+    /// 1 to 256 bytes of valid UTF-8 with no control character (U+0000-U+001F, U+007F). U+FFFD is refused too: it is what
+    /// undecodable native bytes turn into, so it marks a name that was not valid UTF-8; a lone surrogate cannot be encoded.
+    /// </summary>
+    internal static bool IsApiName(string text)
+    {
+        if (text.Length is 0 or > MaxApiNameBytes || text.Any(c => c < ' ' || c is '\u007f' or '�'))
+            return false;
+        try
+        {
+            return Strict.GetByteCount(text) <= MaxApiNameBytes;
+        }
+        catch (EncoderFallbackException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Returns null on success (items filled) or an error code; the caller discards the items on any error.</summary>
     internal static string? Collect(IClientIdentityNative native, int user, int pipe, uint appId, ulong steamId,
@@ -39,7 +59,7 @@ internal static class AchievementReader
         if (!stats.WaitForStats(appId, steamId, statsTimeout, stop))
             return "stats_unavailable";
 
-        // Self-check before trusting the slots: a plausible count, then every name must be printable ASCII.
+        // Self-check before trusting the slots: a plausible count, then every name must pass IsApiName.
         uint count = stats.GetNumAchievements();
         if (count > MaxAchievements)
             return Implausible;

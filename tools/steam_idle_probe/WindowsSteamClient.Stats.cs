@@ -7,7 +7,8 @@ namespace SteamIdleProbe;
 internal sealed record StatsLayout(string Version, IReadOnlyDictionary<string, int> Slots);
 
 // READ-ONLY. Only the slots named in the tables below are ever bound; no delegate exists for any method that changes
-// stats or achievements, and none may be added without a separate, reviewed change.
+// stats or achievements, and none may be added without a separate, reviewed change. The one reviewed exception, used by
+// the `unlock` command alone, lives in WindowsSteamClient.Write.cs with its own slot table.
 internal sealed partial class WindowsSteamClient : IClientStatsNative
 {
     // ISteamUserStats vtable slots, from Valve's public isteamuserstats.h (Steamworks SDK). Declaration order of the
@@ -166,7 +167,7 @@ internal sealed partial class WindowsSteamClient : IClientStatsNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct CallbackMsg
+    internal struct CallbackMsg
     {
         public int User;
         public int Callback;
@@ -179,10 +180,10 @@ internal sealed partial class WindowsSteamClient : IClientStatsNative
     private delegate bool RequestStatsMethod(nint self);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private delegate bool NextCallbackMethod(int pipe, out CallbackMsg message);
+    internal delegate bool NextCallbackMethod(int pipe, out CallbackMsg message);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private delegate bool FreeCallbackMethod(int pipe);
+    internal delegate bool FreeCallbackMethod(int pipe);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     internal delegate uint NumAchievementsMethod(nint self);

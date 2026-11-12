@@ -1,11 +1,14 @@
 """Offline checks for the achievements reader, driven by a fake helper script run through the current interpreter."""
+import os
 import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from steam_idle.achievements import Achievement, AchievementsError, read_achievements
+from steam_idle.achievements import (Achievement, AchievementsError, UnlockResult, read_achievements,
+                                     unlock_achievements)
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
 
 STEAM_ID = "76561198000000001"
@@ -46,9 +49,13 @@ FAKE = textwrap.dedent('''
         "missing_key": lambda d: d.pop("hidden"),
         "api_int": lambda d: d.update(apiName=1),
         "api_empty": lambda d: d.update(apiName=""),
-        "api_nonascii": lambda d: d.update(apiName="Caf\\u00e9"),
         "api_tab": lambda d: d.update(apiName="A\\tB"),
-        "api_long": lambda d: d.update(apiName="A" * 129),
+        "api_nul": lambda d: d.update(apiName="A\\u0000B"),
+        "api_del": lambda d: d.update(apiName="A\\u007fB"),
+        "api_lone_surrogate": lambda d: d.update(apiName="A\\ud800"),
+        "api_replacement_char": lambda d: d.update(apiName="A\\ufffd"),
+        "api_long": lambda d: d.update(apiName="A" * 257),
+        "api_long_cjk": lambda d: d.update(apiName="\\u65e5" * 86),
         "name_null": lambda d: d.update(name=None),
         "name_long": lambda d: d.update(name="x" * 513),
         "desc_int": lambda d: d.update(description=5),
@@ -68,6 +75,8 @@ FAKE = textwrap.dedent('''
         out(*two, end(2))
     elif mode == "unicode":
         out(item("ACH_U", "\\u041e\\u0434\\u0438\\u043d \\U0001F600", "Caf\\u00e9 \\u2603"), end(1), ascii_only=False)
+    elif mode == "nonascii_api":
+        out(item("Caf\\u00e9"), item("\\u65e5\\u672c" * 42 + "\\u65e5", "J"), item("A" * 256, "L"), item("\\U0001F600", "E"), end(4))
     elif mode == "at_limits":
         out(item(name="n" * 512, description="d" * 2048), end(1))
     elif mode == "empty":
@@ -162,6 +171,11 @@ class AchievementsTests(unittest.TestCase):
         self.assertEqual(self.read("unicode"), [
             Achievement("ACH_U", "Один \U0001F600", "Café ☃", False, True, 1700000000)])
 
+    def test_non_ascii_api_names_are_accepted_up_to_256_bytes(self):
+        names = [item.api_name for item in self.read("nonascii_api")]
+        self.assertEqual(names, ["Café", "日本" * 42 + "日", "A" * 256, "\U0001F600"])
+        self.assertEqual(len(names[1].encode("utf-8")), 255)
+
     def test_strings_at_the_limit_are_accepted(self):
         item, = self.read("at_limits")
         self.assertEqual((len(item.name), len(item.description)), (512, 2048))
@@ -185,7 +199,8 @@ class AchievementsTests(unittest.TestCase):
             self.assert_code(mode, "protocol")
 
     def test_wrong_types_and_values_are_protocol_errors(self):
-        for name in ("version", "extra_key", "missing_key", "api_int", "api_empty", "api_nonascii", "api_tab", "api_long",
+        for name in ("version", "extra_key", "missing_key", "api_int", "api_empty", "api_tab", "api_nul", "api_del",
+                     "api_lone_surrogate", "api_replacement_char", "api_long", "api_long_cjk",
                      "name_null", "name_long", "desc_int", "desc_long", "hidden_str", "hidden_int", "achieved_int",
                      "unlock_str", "unlock_neg", "unlock_float", "unlock_big", "unlock_bool", "locked_with_time"):
             self.assert_code("mut_" + name, "protocol")
@@ -221,6 +236,112 @@ class AchievementsTests(unittest.TestCase):
         self.assert_code("hang", "timeout", timeout=2.0)
         self.assertTrue(self.pidfile.exists(), "the fake helper never reached its sleep")
         self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+
+UNLOCK_HELPER = Path(__file__).with_name("fake_unlock_helper.py")
+GATE = "SENTINEL_STEAM_IDLE_ALLOW_WRITE"
+
+
+class UnlockTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pidfile = Path(self.temp.name) / "pids.txt"
+        self.addCleanup(force_kill, self.pidfile)
+
+    def fake(self, mode):
+        return [sys.executable, "-S", "-X", "utf8", str(UNLOCK_HELPER), mode, str(self.pidfile)]
+
+    def unlock(self, mode, names=("A", "B", "C", "D"), **kwargs):
+        return unlock_achievements(self.fake(mode), STEAM_ID, APP_ID, list(names), **kwargs)
+
+    def assert_error(self, mode, code, wrote, names=("A", "B", "C", "D"), **kwargs):
+        with self.assertRaises(AchievementsError, msg=mode) as caught:
+            self.unlock(mode, names, **kwargs)
+        self.assertEqual((caught.exception.code, caught.exception.wrote), (code, wrote), mode)
+
+    def test_results_come_back_in_input_order_with_the_store_state(self):
+        results, stored = self.unlock("ok")
+        self.assertEqual(results, [UnlockResult("A", "unlocked"), UnlockResult("B", "already"),
+                                   UnlockResult("C", "unknown"), UnlockResult("D", "unconfirmed")])
+        self.assertEqual(stored, "yes")
+
+    def test_every_consistent_outcome_is_accepted(self):
+        self.assertEqual(self.unlock("not_needed")[1], "not_needed")
+        self.assertEqual(self.unlock("rejected")[1], "not_needed")
+        self.assertEqual(self.unlock("pending")[1], "timeout")
+        results, stored = self.unlock("store_failed")
+        self.assertEqual((results[0], stored), (UnlockResult("A", "store_failed"), "no"))
+
+    def test_names_travel_as_utf8_lines(self):
+        names = ["ACH_1", "Café", "日本", "\U0001F600", "with space", "A" * 256]
+        self.unlock("echo", names)
+        captured = Path(str(self.pidfile) + ".stdin")
+        self.assertEqual(captured.read_bytes(), ("\n".join(names) + "\n").encode("utf-8"))
+
+    def test_the_write_gate_is_set_for_the_child_only(self):
+        with mock.patch.dict(os.environ, {GATE: "0"}):
+            self.assert_error("env", "gate_1", False)
+            self.assertEqual(os.environ[GATE], "0")
+        with mock.patch.dict(os.environ):
+            os.environ.pop(GATE, None)
+            self.assert_error("env", "gate_1", False)
+            self.assertNotIn(GATE, os.environ)
+
+    def test_helper_failure_before_a_write_is_not_a_write(self):
+        self.assert_error("failed", "stats_unavailable", False)
+
+    def test_helper_failure_after_a_write_says_so(self):
+        self.assert_error("failed_wrote", "worker_failed", True)
+
+    def test_malformed_failure_lines_are_protocol_errors_and_uncertain(self):
+        for mode in ("failed_wrote_false", "failed_bad_code", "failed_after_item"):
+            self.assert_error(mode, "protocol", True)
+
+    def test_garbage_and_silence_are_protocol_errors_and_uncertain(self):
+        for mode in ("garbage", "nothing", "no_complete", "truncated", "after_complete", "swapped", "bad_exit"):
+            self.assert_error(mode, "protocol", True, names=("A", "B"))
+        self.assert_error("wrong_name", "protocol", True, names=("A",))
+
+    def test_wrong_fields_and_inconsistent_states_are_protocol_errors(self):
+        for kind in ("version", "extra_key", "missing_key", "name_int", "result_unknown", "result_int", "count_plus",
+                     "unlocked_wrong", "app_wrong", "stored_bad", "stored_int", "end_extra_key", "bool_count",
+                     "unlocked_but_not_needed", "needed_but_nothing_written", "pending_but_yes", "unlocked_but_timeout",
+                     "store_failed_with_pending"):
+            self.assert_error("mut_" + kind, "protocol", True, names=("A", "B"))
+
+    def test_a_hang_times_out_uncertain_and_the_tree_is_killed(self):
+        self.assert_error("hang", "timeout", True, timeout=2.0)
+        self.assertTrue(self.pidfile.exists(), "the fake helper never reached its sleep")
+        self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+    def test_missing_helper_is_start_failed_and_nothing_was_written(self):
+        with self.assertRaises(AchievementsError) as caught:
+            unlock_achievements(str(Path(self.temp.name) / "no-such-helper.exe"), STEAM_ID, APP_ID, ["A"])
+        self.assertEqual((caught.exception.code, caught.exception.wrote), ("start_failed", False))
+
+    def test_invalid_arguments_are_refused_before_running_anything(self):
+        cases = [("123", APP_ID, ["A"], "invalid_steam_id"), (STEAM_ID, 0, ["A"], "invalid_app_id"),
+                 (STEAM_ID, True, ["A"], "invalid_app_id"), (STEAM_ID, 2 ** 32, ["A"], "invalid_app_id"),
+                 (STEAM_ID, APP_ID, [], "invalid_name_list"), (STEAM_ID, APP_ID, "ACH", "invalid_name_list"),
+                 (STEAM_ID, APP_ID, [f"A{i}" for i in range(201)], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["A", "A"], "duplicate_name"), (STEAM_ID, APP_ID, [""], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["A\nB"], "invalid_name_list"), (STEAM_ID, APP_ID, ["A\rB"], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["A\x00"], "invalid_name_list"), (STEAM_ID, APP_ID, ["A\x7f"], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["A" * 257], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["日" * 86], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["A\ud800"], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, ["A�"], "invalid_name_list"),
+                 (STEAM_ID, APP_ID, [1], "invalid_name_list"), (STEAM_ID, APP_ID, [b"A"], "invalid_name_list")]
+        for steam_id, app_id, names, code in cases:
+            with self.assertRaises(AchievementsError, msg=repr(names)[:40]) as caught:
+                unlock_achievements(["no-such-program"], steam_id, app_id, names)
+            self.assertEqual((caught.exception.code, caught.exception.wrote), (code, False), repr(names)[:40])
+
+    def test_the_limits_themselves_are_accepted(self):
+        results, _ = self.unlock("echo", [f"A{i}" for i in range(200)])
+        self.assertEqual(len(results), 200)
+        self.unlock("echo", ["A" * 256, "日" * 85])
 
 
 if __name__ == "__main__":

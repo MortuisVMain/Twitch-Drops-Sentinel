@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace SteamIdleProbe;
 
 /// <summary>Fixed-shape JSON lines exchanged with the apps and hold workers. Nothing else may cross the pipe.</summary>
-internal static class StreamProtocol
+internal static partial class StreamProtocol
 {
     internal const int Version = 2;
     internal const int MaxApps = 10000;
@@ -146,7 +146,7 @@ internal static class StreamProtocol
                 lines.Add(AchievementLine(item));
             }
         }
-        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        catch (Exception ex) when (ex is JsonException or InvalidDataException or InvalidOperationException) // GetString on a lone surrogate
         {
             return Violation;
         }

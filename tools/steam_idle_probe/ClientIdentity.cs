@@ -62,6 +62,26 @@ internal static class ClientIdentity
         return new(status, status.Error is null && captured is not null ? captured.Items : []);
     }
 
+    /// <summary>READ-ONLY: everything `unlock` does up to and including the anchor check, binding only read slots and GetAchievement.</summary>
+    internal static SelfCheckResult InspectWindowsSelfCheck(ulong expected, uint appId, CancellationToken stop)
+    {
+        SelfCheckResult? captured = null;
+        var status = WithWindowsClient(expected, appId,
+            (native, active) => (captured = SelfCheckAchievements(native, expected, active, appId, StatsTimeout, stop)).Status);
+        return status.Error is null && captured is not null ? new(status, captured.Count, captured.AnchorChecked) : new(status, 0, 0);
+    }
+
+    /// <summary>WRITES to the account. <paramref name="markWriting"/> runs once, right before the first SetAchievement.</summary>
+    internal static UnlockResult InspectWindowsUnlock(ulong expected, uint appId, IReadOnlyList<string> names, Action markWriting,
+        CancellationToken stop)
+    {
+        UnlockResult? captured = null;
+        var status = WithWindowsClient(expected, appId,
+            (native, active) => (captured = UnlockAchievements(native, expected, active, appId, names, StatsTimeout,
+                AchievementWriter.StoreTimeout, markWriting, stop)).Status);
+        return new(status, status.Error is null ? captured?.Report : null);
+    }
+
     internal static IdentityResult HoldWindows(ulong expected, uint appId, Func<IdentityResult> holding) =>
         WithWindowsClient(expected, appId, (native, active) => Hold(native, expected, active, appId, holding));
 
@@ -148,6 +168,51 @@ internal static class ClientIdentity
             (user, pipe) => AchievementReader.Collect(native, user, pipe, appId, expected, statsTimeout, stop, items),
             () => new("connected", "expected_account_confirmed"));
         return new(status, status.Error is null ? items : []);
+    }
+
+    /// <summary>
+    /// Reads like ReadAchievements, proves the vtable with the anchor check, then writes. Items are discarded; the report is
+    /// kept only when the whole session (including the final identity check and the release) succeeded.
+    /// </summary>
+    internal static UnlockResult UnlockAchievements(IClientIdentityNative native, ulong expected, Func<bool> stillActive, uint appId,
+        IReadOnlyList<string> names, TimeSpan statsTimeout, TimeSpan storeTimeout, Action markWriting, CancellationToken stop)
+    {
+        var items = new List<AchievementInfo>();
+        UnlockReport? report = null;
+        var status = Session(native, expected, stillActive,
+            (user, pipe) =>
+            {
+                if (AchievementReader.Collect(native, user, pipe, appId, expected, statsTimeout, stop, items) is { } error)
+                    return error;
+                if (native is not IClientStatsNative stats || native is not IClientAchievementWriteNative write)
+                    return "client_method_unsupported";
+                if (AchievementWriter.AnchorCheck(write, items, out _) is { } anchor)
+                    return anchor;
+                if (stop.IsCancellationRequested)
+                    return "worker_cancelled";
+                report = AchievementWriter.Unlock(stats, write, appId, items, names, markWriting, storeTimeout, stop);
+                return null;
+            },
+            () => new("connected", "expected_account_confirmed"));
+        return new(status, status.Error is null ? report : null);
+    }
+
+    /// <summary>READ-ONLY: one connection, the full read and the anchor check, no write slot bound.</summary>
+    internal static SelfCheckResult SelfCheckAchievements(IClientIdentityNative native, ulong expected, Func<bool> stillActive,
+        uint appId, TimeSpan statsTimeout, CancellationToken stop)
+    {
+        var items = new List<AchievementInfo>();
+        int anchored = 0;
+        var status = Session(native, expected, stillActive,
+            (user, pipe) =>
+            {
+                if (AchievementReader.Collect(native, user, pipe, appId, expected, statsTimeout, stop, items) is { } error)
+                    return error;
+                return native is IClientAchievementWriteNative write ? AchievementWriter.AnchorCheck(write, items, out anchored)
+                    : "client_method_unsupported";
+            },
+            () => new("connected", "expected_account_confirmed"));
+        return status.Error is null ? new(status, items.Count, anchored) : new(status, 0, 0);
     }
 
     /// <summary>Confirms identity and subscription, then runs <paramref name="holding"/> with pipe and user still open.</summary>

@@ -134,6 +134,130 @@ internal static class StreamCommands
         return 0;
     }
 
+    /// <summary>
+    /// WRITE `unlock`: one worker with SteamAppId set, the validated names on its stdin, every line validated, nothing printed
+    /// until all of it is valid. A failure after the worker announced a write is reported with wrote:true.
+    /// </summary>
+    internal static async Task<int> RunUnlock(ProcessStartInfo start, uint appId, IReadOnlyList<string> names, TextWriter output,
+        TimeSpan timeout)
+    {
+        var progress = new WriteProgress();
+        var lines = new List<string>();
+        string? error = await RunBuffered(start, appId, names, timeout,
+            reader => StreamProtocol.ReadUnlockOutput(reader, appId, names, progress, lines));
+        if (error is not null)
+            return FailLine(output, StreamProtocol.UnlockFailedLine(error, progress.Started));
+        foreach (var line in lines)
+            output.WriteLine(line);
+        return 0;
+    }
+
+    /// <summary>READ-ONLY `achievements-selfcheck`; the write gate is never handed to its worker.</summary>
+    internal static async Task<int> RunSelfCheck(ProcessStartInfo start, uint appId, TextWriter output, TimeSpan timeout)
+    {
+        start.Environment.Remove(StreamProtocol.WriteGate);
+        var lines = new List<string>();
+        string? error = await RunBuffered(start, appId, null, timeout, reader => StreamProtocol.ReadSelfCheckOutput(reader, appId, lines));
+        if (error is not null)
+            return Fail(output, error);
+        foreach (var line in lines)
+            output.WriteLine(line);
+        return 0;
+    }
+
+    // Shared skeleton of the two commands above: start, feed the names, read through a validator, wait for a clean exit,
+    // then kill what is left. The reader task is awaited again after the kill so that a "writing" marker that was still
+    // in the pipe is not missed (wrote must never be under-reported).
+    private static async Task<string?> RunBuffered(ProcessStartInfo start, uint appId, IReadOnlyList<string>? names, TimeSpan timeout,
+        Func<TextReader, string?> read)
+    {
+        Redirect(start);
+        start.Environment["SteamAppId"] = appId.ToString(CultureInfo.InvariantCulture);
+        start.Environment.Remove("SteamGameId");
+        start.Environment.Remove("SteamOverlayGameId");
+        using var deadline = new CancellationTokenSource(timeout);
+        Process? child = null;
+        Task<string?>? reading = null;
+        string? error;
+        bool stopped = true;
+        try
+        {
+            child = Process.Start(start);
+            if (child is null)
+            {
+                error = "worker_start_failed";
+            }
+            else
+            {
+                var worker = child;
+                _ = worker.StandardError.BaseStream.CopyToAsync(Stream.Null);
+                var write = Task.Run(() => WriteNames(worker.StandardInput, names));
+                reading = Task.Run(() => read(worker.StandardOutput));
+                error = await reading.WaitAsync(deadline.Token);
+                if (error is null)
+                {
+                    await worker.WaitForExitAsync(deadline.Token);
+                    if (worker.ExitCode != 0 || !await write.WaitAsync(deadline.Token))
+                        error = "worker_failed";
+                }
+            }
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        {
+            error = "worker_timeout";
+        }
+        catch (Win32Exception) when (child is null)
+        {
+            error = "worker_start_failed";
+        }
+        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+        {
+            error = "worker_failed";
+        }
+        finally
+        {
+            if (child is not null)
+            {
+                using (child)
+                {
+                    stopped = TryStop(child, deadline.IsCancellationRequested ? TimeSpan.Zero : ExitGrace);
+                    if (reading is not null)
+                        await Settle(reading); // before Dispose: that would close the pipe under the reader
+                }
+            }
+        }
+        return stopped ? error : "worker_cleanup_failed";
+    }
+
+    // After the worker is gone its pipe ends, so the reader finishes; whatever it still reports has already been recorded.
+    private static async Task Settle(Task<string?> reading)
+    {
+        try
+        {
+            await reading.WaitAsync(ExitGrace);
+        }
+        catch (Exception ex) when (ex is TimeoutException or IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // The outcome was decided before the kill; only the progress flag mattered here.
+        }
+    }
+
+    private static bool WriteNames(StreamWriter stdin, IReadOnlyList<string>? names)
+    {
+        try
+        {
+            foreach (string name in names ?? [])
+                stdin.Write(name + "\n");
+            stdin.Close();
+            return true;
+        }
+        catch (IOException)
+        {
+            // The worker closed its input early; the missing answer is reported by the output reader.
+            return false;
+        }
+    }
+
     internal static async Task<int> RunHold(ProcessStartInfo start, uint appId, TextReader input, TextWriter output,
         TimeSpan startTimeout, TimeSpan releaseTimeout)
     {
@@ -240,21 +364,26 @@ internal static class StreamCommands
     private static bool StopWorker(Process child, TimeSpan grace)
     {
         using (child)
+            return TryStop(child, grace);
+    }
+
+    private static bool TryStop(Process child, TimeSpan grace)
+    {
+        try
         {
-            try
-            {
-                return child.HasExited || (grace > TimeSpan.Zero && child.WaitForExit(grace)) || IdentityWorker.TerminateTree(child);
-            }
-            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or AggregateException)
-            {
-                return false;
-            }
+            return child.HasExited || (grace > TimeSpan.Zero && child.WaitForExit(grace)) || IdentityWorker.TerminateTree(child);
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or AggregateException)
+        {
+            return false;
         }
     }
 
-    private static int Fail(TextWriter output, string error)
+    private static int Fail(TextWriter output, string error) => FailLine(output, StreamProtocol.FailedLine(error));
+
+    private static int FailLine(TextWriter output, string failedLine)
     {
-        output.WriteLine(StreamProtocol.FailedLine(error));
+        output.WriteLine(failedLine);
         return 4;
     }
 }
@@ -296,6 +425,59 @@ internal static class StreamWorkers
         foreach (var item in result.Items)
             output.WriteLine(StreamProtocol.AchievementLine(item));
         output.WriteLine(StreamProtocol.AchievementsCompleteLine(appId, result.Items.Count));
+        return 0;
+    }
+
+    /// <summary>
+    /// WRITE worker of `unlock`. The "writing" marker goes out right before the first SetAchievement, so the parent knows a
+    /// failure after it leaves the account uncertain. Exit 2 on input errors (before any native call), 1 when the parent died.
+    /// </summary>
+    internal static int RunUnlock(uint appId, bool writeAllowed, Stream input, TextWriter output, CancellationToken parentGone,
+        Func<IReadOnlyList<string>, Action, UnlockResult> unlock)
+    {
+        if (!writeAllowed)
+        {
+            output.WriteLine(StreamProtocol.FailedLine("write_not_allowed"));
+            return 4;
+        }
+        var names = new List<string>();
+        if (StreamProtocol.ReadNames(input, names) is { } inputError)
+        {
+            output.WriteLine(StreamProtocol.FailedLine(inputError));
+            return 2;
+        }
+        bool wrote = false;
+        var result = unlock(names, () =>
+        {
+            wrote = true;
+            output.WriteLine(StreamProtocol.WritingLine);
+        });
+        if (parentGone.IsCancellationRequested)
+            return 1;
+        if (result.Status is not { Error: null, Identity: "expected_account_confirmed" } || result.Report is not { } report ||
+            report.Results.Count != names.Count)
+        {
+            output.WriteLine(StreamProtocol.UnlockFailedLine(result.Status.Error ?? "worker_failed", wrote));
+            return 4;
+        }
+        for (int index = 0; index < names.Count; index++)
+            output.WriteLine(StreamProtocol.UnlockLine(names[index], report.Results[index]));
+        output.WriteLine(StreamProtocol.UnlockCompleteLine(appId, names.Count, report.Results.Count(r => r == "unlocked"), report.Stored));
+        return 0;
+    }
+
+    /// <summary>READ-ONLY selfcheck worker: the read and the anchor check of `unlock`, nothing written.</summary>
+    internal static int RunSelfCheck(uint appId, TextWriter output, CancellationToken parentGone, Func<SelfCheckResult> check)
+    {
+        var result = check();
+        if (parentGone.IsCancellationRequested)
+            return 1;
+        if (result.Status is not { Error: null, Identity: "expected_account_confirmed" })
+        {
+            output.WriteLine(StreamProtocol.FailedLine(result.Status.Error ?? "worker_failed"));
+            return 4;
+        }
+        output.WriteLine(StreamProtocol.SelfCheckCompleteLine(appId, result.Count, result.AnchorChecked));
         return 0;
     }
 

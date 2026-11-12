@@ -56,6 +56,27 @@ internal static class Program
                 () => ClientIdentity.InspectWindowsAchievements(achWorkerId, achAppId, parentGone.Token));
         }
 
+        if (args is ["--unlock-worker", var unlockWorkerExpected, var unlockWorkerApp, var unlockParentId, var unlockParentStarted] &&
+            ClientIdentity.TryParse(unlockWorkerExpected, out ulong unlockWorkerId) && TryAppId(unlockWorkerApp, out uint unlockAppId) &&
+            TryParent(unlockParentId, unlockParentStarted, out int unlockWorkerParentId, out long unlockWorkerParentStarted))
+        {
+            var parentGone = new CancellationTokenSource();
+            using var parent = IdentityWorker.WatchParent(unlockWorkerParentId, unlockWorkerParentStarted, parentGone);
+            return parent is null ? 1 : StreamWorkers.RunUnlock(unlockAppId, StreamProtocol.WriteAllowed(), Console.OpenStandardInput(),
+                Console.Out, parentGone.Token,
+                (names, markWriting) => ClientIdentity.InspectWindowsUnlock(unlockWorkerId, unlockAppId, names, markWriting, parentGone.Token));
+        }
+
+        if (args is ["--selfcheck-worker", var selfWorkerExpected, var selfWorkerApp, var selfParentId, var selfParentStarted] &&
+            ClientIdentity.TryParse(selfWorkerExpected, out ulong selfWorkerId) && TryAppId(selfWorkerApp, out uint selfAppId) &&
+            TryParent(selfParentId, selfParentStarted, out int selfWorkerParentId, out long selfWorkerParentStarted))
+        {
+            var parentGone = new CancellationTokenSource();
+            using var parent = IdentityWorker.WatchParent(selfWorkerParentId, selfWorkerParentStarted, parentGone);
+            return parent is null ? 1 : StreamWorkers.RunSelfCheck(selfAppId, Console.Out, parentGone.Token,
+                () => ClientIdentity.InspectWindowsSelfCheck(selfWorkerId, selfAppId, parentGone.Token));
+        }
+
         if (args is ["app", var expectedAppUser, var app] &&
             ClientIdentity.TryParse(expectedAppUser, out ulong appUser) && TryAppId(app, out uint appId))
         {
@@ -118,6 +139,43 @@ internal static class Program
             }
             return await StreamCommands.RunAchievements(IdentityWorker.WorkerStart("--achievements-worker", achUser, achievementsAppId),
                 achievementsAppId, Console.Out, TimeSpan.FromSeconds(30));
+        }
+
+        if (args is ["achievements-selfcheck", var selfExpected, var selfApp] &&
+            ClientIdentity.TryParse(selfExpected, out ulong selfUser) && TryAppId(selfApp, out uint selfCheckAppId))
+        {
+            // Read-only diagnostic: the read and the anchor check of `unlock`, no write slot bound.
+            if (ClientIdentity.InheritedGameContext())
+            {
+                Console.WriteLine(StreamProtocol.FailedLine("inherited_game_context"));
+                return 4;
+            }
+            return await StreamCommands.RunSelfCheck(IdentityWorker.WorkerStart("--selfcheck-worker", selfUser, selfCheckAppId),
+                selfCheckAppId, Console.Out, TimeSpan.FromSeconds(30));
+        }
+
+        if (args is ["unlock", var unlockExpected, var unlockApp] &&
+            ClientIdentity.TryParse(unlockExpected, out ulong unlockUser) && TryAppId(unlockApp, out uint unlockAppIdValue))
+        {
+            // WRITES to the account. Second gate: the caller must set the variable for this one run.
+            if (!StreamProtocol.WriteAllowed())
+            {
+                Console.WriteLine(StreamProtocol.FailedLine("write_not_allowed"));
+                return 4;
+            }
+            if (ClientIdentity.InheritedGameContext())
+            {
+                Console.WriteLine(StreamProtocol.FailedLine("inherited_game_context"));
+                return 4;
+            }
+            var names = new List<string>();
+            if (StreamProtocol.ReadNames(Console.OpenStandardInput(), names) is { } nameError)
+            {
+                Console.WriteLine(StreamProtocol.FailedLine(nameError));
+                return 2;
+            }
+            return await StreamCommands.RunUnlock(IdentityWorker.WorkerStart("--unlock-worker", unlockUser, unlockAppIdValue),
+                unlockAppIdValue, names, Console.Out, TimeSpan.FromSeconds(45));
         }
 
         if (args is ["identity", var expected] && ClientIdentity.TryParse(expected, out ulong steamId))
