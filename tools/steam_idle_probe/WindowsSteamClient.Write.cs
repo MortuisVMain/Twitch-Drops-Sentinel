@@ -74,7 +74,21 @@ internal sealed partial class WindowsSteamClient : IClientAchievementWriteNative
     public bool SetAchievement(string apiName) =>
         (_setAchievement ?? throw new InvalidOperationException("PrepareWrite first."))(_stats, apiName);
 
-    public bool StoreStats() => (_storeStats ?? throw new InvalidOperationException("PrepareWrite first."))(_stats);
+    // Callbacks already queued for this pipe are discarded first, so a stale UserStatsStored_t for the same game (from an earlier
+    // store) cannot be taken for the answer to this one. Bounded, so a flood cannot hold the write back.
+    public bool StoreStats()
+    {
+        var store = _storeStats ?? throw new InvalidOperationException("PrepareWrite first.");
+        if (_nextCallback is { } next && _freeCallback is { } free)
+        {
+            var clock = Stopwatch.StartNew();
+            while (clock.Elapsed < DrainLimit && next(_statsPipe, out _))
+                free(_statsPipe);
+        }
+        return store(_stats);
+    }
+
+    private static readonly TimeSpan DrainLimit = TimeSpan.FromSeconds(1);
 
     public StoreOutcome WaitForStore(uint appId, TimeSpan timeout, CancellationToken stop)
     {
@@ -85,12 +99,22 @@ internal sealed partial class WindowsSteamClient : IClientAchievementWriteNative
         {
             while (next(_statsPipe, out CallbackMsg message))
             {
-                bool stored = message.Callback == UserStatsStoredCallback && message.ParamSize >= UserStatsStoredMinSize;
-                bool mine = stored && (ulong)Marshal.ReadInt64(message.Param, 0) == appId;
-                int result = stored ? Marshal.ReadInt32(message.Param, 8) : 0;
-                free(_statsPipe); // every callback is freed once read, whoever it was for
+                bool mine = false;
+                int result = 0;
+                try
+                {
+                    bool stored = message.Callback == UserStatsStoredCallback && message.ParamSize >= UserStatsStoredMinSize;
+                    mine = stored && (ulong)Marshal.ReadInt64(message.Param, 0) == appId;
+                    result = stored ? Marshal.ReadInt32(message.Param, 8) : 0;
+                }
+                finally
+                {
+                    free(_statsPipe); // every callback is freed once read, whoever it was for
+                }
                 if (mine)
                     return result == 1 ? StoreOutcome.Success : StoreOutcome.Failed; // k_EResultOK
+                if (clock.Elapsed >= timeout || stop.IsCancellationRequested)
+                    return StoreOutcome.Timeout; // a flood of other callbacks must not stretch the wait
             }
             if (clock.Elapsed >= timeout || stop.WaitHandle.WaitOne(50))
                 return StoreOutcome.Timeout;

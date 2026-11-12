@@ -1,12 +1,17 @@
 """Offline checks for the achievements reader, driven by a fake helper script run through the current interpreter."""
 import os
+import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+from steam_idle import _helper
 from steam_idle.achievements import (Achievement, AchievementsError, UnlockResult, read_achievements,
                                      unlock_achievements)
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
@@ -16,7 +21,7 @@ APP_ID = 10
 
 # argv: <mode> <pidfile> achievements <steamid64> <appid>. Prints what a real helper would, or a defect named by the mode.
 FAKE = textwrap.dedent('''
-    import json, subprocess, sys, time
+    import json, os, subprocess, sys, time
     mode, pidfile, app = sys.argv[1], sys.argv[2], int(sys.argv[5])
     assert sys.argv[3:5] == ["achievements", "76561198000000001"], sys.argv
 
@@ -92,6 +97,10 @@ FAKE = textwrap.dedent('''
         sys.exit(4)
     elif mode == "failed_after_item":
         out(item(), {"protocolVersion": 2, "status": "failed", "error": "stats_unavailable"})
+        sys.exit(4)
+    elif mode == "env":  # names whether the write gate reached this child
+        gate = "set" if "SENTINEL_STEAM_IDLE_ALLOW_WRITE" in os.environ else "unset"
+        out({"protocolVersion": 2, "status": "failed", "error": "gate_" + gate})
         sys.exit(4)
     elif mode == "garbage":
         out("not json")
@@ -191,27 +200,50 @@ class AchievementsTests(unittest.TestCase):
         self.assert_code("failed", "stats_unavailable")
 
     def test_malformed_failed_lines_are_protocol_errors(self):
-        for mode in ("failed_bad_code", "failed_extra_key", "failed_after_item"):
-            self.assert_code(mode, "protocol")
+        run_parallel(lambda mode: self.assert_code(mode, "protocol"), ("failed_bad_code", "failed_extra_key", "failed_after_item"))
 
     def test_garbage_is_a_protocol_error(self):
-        for mode in ("garbage", "array", "duplicate_key", "long_line", "nothing"):
-            self.assert_code(mode, "protocol")
+        run_parallel(lambda mode: self.assert_code(mode, "protocol"),
+                     ("garbage", "array", "duplicate_key", "long_line", "nothing"))
 
     def test_wrong_types_and_values_are_protocol_errors(self):
-        for name in ("version", "extra_key", "missing_key", "api_int", "api_empty", "api_tab", "api_nul", "api_del",
-                     "api_lone_surrogate", "api_replacement_char", "api_long", "api_long_cjk",
-                     "name_null", "name_long", "desc_int", "desc_long", "hidden_str", "hidden_int", "achieved_int",
-                     "unlock_str", "unlock_neg", "unlock_float", "unlock_big", "unlock_bool", "locked_with_time"):
-            self.assert_code("mut_" + name, "protocol")
+        run_parallel(lambda name: self.assert_code("mut_" + name, "protocol"),
+                     ("version", "extra_key", "missing_key", "api_int", "api_empty", "api_tab", "api_nul", "api_del",
+                      "api_lone_surrogate", "api_replacement_char", "api_long", "api_long_cjk",
+                      "name_null", "name_long", "desc_int", "desc_long", "hidden_str", "hidden_int", "achieved_int",
+                      "unlock_str", "unlock_neg", "unlock_float", "unlock_big", "unlock_bool", "locked_with_time"))
 
     def test_bad_complete_line_is_a_protocol_error(self):
-        for mode in ("count_plus", "count_minus", "count_bool", "wrong_app", "end_extra_key", "no_complete", "complete_first"):
-            self.assert_code(mode, "protocol")
+        run_parallel(lambda mode: self.assert_code(mode, "protocol"),
+                     ("count_plus", "count_minus", "count_bool", "wrong_app", "end_extra_key", "no_complete", "complete_first"))
 
     def test_nothing_may_follow_the_complete_line(self):
-        for mode in ("after_complete", "garbage_after_complete"):
-            self.assert_code(mode, "protocol")
+        run_parallel(lambda mode: self.assert_code(mode, "protocol"), ("after_complete", "garbage_after_complete"))
+
+    def test_a_close_that_fails_does_not_replace_the_result(self):
+        real_popen = subprocess.Popen
+
+        def popen(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            if proc.stdin is None:  # taskkill, started through the same patched Popen
+                return proc
+            real_close = proc.stdin.close
+
+            def failing_close():
+                real_close()
+                raise OSError("broken pipe on close")
+
+            proc.stdin = mock.Mock(close=failing_close)
+            return proc
+
+        with mock.patch("subprocess.Popen", popen):
+            self.assertEqual(len(self.read("ok")), 2)
+            self.assert_code("failed", "stats_unavailable")
+
+    def test_the_write_gate_never_reaches_a_read_child(self):
+        with mock.patch.dict(os.environ, {GATE: "1"}):
+            self.assert_code("env", "gate_unset")
+            self.assertEqual(os.environ[GATE], "1")
 
     def test_duplicate_api_name_is_rejected(self):
         self.assert_code("duplicate_api", "protocol")
@@ -233,13 +265,47 @@ class AchievementsTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, code)
 
     def test_hang_times_out_and_the_tree_is_killed(self):
-        self.assert_code("hang", "timeout", timeout=2.0)
+        self.assert_code("hang", "timeout", timeout=HANG_TIMEOUT)  # generous: a slow interpreter start must not decide
         self.assertTrue(self.pidfile.exists(), "the fake helper never reached its sleep")
         self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
 
 
+class SpawnEnvironmentTests(unittest.TestCase):
+    PROBE = "import os; print('set' if 'SENTINEL_STEAM_IDLE_ALLOW_WRITE' in os.environ else 'unset')"
+
+    def child_sees(self, **kwargs):
+        proc = _helper.spawn([sys.executable, "-S", "-X", "utf8", "-c", self.PROBE], **kwargs)
+        try:
+            return proc.stdout.readline().strip()
+        finally:
+            _helper.kill_tree(proc)
+            proc.stdin.close()
+            proc.stdout.close()
+
+    def test_the_default_strips_the_write_gate_and_leaves_os_environ_alone(self):
+        with mock.patch.dict(os.environ, {GATE: "1"}):
+            self.assertEqual(self.child_sees(), "unset")
+            self.assertEqual(os.environ[GATE], "1")
+        with mock.patch.dict(os.environ):
+            os.environ.pop(GATE, None)
+            self.assertEqual(self.child_sees(), "unset")
+
+    def test_an_explicit_env_is_passed_as_given(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop(GATE, None)
+            self.assertEqual(self.child_sees(env={**_helper.child_env(), GATE: "1"}), "set")
+            self.assertNotIn(GATE, os.environ)
+
+
+def run_parallel(function, items):
+    """Each item is its own helper process; running them side by side keeps the module fast."""
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(function, items))  # re-raises the first failure
+
+
 UNLOCK_HELPER = Path(__file__).with_name("fake_unlock_helper.py")
 GATE = "SENTINEL_STEAM_IDLE_ALLOW_WRITE"
+HANG_TIMEOUT = 4.0
 
 
 class UnlockTests(unittest.TestCase):
@@ -248,6 +314,9 @@ class UnlockTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.pidfile = Path(self.temp.name) / "pids.txt"
         self.addCleanup(force_kill, self.pidfile)
+        floor = mock.patch("steam_idle.achievements.MIN_UNLOCK_TIMEOUT", 1.0)  # the real floor is tested on its own
+        floor.start()
+        self.addCleanup(floor.stop)
 
     def fake(self, mode):
         return [sys.executable, "-S", "-X", "utf8", str(UNLOCK_HELPER), mode, str(self.pidfile)]
@@ -255,29 +324,64 @@ class UnlockTests(unittest.TestCase):
     def unlock(self, mode, names=("A", "B", "C", "D"), **kwargs):
         return unlock_achievements(self.fake(mode), STEAM_ID, APP_ID, list(names), **kwargs)
 
-    def assert_error(self, mode, code, wrote, names=("A", "B", "C", "D"), **kwargs):
+    def failure(self, mode, names=("A", "B", "C", "D"), **kwargs) -> AchievementsError:
         with self.assertRaises(AchievementsError, msg=mode) as caught:
             self.unlock(mode, names, **kwargs)
-        self.assertEqual((caught.exception.code, caught.exception.wrote), (code, wrote), mode)
+        return caught.exception
+
+    def assert_error(self, mode, code, wrote, names=("A", "B", "C", "D"), **kwargs):
+        error = self.failure(mode, names, **kwargs)
+        self.assertEqual((error.code, error.wrote), (code, wrote), mode)
 
     def test_results_come_back_in_input_order_with_the_store_state(self):
-        results, stored = self.unlock("ok")
-        self.assertEqual(results, [UnlockResult("A", "unlocked"), UnlockResult("B", "already"),
-                                   UnlockResult("C", "unknown"), UnlockResult("D", "unconfirmed")])
-        self.assertEqual(stored, "yes")
+        outcome = self.unlock("ok")
+        self.assertEqual(outcome.results, [UnlockResult("A", "unlocked"), UnlockResult("B", "already"),
+                                           UnlockResult("C", "unknown"), UnlockResult("D", "unconfirmed")])
+        self.assertEqual(outcome.stored, "yes")
 
     def test_every_consistent_outcome_is_accepted(self):
-        self.assertEqual(self.unlock("not_needed")[1], "not_needed")
-        self.assertEqual(self.unlock("rejected")[1], "not_needed")
-        self.assertEqual(self.unlock("pending")[1], "timeout")
-        results, stored = self.unlock("store_failed")
-        self.assertEqual((results[0], stored), (UnlockResult("A", "store_failed"), "no"))
+        def check(combo):
+            stored, result = combo
+            outcome = self.unlock(f"combo:{stored}:{result}", ("A", "B"))
+            self.assertEqual((outcome.stored, [item.result for item in outcome.results]), (stored, [result] * 2), combo)
+
+        run_parallel(check, (("not_needed", "already"), ("not_needed", "unknown"), ("not_needed", "rejected"),
+                             ("yes", "unlocked"), ("yes", "unconfirmed"), ("timeout", "pending"),
+                             ("timeout", "unconfirmed"), ("no", "store_failed"), ("no", "pending"),
+                             ("no", "unconfirmed")))
+
+    def test_impossible_combinations_are_protocol_errors_and_uncertain(self):
+        run_parallel(lambda combo: self.assert_error("combo:%s:%s" % combo, "protocol", True, names=("A", "B")),
+                     (("yes", "pending"), ("yes", "store_failed"), ("yes", "already"), ("timeout", "unlocked"),
+                      ("timeout", "store_failed"), ("timeout", "already"), ("no", "unlocked"), ("no", "already"),
+                      ("not_needed", "unlocked"), ("not_needed", "pending"), ("not_needed", "unconfirmed"),
+                      ("not_needed", "store_failed")))
+
+    def test_changed_and_uncertain_follow_the_results_and_the_store_state(self):
+        def check(row):
+            mode, stored, changed, uncertain = row
+            outcome = self.unlock(mode)
+            self.assertEqual((outcome.stored, outcome.changed, outcome.uncertain), (stored, changed, uncertain), mode)
+
+        run_parallel(check, (
+            ("ok", "yes", True, True), ("all_unlocked", "yes", True, False),
+            ("combo:not_needed:already", "not_needed", False, False),
+            ("combo:not_needed:unknown", "not_needed", False, False),
+            ("combo:not_needed:rejected", "not_needed", False, False),
+            ("combo:timeout:pending", "timeout", True, True), ("combo:timeout:unconfirmed", "timeout", True, True),
+            ("combo:no:store_failed", "no", True, True), ("combo:no:pending", "no", True, True)))
 
     def test_names_travel_as_utf8_lines(self):
         names = ["ACH_1", "Café", "日本", "\U0001F600", "with space", "A" * 256]
         self.unlock("echo", names)
         captured = Path(str(self.pidfile) + ".stdin")
         self.assertEqual(captured.read_bytes(), ("\n".join(names) + "\n").encode("utf-8"))
+
+    def test_names_with_leading_and_trailing_spaces_are_passed_byte_exact(self):
+        names = ["  lead", "trail  ", " both ", "mid dle"]
+        outcome = self.unlock("echo", names)
+        self.assertEqual(Path(str(self.pidfile) + ".stdin").read_bytes(), ("\n".join(names) + "\n").encode("utf-8"))
+        self.assertEqual([item.api_name for item in outcome.results], names)
 
     def test_the_write_gate_is_set_for_the_child_only(self):
         with mock.patch.dict(os.environ, {GATE: "0"}):
@@ -288,32 +392,113 @@ class UnlockTests(unittest.TestCase):
             self.assert_error("env", "gate_1", False)
             self.assertNotIn(GATE, os.environ)
 
+    def test_helper_that_exits_before_reading_stdin_still_gives_its_failure(self):
+        real_popen, real_start, started = subprocess.Popen, threading.Thread.start, []
+
+        def popen(*args, **kwargs):
+            started.append(real_popen(*args, **kwargs))
+            return started[-1]
+
+        def start_after_the_helper_exited(thread):  # the parent is late: the pipe is already broken
+            started[-1].wait(timeout=30)
+            real_start(thread)
+
+        with mock.patch("subprocess.Popen", popen), mock.patch.object(threading.Thread, "start", start_after_the_helper_exited):
+            self.assert_error("exit_early", "write_not_allowed", False)
+
     def test_helper_failure_before_a_write_is_not_a_write(self):
         self.assert_error("failed", "stats_unavailable", False)
+        self.assert_error("failed_exit_2", "invalid_name_list", False)
+
+    def test_a_failed_line_is_trusted_only_with_a_pre_write_exit_code(self):
+        for mode in ("failed_exit_0", "failed_exit_1", "failed_exit_3"):
+            self.assert_error(mode, "stats_unavailable", True)
 
     def test_helper_failure_after_a_write_says_so(self):
         self.assert_error("failed_wrote", "worker_failed", True)
 
     def test_malformed_failure_lines_are_protocol_errors_and_uncertain(self):
-        for mode in ("failed_wrote_false", "failed_bad_code", "failed_after_item"):
-            self.assert_error(mode, "protocol", True)
+        run_parallel(lambda mode: self.assert_error(mode, "protocol", True),
+                     ("failed_wrote_false", "failed_bad_code", "failed_after_item"))
 
     def test_garbage_and_silence_are_protocol_errors_and_uncertain(self):
-        for mode in ("garbage", "nothing", "no_complete", "truncated", "after_complete", "swapped", "bad_exit"):
-            self.assert_error(mode, "protocol", True, names=("A", "B"))
+        run_parallel(lambda mode: self.assert_error(mode, "protocol", True, names=("A", "B")),
+                     ("garbage", "nothing", "no_complete", "truncated", "after_complete", "swapped", "bad_exit"))
         self.assert_error("wrong_name", "protocol", True, names=("A",))
 
     def test_wrong_fields_and_inconsistent_states_are_protocol_errors(self):
-        for kind in ("version", "extra_key", "missing_key", "name_int", "result_unknown", "result_int", "count_plus",
-                     "unlocked_wrong", "app_wrong", "stored_bad", "stored_int", "end_extra_key", "bool_count",
-                     "unlocked_but_not_needed", "needed_but_nothing_written", "pending_but_yes", "unlocked_but_timeout",
-                     "store_failed_with_pending"):
-            self.assert_error("mut_" + kind, "protocol", True, names=("A", "B"))
+        run_parallel(lambda kind: self.assert_error("mut_" + kind, "protocol", True, names=("A", "B")),
+                     ("version", "extra_key", "missing_key", "name_int", "result_unknown", "result_int", "count_plus",
+                      "unlocked_wrong", "app_wrong", "stored_bad", "stored_int", "end_extra_key", "bool_count",
+                      "unlocked_but_not_needed", "needed_but_nothing_written", "pending_but_yes", "unlocked_but_timeout",
+                      "store_failed_with_pending"))
+
+    def test_results_received_before_a_failure_are_kept_as_partial(self):
+        def check(row):
+            mode, names, expected = row
+            self.assertEqual(self.failure(mode, names).partial, expected, mode)
+
+        run_parallel(check, (
+                ("failed_after_item", ("A", "B"), [UnlockResult("A", "already")]),
+                ("truncated", ("A", "B"), [UnlockResult("A", "already")]),
+                ("no_complete", ("A", "B"), [UnlockResult("A", "unlocked"), UnlockResult("B", "already")]),
+                ("after_complete", ("A", "B"), [UnlockResult("A", "unlocked"), UnlockResult("B", "already")]),
+                ("mut_count_plus", ("A", "B"), [UnlockResult("A", "unlocked"), UnlockResult("B", "unlocked")]),
+                ("bad_exit", ("A", "B", "C", "D"), [UnlockResult("A", "unlocked"), UnlockResult("B", "already"),
+                                                    UnlockResult("C", "unknown"), UnlockResult("D", "unconfirmed")]),
+                ("garbage", ("A", "B"), []), ("failed", ("A", "B"), []), ("failed_wrote", ("A", "B"), []),
+                ("mut_name_int", ("A", "B"), [])))
+
+    def test_a_flood_of_lines_is_cut_at_names_plus_one(self):
+        started = time.monotonic()
+        error = self.failure("flood_then_hang", ("A",), timeout=HANG_TIMEOUT)
+        self.assertEqual((error.code, error.wrote), ("protocol", True))
+        self.assertEqual(error.partial, [UnlockResult("A", "already")])
+        self.assertLess(time.monotonic() - started, HANG_TIMEOUT)
+
+    def test_error_messages_name_the_unlock_path(self):
+        self.assertEqual(str(self.failure("failed")), "unlock failed: stats_unavailable")
+        with self.assertRaises(AchievementsError) as caught:
+            unlock_achievements(["no-such-program"], STEAM_ID, APP_ID, [])
+        self.assertEqual(str(caught.exception), "unlock failed: invalid_name_list")
+        with self.assertRaises(AchievementsError) as caught:
+            read_achievements(["no-such-program"], STEAM_ID, 0)
+        self.assertEqual(str(caught.exception), "achievements read failed: invalid_app_id")
 
     def test_a_hang_times_out_uncertain_and_the_tree_is_killed(self):
-        self.assert_error("hang", "timeout", True, timeout=2.0)
+        self.assert_error("hang", "timeout", True, timeout=HANG_TIMEOUT)
         self.assertTrue(self.pidfile.exists(), "the fake helper never reached its sleep")
         self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+    def test_a_helper_that_never_reads_stdin_is_cut_at_the_deadline(self):
+        names = [f"ACH_{i:03d}_" + "x" * 240 for i in range(200)]  # about 50 KB: far more than the pipe holds
+        started = time.monotonic()
+        self.assert_error("no_read", "timeout", True, names=names, timeout=HANG_TIMEOUT)
+        self.assertLess(time.monotonic() - started, HANG_TIMEOUT + 10)
+        self.assertTrue(self.pidfile.exists(), "the fake helper never reached its sleep")
+        self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+    def test_the_timeout_has_a_floor_of_fifty_seconds(self):
+        with mock.patch("steam_idle.achievements.MIN_UNLOCK_TIMEOUT", 50.0):
+            for timeout in (49.9, 0, -1, float("nan")):
+                with self.assertRaises(ValueError, msg=str(timeout)):
+                    unlock_achievements(["no-such-program"], STEAM_ID, APP_ID, ["A"], timeout=timeout)
+            with self.assertRaises(AchievementsError) as caught:  # 50 is allowed and gets as far as starting
+                unlock_achievements(["no-such-program"], STEAM_ID, APP_ID, ["A"], timeout=50.0)
+            self.assertEqual(caught.exception.code, "start_failed")
+
+    def test_a_failed_job_object_setup_kills_the_child_and_is_start_failed_not_written(self):
+        real_popen, started = subprocess.Popen, []
+
+        def popen(*args, **kwargs):
+            started.append(real_popen(*args, **kwargs))
+            return started[-1]
+
+        for job in (mock.Mock(side_effect=OSError("denied")), mock.Mock(return_value=None)):
+            started.clear()
+            with mock.patch("subprocess.Popen", popen), mock.patch("steam_idle._helper._job_for", job):
+                self.assert_error("no_read", "start_failed", False, timeout=HANG_TIMEOUT)
+            self.assertIsNotNone(started[0].poll(), "the helper was left running")
 
     def test_missing_helper_is_start_failed_and_nothing_was_written(self):
         with self.assertRaises(AchievementsError) as caught:
@@ -339,8 +524,8 @@ class UnlockTests(unittest.TestCase):
             self.assertEqual((caught.exception.code, caught.exception.wrote), (code, False), repr(names)[:40])
 
     def test_the_limits_themselves_are_accepted(self):
-        results, _ = self.unlock("echo", [f"A{i}" for i in range(200)])
-        self.assertEqual(len(results), 200)
+        outcome = self.unlock("echo", [f"A{i}" for i in range(200)])
+        self.assertEqual(len(outcome.results), 200)
         self.unlock("echo", ["A" * 256, "日" * 85])
 
 

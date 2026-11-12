@@ -23,7 +23,8 @@ if (args is ["worker-fixture", var mode, .. var fixtureRest])
     if (mode == "orphan-parent")
     {
         using var self = Process.GetCurrentProcess();
-        var childStart = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, UseShellExecute = false };
+        var childStart = new ProcessStartInfo("dotnet")
+            { RedirectStandardOutput = true, StandardOutputEncoding = new UTF8Encoding(false), UseShellExecute = false };
         childStart.ArgumentList.Add(typeof(FakeNative).Assembly.Location);
         childStart.ArgumentList.Add("parent-watch-fixture");
         childStart.ArgumentList.Add(self.Id.ToString());
@@ -208,6 +209,7 @@ try
     }
     var orphanStart = FixtureWorker("orphan-parent");
     orphanStart.RedirectStandardOutput = true;
+    orphanStart.StandardOutputEncoding = Encodings.Utf8NoBom;
     orphanStart.UseShellExecute = false;
     using (var fixtureParent = Process.Start(orphanStart)!)
     {
@@ -676,8 +678,10 @@ static void CheckApiNameRule()
 
 static string UnlockReads(int count) => string.Join(',', Enumerable.Repeat("ach_name,attr,attr,attr,state", count));
 static string UnlockAnchors(int count) => string.Join(',', Enumerable.Repeat("get_ach", Math.Min(count, 5)));
+// A flow that writes (it starts with "prepare") re-reads every achievement once before the first write (the stability check).
 static string UnlockFlow(int count, string rest) =>
-    string.Join(',', new[] { UnlockHead, UnlockReads(count), UnlockAnchors(count), rest, UnlockTail }.Where(part => part.Length > 0));
+    string.Join(',', new[] { UnlockHead, UnlockReads(count), UnlockAnchors(count),
+        rest.StartsWith("prepare") ? string.Join(',', Enumerable.Repeat("state", count)) : "", rest, UnlockTail }.Where(part => part.Length > 0));
 static FakeAchievement[] FourAchievements() =>
     [new("DONE", Achieved: true, UnlockTime: 1700000000), new("L1"), new("L2"), new("L3")];
 
@@ -725,7 +729,7 @@ static void CheckUnlockLogic()
     Expect(new FakeNative { Subscribed = true, Achievements = FourAchievements(), Outcome = StoreOutcome.Timeout }, ["L1", "L2"],
         ["pending", "pending"], "timeout", UnlockFlow(4, "prepare,mark,set,set,store,wait_store,state,state"), "callback never arrives");
     Expect(new FakeNative { Subscribed = true, Achievements = FourAchievements(), Outcome = StoreOutcome.Failed }, ["L1"],
-        ["pending"], "no", UnlockFlow(4, "prepare,mark,set,store,wait_store,state"), "callback with an error result");
+        ["store_failed"], "no", UnlockFlow(4, "prepare,mark,set,store,wait_store"), "callback with an error result: store_failed, no re-read");
     Expect(new FakeNative { Subscribed = true, Achievements = FourAchievements(), SetTakesEffect = false }, ["L1", "L2"],
         ["unconfirmed", "unconfirmed"], "yes", UnlockFlow(4, "prepare,mark,set,set,store,wait_store,state,state"), "stored but not achieved");
     Expect(new FakeNative { Subscribed = true, Achievements = FourAchievements(), SetTakesEffect = false, Outcome = StoreOutcome.Timeout },
@@ -781,6 +785,49 @@ static void CheckUnlockLogic()
     var inactiveResult = ClientIdentity.UnlockAchievements(inactive, UnlockExpected, () => false, 10, ["L1"], TimeSpan.FromSeconds(1),
         TimeSpan.FromSeconds(1), () => throw new InvalidOperationException("must not write"), CancellationToken.None);
     Require(inactiveResult.Status.Error == "active_account_changed" && inactive.Calls.Count == 0, "inactive account never reaches the client");
+
+    // Stop requested between two SetAchievement calls: the second is never made, the first is still stored once and re-read.
+    using var between = new CancellationTokenSource();
+    var midway = new FakeNative { Subscribed = true, Achievements = FourAchievements(), AfterSet = _ => between.Cancel() };
+    var (midwayResult, midwayMarks) = RunUnlock(midway, ["L1", "L2", "L3"], between.Token);
+    Require(midwayResult.Report is { Stored: "yes" } midwayReport && midwayReport.Results.SequenceEqual(["unlocked", "rejected", "rejected"]) &&
+        midway.SetNames.SequenceEqual(["L1"]) && midway.Calls.Count(call => call == "store") == 1 && midwayMarks == 1 &&
+        string.Join(',', midway.Calls) == UnlockFlow(4, "prepare,mark,set,store,wait_store,state"),
+        $"cancelled between two sets: one set, one store, results reported ({string.Join(',', midway.Calls)})");
+
+    // The first set is also refused when the stop arrives after the stability check but before the first set.
+    using var beforeSet = new CancellationTokenSource();
+    var early = new FakeNative { Subscribed = true, Achievements = FourAchievements() };
+    var earlyAnchor = AchievementWriter.Anchor(early, early.Achievements.Select(a => new AchievementInfo(a.ApiName!, "", "", false, a.Achieved, 0)).ToList(),
+        out var anchoredWriter);
+    Require(earlyAnchor is null && anchoredWriter is not null, "anchor passes on the fake");
+    beforeSet.Cancel();
+    int earlyMarks = 0;
+    var earlyReport = anchoredWriter!.Unlock(early, 10, ["L1", "L2"], () => earlyMarks++, TimeSpan.FromSeconds(1), beforeSet.Token);
+    Require(earlyReport.Results.SequenceEqual(["rejected", "rejected"]) && earlyReport.Stored == "not_needed" && earlyMarks == 0 &&
+        early.SetNames.Count == 0 && !early.Calls.Contains("prepare") && !early.Calls.Contains("store"), "a stopped writer sets nothing and stores nothing");
+
+    // The stability check: two reads 200 ms apart must agree before the first write.
+    NoWrite(new FakeNative { Subscribed = true, Achievements = FourAchievements(), UnstableAt = 2 }, input, "stats_unavailable",
+        "flags differ between the two reads");
+    var stability = Stopwatch.StartNew();
+    Require(RunUnlock(new FakeNative { Subscribed = true, Achievements = FourAchievements() }, ["L1"]).Result.Report is not null &&
+        stability.Elapsed >= AchievementWriter.StabilityGap, "the stability check waits its gap before the first write");
+    Require(AchievementWriter.StabilityGap >= TimeSpan.FromMilliseconds(200), "stability gap is at least 200 ms");
+
+    // Only the anchor check can produce a writer.
+    var constructors = typeof(AchievementWriter).GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
+        System.Reflection.BindingFlags.NonPublic);
+    Require(constructors.Length > 0 && constructors.All(constructor => constructor.IsPrivate), "AchievementWriter has no constructor but a private one");
+    Require(typeof(AchievementWriter).GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public |
+        System.Reflection.BindingFlags.NonPublic).Where(method => method.ReturnType == typeof(AchievementWriter)).Count() == 0 &&
+        typeof(AchievementWriter).GetMethod("Unlock", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic) is null, "no static way to a writer or to Unlock exists");
+    var lying = new FakeNative { Subscribed = true, Achievements = FourAchievements(), AnchorLiesAt = 1 };
+    var lyingItems = lying.Achievements.Select(a => new AchievementInfo(a.ApiName!, "", "", false, a.Achieved, 0)).ToList();
+    Require(AchievementWriter.Anchor(lying, lyingItems, out var noWriter) == "stats_implausible" && noWriter is null, "a failed anchor yields no writer");
+
+    Require(IdentityWorker.UnlockExitGrace >= IdentityWorker.ExitGrace + AchievementWriter.StoreTimeout, "the unlock watchdog outlasts one store wait");
 }
 
 static void CheckSelfCheckLogic()
@@ -856,6 +903,25 @@ static void CheckUnlockWorkers()
         (names, mark) => ClientIdentity.UnlockAchievements(native, UnlockExpected, () => true, 10, names, TimeSpan.FromSeconds(1),
             TimeSpan.FromSeconds(1), mark, gone.Token)) == 1 && Lines(output).Length == 0 && !native.Calls.Contains("set"),
         "parent gone: nothing written, nothing printed");
+
+    // An exception from SetAchievement or StoreStats after the marker escapes the worker: the marker is already out, so the
+    // parent (see CheckUnlockParent: unl-throw) reports wrote:true.
+    foreach (string failing in new[] { "set", "store" })
+    {
+        native = new FakeNative { Subscribed = true, Achievements = FourAchievements(), FailingOperation = failing };
+        output = new StringWriter();
+        bool escaped = false;
+        try
+        {
+            StreamWorkers.RunUnlock(10, true, Input("L1\n"), output, CancellationToken.None, Unlock(native));
+        }
+        catch (InvalidOperationException)
+        {
+            escaped = true;
+        }
+        Require(escaped && Lines(output).SequenceEqual([writing]) && native.Calls.TakeLast(2).SequenceEqual(["release_user", "release_pipe"]),
+            $"exception in {failing} after the marker: marker printed, still released ({string.Join('|', Lines(output))})");
+    }
 
     static string SelfLine(int count, int anchored) => StreamProtocol.SelfCheckCompleteLine(10, count, anchored);
     native = new FakeNative { Subscribed = true, Achievements = FourAchievements() };
@@ -1009,6 +1075,58 @@ static void CheckUnlockOutputValidation()
     progress = new WriteProgress();
     Require(Validate($"{writing}\ngarbage\n", names, progress, []) == "worker_protocol_violation" && progress.Started, "garbage after the marker still counts as a write");
 
+    // What the parent concludes about a write from how the reader stopped (WriteProgress.Wrote).
+    static WriteProgress Read(string text)
+    {
+        var progress = new WriteProgress();
+        StreamProtocol.ReadUnlockOutput(new StringReader(text), 10, ["A", "B"], progress, []);
+        return progress;
+    }
+
+    var cleanFailure = Read($"{Failed("stats_unavailable")}\n");
+    Require(cleanFailure is { Started: false, StoppedEarly: true, PreWriteFailure: true, Wrote: true },
+        "a clean pre-write failure alone is not enough: the exit must be seen");
+    cleanFailure.ExitCode = WriteProgress.PreWriteExit;
+    Require(!cleanFailure.Wrote, "clean pre-write failure and the pre-write exit code: nothing written");
+    cleanFailure.ExitCode = 0;
+    Require(cleanFailure.Wrote, "a worker that exits with another code after a failed line may have written");
+    Require(!Read("").Wrote && !Read("").StoppedEarly, "end of stream with nothing read leaves nothing unread");
+    foreach (var text in new[] { "untrusted stdout\n", $"{a}\n{writing}\n", $"{writing}\n{writing}\n", $"{a.Replace("unlocked", "done")}\n",
+        $"{Failed("Bad Code!")}\n", $"{StreamProtocol.UnlockFailedLine("x", false).Replace("\"x\"", "\"x\",\"y\":1")}\n", new string('x', 5000) + "\n", "[1]\n" })
+    {
+        var early = Read(text);
+        Require(early is { StoppedEarly: true, PreWriteFailure: false, Wrote: true }, $"early stop on a violation counts as a write: {text[..Math.Min(text.Length, 40)].Trim()}");
+    }
+    Require(Read($"{writing}\n{a}\n{b}\n{done}\n") is { StoppedEarly: false, Started: true, Wrote: true }, "a complete stream with a marker is a write");
+    Require(Read($"{UResult("A", "already")}\n{UResult("B", "unknown")}\n{UEnd(10, 2, 0, "not_needed")}\n") is { Wrote: false }, "a complete stream without a marker is not");
+    Require(Read($"{writing}\n{Failed("worker_failed")}\n") is { Started: true, PreWriteFailure: false, Wrote: true }, "a failure after the marker is never pre-write");
+    Require(Read($"{UResult("A", "already")}\n{Failed("worker_failed")}\n") is { PreWriteFailure: false, Wrote: true }, "a failure after result lines is not a clean pre-write failure");
+    // A line that claims wrote:true counts even when the rest of that line is malformed.
+    foreach (var text in new[] { StreamProtocol.UnlockFailedLine("x", true)[..^1] + ",\"y\":1}", StreamProtocol.UnlockFailedLine("Bad Code!", true),
+        StreamProtocol.UnlockFailedLine("x", true).Replace("\"protocolVersion\":2", "\"protocolVersion\":1"),
+        StreamProtocol.UnlockFailedLine("x", true).Replace("\"error\":\"x\"", "\"error\":5") })
+    {
+        var claimed = new WriteProgress();
+        Require(StreamProtocol.ReadUnlockOutput(new StringReader(text + "\n"), 10, names, claimed, []) == "worker_protocol_violation" && claimed.Started,
+            $"wrote:true claim recorded before validation: {text}");
+    }
+
+    // A lone surrogate in a status or an error code is a protocol violation, never an exception.
+    string loneStatus = """{"protocolVersion":2,"status":"\ud800"}""", loneError = """{"protocolVersion":2,"status":"failed","error":"\ud800"}""";
+    foreach (var text in new[] { loneStatus, loneError, """{"protocolVersion":2,"status":"failed","error":"x\udc00"}""" })
+    {
+        Require(Validate($"{text}\n", names, new WriteProgress(), []) == "worker_protocol_violation", $"unlock: lone surrogate is a violation: {text}");
+        Require(Validate($"{writing}\n{text}\n", names, new WriteProgress(), []) == "worker_protocol_violation", $"unlock after marker: {text}");
+        Require(StreamProtocol.ReadAppsOutput(new StringReader($"{text}\n"), [10], []) == "worker_protocol_violation", $"apps first line: {text}");
+        Require(StreamProtocol.ReadAppsOutput(new StringReader($"{StreamProtocol.AppLine(new(10, true, true))}\n{text}\n"), [10], []) == "worker_protocol_violation",
+            $"apps end line: {text}");
+        Require(StreamProtocol.ReadAchievementsOutput(new StringReader($"{text}\n"), 10, []) == "worker_protocol_violation", $"achievements: {text}");
+        Require(StreamProtocol.ReadStatusLine(new StringReader($"{text}\n"), "holding", 10) == "worker_protocol_violation", $"status line: {text}");
+        Require(StreamProtocol.ReadSelfCheckOutput(new StringReader($"{text}\n"), 10, []) == "worker_protocol_violation", $"selfcheck: {text}");
+    }
+    var lone = new WriteProgress();
+    Require(Validate($"{writing}\n{loneError}\n", names, lone, []) == "worker_protocol_violation" && lone is { Started: true, Wrote: true }, "lone surrogate after the marker still counts as a write");
+
     // selfcheck stream
     string self = StreamProtocol.SelfCheckCompleteLine(10, 7, 5);
     var selfLines = new List<string>();
@@ -1035,6 +1153,18 @@ static async Task CheckUnlockParent(string scratch)
         return (exit, Lines(output));
     }
 
+    // Kills the fixture for real (nothing is left running) but reports the kill as failed.
+    static async Task<(int Exit, string[] Lines)> RunUnkillable(string mode, string[] names, TimeSpan timeout, params string[] extra)
+    {
+        var output = new StringWriter();
+        int exit = await StreamCommands.RunUnlock(FixtureWorker(mode, extra), 10, names, output, timeout, terminate: child =>
+        {
+            Require(IdentityWorker.TerminateTree(child), "fixture reaped before the synthetic kill failure");
+            return false;
+        });
+        return (exit, Lines(output));
+    }
+
     var (exit, lines) = await Run("unl-ok", names, TimeSpan.FromSeconds(20));
     Require(exit == 0 && lines.SequenceEqual([UResult("L1", "unlocked"), UResult("L2", "already"), UResult("日本", "unlocked"),
         UResult("Café", "already"), UEnd(10, 4, 2, "yes")]) && lines.All(line => line.All(c => c < 0x80)),
@@ -1053,7 +1183,10 @@ static async Task CheckUnlockParent(string scratch)
         ("unl-crash-early", plain),
         ("unl-crash", wrote),
         ("unl-garbage-marker", StreamProtocol.UnlockFailedLine("worker_protocol_violation", true)),
-        ("unl-noise", Failed("worker_protocol_violation")),
+        ("unl-noise", StreamProtocol.UnlockFailedLine("worker_protocol_violation", true)), // unread lines may hold a marker
+        ("unl-throw", wrote),
+        ("unl-garbage-late-marker", StreamProtocol.UnlockFailedLine("worker_protocol_violation", true)),
+        ("unl-failed-exit0", StreamProtocol.UnlockFailedLine("stats_unavailable", true)),
         ("unl-wrongname", StreamProtocol.UnlockFailedLine("worker_protocol_violation", true)),
         ("unl-badstored", StreamProtocol.UnlockFailedLine("worker_protocol_violation", true)),
         ("unl-extra", StreamProtocol.UnlockFailedLine("worker_protocol_violation", true)),
@@ -1073,6 +1206,32 @@ static async Task CheckUnlockParent(string scratch)
         Require(exit == 4 && lines.SequenceEqual([expected]) && started.Elapsed < TimeSpan.FromSeconds(12), $"{mode}: total timeout, wrote only after the marker");
         await RequireGone(pidFile);
     }
+
+    // A failed line, then a worker that does not leave by itself: it may have gone on to write, so wrote:true.
+    string failedHangPid = Path.Combine(scratch, "unl-failed-hang.pid");
+    (exit, lines) = await Run("unl-failed-hang", names, TimeSpan.FromSeconds(20), failedHangPid);
+    Require(exit == 4 && lines.SequenceEqual([StreamProtocol.UnlockFailedLine("stats_unavailable", true)]),
+        $"unl-failed-hang: a failed line without a clean exit is a possible write ({string.Join('|', lines)})");
+    await RequireGone(failedHangPid);
+
+    // A worker that cannot be killed: wrote:true as soon as the names were handed over, marker or not.
+    foreach (var mode in new[] { "unl-hang", "unl-hang-marker" })
+    {
+        string pidFile = Path.Combine(scratch, mode + "-unkillable.pid");
+        (exit, lines) = await RunUnkillable(mode, names, TimeSpan.FromSeconds(3), pidFile);
+        Require(exit == 4 && lines.SequenceEqual([StreamProtocol.UnlockFailedLine("worker_cleanup_failed", true)]),
+            $"{mode}: failed kill reports wrote:true ({string.Join('|', lines)})");
+        await RequireGone(pidFile);
+    }
+    (exit, lines) = await RunUnkillable("unl-failed", names, TimeSpan.FromSeconds(20));
+    Require(exit == 4 && lines.SequenceEqual([Failed("stats_unavailable")]), "a worker that left by itself needs no kill: the clean failure stays plain");
+
+    // Any exception from the reader still ends in the single result line, with wrote:true (the rest was never read).
+    var thrownOutput = new StringWriter();
+    exit = await StreamCommands.RunUnlock(FixtureWorker("unl-ok"), 10, names, thrownOutput, TimeSpan.FromSeconds(20),
+        _ => throw new NullReferenceException("synthetic reader failure"));
+    Require(exit == 4 && Lines(thrownOutput).SequenceEqual([StreamProtocol.UnlockFailedLine("worker_failed", true)]),
+        $"reader exception: one failed line with wrote:true ({string.Join('|', Lines(thrownOutput))})");
 
     // selfcheck parent
     static async Task<(int Exit, string[] Lines)> RunSelf(string mode, TimeSpan timeout, params string[] extra)
@@ -1165,6 +1324,7 @@ static void CheckWriteAbi()
         string flagMode = "normal";
         bool trapped = false;
         var inbox = new Queue<(int Callback, ulong Game, int Result, int Size)>();
+        bool replyOnStore = false, flood = false;
         var live = new List<nint>();
         int freed = 0;
 
@@ -1195,6 +1355,8 @@ static void CheckWriteAbi()
         WindowsSteamClient.StoreStatsMethod storeStats = (nint self) =>
         {
             log.Add("store");
+            if (replyOnStore)
+                inbox.Enqueue((1102, App, 1, 12));
             return true;
         };
         WindowsSteamClient.UnlockTimeMethod state = (nint self, string api, ref byte achieved, ref uint unlock) =>
@@ -1211,6 +1373,8 @@ static void CheckWriteAbi()
         WindowsSteamClient.NextCallbackMethod next = (int pipe, out WindowsSteamClient.CallbackMsg message) =>
         {
             message = default;
+            if (flood)
+                inbox.Enqueue((1101, App, 1, 24));
             if (!inbox.TryDequeue(out var entry))
                 return false;
             nint param = Marshal.AllocHGlobal(32);
@@ -1274,16 +1438,41 @@ static void CheckWriteAbi()
             watch.Restart();
             Require(client.WaitForStore(App, TimeSpan.FromSeconds(10), stopped.Token) == StoreOutcome.Timeout && watch.Elapsed < TimeSpan.FromSeconds(3), "a gone parent ends the wait");
 
+            // A stale store callback for the same game that is queued before StoreStats must not be taken for its answer.
+            log.Clear();
+            freed = 0;
+            Post(1102, App, 1);
+            Post(1101, App, 1, 24);
+            Require(client.StoreStats() && log.SequenceEqual(["store"]) && inbox.Count == 0 && freed == 2,
+                $"{layout.Version}: StoreStats discards what is queued first ({freed} freed)");
+            Require(client.WaitForStore(App, TimeSpan.FromMilliseconds(300), CancellationToken.None) == StoreOutcome.Timeout,
+                $"{layout.Version}: the stale callback is not the answer of the new store");
+            replyOnStore = true;
+            Post(1102, App, 2);
+            Require(client.StoreStats() && client.WaitForStore(App, TimeSpan.FromSeconds(5), CancellationToken.None) == StoreOutcome.Success,
+                $"{layout.Version}: only the callback that follows the store counts");
+            replyOnStore = false;
+
+            // A flood of unrelated callbacks cannot stretch the wait past its limit.
+            flood = true;
+            watch.Restart();
+            Require(client.WaitForStore(App, TimeSpan.FromMilliseconds(300), CancellationToken.None) == StoreOutcome.Timeout &&
+                watch.Elapsed < TimeSpan.FromSeconds(3), $"{layout.Version}: flood ends at the limit ({watch.Elapsed})");
+            flood = false;
+            inbox.Clear();
+
             // The whole write procedure against the real vtable code.
             log.Clear();
             achievedNow.Remove("ACH_TWO");
             freed = 0;
-            Post(1102, App, 1);
+            replyOnStore = true;
             AchievementInfo[] items = [new("ACH_ONE", "One", "d", false, true, 1700000000), new("ACH_TWO", "Two", "d", false, false, 0),
                 new("ACH_BAD", "Bad", "d", false, false, 0)];
             Require(AchievementWriter.AnchorCheck(client, items, out int anchored) is null && anchored == 3, $"{layout.Version}: anchor passes on the vtable");
             int marks = 0;
-            var report = AchievementWriter.Unlock(client, client, App, items, ["ACH_TWO", "ACH_BAD", "ACH_ONE", "NOPE"], () => marks++, TimeSpan.FromSeconds(5),
+            log.Clear(); // the anchor reads above were only for the count; the order below starts with the writer's own anchor
+            Require(AchievementWriter.Anchor(client, items, out var writer) is null && writer is not null, $"{layout.Version}: writer comes from the anchor");
+            var report = writer!.Unlock(client, App, ["ACH_TWO", "ACH_BAD", "ACH_ONE", "NOPE"], () => marks++, TimeSpan.FromSeconds(5),
                 CancellationToken.None);
             Require(report.Results.SequenceEqual(["unlocked", "rejected", "already", "unknown"]) && report.Stored == "yes" && marks == 1 && freed == 1,
                 $"{layout.Version}: results {string.Join('/', report.Results)} stored {report.Stored}");
@@ -1651,7 +1840,8 @@ static void CheckTrustedFiles(string scratch)
         "client_path_untrusted", "missing file rejected");
 
     string junction = Path.Combine(root, "junction");
-    var mklink = new ProcessStartInfo("cmd") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+    var mklink = new ProcessStartInfo("cmd")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, StandardOutputEncoding = Encodings.Utf8NoBom };
     foreach (var argument in new[] { "/c", "mklink", "/J", junction, other })
         mklink.ArgumentList.Add(argument);
     using (var made = Process.Start(mklink)!)
@@ -1811,6 +2001,7 @@ static async Task<(int ExitCode, string Output)> RunRaw(string[] arguments)
     var start = new ProcessStartInfo("dotnet")
     {
         UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true,
+        StandardOutputEncoding = Encodings.Utf8NoBom, StandardErrorEncoding = Encodings.Utf8NoBom,
     };
     start.ArgumentList.Add(typeof(Discovery).Assembly.Location);
     foreach (var argument in arguments)
@@ -1971,6 +2162,21 @@ static async Task<int> UnlockFixture(string mode)
             Console.WriteLine(StreamProtocol.WritingLine);
             Console.WriteLine("garbage");
             return 0;
+        case "unl-throw": // an exception from SetAchievement or StoreStats after the marker: the process dies without a failed line
+            Console.WriteLine(StreamProtocol.WritingLine);
+            return unchecked((int)0xE0434352); // the exit code of an unhandled .NET exception, without a crash dump
+        case "unl-garbage-late-marker": // the parent's reader has stopped long before the marker arrives
+            Console.WriteLine("garbage");
+            await Task.Delay(1500);
+            Console.WriteLine(StreamProtocol.WritingLine);
+            return 0;
+        case "unl-failed-exit0":
+            Console.WriteLine(StreamProtocol.FailedLine("stats_unavailable"));
+            return 0;
+        case "unl-failed-hang":
+            Console.WriteLine(StreamProtocol.FailedLine("stats_unavailable"));
+            await Task.Delay(Timeout.InfiniteTimeSpan);
+            break;
     }
     if (mode == "unl-noise")
         Console.WriteLine("untrusted stdout");
@@ -2046,6 +2252,10 @@ static async Task<(int ExitCode, JsonDocument Response)> RunProbe(string[] argum
         RedirectStandardError = true,
         RedirectStandardInput = true,
         CreateNoWindow = true,
+        // Never the console code page: the checks must pass the same on a Russian console as under chcp 65001.
+        StandardInputEncoding = Encodings.Utf8NoBom,
+        StandardOutputEncoding = Encodings.Utf8NoBom,
+        StandardErrorEncoding = Encodings.Utf8NoBom,
     };
     if (appId is not null)
         start.Environment["SteamAppId"] = appId;
@@ -2079,6 +2289,11 @@ static async Task<(int ExitCode, JsonDocument Response)> RunProbe(string[] argum
             process.Kill();
         throw;
     }
+}
+
+internal static class Encodings
+{
+    internal static readonly UTF8Encoding Utf8NoBom = new(false);
 }
 
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -2151,13 +2366,17 @@ internal sealed class FakeNative : IClientIdentityNative, IClientAppsNative, ICl
     internal int? AnchorLiesAt { get; init; }
     internal bool AnchorUnknown { get; init; }
     internal bool PrepareFails { get; init; }
+    internal int? UnstableAt { get; init; }
+    internal Action<string>? AfterSet { get; init; }
     internal List<string> SetNames { get; } = [];
     internal TimeSpan? StoreWaitedFor { get; private set; }
     private readonly HashSet<string> _set = [];
+    private bool _anchored;
 
     public bool GetAchievementFlag(string apiName, out bool achieved)
     {
         Record("get_ach", true);
+        _anchored = true;
         int index = Achievements.ToList().FindIndex(item => item.ApiName == apiName);
         achieved = index >= 0 && Achievements[index].Achieved ^ (AnchorLiesAt == index);
         return !AnchorUnknown && index >= 0;
@@ -2178,6 +2397,7 @@ internal sealed class FakeNative : IClientIdentityNative, IClientAppsNative, ICl
             return false;
         if (SetTakesEffect)
             _set.Add(apiName);
+        AfterSet?.Invoke(apiName);
         return true;
     }
 
@@ -2228,9 +2448,11 @@ internal sealed class FakeNative : IClientIdentityNative, IClientAppsNative, ICl
     public bool GetAchievementState(string apiName, out bool achieved, out uint unlockTime)
     {
         Record("state", true);
-        // A name that was written is looked up directly: the re-read after StoreStats does not walk the list again.
-        var item = SetNames.Contains(apiName) ? Achievements.First(candidate => candidate.ApiName == apiName) : Current(apiName);
+        // After the anchor check names are looked up directly: the stability re-read and the re-read after StoreStats do not walk the list.
+        var item = SetNames.Contains(apiName) || _anchored ? Achievements.First(candidate => candidate.ApiName == apiName) : Current(apiName);
         achieved = item.Achieved || _set.Contains(apiName);
+        if (_anchored && SetNames.Count == 0 && UnstableAt is { } at && Achievements.ToList().IndexOf(item) == at)
+            achieved = !achieved; // the client changed its answer between the two reads
         unlockTime = achieved && item.UnlockTime == 0 ? 1700000001u : item.UnlockTime;
         return true;
     }

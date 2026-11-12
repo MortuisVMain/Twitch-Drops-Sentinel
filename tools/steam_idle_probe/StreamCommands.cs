@@ -136,17 +136,18 @@ internal static class StreamCommands
 
     /// <summary>
     /// WRITE `unlock`: one worker with SteamAppId set, the validated names on its stdin, every line validated, nothing printed
-    /// until all of it is valid. A failure after the worker announced a write is reported with wrote:true.
+    /// until all of it is valid. A failure is reported with wrote:true unless the account is known to be untouched (see
+    /// <see cref="WriteProgress.Wrote"/>). <paramref name="readOverride"/> and <paramref name="terminate"/> are test hooks.
     /// </summary>
     internal static async Task<int> RunUnlock(ProcessStartInfo start, uint appId, IReadOnlyList<string> names, TextWriter output,
-        TimeSpan timeout)
+        TimeSpan timeout, Func<TextReader, string?>? readOverride = null, Func<Process, bool>? terminate = null)
     {
         var progress = new WriteProgress();
         var lines = new List<string>();
         string? error = await RunBuffered(start, appId, names, timeout,
-            reader => StreamProtocol.ReadUnlockOutput(reader, appId, names, progress, lines));
+            readOverride ?? (reader => StreamProtocol.ReadUnlockOutput(reader, appId, names, progress, lines)), progress, terminate);
         if (error is not null)
-            return FailLine(output, StreamProtocol.UnlockFailedLine(error, progress.Started));
+            return FailLine(output, StreamProtocol.UnlockFailedLine(error, progress.Wrote));
         foreach (var line in lines)
             output.WriteLine(line);
         return 0;
@@ -169,7 +170,7 @@ internal static class StreamCommands
     // then kill what is left. The reader task is awaited again after the kill so that a "writing" marker that was still
     // in the pipe is not missed (wrote must never be under-reported).
     private static async Task<string?> RunBuffered(ProcessStartInfo start, uint appId, IReadOnlyList<string>? names, TimeSpan timeout,
-        Func<TextReader, string?> read)
+        Func<TextReader, string?> read, WriteProgress? progress = null, Func<Process, bool>? terminate = null)
     {
         Redirect(start);
         start.Environment["SteamAppId"] = appId.ToString(CultureInfo.InvariantCulture);
@@ -190,10 +191,14 @@ internal static class StreamCommands
             else
             {
                 var worker = child;
+                if (progress is not null && names is not null)
+                    progress.Handed = true;
                 _ = worker.StandardError.BaseStream.CopyToAsync(Stream.Null);
                 var write = Task.Run(() => WriteNames(worker.StandardInput, names));
                 reading = Task.Run(() => read(worker.StandardOutput));
                 error = await reading.WaitAsync(deadline.Token);
+                if (error is not null && progress is { PreWriteFailure: true })
+                    progress.ExitCode = await ExitedByItself(worker, deadline.Token);
                 if (error is null)
                 {
                     await worker.WaitForExitAsync(deadline.Token);
@@ -210,8 +215,12 @@ internal static class StreamCommands
         {
             error = "worker_start_failed";
         }
-        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+        catch (Exception)
         {
+            // Any other exception, from the reader included: the single result line must still be printed, and whatever
+            // the reader had not reached yet counts as possibly written.
+            if (progress is not null)
+                progress.StoppedEarly = true;
             error = "worker_failed";
         }
         finally
@@ -220,13 +229,31 @@ internal static class StreamCommands
             {
                 using (child)
                 {
-                    stopped = TryStop(child, deadline.IsCancellationRequested ? TimeSpan.Zero : ExitGrace);
+                    stopped = TryStop(child, deadline.IsCancellationRequested ? TimeSpan.Zero : ExitGrace, terminate);
                     if (reading is not null)
                         await Settle(reading); // before Dispose: that would close the pipe under the reader
                 }
             }
         }
+        if (!stopped && progress is not null)
+            progress.CleanupFailed = true;
         return stopped ? error : "worker_cleanup_failed";
+    }
+
+    // The exit code of a worker that ends on its own within the grace period; null when it has to be killed.
+    private static async Task<int?> ExitedByItself(Process worker, CancellationToken deadline)
+    {
+        using var grace = CancellationTokenSource.CreateLinkedTokenSource(deadline);
+        grace.CancelAfter(ExitGrace);
+        try
+        {
+            await worker.WaitForExitAsync(grace.Token);
+            return worker.ExitCode;
+        }
+        catch (OperationCanceledException) when (!deadline.IsCancellationRequested)
+        {
+            return null;
+        }
     }
 
     // After the worker is gone its pipe ends, so the reader finishes; whatever it still reports has already been recorded.
@@ -236,9 +263,10 @@ internal static class StreamCommands
         {
             await reading.WaitAsync(ExitGrace);
         }
-        catch (Exception ex) when (ex is TimeoutException or IOException or ObjectDisposedException or InvalidOperationException)
+        catch (Exception)
         {
-            // The outcome was decided before the kill; only the progress flag mattered here.
+            // The outcome was decided before the kill; only the progress flag mattered here. Whatever the reader threw
+            // (it is untrusted-input code) must not replace the single result line.
         }
     }
 
@@ -367,11 +395,11 @@ internal static class StreamCommands
             return TryStop(child, grace);
     }
 
-    private static bool TryStop(Process child, TimeSpan grace)
+    private static bool TryStop(Process child, TimeSpan grace, Func<Process, bool>? terminate = null)
     {
         try
         {
-            return child.HasExited || (grace > TimeSpan.Zero && child.WaitForExit(grace)) || IdentityWorker.TerminateTree(child);
+            return child.HasExited || (grace > TimeSpan.Zero && child.WaitForExit(grace)) || (terminate ?? IdentityWorker.TerminateTree)(child);
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or AggregateException)
         {

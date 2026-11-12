@@ -186,11 +186,13 @@ internal static class ClientIdentity
                     return error;
                 if (native is not IClientStatsNative stats || native is not IClientAchievementWriteNative write)
                     return "client_method_unsupported";
-                if (AchievementWriter.AnchorCheck(write, items, out _) is { } anchor)
+                if (AchievementWriter.Anchor(write, items, out var writer) is { } anchor)
                     return anchor;
                 if (stop.IsCancellationRequested)
                     return "worker_cancelled";
-                report = AchievementWriter.Unlock(stats, write, appId, items, names, markWriting, storeTimeout, stop);
+                if (writer!.StabilityCheck(stats, names, stop) is { } unstable)
+                    return unstable;
+                report = writer.Unlock(stats, appId, names, markWriting, storeTimeout, stop);
                 return null;
             },
             () => new("connected", "expected_account_confirmed"));

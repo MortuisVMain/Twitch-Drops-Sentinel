@@ -38,7 +38,9 @@ internal static class IdentityWorker
         new("not_connected", "unverified", "client_signer_untrusted"),
     ];
     private const int FirstResult = 64;
-    private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(3);
+    /// <summary>The unlock worker may be inside one bounded store wait when the parent dies; the forced exit waits for it.</summary>
+    internal static readonly TimeSpan UnlockExitGrace = ExitGrace + AchievementWriter.StoreTimeout;
 
     internal static int Encode(IdentityResult result)
     {
@@ -69,7 +71,8 @@ internal static class IdentityWorker
     /// Exits this process when the parent dies. With <paramref name="graceful"/> the token is cancelled first so the
     /// worker can release its Steam handles, and the exit is forced after a short grace period.
     /// </summary>
-    internal static Process? WatchParent(int parentId, long parentStarted, CancellationTokenSource? graceful = null)
+    internal static Process? WatchParent(int parentId, long parentStarted, CancellationTokenSource? graceful = null,
+        TimeSpan? exitGrace = null)
     {
         Process? parent = null;
         try
@@ -87,7 +90,7 @@ internal static class IdentityWorker
                     if (graceful is not null)
                     {
                         graceful.Cancel();
-                        Thread.Sleep(ExitGrace);
+                        Thread.Sleep(exitGrace ?? ExitGrace);
                     }
                     Environment.Exit(1);
                 },

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = 2  # the batch/hold contract bumps the helper's version by one
 CREATE_NO_WINDOW = 0x08000000
+WRITE_GATE = "SENTINEL_STEAM_IDLE_ALLOW_WRITE"
 TASKKILL_NOT_FOUND = 128  # the process is already gone: a normal outcome
 _STEAM_ID_PREFIX = 0x0110000100000000
 
@@ -73,11 +74,25 @@ def _job_for(proc: subprocess.Popen):
     return job
 
 
-def spawn(cmd: list[str]) -> subprocess.Popen:
+def child_env() -> dict[str, str]:
+    """The parent environment without the write gate: no child may inherit the permission to change an account."""
+    return {key: value for key, value in os.environ.items() if key.upper() != WRITE_GATE}
+
+
+def spawn(cmd: list[str], env: "dict[str, str] | None" = None) -> subprocess.Popen:
+    """Start a helper child. `env` defaults to `child_env()`; only the unlock path passes one that carries the gate."""
     proc = subprocess.Popen(cmd, shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                            env=child_env() if env is None else env,
                             creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
-    proc.job = _job_for(proc) if os.name == "nt" else None
+    try:
+        proc.job = _job_for(proc) if os.name == "nt" else None
+    except Exception as error:  # a started child must never be left behind
+        logger.error("job object setup failed: %s", error, exc_info=True)
+        kill_tree(proc)
+        for stream in (proc.stdin, proc.stdout):
+            stream.close()
+        raise OSError("job object setup failed") from error
     return proc
 
 

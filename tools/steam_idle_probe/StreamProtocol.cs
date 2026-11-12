@@ -220,11 +220,24 @@ internal static partial class StreamProtocol
         if (root.ValueKind != JsonValueKind.Object || !IsStatus(root, "failed"))
             return null;
         return HasShape(root, "protocolVersion", "status", "error") && root.GetProperty("error").ValueKind == JsonValueKind.String &&
-            root.GetProperty("error").GetString() is { } code && ErrorCode.IsMatch(code) ? code : Violation;
+            SafeString(root.GetProperty("error")) is { } code && ErrorCode.IsMatch(code) ? code : Violation;
     }
 
     private static bool IsStatus(JsonElement root, string status) =>
-        root.TryGetProperty("status", out var value) && value.ValueKind == JsonValueKind.String && value.GetString() == status;
+        root.TryGetProperty("status", out var value) && value.ValueKind == JsonValueKind.String && SafeString(value) == status;
+
+    // GetString throws InvalidOperationException on a lone surrogate; a peer's line must never be able to throw.
+    private static string? SafeString(JsonElement value)
+    {
+        try
+        {
+            return value.GetString();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
     private static bool HasShape(JsonElement root, params string[] names) =>
         root.ValueKind == JsonValueKind.Object && root.EnumerateObject().Count() == names.Length &&

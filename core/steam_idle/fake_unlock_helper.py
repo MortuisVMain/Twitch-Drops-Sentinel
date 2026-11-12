@@ -11,14 +11,32 @@ import time
 
 mode, pidfile, command, steam_id, app = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
 assert command == "unlock" and steam_id == "76561198000000001", sys.argv
-data = sys.stdin.buffer.read()
-names = data.decode("utf-8").split("\n")[:-1]
 CYCLE = ["unlocked", "already", "unknown", "unconfirmed"]
 
 
 def out(*values):
     for value in values:
         print(value if isinstance(value, str) else json.dumps(value), flush=True)
+
+
+def failed(code, exit_code=4, **extra):
+    out({"protocolVersion": 2, "status": "failed", "error": code, **extra})
+    sys.exit(exit_code)
+
+
+def sleep_with_child():
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+    with open(pidfile, "w") as handle:
+        handle.write(f"{child.pid}")
+    time.sleep(300)
+
+
+if mode == "exit_early":  # answers and exits without ever reading stdin
+    failed("write_not_allowed")
+if mode == "no_read":  # never reads stdin, never answers
+    sleep_with_child()
+data = sys.stdin.buffer.read()
+names = data.decode("utf-8").split("\n")[:-1]
 
 
 def line(name, result):
@@ -36,21 +54,19 @@ def answer(results, stored, **changes):
     out(*(line(name, result) for name, result in zip(names, results)), end(results, stored, **changes))
 
 
-def failed(code, **extra):
-    out({"protocolVersion": 2, "status": "failed", "error": code, **extra})
-    sys.exit(4)
-
-
-def sleep_with_child():
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
-    with open(pidfile, "w") as handle:
-        handle.write(f"{child.pid}")
-    time.sleep(300)
-
-
 mixed = [CYCLE[i % 4] for i in range(len(names))]
 if mode == "ok":
     answer(mixed, "yes")
+elif mode == "all_unlocked":
+    answer(["unlocked"] * len(names), "yes")
+elif mode.startswith("combo:"):  # combo:<stored>:<result>, every name gets the same result
+    _, combo_stored, combo_result = mode.split(":")
+    answer([combo_result] * len(names), combo_stored)
+elif mode.startswith("failed_exit_"):  # a bare failed line with an unusual exit code
+    failed("invalid_name_list" if mode.endswith("_2") else "stats_unavailable", int(mode[-1]))
+elif mode == "flood_then_hang":  # far more lines than names + 1, then silence
+    out(*(line(names[0], "already") for _ in range(len(names) + 50)))
+    sleep_with_child()
 elif mode == "echo":  # the raw stdin bytes are kept next to the pidfile
     with open(pidfile + ".stdin", "wb") as handle:
         handle.write(data)

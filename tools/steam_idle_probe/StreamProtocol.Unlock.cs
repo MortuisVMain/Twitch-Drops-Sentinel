@@ -3,10 +3,30 @@ using System.Text.Json;
 
 namespace SteamIdleProbe;
 
-/// <summary>Set by the reader of a worker's output as soon as it sees that a write may have started.</summary>
+/// <summary>
+/// What the parent knows about a possible write. <see cref="Started"/> is set by the reader of a worker's output as soon as a
+/// line says a write may have started; the other fields keep <see cref="Wrote"/> on the safe side when the reader stops early.
+/// </summary>
 internal sealed class WriteProgress
 {
+    /// <summary>The exit code a worker uses after a failure that happened before any write.</summary>
+    internal const int PreWriteExit = 4;
+
     internal volatile bool Started;
+    /// <summary>The names were handed (or are being handed) to a running worker.</summary>
+    internal volatile bool Handed;
+    /// <summary>The reader stopped on a violation, a failed line or an exception: whatever followed was never read.</summary>
+    internal volatile bool StoppedEarly;
+    /// <summary>The reader stopped on a well-formed failed line that came before any marker and claims no write.</summary>
+    internal volatile bool PreWriteFailure;
+    /// <summary>The worker could not be stopped, so it may still be running.</summary>
+    internal volatile bool CleanupFailed;
+    /// <summary>Set only when the worker ended by itself (not by a kill) after a failed line.</summary>
+    internal int? ExitCode;
+
+    /// <summary>True unless the account is known to be untouched; under-reporting is the one thing that must never happen.</summary>
+    internal bool Wrote => Started || (CleanupFailed && Handed) ||
+        (StoppedEarly && !(PreWriteFailure && ExitCode == PreWriteExit));
 }
 
 // Lines of the WRITE command `unlock` and the read-only `achievements-selfcheck`. Static fields here must not depend on
@@ -95,6 +115,17 @@ internal static partial class StreamProtocol
     internal static string? ReadUnlockOutput(TextReader output, uint appId, IReadOnlyList<string> names, WriteProgress progress,
         List<string> lines)
     {
+        string? error = ReadUnlockLines(output, appId, names, progress, lines, out bool endOfStream);
+        // Every early stop except a plain end of stream leaves lines unread, and a marker may be among them.
+        if (error is not null && !endOfStream)
+            progress.StoppedEarly = true;
+        return error;
+    }
+
+    private static string? ReadUnlockLines(TextReader output, uint appId, IReadOnlyList<string> names, WriteProgress progress,
+        List<string> lines, out bool endOfStream)
+    {
+        endOfStream = false;
         try
         {
             bool marker = false;
@@ -102,13 +133,16 @@ internal static partial class StreamProtocol
             while (true)
             {
                 if (ReadBoundedLine(output, MaxUnlockLine) is not { } line)
+                {
+                    endOfStream = true;
                     return "worker_failed";
+                }
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
                 if (root.ValueKind != JsonValueKind.Object)
                     return Violation;
                 if (IsStatus(root, "failed"))
-                    return UnlockFailure(root, progress);
+                    return UnlockFailure(root, progress, !marker && results.Count == 0);
                 if (IsStatus(root, "writing"))
                 {
                     if (marker || results.Count > 0 || !HasShape(root, "protocolVersion", "status"))
@@ -136,17 +170,18 @@ internal static partial class StreamProtocol
     }
 
     // A failed line is "failed" + error, optionally + wrote:true. wrote:false is not a thing, so it is a violation.
-    private static string UnlockFailure(JsonElement root, WriteProgress progress)
+    private static string UnlockFailure(JsonElement root, WriteProgress progress, bool first)
     {
         bool withWrote = root.TryGetProperty("wrote", out var flag);
+        if (withWrote && flag.ValueKind == JsonValueKind.True)
+            progress.Started = true; // the claim counts even if the rest of the line turns out to be malformed
         if (withWrote && flag.ValueKind != JsonValueKind.True)
             return Violation;
         string[] shape = withWrote ? ["protocolVersion", "status", "error", "wrote"] : ["protocolVersion", "status", "error"];
         if (!HasShape(root, shape) || root.GetProperty("error") is not { ValueKind: JsonValueKind.String } error ||
-            error.GetString() is not { } code || !ErrorCode.IsMatch(code))
+            SafeString(error) is not { } code || !ErrorCode.IsMatch(code))
             return Violation;
-        if (withWrote)
-            progress.Started = true;
+        progress.PreWriteFailure = first && !withWrote;
         return code;
     }
 

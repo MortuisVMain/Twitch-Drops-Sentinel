@@ -61,7 +61,8 @@ internal static class Program
             TryParent(unlockParentId, unlockParentStarted, out int unlockWorkerParentId, out long unlockWorkerParentStarted))
         {
             var parentGone = new CancellationTokenSource();
-            using var parent = IdentityWorker.WatchParent(unlockWorkerParentId, unlockWorkerParentStarted, parentGone);
+            using var parent = IdentityWorker.WatchParent(unlockWorkerParentId, unlockWorkerParentStarted, parentGone,
+                IdentityWorker.UnlockExitGrace);
             return parent is null ? 1 : StreamWorkers.RunUnlock(unlockAppId, StreamProtocol.WriteAllowed(), Console.OpenStandardInput(),
                 Console.Out, parentGone.Token,
                 (names, markWriting) => ClientIdentity.InspectWindowsUnlock(unlockWorkerId, unlockAppId, names, markWriting, parentGone.Token));

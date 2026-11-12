@@ -27,12 +27,48 @@ internal sealed record UnlockResult(IdentityResult Status, UnlockReport? Report)
 
 internal sealed record SelfCheckResult(IdentityResult Status, int Count, int AnchorChecked);
 
-/// <summary>The one place that changes an account: unlock named achievements, after proving the vtable slots with reads.</summary>
-internal static class AchievementWriter
+/// <summary>
+/// The one place that changes an account: unlock named achievements, after proving the vtable slots with reads.
+/// An instance can only come from <see cref="Anchor"/>, so a write without a passed anchor check cannot be expressed.
+/// </summary>
+internal sealed class AchievementWriter
 {
     internal const int AnchorCount = 5;
     internal static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(10);
+    /// <summary>Gap between the two reads that must agree before the first write.</summary>
+    internal static readonly TimeSpan StabilityGap = TimeSpan.FromMilliseconds(200);
     private const string Implausible = "stats_implausible";
+
+    private readonly IClientAchievementWriteNative _write;
+    private readonly IReadOnlyList<AchievementInfo> _items;
+
+    private AchievementWriter(IClientAchievementWriteNative write, IReadOnlyList<AchievementInfo> items) =>
+        (_write, _items) = (write, items);
+
+    /// <summary>The anchor check; the writer is returned (and the error is null) only when it passed.</summary>
+    internal static string? Anchor(IClientAchievementWriteNative write, IReadOnlyList<AchievementInfo> items, out AchievementWriter? writer)
+    {
+        string? error = AnchorCheck(write, items, out _);
+        writer = error is null ? new AchievementWriter(write, items) : null;
+        return error;
+    }
+
+    /// <summary>
+    /// Before the first write, every achievement is read once more after <see cref="StabilityGap"/>; the flags must equal the
+    /// first read. Skipped when nothing will be written. Returns null or "stats_unavailable" / "worker_cancelled".
+    /// </summary>
+    internal string? StabilityCheck(IClientStatsNative stats, IReadOnlyList<string> names, CancellationToken stop)
+    {
+        var locked = _items.Where(item => !item.Achieved).Select(item => item.ApiName).ToHashSet(StringComparer.Ordinal);
+        if (!names.Any(locked.Contains))
+            return null;
+        if (stop.WaitHandle.WaitOne(StabilityGap))
+            return "worker_cancelled";
+        foreach (var item in _items)
+            if (!stats.GetAchievementState(item.ApiName, out bool now, out _) || now != item.Achieved)
+                return "stats_unavailable";
+        return null;
+    }
 
     /// <summary>
     /// Brackets the SetAchievement slot between two proven neighbours: for the first five achievements GetAchievement must
@@ -52,13 +88,15 @@ internal static class AchievementWriter
 
     /// <summary>
     /// Sets every requested name that exists and is still locked, in input order, then stores once and re-reads what was set.
-    /// <paramref name="markWriting"/> runs once, after the preflight and before the first SetAchievement.
+    /// <paramref name="markWriting"/> runs once, after the preflight and before the first SetAchievement. Once <paramref name="stop"/>
+    /// is cancelled nothing further is set (the skipped names report "rejected"), but what was already set is still stored and
+    /// re-read, so the local state is never left half-written.
     /// </summary>
-    internal static UnlockReport Unlock(IClientStatsNative stats, IClientAchievementWriteNative write, uint appId,
-        IReadOnlyList<AchievementInfo> items, IReadOnlyList<string> names, Action markWriting, TimeSpan storeTimeout,
-        CancellationToken stop)
+    internal UnlockReport Unlock(IClientStatsNative stats, uint appId, IReadOnlyList<string> names, Action markWriting,
+        TimeSpan storeTimeout, CancellationToken stop)
     {
-        var known = items.ToDictionary(item => item.ApiName, StringComparer.Ordinal);
+        var write = _write;
+        var known = _items.ToDictionary(item => item.ApiName, StringComparer.Ordinal);
         var results = new string[names.Count];
         var pending = new List<int>();
         bool announced = false;
@@ -72,6 +110,11 @@ internal static class AchievementWriter
             if (item.Achieved)
             {
                 results[index] = "already";
+                continue;
+            }
+            if (stop.IsCancellationRequested)
+            {
+                results[index] = "rejected";
                 continue;
             }
             if (!announced)
@@ -94,11 +137,17 @@ internal static class AchievementWriter
             return new(results, "no");
         }
         var outcome = write.WaitForStore(appId, storeTimeout, stop);
+        if (outcome == StoreOutcome.Failed)
+        {
+            foreach (int index in pending)
+                results[index] = "store_failed";
+            return new(results, "no");
+        }
         foreach (int index in pending)
         {
             bool achieved = stats.GetAchievementState(names[index], out bool now, out _) && now;
             results[index] = !achieved ? "unconfirmed" : outcome == StoreOutcome.Success ? "unlocked" : "pending";
         }
-        return new(results, outcome switch { StoreOutcome.Success => "yes", StoreOutcome.Failed => "no", _ => "timeout" });
+        return new(results, outcome == StoreOutcome.Success ? "yes" : "timeout");
     }
 }
