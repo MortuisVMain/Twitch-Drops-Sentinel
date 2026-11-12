@@ -1,5 +1,13 @@
-"""Card-farming state machine: one game held at a time, every side effect injected, no threads or sleeping."""
+"""Card-farming state machine: one game held at a time, every side effect injected, no sleeping.
+
+step() runs in one worker thread; commands and status() may be called from another. Commands only queue (and set an
+immediate request flag), and status() returns a snapshot published after each step, so a step blocked in a read or a
+presence start never blocks a caller and a caller never sees a half-applied transition. Every hold re-checks the
+request flags right before it starts a presence, so a stop, close, pause or suspend that arrived during a blocked step
+is honoured before a game is held.
+"""
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -10,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _ACTIVE = frozenset({"scanning", "farming", "waiting"})
 _RESTARTABLE = frozenset({"idle", "done", "stopped", "needs_login"})
+_HALTED = frozenset({"stopped", "paused", "suspended"})
 
 
 @dataclass(frozen=True)
@@ -21,17 +30,35 @@ class FarmRules:
     max_consecutive_read_failures: int = 5
 
 
+@dataclass(frozen=True)
+class _Snapshot:
+    state: str
+    held: GameDrops | None
+    held_since: float
+    queue: tuple
+    done: tuple
+    failed: tuple
+    last_read: float | None
+    last_error: str | None
+    paused: bool
+    suspended: bool
+
+
 def _brief(game: GameDrops) -> dict:
     return {"appId": game.app_id, "name": game.name, "dropsRemaining": game.drops_remaining}
 
 
 class CardFarm:
-    """Call step() from one place only; commands merely queue and are applied one per step."""
+    """Call step() from one place only; commands merely queue and are applied one per step (stop clears the queue)."""
 
     def __init__(self, rules: FarmRules, read_drops: Callable[[], list[GameDrops]],
-                 presence_factory: Callable[[], object], clock: Callable[[], float]):
+                 presence_factory: Callable[[], object], clock: Callable[[], float],
+                 hold_guard: Callable[[], str | None] | None = None):
         self._rules, self._read_drops, self._factory, self._clock = rules, read_drops, presence_factory, clock
+        self._guard = hold_guard  # called right before each hold: None = allowed, else the code to stop with
+        self._lock = threading.Lock()
         self._commands: list[tuple[Callable, tuple]] = []
+        self._closed = self._stop_req = self._pause_req = self._suspend_req = False
         self._state = "idle"
         self._paused = self._suspended = False
         self._presence = None
@@ -39,6 +66,7 @@ class CardFarm:
         self._held_since = self._progress_at = self._next_read = 0.0
         self._lost = 0
         self._reset_run()
+        self._publish()
 
     def _reset_run(self) -> None:
         self._queue: list[GameDrops] = []
@@ -51,33 +79,68 @@ class CardFarm:
 
     # commands: record intent only
     def start(self) -> None:
-        self._commands.append((self._do_start, ()))
+        with self._lock:
+            self._pause_req = False
+            self._commands.append((self._do_start, ()))
 
     def stop(self) -> None:
-        self._commands.append((self._do_stop, ()))
+        with self._lock:
+            self._stop_req, self._pause_req = True, False
+            self._commands[:] = [(self._do_stop, ())]
+
+    def close(self) -> None:
+        """Permanent stop for shutdown: releases like stop() and refuses every later hold."""
+        with self._lock:
+            self._closed = True
+        self.stop()
 
     def pause(self) -> None:
-        self._commands.append((self._do_pause, ()))
+        with self._lock:
+            self._pause_req = True
+            self._commands.append((self._do_pause, ()))
 
     def resume(self) -> None:
-        self._commands.append((self._do_resume, ()))
+        with self._lock:
+            self._pause_req = False
+            self._commands.append((self._do_resume, ()))
 
     def skip_current(self) -> None:
-        self._commands.append((self._do_skip, ()))
+        with self._lock:
+            self._commands.append((self._do_skip, ()))
 
     def set_suspended(self, flag: bool) -> None:
-        self._commands.append((self._do_suspend, (bool(flag),)))
+        flag = bool(flag)
+        with self._lock:
+            self._suspend_req = flag
+            self._commands[:] = [c for c in self._commands if c[0] != self._do_suspend] + [(self._do_suspend, (flag,))]
+
+    def abort(self, code: str) -> None:
+        """Crash path, only when no step is running: forget everything held and report stopped with `code`.
+
+        The caller releases the real presences; this only makes the state honest.
+        """
+        with self._lock:
+            self._commands.clear()
+            self._stop_req = True
+        self._presence = self._held = None
+        self._queue, self._paused, self._lost = [], False, 0
+        self._state, self._last_error = "stopped", code
+        self._publish()
 
     def step(self) -> float:
         """At most one transition; returns the seconds until the next call is useful (0 = call again now)."""
-        if self._commands:
-            command, args = self._commands.pop(0)
-            command(*args)
-        elif self._state == "scanning" or (self._state == "waiting" and self._clock() >= self._next_read):
-            self._scan()
-        elif self._state == "farming":
-            self._tick_farming()
-        return self._delay()
+        try:
+            with self._lock:
+                command = self._commands.pop(0) if self._commands else None
+            if command is not None:
+                command[0](*command[1])
+            elif self._state == "scanning" or (self._state == "waiting" and self._clock() >= self._next_read):
+                self._scan()
+            elif self._state == "farming":
+                self._tick_farming()
+            return self._delay()
+        finally:
+            self._publish()
 
     def _delay(self) -> float:
         if self._commands or self._state == "scanning":
@@ -86,40 +149,53 @@ class CardFarm:
             return max(self._next_read - self._clock(), 0.0)
         return self._rules.recheck_seconds
 
+    def _publish(self) -> None:
+        self._snap = _Snapshot(
+            self._state, self._held, self._held_since, tuple(self._queue), tuple(self._done), tuple(self._failed),
+            self._last_read, self._last_error, self._paused, self._suspended)
+
     def status(self) -> dict:
-        now, held = self._clock(), self._held
+        snap, now = self._snap, self._clock()
+        held = snap.held
         return {
-            "state": self._state,
-            "current": None if held is None else {**_brief(held), "heldSeconds": now - self._held_since},
-            "queue": [_brief(g) for g in self._queue],
-            "done": [{"appId": g.app_id, "name": g.name} for g in self._done],
-            "failed": [{"appId": g.app_id, "name": g.name, "reason": why} for g, why in self._failed],
-            "totalDropsRemaining": sum(g.drops_remaining for g in self._queue) + (held.drops_remaining if held else 0),
-            "lastReadAgeSeconds": None if self._last_read is None else now - self._last_read,
-            "lastError": self._last_error,
-            "paused": self._paused,
-            "suspended": self._suspended,
+            "state": snap.state,
+            "current": None if held is None else {**_brief(held), "heldSeconds": now - snap.held_since},
+            "queue": [_brief(g) for g in snap.queue],
+            "done": [{"appId": g.app_id, "name": g.name} for g in snap.done],
+            "failed": [{"appId": g.app_id, "name": g.name, "reason": why} for g, why in snap.failed],
+            "totalDropsRemaining": sum(g.drops_remaining for g in snap.queue) + (held.drops_remaining if held else 0),
+            "lastReadAgeSeconds": None if snap.last_read is None else now - snap.last_read,
+            "lastError": snap.last_error,
+            "paused": snap.paused,
+            "suspended": snap.suspended,
         }
 
     # command handlers
     def _do_start(self) -> None:
+        if self._closed:
+            return
+        with self._lock:
+            self._stop_req = False
         if self._state in _RESTARTABLE:
             self._reset_run()
+            self._suspended = self._suspend_req
             self._state = "suspended" if self._suspended else "scanning"
 
     def _do_stop(self) -> None:
         self._release()
         self._paused = False
+        self._suspended = self._suspend_req  # a suspend command dropped by the queue clear still counts
         self._state = "stopped"
 
     def _do_pause(self) -> None:
-        if self._state in _ACTIVE or self._state == "suspended":
+        if self._state in _ACTIVE or self._state in ("suspended", "paused"):
             self._release()
             self._paused, self._state = True, "paused"
 
     def _do_resume(self) -> None:
         if self._state == "paused":
             self._paused = False
+            self._suspended = self._suspend_req
             self._state = "suspended" if self._suspended else "scanning"
 
     def _do_suspend(self, flag: bool) -> None:
@@ -148,7 +224,38 @@ class CardFarm:
             logger.error("presence release failed: %s", code, exc_info=True)
             self._last_error = f"release_failed:{code}"
 
+    def _refusal(self) -> str | None:
+        """Why no game may be held right now (the freshest requests, not the last applied state), else None."""
+        with self._lock:
+            if self._closed or self._stop_req:
+                return "stopped"
+            if self._pause_req:
+                return "paused"
+            if self._suspend_req:
+                return "suspended"
+        return None if self._guard is None else self._guard()
+
+    def _refuse(self, why: str) -> None:
+        self._queue = []
+        if why == "paused":
+            self._paused = True
+        elif why == "suspended":
+            self._suspended = True
+        elif why != "stopped":
+            self._last_error = why
+        self._state = why if why in ("paused", "suspended") else "stopped"
+
+    def _discard(self, presence: object) -> None:
+        """Release a presence the farm never adopted."""
+        try:
+            presence.stop()
+        except Exception as error:
+            logger.error("presence release failed: %s", getattr(error, "code", type(error).__name__), exc_info=True)
+
     def _hold(self, game: GameDrops, reason: str | None = None) -> bool:
+        if (why := self._refusal()) is not None:
+            self._refuse(why)
+            return False
         presence = self._factory()
         try:
             presence.start(game.app_id)
@@ -158,6 +265,13 @@ class CardFarm:
                 self._queue, self._state, self._last_error = [], "stopped", error.code
             else:
                 self._failed.append((game, reason or error.code))
+            return False
+        except Exception:
+            self._discard(presence)  # whatever it half-started must not outlive the crash
+            raise
+        if (why := self._refusal()) is not None:  # the request arrived while the presence was starting
+            self._discard(presence)
+            self._refuse(why)
             return False
         now = self._clock()
         self._presence, self._held = presence, game
@@ -171,7 +285,7 @@ class CardFarm:
         while self._queue:
             if self._hold(self._queue.pop(0)):
                 return
-            if self._state == "stopped":
+            if self._state in _HALTED:
                 return
         self._state = "done"
 
@@ -182,6 +296,9 @@ class CardFarm:
 
     # reading and farming
     def _read(self) -> list[GameDrops] | None:
+        with self._lock:
+            if self._closed or self._stop_req:  # the queued stop is applied next; do not start a long read
+                return None
         try:
             drops = self._read_drops()
         except CommunityError as error:
@@ -231,9 +348,11 @@ class CardFarm:
             self._done.append(held)
         elif current.drops_remaining < held.drops_remaining:
             self._held, self._progress_at = current, now
-        elif now - self._progress_at >= self._rules.max_game_seconds:
-            self._release()
-            self._failed.append((held, "no_progress"))
+        else:
+            self._held = current  # a higher count is shown as read; only a decrease resets the no-progress timer
+            if now - self._progress_at >= self._rules.max_game_seconds:
+                self._release()
+                self._failed.append((held, "no_progress"))
         self._rebuild(drops)
         if self._held is None:
             self._advance()
@@ -249,7 +368,7 @@ class CardFarm:
             self._held_since, self._progress_at, self._next_read = saved
             self._lost = lost
             return
-        if self._state != "stopped":
+        if self._state not in _HALTED:
             if lost >= 2:
                 self._failed.append((game, "presence_lost"))
             self._advance()

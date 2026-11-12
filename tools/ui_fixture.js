@@ -13,8 +13,8 @@
 // ?games=<n> serves n campaigns instead of 14 (the extra ones have drops and no queue slot), for the off-queue panel checks (tools/check_override_cards.cjs).
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
-// ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers.
-// ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command answer 409 with that code. Commands land in window.__steamIdlePosts.
+// ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key.
+// ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check and the farm ones) answer 409 with that code. Commands land in window.__steamIdlePosts.
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -234,7 +234,8 @@
   else if (siMode === 'signedout') { si.community = { session: 'signed_out', checkedAgeSeconds: 12 }; si.farm.state = 'needs_login'; }
   else if (siMode === 'mismatch') si.community = { session: 'account_mismatch', checkedAgeSeconds: 12 };
   else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null }; }
-  else if (siMode === 'farming' || siMode === 'slow') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
+  else if (siMode === 'badstate') { siFill(); si.farm.state = 'exploding'; siTotal(); }
+  else if (siMode === 'farming' || siMode === 'slow' || siMode === 'hang' || siMode === 'nolibrary') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
   else if (siMode === 'suspended') { siFill(); si.farm.state = 'suspended'; si.farm.suspended = true; siTotal(); }
   else if (siMode === 'paused') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; siTotal(); }
   else if (siMode === 'done') { si.farm.state = 'done'; si.farm.done = [0, 1, 2, 3, 4].map(siDone); si.farm.lastReadAgeSeconds = 20; }
@@ -258,6 +259,9 @@
     var cmd = path.slice('/api/v1/steam-idle/'.length);
     if (init && init.method === 'POST') {
       window.__steamIdlePosts.push(cmd);
+      if (siMode === 'hang') return new Promise(function (res, rej) {
+        if (init.signal) init.signal.addEventListener('abort', function () { rej(new DOMException('Aborted', 'AbortError')); });
+      });
       if (q.get('steamidlepost')) return siReply(409, { error: q.get('steamidlepost') });
       siCommand(cmd);
       return siReply(200, { ok: true });
@@ -265,6 +269,7 @@
     siCalls += 1;
     if (siMode === 'down') return Promise.reject(new TypeError('Failed to fetch'));
     var body = JSON.parse(JSON.stringify(si));
+    if (siMode === 'nolibrary') delete body.library;
     if (siMode === 'slow' && siCalls === 1) return new Promise(function (res) { setTimeout(function () { res(siReply(200, body)); }, SLOW_MS); });
     return siReply(200, body);
   }

@@ -7,6 +7,7 @@ import asyncio
 import logging
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -125,12 +126,16 @@ class SteamIdleController:
                  read_drops: Callable[..., list], read_library: Callable[..., list], read_status: Callable[..., None],
                  presence_factory: Callable[[Path, str], object],
                  run_login: Callable[[Sequence[str]], Awaitable[object]], clock: Callable[[], float],
-                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, rules: FarmRules | None = None):
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, rules: FarmRules | None = None,
+                 kill_reads: Callable[[], None] = lambda: None):
         self._get_setting, self._set_setting = get_setting, set_setting
         self._find_tools, self._client_state = find_tools, client_state
         self._read_drops_fn, self._read_library_fn, self._read_status_fn = read_drops, read_library, read_status
         self._presence_factory, self._run_login, self._clock, self._sleep = presence_factory, run_login, clock, sleep
-        self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock)
+        self._kill_reads = kill_reads
+        self._step_done = threading.Event()  # set while no farm step is running in the worker thread
+        self._step_done.set()
+        self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard)
         self._session, self._checked_account, self._checked_at = "unknown", 0, None
         self._library_count: int | None = None
         self._task = self._login_task = self._check_task = None
@@ -163,6 +168,8 @@ class SteamIdleController:
     # commands: None = accepted, otherwise a refusal code
     def acknowledge(self, accepted: bool) -> None:
         self._set_setting(RISK_ACK_KEY, bool(accepted))
+        if not accepted and self._running():
+            self._farm.stop()
 
     def start(self) -> str | None:
         tools = self._find_tools()
@@ -173,7 +180,7 @@ class SteamIdleController:
         client = self._client_state()
         if (refusal := self._client_refusal(client)) is not None:
             return refusal
-        if self._busy():
+        if self._busy() or self._running():  # a second start must never rebind the run to another account
             return "busy"
         if self._session == "account_mismatch" or (self._session == "signed_in" and self._checked_account != client.account_id):
             return "account_mismatch"
@@ -182,8 +189,7 @@ class SteamIdleController:
         self._run_tools, self._run_account, self._expected = tools, client.account_id, steam_id64(client.account_id)
         self._run_error, self._library_fetched = None, False
         self._farm.start()
-        if self._task is None or self._task.done():
-            self._task = asyncio.get_running_loop().create_task(self._run_loop())
+        self._task = asyncio.get_running_loop().create_task(self._run_loop())
         return None
 
     def stop(self) -> str | None:
@@ -233,17 +239,27 @@ class SteamIdleController:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def shutdown(self) -> None:
-        """Stop the farm, release the held game and end every task within a few seconds."""
-        self._farm.stop()
+        """Close the farm for good, end the tasks and any read in flight, and release every held game within seconds."""
+        self._farm.close()
         tasks = [task for task in (self._task, self._login_task, self._check_task) if task is not None and not task.done()]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.wait(tasks, timeout=_RELEASE_SECONDS)
         try:
-            await asyncio.wait_for(asyncio.to_thread(self._release_presences), _RELEASE_SECONDS)
+            await asyncio.wait_for(asyncio.to_thread(self._wind_down), 2 * _RELEASE_SECONDS)
         except asyncio.TimeoutError:
             logger.error("releasing the held game timed out on shutdown")
+
+    def _wind_down(self) -> None:
+        """Thread: kill the in-flight reads, let a blocked step finish (the closed farm holds nothing), release all."""
+        try:
+            self._kill_reads()
+        except Exception:
+            logger.error("killing the in-flight community reads failed", exc_info=True)
+        if not self._step_done.wait(_RELEASE_SECONDS):
+            logger.error("a farm step is still blocked on shutdown; the closed farm releases what it starts")
+        self._release_presences()
 
     # internals
     @staticmethod
@@ -298,8 +314,19 @@ class SteamIdleController:
                 logger.error("library read failed: %s", error.code)
         return drops
 
+    def _hold_guard(self) -> str | None:
+        """Runs in the step thread right before a game is held: the client must still be on the run's account."""
+        if self._client_state().account_id != self._run_account:
+            self._run_error = "account_changed"
+            return "account_changed"
+        return None
+
     def _step(self) -> float:
-        return self._farm.step()
+        self._step_done.clear()
+        try:
+            return self._farm.step()
+        finally:
+            self._step_done.set()
 
     async def _run_loop(self) -> None:
         try:
@@ -313,9 +340,16 @@ class SteamIdleController:
                 await self._sleep(min(delay, _TICK_SECONDS))
         except Exception:
             logger.error("steam idle farm loop crashed", exc_info=True)
-            self._run_error = "internal_error"
-            self._farm.stop()
-            await asyncio.to_thread(self._step)
+            await self._abort_run()
+
+    async def _abort_run(self) -> None:
+        """After a crash: release every live presence directly and report the farm stopped; never raises."""
+        self._run_error = "internal_error"
+        try:
+            await asyncio.to_thread(self._release_presences)
+            self._farm.abort("internal_error")
+        except Exception:
+            logger.error("steam idle crash cleanup failed", exc_info=True)
 
     async def _do_login(self, tools: Tools) -> None:
         try:
@@ -357,4 +391,5 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
     return SteamIdleController(
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
-        read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic)
+        read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,
+        kill_reads=community.kill_in_flight)

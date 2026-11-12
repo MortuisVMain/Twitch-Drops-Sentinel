@@ -1,6 +1,8 @@
 """Offline checks for the card-farm state machine: fake clock, scripted drops reads, fake presence."""
 import json
 import re
+import threading
+import time
 import unittest
 
 from steam_idle.community import CommunityError, GameDrops
@@ -20,12 +22,18 @@ class FakePresence:
         codes = self.env.start_fail.get(app_id)
         if codes:
             raise PresenceError(codes.pop(0))
+        if self.env.start_gate is not None:
+            self.env.start_entered.set()
+            self.env.start_gate.wait(5)
         self.app_id, self.held = app_id, True
         self.alive = self.env.dead_starts == 0
         self.env.dead_starts = max(self.env.dead_starts - 1, 0)
 
     def stop(self):
         self.stops += 1
+        if self.env.stop_gate is not None and self.held:
+            self.env.stop_entered.set()
+            self.env.stop_gate.wait(5)
         was_held, self.held = self.held, False
         if was_held and self.env.stop_fail:
             raise PresenceError("stop_timeout")
@@ -42,10 +50,15 @@ class Harness:
         self.start_fail = {k: list(v) for k, v in (start_fail or {}).items()}
         self.stop_fail, self.dead_starts = stop_fail, 0
         self.presences, self.now = [], 1000.0
+        self.read_gate = self.start_gate = self.stop_gate = None
+        self.read_entered, self.start_entered, self.stop_entered = (threading.Event() for _ in range(3))
         self.farm = CardFarm(rules or FarmRules(), self.read, self.make, lambda: self.now)
 
     def read(self):
         self.read_calls += 1
+        if self.read_gate is not None:
+            self.read_entered.set()
+            self.read_gate.wait(5)
         item = self.reads.pop(0) if len(self.reads) > 1 else self.reads[0]
         if isinstance(item, Exception):
             raise item
@@ -383,6 +396,132 @@ class FarmTests(unittest.TestCase):
         status = h.farm.status()
         self.assertEqual(status["failed"][0]["appId"], 10)
         self.assertNotRegex(json.dumps(status), re.compile(r"id64|account|steamid", re.IGNORECASE))
+
+
+class FarmFindingsTests(unittest.TestCase):
+    def test_stop_queued_behind_other_commands_takes_effect_on_the_next_step(self):
+        h = Harness([[gd(10, 1)]])
+        h.begin()
+        h.farm.set_suspended(True)
+        h.farm.pause()
+        h.farm.skip_current()
+        h.farm.stop()
+        h.step()
+        self.assertEqual((h.state, h.held_ids()), ("stopped", []))
+
+    def test_recheck_with_more_drops_updates_the_count_but_not_the_progress_timer(self):
+        rules = FarmRules(recheck_seconds=600, max_game_seconds=1000)
+        h = Harness([[gd(10, 3)], [gd(10, 5)], [gd(10, 5)]], rules)
+        h.begin()
+        h.tick(600)
+        self.assertEqual(h.farm.status()["current"]["dropsRemaining"], 5)
+        self.assertEqual(h.state, "farming")
+        h.tick(600)  # 1200 s without a decrease: the timer was not reset by the increase
+        self.assertEqual(h.farm.status()["failed"][0]["reason"], "no_progress")
+
+    def test_repeated_suspend_commands_do_not_grow_the_queue(self):
+        farm = Harness([[gd(10, 1)]]).farm
+        for _ in range(50):
+            farm.set_suspended(True)
+        for flag in (False, True) * 25:
+            farm.set_suspended(flag)
+        self.assertLessEqual(len(farm._commands), 1)
+
+
+class FarmThreadingTests(unittest.TestCase):
+    """A step blocked in a worker thread (read or presence start) while commands arrive from another thread."""
+
+    def blocked_step(self, h, gate_name, entered_name):
+        h.farm.start()
+        h.farm.step()
+        setattr(h, gate_name, threading.Event())
+        worker = threading.Thread(target=h.farm.step, daemon=True)
+        worker.start()
+        self.assertTrue(getattr(h, entered_name).wait(5), "the step never blocked")
+        self.addCleanup(worker.join, 5)
+        self.addCleanup(getattr(h, gate_name).set)
+        return worker, getattr(h, gate_name)
+
+    def finish(self, worker, gate):
+        gate.set()
+        worker.join(5)
+        self.assertFalse(worker.is_alive())
+
+    def test_stop_during_a_blocked_read_holds_no_game(self):
+        h = Harness([[gd(10, 1)]])
+        worker, gate = self.blocked_step(h, "read_gate", "read_entered")
+        h.farm.stop()
+        self.finish(worker, gate)
+        self.assertEqual(h.presences, [])
+        h.farm.step()
+        self.assertEqual((h.state, h.held_ids()), ("stopped", []))
+
+    def test_close_during_a_blocked_read_holds_no_game_and_blocks_later_holds(self):
+        h = Harness([[gd(10, 1)]])
+        worker, gate = self.blocked_step(h, "read_gate", "read_entered")
+        h.farm.close()
+        self.finish(worker, gate)
+        self.assertEqual(h.presences, [])
+        h.farm.start()
+        h.farm.step()
+        h.farm.step()
+        self.assertEqual((h.presences, h.state), ([], "stopped"))
+
+    def test_stop_during_a_blocked_presence_start_releases_the_new_game(self):
+        h = Harness([[gd(10, 1)]])
+        worker, gate = self.blocked_step(h, "start_gate", "start_entered")
+        h.farm.stop()
+        self.finish(worker, gate)
+        self.assertEqual(h.held_ids(), [])
+        h.farm.step()
+        self.assertEqual(h.state, "stopped")
+
+    def test_pause_during_a_blocked_scan_does_not_hold(self):
+        h = Harness([[gd(10, 1)]])
+        worker, gate = self.blocked_step(h, "read_gate", "read_entered")
+        h.farm.pause()
+        self.finish(worker, gate)
+        self.assertEqual(h.presences, [])
+        h.farm.step()
+        status = h.farm.status()
+        self.assertEqual((status["state"], status["paused"]), ("paused", True))
+
+    def test_suspend_during_a_blocked_scan_does_not_hold(self):
+        h = Harness([[gd(10, 1)]])
+        worker, gate = self.blocked_step(h, "read_gate", "read_entered")
+        h.farm.set_suspended(True)
+        self.finish(worker, gate)
+        self.assertEqual(h.presences, [])
+        h.farm.step()
+        self.assertEqual(h.state, "suspended")
+
+    def test_hold_guard_refusal_stops_with_its_code(self):
+        h = Harness([[gd(10, 1)]])
+        h.farm._guard = lambda: "account_changed"
+        h.begin()
+        status = h.farm.status()
+        self.assertEqual((status["state"], status["lastError"], h.presences), ("stopped", "account_changed", []))
+
+    def test_status_is_prompt_and_consistent_while_a_release_is_blocked(self):
+        h = Harness([[gd(10, 1)]])
+        h.begin()
+        h.stop_gate = threading.Event()
+        self.addCleanup(h.stop_gate.set)
+        h.farm.pause()
+        worker = threading.Thread(target=h.farm.step, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join, 5)
+        self.assertTrue(h.stop_entered.wait(5))
+        slowest = 0.0
+        for _ in range(200):
+            began = time.perf_counter()
+            status = h.farm.status()
+            slowest = max(slowest, time.perf_counter() - began)
+            self.assertTrue(status["state"] != "farming" or status["current"] is not None, status)
+        self.assertLess(slowest, 0.2)
+        h.stop_gate.set()
+        worker.join(5)
+        self.assertEqual(h.state, "paused")
 
 
 if __name__ == "__main__":

@@ -1911,7 +1911,7 @@
    ========================================================================== */
 .sidle-root { gap: 10px; }
 .sidle-root .chunky-cta, .sidle-root .tactile-btn { min-height: 32px; font-size: var(--fs-sm); padding: 0 12px; }
-.sidle-root .chunky-cta:disabled, .sidle-root .tactile-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: none; }
+.sidle-root .chunky-cta:is(:disabled, [aria-disabled='true']), .sidle-root .tactile-btn:is(:disabled, [aria-disabled='true']) { opacity: 0.55; cursor: not-allowed; transform: none; filter: none; }
 .sidle-root :is(button, input, ul[tabindex]):focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
 .sidle-root .titanium-island { flex-shrink: 0; gap: 8px; }
 .sidle-ready { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; }
@@ -1930,6 +1930,7 @@
 .sidle-check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: var(--fs-sm); color: var(--text-primary); cursor: pointer; width: fit-content; }
 .sidle-check input { inline-size: 18px; block-size: 18px; accent-color: var(--led-mint); cursor: pointer; margin: 0; }
 .sidle-state { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text-primary); }
+.sidle-state:focus { outline: none; }
 .sidle-current { display: flex; flex-direction: column; gap: 4px; }
 .sidle-game { font-size: var(--fs-md); font-weight: 700; color: var(--text-primary); overflow-wrap: anywhere; }
 .sidle-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; }

@@ -58,6 +58,8 @@ export const STEAM_IDLE: Record<string, string> = {
   'не удалось освободить игру': 'could not release the game',
   'сбой, подробности в журнале': 'a failure, details are in the log',
   'Фарм не запущен': 'Farm is not running',
+  'Состояние неизвестно, обновите приложение': 'Unknown state, update the app',
+  'Служба не ответила. Повторите позже.': 'The service did not answer. Try again later.',
   'осталось карточек:': 'cards left:',
   'держим': 'holding for',
   'всего осталось карточек:': 'cards left in total:',

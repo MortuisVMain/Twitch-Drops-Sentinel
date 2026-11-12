@@ -1711,7 +1711,10 @@ class SentinelSupervisor:
                         break
 
                 is_gaming = detected_game is not None
-                self.steam_idle.set_suspended(is_gaming)
+                try:  # any detected game suspends Steam IDLE, even with pause_on_gaming off: a held game blocks launching it
+                    self.steam_idle.set_suspended(is_gaming)
+                except Exception:
+                    logger.error("Steam IDLE suspend hook failed", exc_info=True)
 
                 self.hardware_state.update({
                     "is_gaming": is_gaming,

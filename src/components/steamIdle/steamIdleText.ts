@@ -50,9 +50,12 @@ export const farmStateText = (state: SteamIdleFarmState, lastError: string | nul
     case 'needs_login': return 'Нужен вход в Steam';
     case 'done': return 'Готово: карточек не осталось';
     case 'stopped': return lastError ? 'Остановлено: ' + stopReason(lastError) : 'Остановлено';
-    default: return 'Фарм не запущен';
+    case 'idle': return 'Фарм не запущен';
+    default: return 'Состояние неизвестно, обновите приложение';
   }
 };
+
+export const KNOWN_FARM_STATES: ReadonlySet<string> = new Set(['idle', 'scanning', 'farming', 'waiting', 'paused', 'suspended', 'needs_login', 'done', 'stopped']);
 
 export const stopReason = (code: string): string => {
   if (code === 'read_failed') return 'не удалось прочитать список карточек';
@@ -78,6 +81,20 @@ export const refusalText = (code: string | null): string => {
     case 'account_mismatch': return 'Вход на сайте выполнен в другой аккаунт. Войдите в тот же, что и в клиенте Steam.';
     case 'busy': return 'Служба занята предыдущей командой. Повторите через пару секунд.';
     case 'network': return 'Нет связи со службой. Повторите позже.';
+    case 'timeout': return 'Служба не ответила. Повторите позже.';
     default: return 'Команда не выполнена. Повторите позже.';
+  }
+};
+
+/** False when the state a refusal referred to has changed, so the message would now be stale. */
+export const refusalApplies = (code: string, s: SteamIdleState): boolean => {
+  switch (code) {
+    case 'risk_not_acknowledged': return !s.riskAcknowledged;
+    case 'unavailable': return !s.available;
+    case 'steam_not_running': return !s.steam.running;
+    case 'steam_signed_out': return !s.steam.signedIn;
+    case 'community_signed_out': return s.community.session !== 'signed_in';
+    case 'account_mismatch': return s.community.session === 'account_mismatch';
+    default: return true;
   }
 };

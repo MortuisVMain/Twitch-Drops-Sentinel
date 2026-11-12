@@ -3,6 +3,8 @@ import asyncio
 import json
 import re
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -30,6 +32,8 @@ class FakePresence:
 
     def start(self, app_id):
         self.app_id, self.running = app_id, True
+        if self.env.start_error is not None:
+            raise self.env.start_error
 
     def stop(self):
         self.running = False
@@ -52,6 +56,7 @@ class Env:
         self.expected_seen, self.status_calls, self.status_error = [], [], None
         self.presences, self.login_commands, self.login_gate = [], [], None
         self.now, self.sleeps, self.on_sleep, self.freeze_at = 1000.0, [], None, None
+        self.read_gate, self.read_entered, self.kills, self.start_error = None, threading.Event(), 0, None
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
@@ -59,7 +64,13 @@ class Env:
             find_tools=lambda: self.tools, client_state=self.read_client,
             read_drops=self.read_drops, read_library=self.read_library, read_status=self.read_status,
             presence_factory=self.make_presence, run_login=self.run_login,
-            clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0))
+            clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads)
+
+    def kill_reads(self):
+        """Stands in for killing the node child: the blocked read returns."""
+        self.kills += 1
+        if self.read_gate is not None:
+            self.read_gate.set()
 
     def read_client(self):
         self.client_reads += 1
@@ -67,6 +78,9 @@ class Env:
 
     def read_drops(self, command, expected_steam_id64=None):
         self.drops_calls += 1
+        if self.read_gate is not None:
+            self.read_entered.set()
+            self.read_gate.wait(5)
         self.expected_seen.append(expected_steam_id64)
         item = self.drops.pop(0) if len(self.drops) > 1 else self.drops[0]
         if isinstance(item, Exception):
@@ -410,6 +424,120 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(ctl.shutdown(), 5)
         self.assertFalse(self.env.presences[-1].running)
         await asyncio.wait_for(ctl.join(), 1)
+
+    # reviewer findings: the invariant is that no game is held after stop, shutdown, account change, suspend or a crash
+    async def blocked_scan(self):
+        ctl = self.make(read_gate=threading.Event())
+        self.env.signed_in()
+        self.assertIsNone(ctl.start())
+        self.assertTrue(await asyncio.to_thread(self.env.read_entered.wait, 5), "the read never blocked")
+        return ctl
+
+    async def wait_state(self, name):
+        for _ in range(300):
+            if self.env.ctl.state()["farm"]["state"] == name:
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"farm never reached {name}: {self.env.ctl.state()['farm']['state']}")
+
+    async def test_shutdown_during_a_blocked_read_kills_the_read_and_holds_nothing(self):
+        ctl = await self.blocked_scan()
+        await asyncio.wait_for(ctl.shutdown(), 8)
+        self.env.read_gate.set()
+        await asyncio.sleep(0.1)
+        self.assertEqual(self.env.kills, 1)
+        self.assertEqual(self.env.presences, [], "a game was held after shutdown")
+        self.assertEqual(ctl.state()["farm"]["state"], "stopped")
+
+    async def test_start_after_shutdown_never_holds(self):
+        ctl = self.make()
+        self.env.signed_in()
+        await ctl.shutdown()
+        ctl.start()
+        await self.env.settle()
+        self.assertEqual(self.env.presences, [])
+
+    async def test_second_start_after_an_account_switch_is_busy_and_keeps_the_run_bound(self):
+        ctl = self.make(drops=[[gd(100, 5)]])
+        self.env.signed_in()
+        self.env.on_sleep = lambda: ctl.stop() if len(self.env.sleeps) > 80 else None
+        ctl.start()
+        await self.env.wait_running()
+        self.env.client = SteamClient(True, OTHER)
+        ctl._session, ctl._checked_account = "signed_in", OTHER  # what /check does after the switch
+        self.assertEqual(ctl.start(), "busy")
+        await self.env.settle()
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["state"], farm["lastError"]), ("stopped", "account_changed"))
+        self.assertEqual({p.steam_id for p in self.env.presences}, {str(BASE_ID + ACCOUNT)})
+        self.assertTrue(all(not p.running for p in self.env.presences))
+
+    async def test_suspend_arriving_during_a_blocked_scan_holds_nothing(self):
+        ctl = await self.blocked_scan()
+        ctl.set_suspended(True)
+        self.env.read_gate.set()
+        await self.wait_state("suspended")
+        self.assertEqual(self.env.presences, [])
+
+    async def test_account_switch_during_a_blocked_read_holds_nothing(self):
+        ctl = await self.blocked_scan()
+        self.env.client = SteamClient(True, OTHER)
+        self.env.read_gate.set()
+        await self.wait_state("stopped")
+        farm = ctl.state()["farm"]
+        self.assertEqual(farm["lastError"], "account_changed")
+        self.assertEqual(self.env.presences, [], "a game was held under the wrong account")
+
+    async def test_status_answers_promptly_while_a_read_is_blocked(self):
+        ctl = await self.blocked_scan()
+        began = time.perf_counter()
+        for _ in range(50):
+            farm = ctl.state()["farm"]
+            self.assertTrue(farm["state"] != "farming" or farm["current"] is not None)
+        self.assertLess(time.perf_counter() - began, 0.5)
+        self.env.read_gate.set()
+
+    async def test_unexpected_presence_start_error_releases_the_live_presence(self):
+        ctl = self.make(start_error=RuntimeError("boom"))
+        self.env.signed_in()
+        with self.assertLogs("steam_idle.controller", "ERROR"):
+            ctl.start()
+            await self.env.settle()
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["state"], farm["lastError"]), ("stopped", "internal_error"))
+        self.assertTrue(self.env.presences and all(not p.running for p in self.env.presences))
+
+    async def test_a_crash_in_the_step_never_leaves_an_unhandled_task_exception(self):
+        ctl = self.make()
+        self.env.signed_in()
+        ctl._farm.step = mock.Mock(side_effect=RuntimeError("boom"))
+        with self.assertLogs("steam_idle.controller", "ERROR"):
+            ctl.start()
+            await self.env.settle()
+        self.assertIsNone(ctl._task.exception())
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["state"], farm["lastError"]), ("stopped", "internal_error"))
+
+    async def test_a_crash_while_holding_releases_the_game(self):
+        ctl = self.make(drops=[[gd(100, 5)]])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.wait_running()
+        ctl._farm.step = mock.Mock(side_effect=RuntimeError("boom"))
+        with self.assertLogs("steam_idle.controller", "ERROR"):
+            await self.env.settle()
+        self.assertTrue(all(not p.running for p in self.env.presences))
+        self.assertEqual(ctl.state()["farm"]["state"], "stopped")
+
+    async def test_withdrawing_the_acknowledgement_stops_a_running_farm(self):
+        ctl = self.make(drops=[[gd(100, 5)]])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.wait_running()
+        ctl.acknowledge(False)
+        await asyncio.wait_for(ctl.join(), 2)
+        self.assertEqual(ctl.state()["farm"]["state"], "stopped")
+        self.assertTrue(all(not p.running for p in self.env.presences))
 
     # community session
     async def test_check_flow_signed_in(self):

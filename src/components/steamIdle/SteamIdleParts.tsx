@@ -1,15 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
 import { SteamIdleState } from '../../types';
 import { SteamIdleCommand } from './useSteamIdle';
 import {
-  Tone, communityText, failedReasonText, farmStateText, helperText, refusalText, steamClientText, unavailableHelp,
+  KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, steamClientText, unavailableHelp,
 } from './steamIdleText';
 
 type Send = (command: SteamIdleCommand) => void;
 
+const hasCount = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
+
 /** Seconds as a short human duration; the unit words are plain JSX text so the language switch translates them. */
 export const Dur: React.FC<{ s: number }> = ({ s }) => {
+  if (!Number.isFinite(s)) return null;
   const sec = Math.max(0, Math.round(s));
   if (sec < 60) return <>{sec} с</>;
   const m = Math.floor(sec / 60);
@@ -37,16 +40,18 @@ export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
   const helper = helperText(s);
   const session = s.community.session;
   const needsLogin = session === 'signed_out' || session === 'account_mismatch' || session === 'login_open';
+  const loginOff = !s.available || session === 'login_open' || busy !== null;
+  const checkOff = !s.available || session === 'checking' || session === 'login_open' || busy !== null;
   return (
     <section className="titanium-island sidle-ready" aria-label="Готовность">
       <Fact label="Клиент Steam" text={steam.text} tone={steam.tone} />
       <Fact label="Сессия Community" text={community.text} tone={community.tone}>
         {needsLogin && (
-          <button type="button" className="tactile-btn" disabled={!s.available || session === 'login_open' || busy !== null} onClick={() => send('login')}>
+          <button type="button" className="tactile-btn" aria-disabled={loginOff} onClick={() => { if (!loginOff) send('login'); }}>
             <LogIn className="ui-icon" aria-hidden="true" focusable="false" /> Войти в Steam
           </button>
         )}
-        <button type="button" className="tactile-btn" disabled={!s.available || session === 'checking' || session === 'login_open' || busy !== null} onClick={() => send('check')}>
+        <button type="button" className="tactile-btn" aria-disabled={checkOff} onClick={() => { if (!checkOff) send('check'); }}>
           <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Проверить
         </button>
       </Fact>
@@ -73,7 +78,7 @@ export const RiskGate: React.FC<{ busy: SteamIdleCommand | null; send: Send }> =
         <span>Я понимаю риск для аккаунта</span>
       </label>
       <div className="sidle-actions">
-        <button type="button" className="chunky-cta" disabled={!understood || busy !== null} onClick={() => send('ack')}>
+        <button type="button" className="chunky-cta" disabled={!understood} aria-disabled={busy !== null} onClick={() => { if (busy === null) send('ack'); }}>
           Включить Steam IDLE
         </button>
       </div>
@@ -91,16 +96,21 @@ export const UnavailablePanel: React.FC<{ s: SteamIdleState }> = ({ s }) => (
 const PRIMARY_STATES = new Set(['idle', 'done', 'stopped', 'needs_login']);
 const ACTIVE_STATES = new Set(['scanning', 'farming', 'waiting', 'suspended']);
 
-export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; refusal: string | null; send: Send }> = ({ s, busy, refusal, send }) => {
+export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; takeFocus: boolean; send: Send }> = ({ s, busy, takeFocus, send }) => {
   const { farm } = s;
   const cur = farm.current;
   const off = busy !== null || !s.available;
+  const go = (command: SteamIdleCommand) => () => { if (!off) send(command); };
+  const known = KNOWN_FARM_STATES.has(farm.state);
   const hasWork = farm.queue.length > 0 || cur !== null || farm.done.length > 0 || farm.failed.length > 0;
   const nothing = farm.state === 'idle' && !hasWork;
+  const stateRef = useRef<HTMLParagraphElement>(null);
+  // The risk gate (with the focused button) was just replaced by this panel: keep the keyboard user here.
+  useEffect(() => { if (takeFocus) stateRef.current?.focus(); }, [takeFocus]);
   return (
     <section className="titanium-island sidle-farm" aria-labelledby="sidle-farm-title">
       <h2 id="sidle-farm-title" className="sidle-title">Фарм карточек</h2>
-      <p className="sidle-state" aria-live="polite">{farmStateText(farm.state, farm.lastError)}</p>
+      <p ref={stateRef} tabIndex={-1} className="sidle-state" aria-live="polite">{farmStateText(farm.state, farm.lastError)}</p>
       {cur && (
         <div className="sidle-current">
           <span className="sidle-game" title={cur.name}>{cur.name}</span>
@@ -113,25 +123,22 @@ export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
       {nothing && s.available && s.community.session !== 'signed_out' && (
         <>
           <p className="sidle-text">Карточек для фарма нет</p>
-          {s.library.count !== null && <p className="sidle-meta"><span>игр в библиотеке: <b className="tabular">{s.library.count}</b></span></p>}
+          {hasCount(s.library?.count) && <p className="sidle-meta"><span>игр в библиотеке: <b className="tabular">{s.library.count}</b></span></p>}
         </>
       )}
-      {(farm.totalDropsRemaining > 0 || farm.lastReadAgeSeconds !== null) && (
+      {(hasCount(farm.totalDropsRemaining) || hasCount(farm.lastReadAgeSeconds)) && (
         <p className="sidle-meta">
-          {farm.totalDropsRemaining > 0 && <span>всего осталось карточек: <b className="tabular">{farm.totalDropsRemaining}</b></span>}
-          {farm.lastReadAgeSeconds !== null && <span>проверено <Dur s={farm.lastReadAgeSeconds} /> назад</span>}
+          {hasCount(farm.totalDropsRemaining) && farm.totalDropsRemaining > 0 && <span>всего осталось карточек: <b className="tabular">{farm.totalDropsRemaining}</b></span>}
+          {hasCount(farm.lastReadAgeSeconds) && <span>проверено <Dur s={farm.lastReadAgeSeconds} /> назад</span>}
         </p>
       )}
       <div className="sidle-actions">
-        {PRIMARY_STATES.has(farm.state) && <button type="button" className="chunky-cta" disabled={off} onClick={() => send('start')}>Начать фарм</button>}
-        {farm.state === 'paused' && <button type="button" className="chunky-cta" disabled={off} onClick={() => send('resume')}>Продолжить</button>}
-        {(ACTIVE_STATES.has(farm.state)) && <button type="button" className="tactile-btn" disabled={off} onClick={() => send('pause')}>Пауза</button>}
-        {farm.state === 'farming' && cur && <button type="button" className="tactile-btn" disabled={off} onClick={() => send('skip')}>Пропустить игру</button>}
-        {(ACTIVE_STATES.has(farm.state) || farm.state === 'paused') && <button type="button" className="tactile-btn" disabled={off} onClick={() => send('stop')}>Остановить</button>}
+        {PRIMARY_STATES.has(farm.state) && <button type="button" className="chunky-cta" aria-disabled={off} onClick={go('start')}>Начать фарм</button>}
+        {farm.state === 'paused' && <button type="button" className="chunky-cta" aria-disabled={off} onClick={go('resume')}>Продолжить</button>}
+        {(ACTIVE_STATES.has(farm.state)) && <button type="button" className="tactile-btn" aria-disabled={off} onClick={go('pause')}>Пауза</button>}
+        {farm.state === 'farming' && cur && <button type="button" className="tactile-btn" aria-disabled={off} onClick={go('skip')}>Пропустить игру</button>}
+        {(ACTIVE_STATES.has(farm.state) || farm.state === 'paused' || !known) && <button type="button" className="tactile-btn" aria-disabled={off} onClick={go('stop')}>Остановить</button>}
       </div>
-      {refusal && (
-        <p className="sidle-refusal" role="alert"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {refusalText(refusal)}</p>
-      )}
     </section>
   );
 };
@@ -179,7 +186,7 @@ export const Lists: React.FC<{ s: SteamIdleState }> = ({ s }) => {
 
 export const Skeleton: React.FC = () => (
   <div className="sidle-skel" aria-busy="true">
-    <span className="sr-only" role="status">Загрузка Steam IDLE…</span>
+    <span className="sr-only" role="status" data-overflow-ok>Загрузка Steam IDLE…</span>
     <section className="titanium-island sidle-ready" aria-hidden="true">
       {[0, 1, 2].map((n) => (
         <div key={n} className="sidle-fact"><span className="sk-bar" style={{ width: '40%', height: '0.9em' }} /><span className="sk-bar" style={{ width: '75%', height: '1.1em' }} /></div>

@@ -1,10 +1,13 @@
 """Offline checks for the community reader, driven by a fake script run through the current interpreter."""
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
-from steam_idle.community import CommunityError, GameDrops, OwnedGame, farmable, read_drops, read_library, read_status
+from steam_idle.community import (CommunityError, GameDrops, OwnedGame, farmable, kill_in_flight, read_drops,
+                                  read_library, read_status)
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
 
 FAKE = Path(__file__).with_name("fake_community.py")
@@ -83,6 +86,32 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "timeout")
         self.assertTrue(self.pidfile.exists(), "the fake script never reached its sleep")
         self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+
+    def test_kill_in_flight_ends_a_running_read_and_its_tree(self):
+        outcome = []
+
+        def run():
+            try:
+                read_drops(self.fake("hang"), timeout=60.0)
+            except CommunityError as error:
+                outcome.append(error.code)
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        for _ in range(100):
+            if self.pidfile.exists() and self.pidfile.read_text().strip().count(" ") == 1:
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.pidfile.exists(), "the fake script never reached its sleep")
+        kill_in_flight()
+        worker.join(15)
+        self.assertFalse(worker.is_alive(), "the read kept running after kill_in_flight")
+        self.assertEqual(len(outcome), 1)
+        self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+    def test_kill_in_flight_without_a_read_is_harmless(self):
+        kill_in_flight()
 
 
 class AccountMatchTests(unittest.TestCase):

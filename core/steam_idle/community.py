@@ -43,6 +43,18 @@ class CommunityError(Exception):
         self.code = code
 
 
+_LIVE: "set[subprocess.Popen]" = set()  # script processes of the reads in flight
+_LIVE_LOCK = threading.Lock()
+
+
+def kill_in_flight() -> None:
+    """Kill the process tree of every read in flight; each blocked read then fails and returns (used on shutdown)."""
+    with _LIVE_LOCK:
+        procs = list(_LIVE)
+    for proc in procs:
+        kill_tree(proc)
+
+
 def _read_lines(stream, lines: "queue.Queue[str | None]") -> None:
     try:
         for line in stream:
@@ -74,6 +86,8 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
     except OSError as error:
         logger.error("community %s start failed: %s", verb, error)
         raise CommunityError("start_failed") from error
+    with _LIVE_LOCK:
+        _LIVE.add(proc)
     lines: "queue.Queue[str | None]" = queue.Queue()
     reader = threading.Thread(target=_read_lines, args=(proc.stdout, lines), daemon=True)
     reader.start()
@@ -85,6 +99,8 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
         raise
     finally:
         kill_tree(proc)  # also reaps a browser the script may have left behind
+        with _LIVE_LOCK:
+            _LIVE.discard(proc)
         reader.join(timeout=2)
         for stream in (proc.stdin, proc.stdout):
             if stream is not None:

@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SteamIdleState } from '../../types';
 import { LoadState, initialLoad, loadFailed, loadOk, loadRetry } from '../../utils/dataLoad';
+import { refusalApplies } from './steamIdleText';
 
 const BASE = 'http://127.0.0.1:28492/api/v1/steam-idle';
 const POLL_MS = 3000;
+const SLOW_POLL_MS = 15000;
+const SLOW_AFTER_FAILS = 3;
+const COMMAND_TIMEOUT_MS = 15000;
 
 export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'start' | 'stop' | 'pause' | 'resume' | 'skip';
 const PATHS: Record<SteamIdleCommand, string> = {
@@ -11,23 +15,59 @@ const PATHS: Record<SteamIdleCommand, string> = {
   start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip',
 };
 
-const isState = (json: unknown): json is SteamIdleState => {
-  if (typeof json !== 'object' || json === null) return false;
-  const b = json as Record<string, unknown>;
-  const farm = b.farm as Record<string, unknown> | null | undefined;
-  return typeof b.available === 'boolean' && typeof b.riskAcknowledged === 'boolean'
-    && typeof b.steam === 'object' && b.steam !== null && typeof b.community === 'object' && b.community !== null
-    && typeof farm === 'object' && farm !== null && typeof farm.state === 'string'
-    && Array.isArray(farm.queue) && Array.isArray(farm.done) && Array.isArray(farm.failed);
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isNumOrNull = (v: unknown): boolean => v === null || isNum(v);
+const hasGame = (g: unknown): g is Rec => isRec(g) && isNum(g.appId) && typeof g.name === 'string';
+const REASONS = ['helper_missing', 'node_missing', 'unsupported'];
+const SESSIONS = ['unknown', 'checking', 'signed_in', 'signed_out', 'login_open', 'account_mismatch', 'error'];
+
+/** Checks the whole contract (progress.txt, "Service API contract v1"). Only library, totalDropsRemaining and
+ * lastReadAgeSeconds may be absent: they get neutral defaults so their lines are simply omitted. farm.state may be any string. */
+export const parseState = (json: unknown): SteamIdleState | null => {
+  if (!isRec(json) || !isRec(json.steam) || !isRec(json.community) || !isRec(json.farm)) return null;
+  const { steam, community, farm } = json;
+  const optNum = (v: unknown) => v === undefined || isNum(v);
+  const optNumOrNull = (v: unknown) => v === undefined || isNumOrNull(v);
+  const ok = typeof json.available === 'boolean' && typeof json.riskAcknowledged === 'boolean'
+    && (json.unavailableReason === null || (typeof json.unavailableReason === 'string' && REASONS.includes(json.unavailableReason)))
+    && typeof steam.running === 'boolean' && typeof steam.signedIn === 'boolean'
+    && typeof community.session === 'string' && SESSIONS.includes(community.session) && optNumOrNull(community.checkedAgeSeconds)
+    && typeof farm.state === 'string'
+    && (farm.current === null || (hasGame(farm.current) && isNum(farm.current.dropsRemaining) && isNum(farm.current.heldSeconds)))
+    && Array.isArray(farm.queue) && farm.queue.every((g) => hasGame(g) && isNum(g.dropsRemaining))
+    && Array.isArray(farm.done) && farm.done.every(hasGame)
+    && Array.isArray(farm.failed) && farm.failed.every((g) => hasGame(g) && typeof g.reason === 'string')
+    && optNum(farm.totalDropsRemaining) && optNumOrNull(farm.lastReadAgeSeconds)
+    && (farm.lastError === null || typeof farm.lastError === 'string')
+    && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)));
+  if (!ok) return null;
+  const base = json as unknown as SteamIdleState;
+  return {
+    ...base,
+    community: { ...base.community, checkedAgeSeconds: isNum(community.checkedAgeSeconds) ? community.checkedAgeSeconds : null },
+    farm: {
+      ...base.farm,
+      totalDropsRemaining: isNum(farm.totalDropsRemaining) ? farm.totalDropsRemaining : 0,
+      lastReadAgeSeconds: isNum(farm.lastReadAgeSeconds) ? farm.lastReadAgeSeconds : null,
+    },
+    library: { count: isRec(json.library) && isNum(json.library.count) ? json.library.count : null },
+  };
 };
 
-/** Polls the state every 3 s while the tab is shown (one request at a time, none while the window is hidden). */
+/** Polls the state every 3 s while the tab is shown (one request at a time, none while the window is hidden).
+ * After 3 failed polls in a row it slows to 15 s until one succeeds, and logs once per outage. */
 export function useSteamIdle() {
   const [load, setLoad] = useState<LoadState<SteamIdleState>>(initialLoad);
   const [busy, setBusy] = useState<SteamIdleCommand | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const loop = useRef<{ timer: number | null; abort: AbortController | null; token: number }>({ timer: null, abort: null, token: 0 });
   const alive = useRef(false);
+  const fails = useRef(0);
+  const outageLogged = useRef(false);
+  const inFlight = useRef(false);
+  const sendAbort = useRef<AbortController | null>(null);
 
   const stop = useCallback(() => {
     const l = loop.current;
@@ -45,27 +85,35 @@ export function useSteamIdle() {
     const token = l.token;
     const abort = new AbortController();
     l.abort = abort;
+    const fail = (kind: 'http' | 'network' | 'shape', detail: unknown, status?: number) => {
+      fails.current += 1;
+      if (!outageLogged.current) {
+        outageLogged.current = true;
+        console.error(`Steam IDLE state: ${kind} failure (further failures in this outage are not logged)`, detail);
+      }
+      setLoad((prev) => loadFailed(prev, kind, status ?? null));
+    };
     try {
       const res = await fetch(`${BASE}/state`, { signal: abort.signal });
       if (token !== l.token) return;
-      if (!res.ok) {
-        console.error('Steam IDLE state: the service answered with an error', res.status);
-        setLoad((prev) => loadFailed(prev, 'http', res.status));
-      } else {
+      if (!res.ok) fail('http', res.status, res.status);
+      else {
         const json: unknown = await res.json();
         if (token !== l.token) return;
-        if (isState(json)) setLoad(loadOk(json));
-        else {
-          console.error('Steam IDLE state: unexpected answer shape', json);
-          setLoad((prev) => loadFailed(prev, 'shape'));
-        }
+        const parsed = parseState(json);
+        if (parsed) {
+          fails.current = 0;
+          outageLogged.current = false;
+          setLoad(loadOk(parsed));
+        } else fail('shape', json);
       }
     } catch (e) {
       if (token !== l.token) return;
-      console.error('Steam IDLE state: the request failed or the answer is not JSON', e);
-      setLoad((prev) => loadFailed(prev, 'network'));
+      fail('network', e);
     }
-    if (token === l.token && !document.hidden) l.timer = window.setTimeout(() => void poll(), POLL_MS);
+    if (token === l.token && !document.hidden) {
+      l.timer = window.setTimeout(() => void poll(), fails.current >= SLOW_AFTER_FAILS ? SLOW_POLL_MS : POLL_MS);
+    }
   }, [stop]);
 
   useEffect(() => {
@@ -73,32 +121,65 @@ export function useSteamIdle() {
     void poll();
     const onVisibility = () => { if (document.hidden) stop(); else void poll(); };
     document.addEventListener('visibilitychange', onVisibility);
-    return () => { alive.current = false; document.removeEventListener('visibilitychange', onVisibility); stop(); };
+    return () => {
+      alive.current = false;
+      document.removeEventListener('visibilitychange', onVisibility);
+      stop();
+      sendAbort.current?.abort();
+    };
   }, [poll, stop]);
+
+  // An error that referred to a state that has since changed (for example the risk gate went away) no longer applies.
+  // It is cleared only on that change: a refusal the shown state never agreed with (the poll may lag behind the
+  // service) stays visible until the next command, otherwise the click would appear to do nothing.
+  const data = load.data;
+  const refusalMatched = useRef(false);
+  useEffect(() => {
+    if (refusal === null || !data) { refusalMatched.current = false; return; }
+    if (refusalApplies(refusal, data)) refusalMatched.current = true;
+    else if (refusalMatched.current) setRefusal(null);
+  }, [refusal, data]);
 
   const retry = useCallback(() => { setLoad((prev) => loadRetry(prev)); void poll(); }, [poll]);
 
   const send = useCallback(async (command: SteamIdleCommand) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(command);
     setRefusal(null);
+    const abort = new AbortController();
+    sendAbort.current = abort;
+    let timedOut = false;
+    const timer = window.setTimeout(() => { timedOut = true; abort.abort(); }, COMMAND_TIMEOUT_MS);
     try {
       const res = await fetch(`${BASE}${PATHS[command]}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: command === 'ack' ? JSON.stringify({ accepted: true }) : undefined,
+        signal: abort.signal,
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: unknown };
         const code = typeof body.error === 'string' ? body.error : 'failed';
         console.error('Steam IDLE command refused', command, res.status, code);
-        setRefusal(code);
+        if (alive.current) setRefusal(code);
       }
     } catch (e) {
-      console.error('Steam IDLE command failed', command, e);
-      setRefusal('network');
+      if (timedOut) {
+        console.error('Steam IDLE command timed out', command);
+        if (alive.current) setRefusal('timeout');
+      } else if (alive.current) {
+        console.error('Steam IDLE command failed', command, e);
+        setRefusal('network');
+      }
     } finally {
-      setBusy(null);
-      void poll();
+      window.clearTimeout(timer);
+      sendAbort.current = null;
+      inFlight.current = false;
+      if (alive.current) {
+        setBusy(null);
+        if (!document.hidden) void poll();
+      }
     }
   }, [poll]);
 
