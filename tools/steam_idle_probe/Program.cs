@@ -46,6 +46,16 @@ internal static class Program
                 holding => ClientIdentity.HoldWindows(holdWorkerId, heldAppId, holding));
         }
 
+        if (args is ["--achievements-worker", var achWorkerExpected, var achWorkerApp, var achParentId, var achParentStarted] &&
+            ClientIdentity.TryParse(achWorkerExpected, out ulong achWorkerId) && TryAppId(achWorkerApp, out uint achAppId) &&
+            TryParent(achParentId, achParentStarted, out int achWorkerParentId, out long achWorkerParentStarted))
+        {
+            var parentGone = new CancellationTokenSource();
+            using var parent = IdentityWorker.WatchParent(achWorkerParentId, achWorkerParentStarted, parentGone);
+            return parent is null ? 1 : StreamWorkers.RunAchievements(achAppId, Console.Out, parentGone.Token,
+                () => ClientIdentity.InspectWindowsAchievements(achWorkerId, achAppId, parentGone.Token));
+        }
+
         if (args is ["app", var expectedAppUser, var app] &&
             ClientIdentity.TryParse(expectedAppUser, out ulong appUser) && TryAppId(app, out uint appId))
         {
@@ -95,6 +105,19 @@ internal static class Program
             }
             return await StreamCommands.RunHold(IdentityWorker.WorkerStart("--hold-worker", holdUser, holdAppId), holdAppId,
                 Console.In, Console.Out, TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(5));
+        }
+
+        if (args is ["achievements", var achExpected, var achApp] &&
+            ClientIdentity.TryParse(achExpected, out ulong achUser) && TryAppId(achApp, out uint achievementsAppId))
+        {
+            // Read-only. Only the worker may carry a game context, so the parent still refuses an inherited one.
+            if (ClientIdentity.InheritedGameContext())
+            {
+                Console.WriteLine(StreamProtocol.FailedLine("inherited_game_context"));
+                return 4;
+            }
+            return await StreamCommands.RunAchievements(IdentityWorker.WorkerStart("--achievements-worker", achUser, achievementsAppId),
+                achievementsAppId, Console.Out, TimeSpan.FromSeconds(30));
         }
 
         if (args is ["identity", var expected] && ClientIdentity.TryParse(expected, out ulong steamId))

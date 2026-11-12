@@ -26,6 +26,18 @@ internal static class StreamProtocol
     internal static string FailedLine(string error) => Serialize(new { protocolVersion = Version, status = "failed", error });
     internal static string HoldingLine(uint appId) => Serialize(new { protocolVersion = Version, status = "holding", appId });
 
+    internal static string AchievementLine(AchievementInfo item) => Serialize(new
+    {
+        protocolVersion = Version, apiName = item.ApiName, name = item.Name, description = item.Description,
+        hidden = item.Hidden, achieved = item.Achieved, unlockTime = item.UnlockTime,
+    });
+
+    internal static string AchievementsCompleteLine(uint appId, int count) =>
+        Serialize(new { protocolVersion = Version, status = "complete", appId, count });
+
+    // 2560 characters of text, each possibly escaped to six, plus the fixed keys.
+    private const int MaxAchievementLine = 20000;
+
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
 
     /// <summary>Reads one line without letting an untrusted peer grow it past <paramref name="max"/> characters.</summary>
@@ -106,6 +118,64 @@ internal static class StreamProtocol
         {
             return Violation;
         }
+    }
+
+    /// <summary>
+    /// Validates the whole achievements answer: achievement lines, one "complete" line naming the AppID and the number of
+    /// lines, then EOF. Canonical lines are added to <paramref name="lines"/>. Returns null when valid or the error code.
+    /// </summary>
+    internal static string? ReadAchievementsOutput(TextReader output, uint appId, List<string> lines)
+    {
+        try
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            while (true)
+            {
+                if (ReadBoundedLine(output, MaxAchievementLine) is not { } line)
+                    return "worker_failed";
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                    return Violation;
+                if (FailedCode(root) is { } failure)
+                    return failure;
+                if (IsStatus(root, "complete"))
+                    return IsAchievementsEnd(root, appId, lines.Count) && ReadBoundedLine(output) is null ? null : Violation;
+                if (lines.Count == AchievementReader.MaxAchievements || !TryAchievement(root, out var item) || !seen.Add(item.ApiName))
+                    return Violation;
+                lines.Add(AchievementLine(item));
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        {
+            return Violation;
+        }
+    }
+
+    private static bool IsAchievementsEnd(JsonElement root, uint appId, int count) =>
+        HasShape(root, "protocolVersion", "status", "appId", "count") &&
+        root.GetProperty("appId") is { ValueKind: JsonValueKind.Number } appValue && appValue.TryGetUInt32(out uint seen) && seen == appId &&
+        root.GetProperty("count") is { ValueKind: JsonValueKind.Number } countValue && countValue.TryGetInt32(out int number) && number == count;
+
+    private static bool TryAchievement(JsonElement root, out AchievementInfo item)
+    {
+        item = new("", "", "", false, false, 0);
+        if (!HasShape(root, "protocolVersion", "apiName", "name", "description", "hidden", "achieved", "unlockTime") ||
+            root.GetProperty("apiName") is not { ValueKind: JsonValueKind.String } api || api.GetString() is not { } apiName ||
+            !AchievementReader.IsApiName(apiName) ||
+            root.GetProperty("name") is not { ValueKind: JsonValueKind.String } nameValue || nameValue.GetString() is not { } name ||
+            name.Length > AchievementReader.MaxName ||
+            root.GetProperty("description") is not { ValueKind: JsonValueKind.String } textValue ||
+            textValue.GetString() is not { } description || description.Length > AchievementReader.MaxDescription ||
+            root.GetProperty("hidden").ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+            root.GetProperty("achieved").ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+            root.GetProperty("unlockTime") is not { ValueKind: JsonValueKind.Number } timeValue || !timeValue.TryGetUInt32(out uint unlock))
+            return false;
+        bool achieved = root.GetProperty("achieved").ValueKind == JsonValueKind.True;
+        if (!achieved && unlock != 0)
+            return false;
+        item = new(apiName, name, description, root.GetProperty("hidden").ValueKind == JsonValueKind.True, achieved, unlock);
+        return true;
     }
 
     /// <summary>Expects exactly one status line ("holding" with the AppID, or "released"). Returns null or an error code.</summary>

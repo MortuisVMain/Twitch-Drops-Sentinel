@@ -73,6 +73,67 @@ internal static class StreamCommands
         return 0;
     }
 
+    /// <summary>READ-ONLY achievements: one worker with SteamAppId set, every line validated, nothing printed unless all of it is valid.</summary>
+    internal static async Task<int> RunAchievements(ProcessStartInfo start, uint appId, TextWriter output, TimeSpan timeout)
+    {
+        Redirect(start);
+        // A game context is created on purpose, for the worker only; the parent has already refused an inherited one.
+        start.Environment["SteamAppId"] = appId.ToString(CultureInfo.InvariantCulture);
+        start.Environment.Remove("SteamGameId");
+        start.Environment.Remove("SteamOverlayGameId");
+        using var deadline = new CancellationTokenSource(timeout);
+        var lines = new List<string>();
+        Process? child = null;
+        string? error;
+        bool stopped = true;
+        try
+        {
+            child = Process.Start(start);
+            if (child is null)
+            {
+                error = "worker_start_failed";
+            }
+            else
+            {
+                var worker = child;
+                _ = worker.StandardError.BaseStream.CopyToAsync(Stream.Null);
+                worker.StandardInput.Close();
+                error = await Task.Run(() => StreamProtocol.ReadAchievementsOutput(worker.StandardOutput, appId, lines)).WaitAsync(deadline.Token);
+                if (error is null)
+                {
+                    await worker.WaitForExitAsync(deadline.Token);
+                    if (worker.ExitCode != 0)
+                        error = "worker_failed";
+                }
+            }
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        {
+            error = "worker_timeout";
+        }
+        catch (Win32Exception) when (child is null)
+        {
+            error = "worker_start_failed";
+        }
+        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+        {
+            error = "worker_failed";
+        }
+        finally
+        {
+            if (child is not null)
+                stopped = StopWorker(child, deadline.IsCancellationRequested ? TimeSpan.Zero : ExitGrace);
+        }
+        if (!stopped)
+            error = "worker_cleanup_failed";
+        if (error is not null)
+            return Fail(output, error);
+        foreach (var line in lines)
+            output.WriteLine(line);
+        output.WriteLine(StreamProtocol.AchievementsCompleteLine(appId, lines.Count));
+        return 0;
+    }
+
     internal static async Task<int> RunHold(ProcessStartInfo start, uint appId, TextReader input, TextWriter output,
         TimeSpan startTimeout, TimeSpan releaseTimeout)
     {
@@ -218,6 +279,23 @@ internal static class StreamWorkers
         foreach (var flags in result.Apps)
             output.WriteLine(StreamProtocol.AppLine(flags));
         output.WriteLine(StreamProtocol.CompleteLine(result.Apps.Count));
+        return 0;
+    }
+
+    /// <summary>READ-ONLY achievements worker: prints the lines only after the client session is fully released. Exit 1 when the parent died.</summary>
+    internal static int RunAchievements(uint appId, TextWriter output, CancellationToken parentGone, Func<AchievementsResult> read)
+    {
+        var result = read();
+        if (parentGone.IsCancellationRequested)
+            return 1;
+        if (result.Status is not { Error: null, Identity: "expected_account_confirmed" })
+        {
+            output.WriteLine(StreamProtocol.FailedLine(result.Status.Error ?? "worker_failed"));
+            return 4;
+        }
+        foreach (var item in result.Items)
+            output.WriteLine(StreamProtocol.AchievementLine(item));
+        output.WriteLine(StreamProtocol.AchievementsCompleteLine(appId, result.Items.Count));
         return 0;
     }
 

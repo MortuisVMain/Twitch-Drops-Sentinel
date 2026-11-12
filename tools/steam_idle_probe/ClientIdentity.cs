@@ -51,6 +51,17 @@ internal static class ClientIdentity
         return new(status, status.Error is null && captured is not null ? captured.Apps : []);
     }
 
+    /// <summary>How long a freshly registered process waits for the user's stats of its app before giving up.</summary>
+    internal static readonly TimeSpan StatsTimeout = TimeSpan.FromSeconds(10);
+
+    internal static AchievementsResult InspectWindowsAchievements(ulong expected, uint appId, CancellationToken stop)
+    {
+        AchievementsResult? captured = null;
+        var status = WithWindowsClient(expected, appId,
+            (native, active) => (captured = ReadAchievements(native, expected, active, appId, StatsTimeout, stop)).Status);
+        return new(status, status.Error is null && captured is not null ? captured.Items : []);
+    }
+
     internal static IdentityResult HoldWindows(ulong expected, uint appId, Func<IdentityResult> holding) =>
         WithWindowsClient(expected, appId, (native, active) => Hold(native, expected, active, appId, holding));
 
@@ -126,6 +137,17 @@ internal static class ClientIdentity
             },
             () => new("connected", "expected_account_confirmed"));
         return new(status, status.Error is null ? flags : []);
+    }
+
+    /// <summary>READ-ONLY: one connection, identity and subscription check, then every achievement; items are discarded on any failure.</summary>
+    internal static AchievementsResult ReadAchievements(IClientIdentityNative native, ulong expected, Func<bool> stillActive,
+        uint appId, TimeSpan statsTimeout, CancellationToken stop)
+    {
+        var items = new List<AchievementInfo>();
+        var status = Session(native, expected, stillActive,
+            (user, pipe) => AchievementReader.Collect(native, user, pipe, appId, expected, statsTimeout, stop, items),
+            () => new("connected", "expected_account_confirmed"));
+        return new(status, status.Error is null ? items : []);
     }
 
     /// <summary>Confirms identity and subscription, then runs <paramref name="holding"/> with pipe and user still open.</summary>

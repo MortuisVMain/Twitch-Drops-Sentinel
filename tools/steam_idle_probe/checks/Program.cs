@@ -16,7 +16,7 @@ if (args is ["parent-watch-fixture", var watchedId, var watchedStart])
 
 if (args is ["worker-fixture", var mode, .. var fixtureRest])
 {
-    if (mode.StartsWith("apps-") || mode.StartsWith("hold-"))
+    if (mode.StartsWith("apps-") || mode.StartsWith("hold-") || mode.StartsWith("ach-"))
         return await StreamFixture(mode, fixtureRest);
     if (mode == "orphan-parent")
     {
@@ -89,7 +89,9 @@ try
         ["--identity-worker", "76561197960265770"], ["--apps-worker", "76561197960265770"],
         ["--hold-worker", "76561197960265770", "10"], ["apps"], ["apps", "123"], ["apps", "76561197960265770", "10"],
         ["hold"], ["hold", "76561197960265770"], ["hold", "76561197960265770", "0"], ["hold", "123", "10"],
-        ["hold", "76561197960265770", "10", "extra"] })
+        ["hold", "76561197960265770", "10", "extra"], ["achievements"], ["achievements", "76561197960265770"],
+        ["achievements", "76561197960265770", "0"], ["achievements", "123", "10"], ["achievements", "76561197960265770", "10", "extra"],
+        ["--achievements-worker", "76561197960265770"], ["--achievements-worker", "76561197960265770", "10"] })
     {
         var (exitCode, response) = await RunProbe(arguments);
         using (response)
@@ -111,10 +113,10 @@ try
     foreach (var path in new[] { @"\\server\share", @"\\?\C:\Steam", @"C:Steam", @"C:\Steam:stream", "Steam" })
         Require(!TrustedClient.IsFixedDrivePath(path), "unsafe path");
     CheckSignatureTrust(fixture.FullName);
-    foreach (var workerMode in new[] { "--identity-worker", "--apps-worker", "--hold-worker" })
+    foreach (var workerMode in new[] { "--identity-worker", "--apps-worker", "--hold-worker", "--achievements-worker" })
     {
         using var self = Process.GetCurrentProcess();
-        string[] workerArgs = workerMode == "--hold-worker"
+        string[] workerArgs = workerMode is "--hold-worker" or "--achievements-worker"
             ? [workerMode, "76561197960265770", "10", self.Id.ToString(), (self.StartTime.ToUniversalTime().Ticks + 1).ToString()]
             : [workerMode, "76561197960265770", self.Id.ToString(), (self.StartTime.ToUniversalTime().Ticks + 1).ToString()];
         var (rawExit, rawOut) = await RunRaw(workerArgs);
@@ -243,6 +245,13 @@ try
     Require(Environment.GetEnvironmentVariable("SteamAppId") is null, "hold parent flow leaves no SteamAppId in the parent environment");
     await CheckHoldReleaseTimeout(fixture.FullName);
     await CheckHoldCommand();
+    CheckAchievementsLogic();
+    CheckAchievementsWorker();
+    CheckAchievementsOutputValidation();
+    await CheckAchievementsParent(fixture.FullName);
+    await CheckAchievementsCommand();
+    CheckStatsSlotTables();
+    CheckStatsAbi();
     CheckTrustedFiles(fixture.FullName);
 }
 finally
@@ -392,6 +401,342 @@ static void CheckAppsWorker()
     output = new StringWriter();
     Require(Run(untouched, "abc\n", output) == 2 && Lines(output).SequenceEqual([Failed("invalid_app_list")]) &&
         untouched.Calls.Count == 0, "invalid input never reaches the client");
+}
+
+static string AchLine(string api = "ACH_ONE", string name = "One", string desc = "First", bool hidden = false,
+    bool achieved = true, uint unlock = 1700000000) =>
+    StreamProtocol.AchievementLine(new(api, name, desc, hidden, achieved, achieved ? unlock : 0));
+
+static string AchComplete(uint app, int count) =>
+    $$"""{"protocolVersion":2,"status":"complete","appId":{{app}},"count":{{count}}}""";
+
+static void CheckAchievementsLogic()
+{
+    const ulong expected = 0x011000010000002aUL;
+    const string head = "pipe,user,interface,online,id,apps,subscribed,stats,wait_stats,num";
+    const string tail = "online,id,release_user,release_pipe";
+    const string item = "ach_name,attr,attr,attr,state";
+    static AchievementsResult Read(FakeNative native, Func<bool>? active = null, TimeSpan? timeout = null) =>
+        ClientIdentity.ReadAchievements(native, expected, active ?? (() => true), 10, timeout ?? TimeSpan.FromSeconds(10),
+            CancellationToken.None);
+    static FakeNative Native(params FakeAchievement[] items) => new() { Subscribed = true, Achievements = items };
+    static string Calls(FakeNative native) => string.Join(',', native.Calls);
+    static void Failure(FakeNative native, string code, string calls, string scenario)
+    {
+        var result = Read(native);
+        Require(result.Status.Error == code && result.Items.Count == 0, $"{scenario}: error {code}, no items");
+        Require(Calls(native) == calls, $"{scenario}: calls {Calls(native)}");
+    }
+
+    var happy = Native(new FakeAchievement("ACH_ONE", "One", "First", "0", true, 1700000000),
+        new FakeAchievement("ACH_TWO", "Two", "Second", "1", false, 0));
+    var result = Read(happy);
+    Require(result.Status is { Error: null, Identity: "expected_account_confirmed" } && result.Items.SequenceEqual(
+        [new AchievementInfo("ACH_ONE", "One", "First", false, true, 1700000000),
+         new AchievementInfo("ACH_TWO", "Two", "Second", true, false, 0)]), "achievements read in API order");
+    Require(Calls(happy) == $"{head},{item},{item},{tail}", $"achievements call order and release: {Calls(happy)}");
+    Require(happy.WaitedFor == TimeSpan.FromSeconds(10), "stats wait uses the injected limit");
+    Require(AchLine() == """{"protocolVersion":2,"apiName":"ACH_ONE","name":"One","description":"First","hidden":false,"achieved":true,"unlockTime":1700000000}""",
+        "achievement line contract");
+
+    var locked = Read(Native(new FakeAchievement("LOCKED", Achieved: false, UnlockTime: 5)));
+    Require(locked.Items is [{ Achieved: false, UnlockTime: 0 }], "a locked achievement reports unlock time 0");
+
+    var zero = Native();
+    Require(Read(zero) is { Status.Error: null, Items.Count: 0 } && Calls(zero) == $"{head},{tail}", "zero achievements is complete");
+
+    foreach (uint count in new[] { 10001u, uint.MaxValue })
+        Failure(new FakeNative { Subscribed = true, NumOverride = count }, "stats_implausible",
+            $"{head},release_user,release_pipe", $"count {count}");
+    var cap = Read(new FakeNative { Subscribed = true, Achievements = Enumerable.Range(0, 10000).Select(i => new FakeAchievement($"A{i}")).ToList() });
+    Require(cap.Status.Error is null && cap.Items.Count == 10000, "10000 achievements accepted");
+
+    foreach (var bad in new string?[] { null, "", "Café", "A\tB", new string('A', 129), "☃" })
+        Failure(Native(new FakeAchievement(bad)), "stats_implausible", $"{head},ach_name,release_user,release_pipe",
+            $"first api name {bad?.Length.ToString() ?? "null"} is implausible");
+    Require(Read(Native(new FakeAchievement(new string('A', 128)), new FakeAchievement("A B"))).Items.Count == 2,
+        "128 printable ASCII characters and a space are valid");
+    Failure(Native(new FakeAchievement("OK"), new FakeAchievement("Café")), "stats_implausible",
+        $"{head},{item},ach_name,release_user,release_pipe", "later non-ASCII api name discards the earlier items");
+    Failure(Native(new FakeAchievement("OK"), new FakeAchievement("OK")), "stats_implausible",
+        $"{head},{item},{item},release_user,release_pipe", "duplicate api name");
+    foreach (var hidden in new string?[] { "x", "", "2", null })
+        Failure(Native(new FakeAchievement("OK", Hidden: hidden)), "stats_implausible",
+            $"{head},ach_name,attr,attr,attr,release_user,release_pipe", $"hidden attribute {hidden ?? "null"}");
+    Failure(Native(new FakeAchievement("OK", Name: null)), "stats_implausible", $"{head},ach_name,attr,release_user,release_pipe", "null name");
+    Failure(Native(new FakeAchievement("OK", Description: null)), "stats_implausible",
+        $"{head},ach_name,attr,attr,release_user,release_pipe", "null description");
+
+    var longText = Read(Native(new FakeAchievement("OK", new string('n', 600), new string('d', 3000))));
+    Require(longText.Items is [{ Name.Length: 512, Description.Length: 2048 }], "over-long strings truncated to 512 / 2048");
+    var split = Read(Native(new FakeAchievement("OK", new string('a', 511) + "\U0001F600tail")));
+    Require(split.Items is [{ Name: var kept }] && kept == new string('a', 511), "truncation never splits a surrogate pair");
+
+    var offline = new FakeNative { Subscribed = true, StatsAvailable = false };
+    var started = Stopwatch.StartNew();
+    var timedOut = Read(offline, timeout: TimeSpan.FromMilliseconds(200));
+    Require(timedOut.Status.Error == "stats_unavailable" && timedOut.Items.Count == 0 && started.Elapsed < TimeSpan.FromSeconds(5) &&
+        offline.WaitedFor == TimeSpan.FromMilliseconds(200) &&
+        Calls(offline) == "pipe,user,interface,online,id,apps,subscribed,stats,wait_stats,release_user,release_pipe",
+        "stats never available -> stats_unavailable, nothing else called");
+    Failure(new FakeNative { Subscribed = true, StatsInterface = false }, "stats_interface_unsupported",
+        "pipe,user,interface,online,id,apps,subscribed,stats,release_user,release_pipe", "no stats interface");
+    Failure(new FakeNative { Subscribed = true, Id = expected + 1 }, "account_mismatch",
+        "pipe,user,interface,online,id,release_user,release_pipe", "identity mismatch");
+    Failure(new FakeNative { Subscribed = false }, "app_not_subscribed",
+        "pipe,user,interface,online,id,apps,subscribed,release_user,release_pipe", "not subscribed");
+    Failure(new FakeNative { Subscribed = true, SecondId = expected + 1, Achievements = [new("OK")] }, "active_account_changed",
+        $"{head},{item},{tail}", "account changed after reading");
+    Failure(new FakeNative { Subscribed = true, PipeReleased = false, Achievements = [new("OK")] }, "pipe_release_failed",
+        $"{head},{item},{tail}", "release failure");
+    var inactive = new FakeNative { Subscribed = true };
+    Require(Read(inactive, () => false).Status.Error == "active_account_changed" && inactive.Calls.Count == 0, "inactive account never reaches the client");
+}
+
+static void CheckAchievementsWorker()
+{
+    const ulong expected = 0x011000010000002aUL;
+    static int Run(FakeNative native, StringWriter output, CancellationToken gone = default) =>
+        StreamWorkers.RunAchievements(10, output, gone, () => ClientIdentity.ReadAchievements(native, expected, () => true, 10,
+            TimeSpan.FromMilliseconds(100), gone));
+    var native = new FakeNative { Subscribed = true, Achievements = [new("ACH_ONE", "One", "First", "0", true, 1700000000),
+        new("ACH_TWO", "Two", "Second", "1")] };
+    var output = new StringWriter();
+    Require(Run(native, output) == 0 && Lines(output).SequenceEqual([AchLine(), AchLine("ACH_TWO", "Two", "Second", true, false), AchComplete(10, 2)]),
+        "achievements worker lines");
+    output = new StringWriter();
+    Require(Run(new FakeNative { Subscribed = true }, output) == 0 && Lines(output).SequenceEqual([AchComplete(10, 0)]), "worker empty list");
+    foreach (var (failing, code) in new[] { (new FakeNative { Subscribed = true, Id = expected + 1 }, "account_mismatch"),
+        (new FakeNative { Subscribed = true, StatsAvailable = false }, "stats_unavailable"),
+        (new FakeNative { Subscribed = true, NumOverride = 10001 }, "stats_implausible") })
+    {
+        output = new StringWriter();
+        Require(Run(failing, output) == 4 && Lines(output).SequenceEqual([Failed(code)]), $"worker {code}: only the failed line");
+        Require(failing.Calls.TakeLast(2).SequenceEqual(["release_user", "release_pipe"]), $"worker {code}: released");
+    }
+    using var gone = new CancellationTokenSource();
+    gone.Cancel();
+    var early = new FakeNative { Subscribed = true, Achievements = [new("OK")] };
+    output = new StringWriter();
+    Require(Run(early, output, gone.Token) == 1 && Lines(output).Length == 0 && early.Calls.TakeLast(2).SequenceEqual(["release_user", "release_pipe"]),
+        "parent gone: released, nothing printed");
+}
+
+static void CheckAchievementsOutputValidation()
+{
+    string a = AchLine(), b = AchLine("ACH_TWO", "Two", "Second", true, false), done = AchComplete(10, 2);
+    static string? Validate(string text, List<string> lines) =>
+        StreamProtocol.ReadAchievementsOutput(new StringReader(text), 10, lines);
+    var lines = new List<string>();
+    Require(Validate($"{a}\n{b}\n{done}\n", lines) is null && lines.SequenceEqual([a, b]), "valid achievements stream accepted");
+    lines.Clear();
+    Require(Validate($"{a.Replace(",", ", ")}\n{AchComplete(10, 1)}\n", lines) is null && lines.SequenceEqual([a]), "lines are re-serialised canonically");
+    Require(Validate($"{AchComplete(10, 0)}\n", []) is null, "empty stream accepted");
+    Require(Validate(string.Join('\n', Enumerable.Range(0, 10000).Select(i => AchLine($"A{i}"))) + $"\n{AchComplete(10, 10000)}\n", []) is null,
+        "10000 lines accepted");
+    Require(Validate(a.Replace("One", new string('x', 512)) + $"\n{AchComplete(10, 1)}\n", []) is null &&
+        Validate(a.Replace("First", new string('x', 2048)) + $"\n{AchComplete(10, 1)}\n", []) is null, "strings at the limit accepted");
+
+    string one = AchComplete(10, 1);
+    var violations = new[]
+    {
+        $"{a.Replace("\"protocolVersion\":2", "\"protocolVersion\":1")}\n{one}\n",
+        $"{a[..^1]},\"x\":1}}\n{one}\n",
+        $"{a.Replace(",\"hidden\":false", "")}\n{one}\n",
+        $"{a.Replace("\"apiName\":\"ACH_ONE\"", "\"apiName\":1")}\n{one}\n",
+        $"{a.Replace("\"name\":\"One\"", "\"name\":null")}\n{one}\n",
+        $"{a.Replace("\"description\":\"First\"", "\"description\":5")}\n{one}\n",
+        $"{a.Replace("\"hidden\":false", "\"hidden\":\"false\"")}\n{one}\n",
+        $"{a.Replace("\"hidden\":false", "\"hidden\":0")}\n{one}\n",
+        $"{a.Replace("\"achieved\":true", "\"achieved\":1")}\n{one}\n",
+        $"{a.Replace("\"achieved\":true", "\"achieved\":null")}\n{one}\n",
+        $"{a.Replace("\"unlockTime\":1700000000", "\"unlockTime\":\"1\"")}\n{one}\n",
+        $"{a.Replace("\"unlockTime\":1700000000", "\"unlockTime\":-1")}\n{one}\n",
+        $"{a.Replace("\"unlockTime\":1700000000", "\"unlockTime\":1.5")}\n{one}\n",
+        $"{a.Replace("\"unlockTime\":1700000000", "\"unlockTime\":4294967296")}\n{one}\n",
+        $"{a.Replace("\"unlockTime\":1700000000", "\"unlockTime\":null")}\n{one}\n",
+        $"{a.Replace("\"unlockTime\":1700000000", "\"unlockTime\":true")}\n{one}\n",
+        $"{a.Replace("\"achieved\":true", "\"achieved\":false")}\n{one}\n",
+        $"{a.Replace("ACH_ONE", "")}\n{one}\n",
+        $"{a.Replace("ACH_ONE", "Caf\\u00e9")}\n{one}\n",
+        $"{a.Replace("ACH_ONE", new string('A', 129))}\n{one}\n",
+        $"{a.Replace("ACH_ONE", "A\\tB")}\n{one}\n",
+        $"{a.Replace("One", new string('x', 513))}\n{one}\n",
+        $"{a.Replace("First", new string('x', 2049))}\n{one}\n",
+        $"{a}\n{a}\n{AchComplete(10, 2)}\n",
+        $"{a}\n{b}\n{AchComplete(10, 3)}\n",
+        $"{a}\n{b}\n{AchComplete(10, 1)}\n",
+        $"{a}\n{b}\n{AchComplete(11, 2)}\n",
+        $"{a}\n{b}\n{done[..^1]},\"x\":1}}\n",
+        $"{a}\n{b}\n{done.Replace(",\"appId\":10", "")}\n",
+        $"{a}\n{b}\n{done.Replace("\"count\":2", "\"count\":\"2\"")}\n",
+        $"{a}\n{b}\n{done.Replace("\"count\":2", "\"count\":2.5")}\n",
+        $"{a}\n{b}\n{done.Replace("\"count\":2", "\"count\":-2")}\n",
+        $"{a}\n{b}\n{done.Replace("\"count\":2", "\"count\":null")}\n",
+        $"{a}\n{b}\n{done.Replace("\"appId\":10", "\"appId\":\"10\"")}\n",
+        $"{a}\n{b}\n{done}\nextra\n",
+        $"{a}\n{b}\n{done}\n{a}\n",
+        $"{AchComplete(10, 0)}\n{a}\n",
+        $"untrusted stdout\n{a}\n{one}\n",
+        $"[1]\n{one}\n",
+        $"{a}\n{Failed("Bad Code!")}\n",
+        $"{Failed("x")[..^1]},\"y\":1}}\n",
+        new string('x', 30000) + "\n",
+        string.Join('\n', Enumerable.Range(0, 10001).Select(i => AchLine($"A{i}"))) + $"\n{AchComplete(10, 10001)}\n",
+    };
+    foreach (var text in violations)
+        Require(Validate(text, []) == "worker_protocol_violation", $"achievements violation rejected: {text[..Math.Min(text.Length, 90)]}");
+    Require(Validate($"{a}\n", []) == "worker_failed" && Validate("", []) == "worker_failed", "truncated achievements stream");
+    Require(Validate($"{a}\n{Failed("stats_unavailable")}\n", []) == "stats_unavailable", "worker failure code passes through");
+}
+
+static async Task CheckAchievementsParent(string scratch)
+{
+    static async Task<(int Exit, string[] Lines)> Run(string mode, TimeSpan timeout, params string[] extra)
+    {
+        var output = new StringWriter();
+        int exit = await StreamCommands.RunAchievements(FixtureWorker(mode, extra), 10, output, timeout);
+        return (exit, Lines(output));
+    }
+
+    var (exit, lines) = await Run("ach-ok", TimeSpan.FromSeconds(20));
+    Require(exit == 0 && lines.SequenceEqual([AchLine(), AchLine("ACH_TWO", "Two", "Second", true, false), AchComplete(10, 2)]),
+        "validated achievements forwarded");
+    (exit, lines) = await Run("ach-empty", TimeSpan.FromSeconds(20));
+    Require(exit == 0 && lines.SequenceEqual([AchComplete(10, 0)]), "empty achievements completes");
+    (exit, lines) = await Run("ach-env", TimeSpan.FromSeconds(20));
+    Require(exit == 0 && lines[0].Contains("\"APP_10\""), "the worker (and only the worker) sees SteamAppId");
+    Require(Environment.GetEnvironmentVariable("SteamAppId") is null, "achievements parent leaves no SteamAppId behind");
+    foreach (var (mode, code) in new[] { ("ach-extra", "worker_protocol_violation"), ("ach-noise", "worker_protocol_violation"),
+        ("ach-wrongapp", "worker_protocol_violation"), ("ach-badcount", "worker_protocol_violation"),
+        ("ach-failed", "stats_unavailable"), ("ach-truncated", "worker_failed"), ("ach-badexit", "worker_failed") })
+    {
+        (exit, lines) = await Run(mode, TimeSpan.FromSeconds(20));
+        Require(exit == 4 && lines.SequenceEqual([Failed(code)]), $"{mode} yields only the failed line");
+    }
+    string pidFile = Path.Combine(scratch, "ach-hang.pid");
+    var started = Stopwatch.StartNew();
+    (exit, lines) = await Run("ach-hang", TimeSpan.FromSeconds(3), pidFile);
+    Require(exit == 4 && lines.SequenceEqual([Failed("worker_timeout")]) && started.Elapsed < TimeSpan.FromSeconds(10), "achievements total timeout");
+    await RequireGone(pidFile);
+}
+
+static async Task CheckAchievementsCommand()
+{
+    foreach (var inherited in new[] { "480", "10" })
+    {
+        var (exit, response) = await RunProbe(["achievements", "76561197960265770", "10"], inherited);
+        using (response)
+            Require(exit == 4 && response.RootElement.GetProperty("error").GetString() == "inherited_game_context" &&
+                response.RootElement.EnumerateObject().Count() == 3, "achievements parent keeps the inherited game context guard");
+    }
+}
+
+static void CheckStatsSlotTables()
+{
+    string[] readOnly = ["RequestCurrentStats", "GetAchievementAndUnlockTime", "GetAchievementDisplayAttribute", "GetNumAchievements",
+        "GetAchievementName"];
+    string[] mutating = ["SetAchievement", "ClearAchievement", "SetStat", "StoreStats", "ResetAllStats", "IndicateAchievementProgress",
+        "UpdateAvgRateStat"];
+    var layouts = WindowsSteamClient.StatsLayouts;
+    Require(layouts.Select(layout => layout.Version).SequenceEqual(
+        ["STEAMUSERSTATS_INTERFACE_VERSION013", "STEAMUSERSTATS_INTERFACE_VERSION012"]), "newest interface version is asked first");
+    foreach (var layout in layouts)
+    {
+        Require(layout.Slots.Keys.All(readOnly.Contains) && !layout.Slots.Keys.Any(mutating.Contains), $"{layout.Version} slot table is read-only");
+        Require(layout.Slots.Values.Distinct().Count() == layout.Slots.Count && layout.Slots.Values.All(slot => slot >= 0), $"{layout.Version} slots distinct");
+    }
+    Require(!layouts[0].Slots.ContainsKey("RequestCurrentStats") && layouts[1].Slots["RequestCurrentStats"] == 0,
+        "only the older table has RequestCurrentStats");
+    Require(layouts[1].Slots["GetAchievementAndUnlockTime"] == 9 && layouts[1].Slots["GetAchievementDisplayAttribute"] == 12 &&
+        layouts[1].Slots["GetNumAchievements"] == 14 && layouts[1].Slots["GetAchievementName"] == 15, "VERSION012 slots");
+    Require(layouts[0].Slots["GetAchievementAndUnlockTime"] == 8 && layouts[0].Slots["GetAchievementDisplayAttribute"] == 11 &&
+        layouts[0].Slots["GetNumAchievements"] == 13 && layouts[0].Slots["GetAchievementName"] == 14, "VERSION013 slots");
+}
+
+static void CheckStatsAbi()
+{
+    string[] mutating = ["SetAchievement", "ClearAchievement", "SetStat", "StoreStats", "ResetAllStats", "IndicateAchievementProgress",
+        "UpdateAvgRateStat", "RequestCurrentStats"];
+    foreach (var layout in WindowsSteamClient.StatsLayouts)
+    {
+        nint table = Marshal.AllocHGlobal(32 * IntPtr.Size);
+        nint instance = Marshal.AllocHGlobal(IntPtr.Size);
+        nint apiName = Marshal.StringToCoTaskMemUTF8("ACH_ONE");
+        nint text = Marshal.StringToCoTaskMemUTF8("Café ☃");
+        nint hidden = Marshal.StringToCoTaskMemUTF8("1");
+        uint reported = 2;
+        bool stateReady = true;
+        WindowsSteamClient.NumAchievementsMethod num = self => self == instance ? reported : 99u;
+        WindowsSteamClient.AchievementNameMethod name = (self, index) => index == 0 ? apiName : 0;
+        WindowsSteamClient.DisplayAttributeMethod attribute = (self, api, key) =>
+            api != "ACH_ONE" ? 0 : key switch { "name" or "desc" => text, "hidden" => hidden, _ => 0 };
+        bool writesOutputs = true;
+        WindowsSteamClient.UnlockTimeMethod state = (nint self, string api, ref byte achieved, ref uint unlock) =>
+        {
+            if (writesOutputs)
+            {
+                achieved = 1;
+                unlock = 1700000000;
+            }
+            return api == "ACH_ONE" && stateReady;
+        };
+        try
+        {
+            for (int i = 0; i < 32; i++) Marshal.WriteIntPtr(table, i * IntPtr.Size, 0);
+            Marshal.WriteIntPtr(table, layout.Slots["GetNumAchievements"] * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(num));
+            Marshal.WriteIntPtr(table, layout.Slots["GetAchievementName"] * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(name));
+            Marshal.WriteIntPtr(table, layout.Slots["GetAchievementDisplayAttribute"] * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(attribute));
+            Marshal.WriteIntPtr(table, layout.Slots["GetAchievementAndUnlockTime"] * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(state));
+            Marshal.WriteIntPtr(instance, table);
+            var client = new WindowsSteamClient();
+            client.AttachStats(instance, layout);
+            Require(client.GetNumAchievements() == 2, $"{layout.Version}: count slot and unsigned return");
+            Require(client.GetAchievementName(0) == "ACH_ONE" && client.GetAchievementName(1) is null, $"{layout.Version}: name slot, null pointer");
+            Require(client.GetDisplayAttribute("ACH_ONE", "desc") == "Café ☃", $"{layout.Version}: UTF-8 text copied");
+            Require(client.GetDisplayAttribute("ACH_ONE", "hidden") == "1" && client.GetDisplayAttribute("OTHER", "name") is null,
+                $"{layout.Version}: attribute slot");
+            Require(client.GetAchievementState("ACH_ONE", out bool achieved, out uint unlock) && achieved && unlock == 1700000000,
+                $"{layout.Version}: unlock-time slot and one-byte flag");
+            writesOutputs = false;
+            Require(!client.GetAchievementState("ACH_ONE", out bool untouched, out _) && !untouched,
+                $"{layout.Version}: a function that returns true without writing the flag is not trusted");
+            writesOutputs = true;
+            Require(client.BoundStatsSlots.All(slot => !mutating.Contains(slot)) && client.BoundStatsSlots.Count == 4,
+                $"{layout.Version}: only read slots were bound ({string.Join(',', client.BoundStatsSlots)})");
+            if (!layout.Slots.ContainsKey("RequestCurrentStats"))
+            {
+                // No callback exists on this table: loaded means a readable schema and state.
+                var watch = Stopwatch.StartNew();
+                Require(client.WaitForStats(10, 1, TimeSpan.FromSeconds(5), CancellationToken.None) && watch.Elapsed < TimeSpan.FromSeconds(1),
+                    $"{layout.Version}: loaded stats are detected at once");
+                stateReady = false;
+                watch.Restart();
+                Require(!client.WaitForStats(10, 1, TimeSpan.FromMilliseconds(300), CancellationToken.None) &&
+                    watch.Elapsed < TimeSpan.FromSeconds(3), $"{layout.Version}: unreadable state is stats_unavailable after the limit");
+                (stateReady, reported) = (true, 0);
+                watch.Restart();
+                Require(client.WaitForStats(10, 1, TimeSpan.FromMilliseconds(500), CancellationToken.None) &&
+                    watch.Elapsed >= TimeSpan.FromMilliseconds(50), $"{layout.Version}: an empty schema settles before it counts as loaded");
+                reported = 99999;
+                Require(client.WaitForStats(10, 1, TimeSpan.FromMilliseconds(500), CancellationToken.None),
+                    $"{layout.Version}: an implausible count is passed on to the reader, not waited for");
+            }
+            client.Dispose();
+        }
+        finally
+        {
+            GC.KeepAlive(num);
+            GC.KeepAlive(name);
+            GC.KeepAlive(attribute);
+            GC.KeepAlive(state);
+            Marshal.FreeCoTaskMem(apiName);
+            Marshal.FreeCoTaskMem(text);
+            Marshal.FreeCoTaskMem(hidden);
+            Marshal.FreeHGlobal(instance);
+            Marshal.FreeHGlobal(table);
+        }
+    }
 }
 
 static async Task RequireGone(string pidFile)
@@ -836,6 +1181,33 @@ static async Task<int> StreamFixture(string mode, string[] rest)
         Console.WriteLine(StreamProtocol.ReleasedLine);
         return 0;
     }
+    if (mode.StartsWith("ach-"))
+    {
+        uint app = uint.Parse(Environment.GetEnvironmentVariable("SteamAppId") ?? "0");
+        if (mode == "ach-hang")
+            await Task.Delay(Timeout.InfiniteTimeSpan);
+        if (mode == "ach-failed")
+        {
+            Console.WriteLine(StreamProtocol.FailedLine("stats_unavailable"));
+            return 4;
+        }
+        AchievementInfo[] items = mode switch
+        {
+            "ach-empty" => [],
+            "ach-env" => [new($"APP_{app}", "Env", "Env", false, false, 0)],
+            _ => [new("ACH_ONE", "One", "First", false, true, 1700000000), new("ACH_TWO", "Two", "Second", true, false, 0)],
+        };
+        if (mode == "ach-noise")
+            Console.WriteLine("untrusted stdout");
+        foreach (var item in mode == "ach-truncated" ? items.Take(1) : items)
+            Console.WriteLine(StreamProtocol.AchievementLine(item));
+        if (mode != "ach-truncated")
+            Console.WriteLine(StreamProtocol.AchievementsCompleteLine(mode == "ach-wrongapp" ? app + 1 : app,
+                items.Length + (mode == "ach-badcount" ? 1 : 0)));
+        if (mode == "ach-extra")
+            Console.WriteLine(StreamProtocol.AchievementLine(items[0] with { ApiName = "ACH_LATE" }));
+        return mode == "ach-badexit" ? 3 : 0;
+    }
     var ids = new List<uint>();
     if (StreamProtocol.ReadAppIds(Console.In, ids) is not null)
         return 2;
@@ -1005,8 +1377,55 @@ internal sealed class RecordingWriter(List<string> calls) : TextWriter
     }
 }
 
-internal sealed class FakeNative : IClientIdentityNative, IClientAppsNative
+/// <summary>Raw native answers for one achievement; strings are what the client would return (null = null pointer).</summary>
+internal sealed record FakeAchievement(string? ApiName, string? Name = "Name", string? Description = "Description",
+    string? Hidden = "0", bool Achieved = false, uint UnlockTime = 0);
+
+internal sealed class FakeNative : IClientIdentityNative, IClientAppsNative, IClientStatsNative
 {
+    internal IReadOnlyList<FakeAchievement> Achievements { get; init; } = [];
+    internal uint? NumOverride { get; init; }
+    internal bool StatsInterface { get; init; } = true;
+    internal bool StatsAvailable { get; init; } = true;
+    internal TimeSpan? WaitedFor { get; private set; }
+    public bool HasStatsInterface(int user, int pipe) => Record("stats", StatsInterface && user == User && pipe == Pipe);
+
+    public bool WaitForStats(uint appId, ulong steamId, TimeSpan timeout, CancellationToken stop)
+    {
+        Record("wait_stats", true);
+        WaitedFor = timeout;
+        if (!StatsAvailable)
+            stop.WaitHandle.WaitOne(timeout);
+        return StatsAvailable;
+    }
+
+    public uint GetNumAchievements() => Record("num", NumOverride ?? (uint)Achievements.Count);
+    private FakeAchievement? _current;
+
+    public string? GetAchievementName(uint index)
+    {
+        _current = index < Achievements.Count ? Achievements[(int)index] : null;
+        return Record("ach_name", _current?.ApiName);
+    }
+
+    private FakeAchievement Current(string apiName) =>
+        _current is { } item && item.ApiName == apiName ? item : throw new ArgumentException("Unexpected achievement " + apiName);
+
+    public string? GetDisplayAttribute(string apiName, string key)
+    {
+        Record("attr", true);
+        var item = Current(apiName);
+        return key switch { "name" => item.Name, "desc" => item.Description, "hidden" => item.Hidden, _ => throw new ArgumentException(key) };
+    }
+
+    public bool GetAchievementState(string apiName, out bool achieved, out uint unlockTime)
+    {
+        Record("state", true);
+        var item = Current(apiName);
+        (achieved, unlockTime) = (item.Achieved, item.UnlockTime);
+        return true;
+    }
+
     internal bool Subscribed { get; init; }
     internal bool Installed { get; init; }
     internal uint[] Known { get; init; } = [10];

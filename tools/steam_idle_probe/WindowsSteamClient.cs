@@ -9,12 +9,13 @@ internal interface IClientAppsNative
     bool IsInstalled(uint appId);
 }
 
-internal sealed class WindowsSteamClient : IClientIdentityNative, IClientAppsNative, IDisposable
+internal sealed partial class WindowsSteamClient : IClientIdentityNative, IClientAppsNative, IDisposable
 {
     private const string ClientVersion = "SteamClient020";
     private const string UserVersion = "SteamUser023";
     private const uint SearchSystem32 = 0x00000800;
     private readonly List<nint> _modules = [];
+    private nint _steamClientModule;
     private nint _client;
     private nint _user;
     private nint _apps;
@@ -32,6 +33,7 @@ internal sealed class WindowsSteamClient : IClientIdentityNative, IClientAppsNat
             native.LoadModule(installation.LibraryPath("tier0_s64.dll"));
             native.LoadModule(installation.LibraryPath("vstdlib_s64.dll"));
             nint steam = native.LoadModule(installation.LibraryPath("steamclient64.dll"));
+            native._steamClientModule = steam;
             if (!NativeLibrary.TryGetExport(steam, "CreateInterface", out nint export))
                 throw new ProbeException("client_export_unsupported");
             var create = Marshal.GetDelegateForFunctionPointer<CreateInterface>(export);
