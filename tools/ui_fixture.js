@@ -13,6 +13,8 @@
 // ?games=<n> serves n campaigns instead of 14 (the extra ones have drops and no queue slot), for the off-queue panel checks (tools/check_override_cards.cjs).
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
+// ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers.
+// ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command answer 409 with that code. Commands land in window.__steamIdlePosts.
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -201,11 +203,77 @@
     out.push('END OF DIAGNOSTIC REPORT');
     return out.join('\n');
   }
+  // Steam IDLE tab: invented games and no account data. The commands move the fake farm along like the real one would.
+  var SI_NAMES = ['Lanternfall Chronicles', 'Brass Meridian', 'Hollow Orchard Tactics', 'Saltmarsh Cartographer: Extended Survey Edition With A Deliberately Long Title For Wrapping', 'Quiet Foundry', 'Pale Harbor', 'Ember Ledger'];
+  var siMode = q.get('steamidle') || 'farming', siCalls = 0, siStart = Date.now();
+  window.__steamIdlePosts = [];
+  function siGame(i, drops) { return { appId: 910000 + i, name: SI_NAMES[i], dropsRemaining: drops }; }
+  function siDone(i) { return { appId: 910000 + i, name: SI_NAMES[i] }; }
+  var si = {
+    available: true, unavailableReason: null, riskAcknowledged: true, steam: { running: true, signedIn: true },
+    community: { session: 'signed_in', checkedAgeSeconds: 40 },
+    farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false },
+    library: { count: 30 },
+  };
+  function siTotal() {
+    var f = si.farm;
+    f.totalDropsRemaining = f.queue.reduce(function (n, g) { return n + g.dropsRemaining; }, 0) + (f.current ? f.current.dropsRemaining : 0);
+  }
+  function siHold() {
+    var f = si.farm;
+    if (!f.queue.length) { f.current = null; f.state = 'done'; siTotal(); return; }
+    f.current = Object.assign({ heldSeconds: 0 }, f.queue.shift());
+    f.state = 'farming'; f.paused = false; f.suspended = false; f.lastError = null; siTotal();
+  }
+  function siFill() {
+    var f = si.farm;
+    f.queue = [siGame(0, 3), siGame(1, 4), siGame(2, 2), siGame(3, 3), siGame(4, 2)];
+    f.done = [siDone(5), siDone(6)]; f.failed = []; f.lastReadAgeSeconds = 95;
+  }
+  if (siMode === 'ack') si.riskAcknowledged = false;
+  else if (siMode === 'signedout') { si.community = { session: 'signed_out', checkedAgeSeconds: 12 }; si.farm.state = 'needs_login'; }
+  else if (siMode === 'mismatch') si.community = { session: 'account_mismatch', checkedAgeSeconds: 12 };
+  else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null }; }
+  else if (siMode === 'farming' || siMode === 'slow') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
+  else if (siMode === 'suspended') { siFill(); si.farm.state = 'suspended'; si.farm.suspended = true; siTotal(); }
+  else if (siMode === 'paused') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; siTotal(); }
+  else if (siMode === 'done') { si.farm.state = 'done'; si.farm.done = [0, 1, 2, 3, 4].map(siDone); si.farm.lastReadAgeSeconds = 20; }
+  else if (siMode === 'error') { si.farm.state = 'stopped'; si.farm.lastError = 'read_failed'; si.farm.done = [siDone(5)]; si.farm.failed = [{ appId: 910003, name: SI_NAMES[3], reason: 'no_progress' }]; si.farm.lastReadAgeSeconds = 400; }
+  function siReply(status, body) {
+    return Promise.resolve({ ok: status < 400, status: status, json: function () { return Promise.resolve(body); }, text: function () { return Promise.resolve(JSON.stringify(body)); } });
+  }
+  function siCommand(cmd) {
+    var f = si.farm;
+    if (cmd === 'ack') si.riskAcknowledged = true;
+    else if (cmd === 'login') si.community = { session: 'login_open', checkedAgeSeconds: null };
+    else if (cmd === 'check') si.community = { session: si.community.session === 'login_open' ? 'login_open' : 'signed_in', checkedAgeSeconds: 0 };
+    else if (cmd === 'farm/start') { if (!f.queue.length && !f.current) siFill(); f.done = f.done.slice(0, 2); f.failed = []; siHold(); }
+    else if (cmd === 'farm/stop') { f.state = 'stopped'; f.current = null; f.paused = false; }
+    else if (cmd === 'farm/pause') { if (f.current) f.queue.unshift({ appId: f.current.appId, name: f.current.name, dropsRemaining: f.current.dropsRemaining }); f.current = null; f.state = 'paused'; f.paused = true; }
+    else if (cmd === 'farm/resume') siHold();
+    else if (cmd === 'farm/skip') { if (f.current) f.done.push({ appId: f.current.appId, name: f.current.name }); siHold(); }
+    siTotal();
+  }
+  function steamIdleFetch(path, init) {
+    var cmd = path.slice('/api/v1/steam-idle/'.length);
+    if (init && init.method === 'POST') {
+      window.__steamIdlePosts.push(cmd);
+      if (q.get('steamidlepost')) return siReply(409, { error: q.get('steamidlepost') });
+      siCommand(cmd);
+      return siReply(200, { ok: true });
+    }
+    siCalls += 1;
+    if (siMode === 'down') return Promise.reject(new TypeError('Failed to fetch'));
+    var body = JSON.parse(JSON.stringify(si));
+    if (siMode === 'slow' && siCalls === 1) return new Promise(function (res) { setTimeout(function () { res(siReply(200, body)); }, SLOW_MS); });
+    return siReply(200, body);
+  }
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+    if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init);
     if (path === '/api/v1/giveaways/browser' && init && init.method === 'POST') {
       var posted = JSON.parse(init.body);
       window.__browserPosts.push(posted);

@@ -1,11 +1,12 @@
 // Steam Community web session in its own browser profile (not the giveaways one), used to read the badges pages.
-// Usage: node steam-community.js login | status | dump <outDir> | drops | library
-// Prints exactly one JSON line to stdout (diagnostics go to stderr); exit code 0 ok, 3 signed out, 4 failure.
+// Usage: node steam-community.js login | dump <outDir> | status|drops|library [--expect=<steamid64>]
+// Prints exactly one JSON line to stdout (diagnostics go to stderr); exit code 0 ok, 3 signed out, 4 failure,
+// 5 the signed-in account is not the expected one (status account_mismatch; the id is never printed).
 // Cookie values, tokens, the SteamID and the account name are never printed, logged or written.
 import path from 'node:path';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { hasNextPage, parseBadgesPage, parseLibrary } from './src/steam_community_parse.js';
+import { extractSteamId, hasNextPage, parseBadgesPage, parseLibrary } from './src/steam_community_parse.js';
 
 const ENGINE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BASE = 'https://steamcommunity.com';
@@ -14,13 +15,15 @@ const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_PAGES = 40;
 const PAGE_GAP_MS = 1500;
 const NAV_TIMEOUT_MS = 45000;
-const EXIT = { signed_in: 0, complete: 0, signed_out: 3, closed: 3 };
+const EXIT = { signed_in: 0, complete: 0, signed_out: 3, closed: 3, account_mismatch: 5 };
 
 export const exitCode = status => EXIT[status] ?? 4;
 
 export const parseArgs = argv => {
   const [command, ...rest] = argv;
   if (['login', 'status', 'drops', 'library'].includes(command) && rest.length == 0) return { command };
+  const expect = /^--expect=(\d{17})$/.exec(rest[0] ?? '')?.[1];
+  if (['status', 'drops', 'library'].includes(command) && rest.length == 1 && expect) return { command, expect };
   if (command == 'dump' && rest.length == 1 && rest[0]) return { command, outDir: rest[0] };
   return { error: 'usage' };
 };
@@ -133,10 +136,27 @@ const dump = async (context, outDir, delay) => {
 // fetch(url) resolves to the page html, null when it landed on a login page, or throws an error with a `code`
 const failure = (error, where) => {
   console.error('steam-community: failed at page %s: %s', where, error.message);
+  if (error.code == 'account_mismatch') return { status: 'account_mismatch' };
   return { status: 'failed', error: error.code ?? 'run_error', page: where };
 };
 
-export const collectDrops = async (fetch, delay) => {
+// with `expect`, every fetched page must name that account in its own data; a missing id counts as a mismatch
+const matching = (fetch, expect) => !expect ? fetch : async url => {
+  const html = await fetch(url);
+  if (html !== null && extractSteamId(html) !== expect) throw new DumpError('account_mismatch');
+  return html;
+};
+
+export const collectStatus = async (fetch, expect) => {
+  try {
+    return { status: await matching(fetch, expect)(`${BASE}/my/badges/?l=english`) === null ? 'signed_out' : 'signed_in' };
+  } catch (error) {
+    return failure(error, 1);
+  }
+};
+
+export const collectDrops = async (pageFetch, delay, expect) => {
+  const fetch = matching(pageFetch, expect);
   const games = new Map();
   let where = 1;
   try {
@@ -155,7 +175,8 @@ export const collectDrops = async (fetch, delay) => {
   }
 };
 
-export const collectLibrary = async fetch => {
+export const collectLibrary = async (pageFetch, expect) => {
+  const fetch = matching(pageFetch, expect);
   try {
     const html = await fetch(`${BASE}/my/games/?tab=all&l=english`);
     if (html === null) return { status: 'signed_out' };
@@ -166,7 +187,7 @@ export const collectLibrary = async fetch => {
   }
 };
 
-const runCommand = async ({ command, outDir }) => {
+const runCommand = async ({ command, outDir, expect }) => {
   // the shared launcher would otherwise hide the window or clear cookies when these are set for the giveaways run
   delete process.env.FGC_MINIMIZE;
   delete process.env.FGC_SWITCH_ACCOUNT;
@@ -181,10 +202,11 @@ const runCommand = async ({ command, outDir }) => {
   try {
     if (command == 'login') return await login(context, delay);
     if (command == 'dump') return await dump(context, outDir, delay);
-    if (command == 'drops' || command == 'library') {
+    if (command == 'drops' || command == 'library' || (command == 'status' && expect)) {
       const page = await context.newPage();
       const fetch = url => fetchHtml(page, url);
-      return command == 'drops' ? await collectDrops(fetch, delay) : await collectLibrary(fetch);
+      if (command == 'status') return await collectStatus(fetch, expect);
+      return command == 'drops' ? await collectDrops(fetch, delay, expect) : await collectLibrary(fetch, expect);
     }
     return { status: await isSignedIn(context) ? 'signed_in' : 'signed_out' };
   } finally {

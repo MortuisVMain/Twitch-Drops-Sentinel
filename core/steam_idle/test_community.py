@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from steam_idle.community import CommunityError, GameDrops, OwnedGame, farmable, read_drops, read_library
+from steam_idle.community import CommunityError, GameDrops, OwnedGame, farmable, read_drops, read_library, read_status
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
 
 FAKE = Path(__file__).with_name("fake_community.py")
@@ -83,6 +83,46 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "timeout")
         self.assertTrue(self.pidfile.exists(), "the fake script never reached its sleep")
         self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
+
+
+class AccountMatchTests(unittest.TestCase):
+    ID = "76561198000000001"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pidfile = Path(self.temp.name) / "pids.txt"
+
+    def fake(self, mode):
+        return [sys.executable, "-S", "-X", "utf8", str(FAKE), mode, str(self.pidfile)]
+
+    def test_expected_id_is_passed_to_the_script(self):
+        self.assertEqual(len(read_drops(self.fake("needs_expect"), expected_steam_id64=self.ID)), 3)
+        self.assertEqual(len(read_library(self.fake("needs_expect"), expected_steam_id64=self.ID)), 2)
+        read_status(self.fake("needs_expect"), expected_steam_id64=self.ID)
+
+    def test_without_expected_id_no_argument_is_added(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_drops(self.fake("needs_expect"))
+        self.assertEqual(caught.exception.code, "failed:no_expect")
+
+    def test_exit_five_is_account_mismatch(self):
+        for call in (read_drops, read_library, read_status):
+            with self.assertRaises(CommunityError) as caught:
+                call(self.fake("mismatch"), expected_steam_id64=self.ID)
+            self.assertEqual(caught.exception.code, "account_mismatch")
+
+    def test_status_signed_in_and_signed_out(self):
+        read_status(self.fake("ok"), expected_steam_id64=self.ID)
+        with self.assertRaises(CommunityError) as caught:
+            read_status(self.fake("signed_out"), expected_steam_id64=self.ID)
+        self.assertEqual(caught.exception.code, "signed_out")
+
+    def test_bad_expected_id_is_refused_before_running_anything(self):
+        for bad in ("123", "", "7656119000000000x"):
+            with self.assertRaises(CommunityError) as caught:
+                read_drops(["no-such-program"], expected_steam_id64=bad)
+            self.assertEqual(caught.exception.code, "invalid_steam_id")
 
 
 class FarmableTests(unittest.TestCase):

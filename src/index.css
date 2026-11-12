@@ -1905,3 +1905,43 @@
       .right-deck-col .middle-console-island:not(.console-collapsed) { flex: 1 0 12rem !important; min-height: 12rem !important; }
     }
   }
+
+/* ==========================================================================
+   STEAM IDLE TAB (tokens only: no colours of its own)
+   ========================================================================== */
+.sidle-root { gap: 10px; }
+.sidle-root .chunky-cta, .sidle-root .tactile-btn { min-height: 32px; font-size: var(--fs-sm); padding: 0 12px; }
+.sidle-root .chunky-cta:disabled, .sidle-root .tactile-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: none; }
+.sidle-root :is(button, input, ul[tabindex]):focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
+.sidle-root .titanium-island { flex-shrink: 0; gap: 8px; }
+.sidle-ready { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; }
+.sidle-fact { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sidle-label { font-size: var(--fs-sm); color: var(--text-muted); }
+.sidle-value { display: flex; align-items: flex-start; gap: 6px; font-size: var(--fs-md); color: var(--text-primary); overflow-wrap: anywhere; }
+.sidle-value .ui-icon { margin-top: 0.2em; }
+.sidle-value.warn, .sidle-title.warn, .sidle-refusal { color: var(--led-amber); }
+.sidle-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sidle-title { margin: 0; font-size: var(--fs-md); font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+.sidle-subtitle { margin: 6px 0 0; font-size: var(--fs-sm); font-weight: 700; color: var(--text-secondary); }
+.sidle-count { color: var(--text-muted); font-weight: 600; }
+.sidle-text, .sidle-list, .sidle-meta { margin: 0; font-size: var(--fs-sm); color: var(--text-secondary); line-height: 1.5; }
+.sidle-list { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.sidle-risk { border-color: var(--led-amber); }
+.sidle-check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: var(--fs-sm); color: var(--text-primary); cursor: pointer; width: fit-content; }
+.sidle-check input { inline-size: 18px; block-size: 18px; accent-color: var(--led-mint); cursor: pointer; margin: 0; }
+.sidle-state { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text-primary); }
+.sidle-current { display: flex; flex-direction: column; gap: 4px; }
+.sidle-game { font-size: var(--fs-md); font-weight: 700; color: var(--text-primary); overflow-wrap: anywhere; }
+.sidle-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.sidle-meta b { color: var(--text-primary); }
+.sidle-refusal { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
+.sidle-list-rows { list-style: none; margin: 0; padding: 0; max-height: 15rem; overflow-y: auto; overflow-x: hidden; }
+.sidle-list-rows.short { max-height: 9rem; }
+.sidle-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 2px; font-size: var(--fs-sm); color: var(--text-primary); border-top: 1px solid var(--border-subtle); }
+.sidle-row:first-child { border-top: 0; }
+.sidle-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.sidle-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidle-row-note { color: var(--text-muted); overflow-wrap: anywhere; }
+.sidle-row-end { color: var(--text-secondary); flex-shrink: 0; }
+.sidle-skel { display: flex; flex-direction: column; gap: 10px; }
+@media (prefers-reduced-motion: reduce) { .sidle-root, .sidle-root * { animation: none !important; transition: none !important; } }

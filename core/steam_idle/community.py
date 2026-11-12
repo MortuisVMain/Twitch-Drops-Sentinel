@@ -10,12 +10,14 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ._helper import command, kill_tree, spawn
+from ._helper import command, kill_tree, spawn, steam_account_id
+from .inventory import InventoryError
 
 logger = logging.getLogger(__name__)
 
 _ERROR_CODE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 _SIGNED_OUT_EXIT = 3
+_MISMATCH_EXIT = 5
 
 
 @dataclass(frozen=True)
@@ -52,10 +54,23 @@ def _read_lines(stream, lines: "queue.Queue[str | None]") -> None:
         lines.put(None)
 
 
-def _run(prefix: Sequence[str], verb: str, timeout: float) -> dict:
-    """Run `<prefix> <verb>`, return its single JSON result line once it is a complete, successful result."""
+def _expect_args(expected_steam_id64: str | None) -> list[str]:
+    """The script's `--expect=<id>` argument; an id that is not a valid SteamID64 is refused before anything runs."""
+    if expected_steam_id64 is None:
+        return []
     try:
-        proc = spawn(command(prefix, verb))
+        steam_account_id(expected_steam_id64)
+    except InventoryError as error:
+        raise CommunityError("invalid_steam_id") from error
+    return [f"--expect={expected_steam_id64}"]
+
+
+def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: str | None = None,
+         ok_status: str = "complete") -> dict:
+    """Run `<prefix> <verb>`, return its single JSON result line once it is a complete, successful result."""
+    extra = _expect_args(expected_steam_id64)
+    try:
+        proc = spawn(command(prefix, verb, *extra))
     except OSError as error:
         logger.error("community %s start failed: %s", verb, error)
         raise CommunityError("start_failed") from error
@@ -64,7 +79,7 @@ def _run(prefix: Sequence[str], verb: str, timeout: float) -> dict:
     reader.start()
     try:
         proc.stdin.close()
-        return _result(proc, lines, timeout)
+        return _result(proc, lines, timeout, ok_status)
     except CommunityError as err:
         logger.error("community %s failed: %s", verb, err.code)
         raise
@@ -76,7 +91,7 @@ def _run(prefix: Sequence[str], verb: str, timeout: float) -> dict:
                 stream.close()
 
 
-def _result(proc: subprocess.Popen, lines: "queue.Queue[str | None]", timeout: float) -> dict:
+def _result(proc: subprocess.Popen, lines: "queue.Queue[str | None]", timeout: float, ok_status: str) -> dict:
     collected: list[str] = []
     deadline = time.monotonic() + timeout
     try:
@@ -88,6 +103,8 @@ def _result(proc: subprocess.Popen, lines: "queue.Queue[str | None]", timeout: f
         returncode = proc.wait(timeout=10)
     except subprocess.TimeoutExpired as error:
         raise CommunityError("timeout") from error
+    if returncode == _MISMATCH_EXIT:
+        raise CommunityError("account_mismatch")
     if len(collected) != 1:
         raise CommunityError("signed_out" if returncode == _SIGNED_OUT_EXIT and not collected else "protocol")
     try:
@@ -100,7 +117,7 @@ def _result(proc: subprocess.Popen, lines: "queue.Queue[str | None]", timeout: f
     if status == "failed":
         code = value.get("error")
         raise CommunityError(f"failed:{code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else 'helper_error'}")
-    if status != "complete" or returncode != 0:
+    if status != ok_status or returncode != 0:
         raise CommunityError("protocol")
     return value
 
@@ -138,14 +155,21 @@ def _library_entry(entry: dict) -> OwnedGame:
     return OwnedGame(app_id, name, minutes)
 
 
-def read_drops(command: Sequence[str], timeout: float = 300.0) -> list[GameDrops]:
+def read_drops(command: Sequence[str], timeout: float = 300.0,
+               expected_steam_id64: str | None = None) -> list[GameDrops]:
     """Every game badge with its remaining card drops; all-or-nothing."""
-    return _games(_run(command, "drops", timeout), _drops_entry)
+    return _games(_run(command, "drops", timeout, expected_steam_id64), _drops_entry)
 
 
-def read_library(command: Sequence[str], timeout: float = 120.0) -> list[OwnedGame]:
+def read_status(command: Sequence[str], timeout: float = 120.0, expected_steam_id64: str | None = None) -> None:
+    """Return when the browser session is signed in (as the expected account, if given); raise CommunityError otherwise."""
+    _run(command, "status", timeout, expected_steam_id64, ok_status="signed_in")
+
+
+def read_library(command: Sequence[str], timeout: float = 120.0,
+                 expected_steam_id64: str | None = None) -> list[OwnedGame]:
     """The owned games; all-or-nothing."""
-    value = _run(command, "library", timeout)
+    value = _run(command, "library", timeout, expected_steam_id64)
     games = _games(value, _library_entry)
     if value.get("count") != len(games):
         raise CommunityError("protocol")

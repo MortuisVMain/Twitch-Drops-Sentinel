@@ -213,7 +213,35 @@ export interface GiveawaysStateResponse {
   totalClaimed: number;
 }
 
-export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'dimmer' | 'settings';
+export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'steamidle' | 'dimmer' | 'settings';
+
+export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped';
+export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | 'signed_out' | 'login_open' | 'account_mismatch' | 'error';
+
+export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaining: number }
+export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }
+export interface SteamIdleFailedGame { appId: number; name: string; reason: string }
+
+export interface SteamIdleState {
+  available: boolean;
+  unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | null;
+  riskAcknowledged: boolean;
+  steam: { running: boolean; signedIn: boolean };
+  community: { session: SteamIdleCommunitySession; checkedAgeSeconds: number | null };
+  farm: {
+    state: SteamIdleFarmState;
+    current: SteamIdleCurrentGame | null;
+    queue: SteamIdleQueuedGame[];
+    done: { appId: number; name: string }[];
+    failed: SteamIdleFailedGame[];
+    totalDropsRemaining: number;
+    lastReadAgeSeconds: number | null;
+    lastError: string | null;
+    paused: boolean;
+    suspended: boolean;
+  };
+  library: { count: number | null };
+}
 
 export interface DisplayMonitor {
   id: string;

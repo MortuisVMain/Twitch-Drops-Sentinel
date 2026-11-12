@@ -7,6 +7,7 @@ import { LiveDashboard } from './components/LiveDashboard';
 import { GameShelf } from './components/GameShelf';
 
 import { GiveawaysView } from './components/GiveawaysView';
+import { SteamIdleView } from './components/SteamIdleView';
 
 import { SettingsStudio } from './components/SettingsStudio';
 
@@ -28,7 +29,7 @@ import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
 import {
-  Ban, Check, ChevronRight, CircleHelp, Copy, CornerDownLeft, Ellipsis, Gamepad2, Gift,
+  Ban, Check, ChevronRight, CircleHelp, Copy, CornerDownLeft, Ellipsis, Gamepad2, Gift, Hourglass,
   LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Pin, Play,
   RefreshCw, Settings, SkipForward, Square, Target,
 } from 'lucide-react';
@@ -1149,6 +1150,19 @@ export const App: React.FC = () => {
 
           </button>
 
+          <button
+
+            className={`tab-btn ${activeTab === 'steamidle' ? 'active' : ''}`}
+
+            onClick={() => handleTabChange('steamidle')}
+            title="Steam IDLE: фарм карточек"
+
+          >
+
+            <span className="tab-ico"><Hourglass className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Steam IDLE</span>
+
+          </button>
+
           <button 
 
             className={`tab-btn ${activeTab === 'dimmer' ? 'active' : ''}`} 
@@ -1782,6 +1796,10 @@ export const App: React.FC = () => {
             />
 
           )}
+
+
+
+          {activeTab === 'steamidle' && <SteamIdleView />}
 
 
 

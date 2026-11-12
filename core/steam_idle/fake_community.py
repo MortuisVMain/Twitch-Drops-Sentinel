@@ -1,6 +1,6 @@
 """Offline stand-in for the community script (`drops` / `library`), used only by the tests.
 
-argv: <mode> <pidfile> <verb>. The pidfile receives "<pid> <child pid>" so tests can prove the tree is gone.
+argv: <mode> <pidfile> <verb> [--expect=<id>]. The pidfile receives "<pid> <child pid>" so tests can prove the tree is gone.
 """
 import json
 import os
@@ -39,6 +39,16 @@ if mode == "failed":
     sys.exit(4)
 if mode == "garbage":
     print("not json", flush=True)
+    sys.exit(0)
+
+if mode == "mismatch":
+    emit({"status": "account_mismatch"})
+    sys.exit(5)
+if mode == "needs_expect" and not (len(sys.argv) > 4 and sys.argv[4].startswith("--expect=")):
+    emit({"status": "failed", "error": "no_expect"})
+    sys.exit(4)
+if verb == "status":
+    emit({"status": "signed_in"})
     sys.exit(0)
 
 if verb == "drops":

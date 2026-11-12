@@ -233,3 +233,58 @@ test('collectLibrary: complete, signed out, load failure and unparsed data', asy
   await sc.collectLibrary(fetch);
   assert.deepEqual(fetch.urls, ['https://steamcommunity.com/my/games/?tab=all&l=english']);
 });
+
+// ---- account match: --expect=<steamid64> compared with the id embedded in the fetched page ----
+const FAKE_ID = '76561190000000001';
+const OTHER_ID = '76561190000000002';
+const withId = (id, html) => `<script>g_steamID = "${id}";</script>${html}`;
+
+test('extractSteamId: the 17-digit g_steamID of the page, null for a signed-out page or anything else', () => {
+  assert.equal(parse.extractSteamId(fixture('badges-synthetic.html')), FAKE_ID);
+  assert.equal(parse.extractSteamId(fixture('library-sample.html')), FAKE_ID);
+  assert.equal(parse.extractSteamId(fixture('login-page.html')), null);
+  for (const bad of ['', 'g_steamID = "123";', 'g_steamID = "765611900000000011";', 'var other = "76561190000000001";', null]) {
+    assert.equal(parse.extractSteamId(bad), null, String(bad));
+  }
+});
+
+test('parseArgs: --expect needs 17 digits and only status, drops and library accept it', () => {
+  for (const command of ['status', 'drops', 'library']) {
+    assert.deepEqual(sc.parseArgs([command, `--expect=${FAKE_ID}`]), { command, expect: FAKE_ID });
+  }
+  for (const bad of [['drops', '--expect='], ['drops', '--expect=123'], ['login', `--expect=${FAKE_ID}`],
+    ['dump', 'x', `--expect=${FAKE_ID}`], ['drops', `--expect=${FAKE_ID}`, 'x'], ['drops', `--other=${FAKE_ID}`]]) {
+    assert.equal(sc.parseArgs(bad).error, 'usage', JSON.stringify(bad));
+  }
+});
+
+test('exitCode: account_mismatch is 5', () => {
+  assert.equal(sc.exitCode('account_mismatch'), 5);
+});
+
+test('collectDrops with expect: a match passes, another or a missing id is account_mismatch without the id in the result', async () => {
+  const page = withId(FAKE_ID, rowHtml(1, '1 card drop remaining'));
+  assert.equal((await sc.collectDrops(fetcher([page]), noDelay, FAKE_ID)).status, 'complete');
+  const other = await sc.collectDrops(fetcher([page]), noDelay, OTHER_ID);
+  const none = await sc.collectDrops(fetcher([rowHtml(1, '1 card drop remaining')]), noDelay, FAKE_ID);
+  assert.deepEqual([other, none], [{ status: 'account_mismatch' }, { status: 'account_mismatch' }]);
+});
+
+test('collectDrops with expect: signed out stays signed_out, without expect the id is not checked', async () => {
+  assert.deepEqual(await sc.collectDrops(fetcher([null]), noDelay, FAKE_ID), { status: 'signed_out' });
+  assert.equal((await sc.collectDrops(fetcher([rowHtml(1, '1 card drop remaining')]), noDelay)).status, 'complete');
+});
+
+test('collectLibrary with expect: match, mismatch and signed out', async () => {
+  assert.equal((await sc.collectLibrary(fetcher([fixture('library-sample.html')]), FAKE_ID)).status, 'complete');
+  assert.deepEqual(await sc.collectLibrary(fetcher([fixture('library-sample.html')]), OTHER_ID), { status: 'account_mismatch' });
+  assert.deepEqual(await sc.collectLibrary(fetcher([null]), FAKE_ID), { status: 'signed_out' });
+});
+
+test('collectStatus: signed_in only for the expected id, signed_out on a login page, failures keep their code', async () => {
+  const page = withId(FAKE_ID, '<html></html>');
+  assert.deepEqual(await sc.collectStatus(fetcher([page]), FAKE_ID), { status: 'signed_in' });
+  assert.deepEqual(await sc.collectStatus(fetcher([page]), OTHER_ID), { status: 'account_mismatch' });
+  assert.deepEqual(await sc.collectStatus(fetcher([null]), FAKE_ID), { status: 'signed_out' });
+  assert.deepEqual(await sc.collectStatus(fetcher([Object.assign(new Error('x'), { code: 'http_503' })]), FAKE_ID), { status: 'failed', error: 'http_503', page: 1 });
+});

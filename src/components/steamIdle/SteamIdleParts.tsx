@@ -1,0 +1,198 @@
+import React, { useState } from 'react';
+import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
+import { SteamIdleState } from '../../types';
+import { SteamIdleCommand } from './useSteamIdle';
+import {
+  Tone, communityText, failedReasonText, farmStateText, helperText, refusalText, steamClientText, unavailableHelp,
+} from './steamIdleText';
+
+type Send = (command: SteamIdleCommand) => void;
+
+/** Seconds as a short human duration; the unit words are plain JSX text so the language switch translates them. */
+export const Dur: React.FC<{ s: number }> = ({ s }) => {
+  const sec = Math.max(0, Math.round(s));
+  if (sec < 60) return <>{sec} с</>;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return <>{m} мин</>;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? <>{h} ч {rest} мин</> : <>{h} ч</>;
+};
+
+const Fact: React.FC<{ label: string; text: string; tone: Tone; children?: React.ReactNode }> = ({ label, text, tone, children }) => (
+  <div className="sidle-fact">
+    <span className="sidle-label">{label}</span>
+    <span className={`sidle-value${tone === 'warn' ? ' warn' : ''}`}>
+      {tone === 'ok' && <Check className="ui-icon" aria-hidden="true" focusable="false" style={{ color: 'var(--led-mint)' }} />}
+      {tone === 'warn' && <TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" />}
+      <span>{text}</span>
+    </span>
+    {children && <div className="sidle-actions">{children}</div>}
+  </div>
+);
+
+export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: Send }> = ({ s, busy, send }) => {
+  const steam = steamClientText(s.steam);
+  const community = communityText(s.community.session);
+  const helper = helperText(s);
+  const session = s.community.session;
+  const needsLogin = session === 'signed_out' || session === 'account_mismatch' || session === 'login_open';
+  return (
+    <section className="titanium-island sidle-ready" aria-label="Готовность">
+      <Fact label="Клиент Steam" text={steam.text} tone={steam.tone} />
+      <Fact label="Сессия Community" text={community.text} tone={community.tone}>
+        {needsLogin && (
+          <button type="button" className="tactile-btn" disabled={!s.available || session === 'login_open' || busy !== null} onClick={() => send('login')}>
+            <LogIn className="ui-icon" aria-hidden="true" focusable="false" /> Войти в Steam
+          </button>
+        )}
+        <button type="button" className="tactile-btn" disabled={!s.available || session === 'checking' || session === 'login_open' || busy !== null} onClick={() => send('check')}>
+          <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Проверить
+        </button>
+      </Fact>
+      <Fact label="Помощник" text={helper.text} tone={helper.tone} />
+    </section>
+  );
+};
+
+export const RiskGate: React.FC<{ busy: SteamIdleCommand | null; send: Send }> = ({ busy, send }) => {
+  const [understood, setUnderstood] = useState(false);
+  return (
+    <section className="titanium-island sidle-risk" aria-labelledby="sidle-risk-title">
+      <h2 id="sidle-risk-title" className="sidle-title warn">
+        <TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Перед включением
+      </h2>
+      <ul className="sidle-list">
+        <li>Автоматическое получение карточек противоречит правилам Steam об автоматических наградах и может привести к ограничениям аккаунта.</li>
+        <li>Друзья видят статус «в игре», а время в игре растёт.</li>
+        <li>Пока фарм держит игру, запустить её самому нельзя: он освободит её сам.</li>
+        <li>Достижения это приложение здесь не трогает.</li>
+      </ul>
+      <label className="sidle-check">
+        <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
+        <span>Я понимаю риск для аккаунта</span>
+      </label>
+      <div className="sidle-actions">
+        <button type="button" className="chunky-cta" disabled={!understood || busy !== null} onClick={() => send('ack')}>
+          Включить Steam IDLE
+        </button>
+      </div>
+    </section>
+  );
+};
+
+export const UnavailablePanel: React.FC<{ s: SteamIdleState }> = ({ s }) => (
+  <section className="titanium-island" aria-labelledby="sidle-unavail-title">
+    <h2 id="sidle-unavail-title" className="sidle-title">Steam IDLE сейчас недоступен</h2>
+    <p className="sidle-text">{unavailableHelp(s.unavailableReason)}</p>
+  </section>
+);
+
+const PRIMARY_STATES = new Set(['idle', 'done', 'stopped', 'needs_login']);
+const ACTIVE_STATES = new Set(['scanning', 'farming', 'waiting', 'suspended']);
+
+export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; refusal: string | null; send: Send }> = ({ s, busy, refusal, send }) => {
+  const { farm } = s;
+  const cur = farm.current;
+  const off = busy !== null || !s.available;
+  const hasWork = farm.queue.length > 0 || cur !== null || farm.done.length > 0 || farm.failed.length > 0;
+  const nothing = farm.state === 'idle' && !hasWork;
+  return (
+    <section className="titanium-island sidle-farm" aria-labelledby="sidle-farm-title">
+      <h2 id="sidle-farm-title" className="sidle-title">Фарм карточек</h2>
+      <p className="sidle-state" aria-live="polite">{farmStateText(farm.state, farm.lastError)}</p>
+      {cur && (
+        <div className="sidle-current">
+          <span className="sidle-game" title={cur.name}>{cur.name}</span>
+          <span className="sidle-meta">
+            <span>осталось карточек: <b className="tabular">{cur.dropsRemaining}</b></span>
+            <span>держим <b className="tabular"><Dur s={cur.heldSeconds} /></b></span>
+          </span>
+        </div>
+      )}
+      {nothing && s.available && s.community.session !== 'signed_out' && (
+        <>
+          <p className="sidle-text">Карточек для фарма нет</p>
+          {s.library.count !== null && <p className="sidle-meta"><span>игр в библиотеке: <b className="tabular">{s.library.count}</b></span></p>}
+        </>
+      )}
+      {(farm.totalDropsRemaining > 0 || farm.lastReadAgeSeconds !== null) && (
+        <p className="sidle-meta">
+          {farm.totalDropsRemaining > 0 && <span>всего осталось карточек: <b className="tabular">{farm.totalDropsRemaining}</b></span>}
+          {farm.lastReadAgeSeconds !== null && <span>проверено <Dur s={farm.lastReadAgeSeconds} /> назад</span>}
+        </p>
+      )}
+      <div className="sidle-actions">
+        {PRIMARY_STATES.has(farm.state) && <button type="button" className="chunky-cta" disabled={off} onClick={() => send('start')}>Начать фарм</button>}
+        {farm.state === 'paused' && <button type="button" className="chunky-cta" disabled={off} onClick={() => send('resume')}>Продолжить</button>}
+        {(ACTIVE_STATES.has(farm.state)) && <button type="button" className="tactile-btn" disabled={off} onClick={() => send('pause')}>Пауза</button>}
+        {farm.state === 'farming' && cur && <button type="button" className="tactile-btn" disabled={off} onClick={() => send('skip')}>Пропустить игру</button>}
+        {(ACTIVE_STATES.has(farm.state) || farm.state === 'paused') && <button type="button" className="tactile-btn" disabled={off} onClick={() => send('stop')}>Остановить</button>}
+      </div>
+      {refusal && (
+        <p className="sidle-refusal" role="alert"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {refusalText(refusal)}</p>
+      )}
+    </section>
+  );
+};
+
+const NameRow: React.FC<{ name: string; end?: React.ReactNode; note?: string }> = ({ name, end, note }) => (
+  <li className="sidle-row">
+    <span className="sidle-row-main">
+      <span className="sidle-row-name" title={name}>{name}</span>
+      {note && <span className="sidle-row-note">{note}</span>}
+    </span>
+    {end}
+  </li>
+);
+
+export const Lists: React.FC<{ s: SteamIdleState }> = ({ s }) => {
+  const { queue, done, failed } = s.farm;
+  if (!queue.length && !done.length && !failed.length) return null;
+  return (
+    <section className="titanium-island" aria-labelledby="sidle-queue-title">
+      <h2 id="sidle-queue-title" className="sidle-title">Очередь{queue.length > 0 && <span className="sidle-count tabular"> {queue.length}</span>}</h2>
+      {queue.length > 0 ? (
+        <ul className="sidle-list-rows" tabIndex={0} aria-labelledby="sidle-queue-title">
+          {queue.map((g) => <NameRow key={g.appId} name={g.name} end={<span className="sidle-row-end tabular">{g.dropsRemaining}</span>} />)}
+        </ul>
+      ) : <p className="sidle-text">Очередь пуста</p>}
+      {done.length > 0 && (
+        <>
+          <h3 id="sidle-done-title" className="sidle-subtitle">Уже готово<span className="sidle-count tabular"> {done.length}</span></h3>
+          <ul className="sidle-list-rows short" tabIndex={0} aria-labelledby="sidle-done-title">
+            {done.map((g) => <NameRow key={g.appId} name={g.name} />)}
+          </ul>
+        </>
+      )}
+      {failed.length > 0 && (
+        <>
+          <h3 id="sidle-failed-title" className="sidle-subtitle">Не получилось<span className="sidle-count tabular"> {failed.length}</span></h3>
+          <ul className="sidle-list-rows short" tabIndex={0} aria-labelledby="sidle-failed-title">
+            {failed.map((g) => <NameRow key={g.appId} name={g.name} note={failedReasonText(g.reason)} />)}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+};
+
+export const Skeleton: React.FC = () => (
+  <div className="sidle-skel" aria-busy="true">
+    <span className="sr-only" role="status">Загрузка Steam IDLE…</span>
+    <section className="titanium-island sidle-ready" aria-hidden="true">
+      {[0, 1, 2].map((n) => (
+        <div key={n} className="sidle-fact"><span className="sk-bar" style={{ width: '40%', height: '0.9em' }} /><span className="sk-bar" style={{ width: '75%', height: '1.1em' }} /></div>
+      ))}
+    </section>
+    <section className="titanium-island" aria-hidden="true">
+      <span className="sk-bar" style={{ width: '30%', height: '1.1em' }} />
+      <span className="sk-bar" style={{ width: '50%', height: '1.4em', marginTop: 10 }} />
+      <span className="sk-bar" style={{ width: '65%', height: '1em', marginTop: 10 }} />
+      <span className="sk-bar" style={{ width: 130, height: 32, marginTop: 14 }} />
+    </section>
+    <section className="titanium-island" aria-hidden="true">
+      {[0, 1, 2, 3].map((n) => <span key={n} className="sk-bar" style={{ width: `${90 - n * 12}%`, height: '1em', marginTop: n ? 10 : 0 }} />)}
+    </section>
+  </div>
+);

@@ -66,6 +66,18 @@ export const parseBadgesPage = (html, page = 1) => {
   return { rows, hasNext: hasNextPage(html, page) };
 };
 
+// The signed-in SteamID64 the page defines for its own scripts; absent when signed out. Classic pages (badges) set
+// `g_steamID = "<17 digits>"`; server-rendered pages (games) carry `"UserConfig":{"logged_in":true,"steamid":"<17 digits>"`.
+const STEAM_ID_MARKERS = [/\bg_steamID\s*=\s*"(\d{17})"/, /"UserConfig":\{"logged_in":true,"steamid":"(\d{17})"/];
+export const extractSteamId = html => {
+  if (typeof html != 'string') return null;
+  for (const marker of STEAM_ID_MARKERS) {
+    const id = marker.exec(html)?.[1];
+    if (id) return id;
+  }
+  return null;
+};
+
 const isCount = value => Number.isSafeInteger(value) && value >= 0;
 
 // The owned games are embedded as JSON: script#valve-ssr-data -> renderContext.queryData (a JSON string) -> queries[OwnedGames].state.data
