@@ -8,7 +8,7 @@ import { AchPace } from './AchPace';
 import { AchRunPanel } from './AchRunPanel';
 import { achRunActive } from './achievementsText';
 import { UnavailablePanel } from './SteamIdleParts';
-import { useArrivals, useLibraryGames } from './useAchievementsData';
+import { useArrivals, useBusyRetry, useLibraryGames } from './useAchievementsData';
 import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 
 type Props = { s: SteamIdleState; ach: SteamIdleAchievements; busy: SteamIdleCommand | null; send: SendCommand };
@@ -21,12 +21,14 @@ const Workspace: React.FC<Props & { takeFocus: boolean }> = ({ s, ach, busy, sen
   // A finished scan makes the list we hold out of date: read it again.
   const scans = useArrivals<string>(status, isReady);
   const library = useLibraryGames(status === 'ready', scans);
+  const runActive = achRunActive(ach.run.state);
+  useBusyRetry(library, runActive);
   return (
     <>
       <AchRunPanel s={s} run={ach.run} busy={busy} takeFocus={takeFocus} send={send} />
       <AchOneGame s={s} ach={ach} library={library} busy={busy} send={send} />
-      <AchPace saved={ach.settings} busy={busy} send={send} />
-      <AchAllGames s={s} games={library.data} runActive={achRunActive(ach.run.state)} busy={busy} send={send} />
+      <AchPace saved={ach.settings} runActive={runActive} busy={busy} send={send} />
+      <AchAllGames s={s} games={library.data} runActive={runActive} busy={busy} send={send} />
       <AchFinished finished={ach.run.finished} />
     </>
   );

@@ -57,6 +57,20 @@ class Base(unittest.IsolatedAsyncioTestCase):
     def paced(self):
         self.env.settings.update({"steam_idle_unlock_min_minutes": 1, "steam_idle_unlock_max_minutes": 1})
 
+    async def blocked_paced_run(self, **over):
+        """A paced run whose first unlock call is blocked in the worker thread; returns the controller."""
+        ctl = self.make(unlock_gate=threading.Event(), **over)
+        self.paced()
+        await self.ready()
+        self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertTrue(await asyncio.to_thread(self.env.unlock_entered.wait, 5))
+        return ctl
+
+    async def assert_stopped_after_one_write(self):
+        self.env.unlock_gate.set()
+        await self.env.settle()
+        self.assertEqual((run_of(self.env.ctl)["state"], len(self.env.unlock_calls)), ("stopped", 1))
+
 
 class StateTests(Base):
     async def test_defaults_and_exact_shape(self):
@@ -99,8 +113,48 @@ class SettingsTests(Base):
         ctl.acknowledge_achievements(True)
         self.assertIs(self.env.settings[ACK], True)
         self.assertTrue(ctl.state()["achievements"]["acknowledged"])
+        self.paced()
+        self.env.unlock_gate = threading.Event()
+        await self.ready()
+        self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertTrue(await asyncio.to_thread(self.env.unlock_entered.wait, 5))
         ctl.acknowledge_achievements(False)
         self.assertIs(self.env.settings[ACK], False)
+        await self.assert_stopped_after_one_write()
+
+    async def test_withdrawing_the_general_acknowledgement_stops_a_running_run(self):
+        ctl = await self.blocked_paced_run()
+        ctl.acknowledge(False)
+        self.assertIs(self.env.settings[RISK], False)
+        await self.assert_stopped_after_one_write()
+
+    async def test_the_write_guard_also_checks_the_general_acknowledgement(self):
+        ctl = self.make()
+        self.paced()
+        await self.ready()
+        self.env.on_sleep = lambda: self.env.settings.update({RISK: False}) if self.env.unlock_calls else None
+        ctl.start_achievements(GamePlan(100))
+        await self.env.settle()
+        run = run_of(ctl)
+        self.assertEqual((run["state"], run["lastError"], len(self.env.unlock_calls)), ("stopped", "not_acknowledged", 1))
+
+    async def test_a_guard_that_raises_stops_the_run_without_another_write(self):
+        ctl = self.make()
+        self.paced()
+        await self.ready()
+        loop_thread = threading.get_ident()
+        real = ctl._client_state
+
+        def client():
+            if self.env.unlock_calls and threading.get_ident() != loop_thread:  # only the step thread (the guard)
+                raise OSError("registry unreadable")
+            return real()
+        ctl._client_state = client
+        with self.assertLogs("steam_idle", "ERROR"):
+            ctl.start_achievements(GamePlan(100))
+            await self.env.settle()
+        run = run_of(ctl)
+        self.assertEqual((run["state"], run["lastError"], len(self.env.unlock_calls)), ("stopped", "internal_error", 1))
 
     async def test_withdrawing_the_acknowledgement_stops_the_run_before_the_next_write(self):
         ctl = self.make()
@@ -223,6 +277,50 @@ class ExclusionTests(Base):
         self.assertEqual(await ctl.achievements_of(100), "busy")
         self.assertEqual(self.env.unlock_calls, [])
 
+    async def test_login_and_check_are_busy_during_a_run(self):
+        ctl = self.make(unlock_gate=threading.Event())
+        await self.ready()
+        self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertTrue(await asyncio.to_thread(self.env.unlock_entered.wait, 5))
+        self.assertEqual((ctl.login(), ctl.check()), ("busy", "busy"))
+        self.env.unlock_gate.set()
+        await self.env.settle()
+        self.assertEqual(self.env.login_commands, [])
+        self.assertEqual(self.env.status_calls, [])
+        self.assertIsNone(ctl.check())
+
+    async def test_login_and_check_are_busy_during_an_achievements_read(self):
+        ctl = self.make(ach_gate=threading.Event())
+        task = asyncio.get_running_loop().create_task(ctl.achievements_of(5))
+        self.assertTrue(await asyncio.to_thread(self.env.ach_entered.wait, 5))
+        self.assertEqual((ctl.login(), ctl.check()), ("busy", "busy"))
+        self.env.ach_gate.set()
+        await task
+
+    async def test_two_start_requests_back_to_back_the_second_is_busy(self):
+        ctl = self.make()
+        await self.ready()
+        self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertEqual(ctl.start_achievements(GamePlan(100)), "busy")
+        await self.env.settle()
+        self.assertEqual(len(self.env.unlock_calls), 1)
+
+    async def test_a_farm_start_during_the_achievements_prepare_phase_is_busy(self):
+        ctl = self.make(read_gate=threading.Event())
+        ctl._read_library_fn = lambda *a, **k: (self.env.read_entered.set(), self.env.read_gate.wait(5), self.env.library)[2]
+        self.assertIsNone(ctl.start_achievements(LibraryPlan((), [])))
+        self.assertTrue(await asyncio.to_thread(self.env.read_entered.wait, 5))
+        self.assertEqual(ctl.start(), "busy")
+        self.env.read_gate.set()
+        await self.env.settle()
+        self.assertEqual(self.env.presences, [])
+
+    async def test_the_farm_start_has_the_same_closed_check_as_the_other_starts(self):
+        ctl = self.make()
+        await ctl.shutdown()
+        self.assertEqual(ctl.start(), "busy")
+        self.assertEqual(self.env.presences, [])
+
     async def test_a_new_run_can_start_after_the_previous_one_ended(self):
         ctl = self.make()
         await self.ready()
@@ -318,6 +416,22 @@ class ReadTests(Base):
         self.env.ach[5] = []
         self.assertEqual(await ctl.achievements_of(5), [])
 
+    async def test_a_cancelled_request_keeps_the_reading_flag_until_the_thread_finished(self):
+        ctl = self.make(ach_gate=threading.Event())
+        task = asyncio.get_running_loop().create_task(ctl.achievements_of(5))
+        self.assertTrue(await asyncio.to_thread(self.env.ach_entered.wait, 5))
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual((ctl.login(), ctl.library_scan()), ("busy", "busy"), "the helper read is still running")
+        self.env.ach_gate.set()
+        for _ in range(200):
+            if ctl.login() is None:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            self.fail("the flag was never released")
+
     async def test_shutdown_kills_a_blocked_read(self):
         ctl = self.make(ach_gate=threading.Event())
         task = asyncio.get_running_loop().create_task(ctl.achievements_of(5))
@@ -377,7 +491,7 @@ class RunTests(Base):
         ctl = self.make()
         ctl._read_library_fn = mock.Mock(side_effect=CommunityError("timeout"))
         ctl.start_achievements(LibraryPlan((), []))
-        with self.assertLogs("steam_idle.controller", "ERROR"):
+        with self.assertLogs("steam_idle.achievements_run", "ERROR"):
             await self.env.settle()
         run = run_of(ctl)
         self.assertEqual((run["state"], run["lastError"]), ("stopped", "library_failed"))
@@ -471,14 +585,40 @@ class RunTests(Base):
         run = run_of(ctl)
         self.assertEqual((run["state"], run["lastError"], len(self.env.unlock_calls)), ("stopped", "unlock_uncertain", 1))
 
+    async def test_shutdown_waits_for_an_unlock_in_flight_and_never_kills_it(self):
+        ctl = self.make(unlock_gate=threading.Event())
+        finished = []
+        self.env.unlock_script = lambda app_id, names: (finished.append(1), _outcome(
+            [UnlockResult(n, "unlocked") for n in names], "yes"))[1]
+        self.env.ach[100] = [ach(f"N{i}") for i in range(450)]
+        await self.ready()
+        ctl.start_achievements(GamePlan(100))
+        self.assertTrue(await asyncio.to_thread(self.env.unlock_entered.wait, 5))
+        asyncio.get_running_loop().call_later(0.4, self.env.unlock_gate.set)
+        with mock.patch.object(controller_module, "_RELEASE_SECONDS", 0.1), self.assertLogs("steam_idle.controller", "INFO") as logs:
+            await asyncio.wait_for(ctl.shutdown(), 8)
+        self.assertEqual(finished, [1], "shutdown returned before the unlock call did")
+        self.assertIn("unlock in flight at shutdown, waiting", [r.getMessage() for r in logs.records])
+        self.assertEqual(self.env.kills, 1, "only the reads are killed")
+        await asyncio.sleep(0.2)
+        self.assertEqual(len(self.env.unlock_calls), 1)
+
+    async def test_shutdown_budget_covers_the_unlock_wait(self):
+        self.make()
+        self.assertGreaterEqual(controller_module.SHUTDOWN_BUDGET_SECONDS,
+                                controller_module._RELEASE_SECONDS + controller_module._UNLOCK_WAIT_SECONDS)
+
     async def test_shutdown_during_a_blocked_unlock_closes_the_queue_and_writes_nothing_more(self):
         ctl = self.make(unlock_gate=threading.Event())
         self.env.ach[100] = [ach(f"N{i}") for i in range(450)]
         await self.ready()
         ctl.start_achievements(GamePlan(100))
         self.assertTrue(await asyncio.to_thread(self.env.unlock_entered.wait, 5))
-        with mock.patch.object(controller_module, "_RELEASE_SECONDS", 0.2), self.assertLogs("steam_idle.controller", "ERROR"):
+        with (mock.patch.object(controller_module, "_RELEASE_SECONDS", 0.2),
+              mock.patch.object(controller_module, "_UNLOCK_WAIT_SECONDS", 0.3),
+              self.assertLogs("steam_idle.controller", "WARNING") as logs):
             await asyncio.wait_for(ctl.shutdown(), 8)
+        self.assertTrue(any("incomplete" in r.getMessage() for r in logs.records))
         self.env.unlock_gate.set()
         await asyncio.sleep(0.2)
         self.assertEqual(len(self.env.unlock_calls), 1)
@@ -488,11 +628,11 @@ class RunTests(Base):
     async def test_a_crash_in_the_step_stops_the_run_with_internal_error(self):
         ctl = self.make()
         await self.ready()
-        ctl._queue.step = mock.Mock(side_effect=RuntimeError("boom"))
-        with self.assertLogs("steam_idle.controller", "ERROR"):
+        ctl._achv._queue.step = mock.Mock(side_effect=RuntimeError("boom"))
+        with self.assertLogs("steam_idle.achievements_run", "ERROR"):
             ctl.start_achievements(GamePlan(100))
             await self.env.settle()
-        self.assertIsNone(ctl._achv_task.exception())
+        self.assertIsNone(ctl._achv.task.exception())
         run = run_of(ctl)
         self.assertEqual((run["state"], run["lastError"], self.env.unlock_calls), ("stopped", "internal_error", []))
 

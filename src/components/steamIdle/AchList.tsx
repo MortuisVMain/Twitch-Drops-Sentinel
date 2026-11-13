@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { SteamIdleAchievement } from '../../types';
 import { START_NAMES_MAX, unlockDate } from './achievementsText';
@@ -51,8 +51,18 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
     return next;
   });
   const selectAll = () => setPicked(new Set(locked.filter((a) => !(skipHidden && a.hidden)).map((a) => a.apiName)));
-  if (items.length === 0) return <p className="sidle-text">У этой игры нет достижений</p>;
+  // "All missing" is an irreversible write of every locked achievement the service will not skip: ask first, in the page.
+  const hiddenLocked = locked.filter((a) => a.hidden).length;
+  const hiddenSkipped = skipHidden ? hiddenLocked : 0;
+  const allCount = locked.length - hiddenSkipped;
+  const [confirming, setConfirming] = useState(false);
+  const allBtn = useRef<HTMLButtonElement>(null);
+  const cancelBtn = useRef<HTMLButtonElement>(null);
   const off = disabled || runActive;
+  useEffect(() => { if (confirming) cancelBtn.current?.focus(); }, [confirming]);
+  useEffect(() => { if (off || allCount === 0) setConfirming(false); }, [off, allCount]);
+  const cancelConfirm = () => { setConfirming(false); allBtn.current?.focus(); };
+  if (items.length === 0) return <p className="sidle-text">У этой игры нет достижений</p>;
   return (
     <>
       <div className="sidle-ach-head">
@@ -62,6 +72,7 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
           <button type="button" className="sidle-textbtn" disabled={count === 0} onClick={() => setPicked(new Set())}>Снять выбор</button>
         </div>
       </div>
+      {skipHidden && hiddenLocked > 0 && <p className="sidle-meta"><span>Скрытые не входят в «Выбрать все», их можно отметить вручную.</span></p>}
       <ul className="sidle-list-rows sidle-ach-list" aria-label="Достижения игры">
         {items.map((a) => <Row key={a.apiName} a={a} checked={picked.has(a.apiName)} onToggle={() => toggle(a.apiName)} />)}
       </ul>
@@ -73,11 +84,21 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
           onClick={() => { if (!off && count > 0 && !tooMany) onStart({ names: [...picked] }); }}>
           Получить выбранные <span className="tabular">({count})</span>
         </button>
-        <button type="button" className="tactile-btn" aria-disabled={off || locked.length === 0}
-          onClick={() => { if (!off && locked.length > 0) onStart({ all: true }); }}>
+        <button ref={allBtn} type="button" className="tactile-btn" aria-disabled={off || allCount === 0} aria-expanded={confirming}
+          onClick={() => { if (!off && allCount > 0) setConfirming(true); }}>
           Получить все недостающие в игре
         </button>
       </div>
+      {confirming && (
+        <div className="sidle-confirm" role="group" aria-label="Подтверждение" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelConfirm(); } }}>
+          <p className="sidle-text">Будет выдано достижений: <b className="tabular">{allCount}</b> (скрытых пропущено: <b className="tabular">{hiddenSkipped}</b>).</p>
+          <div className="sidle-actions">
+            <button type="button" className="tactile-btn sidle-danger" aria-disabled={off}
+              onClick={() => { if (!off) { setConfirming(false); allBtn.current?.focus(); onStart({ all: true }); } }}>Выдать</button>
+            <button ref={cancelBtn} type="button" className="tactile-btn" onClick={cancelConfirm}>Отмена</button>
+          </div>
+        </div>
+      )}
     </>
   );
 };

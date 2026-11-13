@@ -4,7 +4,6 @@ Every external effect is an injected callable, so tests need no Steam, no node a
 None on success or a refusal code from the service contract; no account identifier is ever stored in a payload.
 """
 import asyncio
-import dataclasses
 import logging
 import random
 import shutil
@@ -17,8 +16,9 @@ from pathlib import Path
 
 from . import achievements, community
 from ._helper import command as build_command, kill_tree, spawn
-from .achievement_queue import AchievementQueue, GamePlan, LibraryPlan, Rules, SelectedPlan
+from .achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from .achievements import AchievementsError
+from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
 from .presence import Presence
@@ -26,10 +26,6 @@ from .presence import Presence
 logger = logging.getLogger(__name__)
 
 RISK_ACK_KEY = "steam_idle_risk_ack"
-ACHIEVEMENTS_ACK_KEY = "steam_idle_achievements_ack"
-UNLOCK_MIN_KEY, UNLOCK_MAX_KEY = "steam_idle_unlock_min_minutes", "steam_idle_unlock_max_minutes"
-SKIP_HIDDEN_KEY = "steam_idle_unlock_skip_hidden"
-_MAX_PACE_MINUTES = 1440
 _STEAM_ID_BASE = 76561197960265728
 _REGISTRY_KEY = r"Software\Valve\Steam\ActiveProcess"
 _HELPER_CANDIDATES = (
@@ -39,6 +35,9 @@ _HELPER_CANDIDATES = (
 _ENDED = frozenset({"idle", "done", "stopped", "needs_login"})
 _TICK_SECONDS = 5.0
 _RELEASE_SECONDS = 3.0
+_UNLOCK_WAIT_SECONDS = 12.0  # how long shutdown waits for an unlock call already in flight; it is never killed
+# worst case of shutdown(): tasks, then the wind-down (farm step + unlock wait + 1 s slack)
+SHUTDOWN_BUDGET_SECONDS = 2 * _RELEASE_SECONDS + _UNLOCK_WAIT_SECONDS + 1.0
 _SESSION_BY_CODE = {"signed_out": "signed_out", "account_mismatch": "account_mismatch"}
 
 
@@ -155,17 +154,18 @@ class SteamIdleController:
         self._read_drops_fn, self._read_library_fn, self._read_status_fn = read_drops, read_library, read_status
         self._presence_factory, self._run_login, self._clock, self._sleep = presence_factory, run_login, clock, sleep
         self._kill_reads = kill_reads
-        self._read_ach, self._unlock_ach = read_achievements or _never, unlock or _never
         self._step_done = threading.Event()  # set while no farm step is running in the worker thread
         self._step_done.set()
-        self._achv_step_done = threading.Event()  # the same for the achievements queue
-        self._achv_step_done.set()
         self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard)
-        self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard)
-        self._achv_tools: Tools | None = None
-        self._achv_account, self._achv_expected = 0, ""
-        self._achv_preparing = self._achv_cancel = self._achv_reading = False
-        self._achv_task = self._library_task = None
+        self._achv = AchievementsRun(
+            gate=self._read_gate, get_setting=get_setting, set_setting=set_setting,
+            risk_acknowledged=lambda: bool(get_setting(RISK_ACK_KEY, False)),
+            client_state=lambda: self._client_state(),
+            read_achievements=read_achievements or _never, unlock=unlock or _never,
+            read_library=lambda *args, **kwargs: self._read_library_fn(*args, **kwargs),
+            cached_games=self._cached_games, store_library=self._store_library, session_error=self._session_error,
+            is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep)
+        self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
         self._library_error: str | None = None
         self._session, self._checked_account, self._checked_at = "unknown", 0, None
@@ -199,11 +199,7 @@ class SteamIdleController:
             "farm": farm,
             "library": self._library_payload(client.account_id),
             "preview": self._preview_payload(client.account_id),
-            "achievements": {
-                "acknowledged": bool(self._get_setting(ACHIEVEMENTS_ACK_KEY, False)),
-                "settings": self._achv_settings(),
-                "run": self._achv_run(),
-            },
+            "achievements": self._achv.payload(),
         }
 
     def _library_payload(self, account_id: int) -> dict:
@@ -218,23 +214,19 @@ class SteamIdleController:
         return {"count": len(library[1]) if library else None, "status": status,
                 "ageSeconds": None if library is None else self._clock() - library[2]}
 
-    def _achv_settings(self) -> dict:
-        low, high = self._setting_minutes(UNLOCK_MIN_KEY), self._setting_minutes(UNLOCK_MAX_KEY)
-        skip = self._get_setting(SKIP_HIDDEN_KEY, True)
-        return {"minMinutes": low, "maxMinutes": high, "skipHidden": skip if type(skip) is bool else True}
-
-    def _setting_minutes(self, key: str) -> int:
-        value = self._get_setting(key, 0)
-        return value if type(value) is int and 0 <= value <= _MAX_PACE_MINUTES else 0
-
-    def _achv_run(self) -> dict:
-        run = self._queue.status()
-        if self._achv_preparing and run["state"] == "idle":  # the owned games are being read before the queue starts
-            run.update(state="scanning", mode="library")
-        return run
-
     def _store_library(self, account_id: int, games: list) -> None:
         self._library, self._library_error = (account_id, games, self._clock()), None
+
+    def _cached_games(self, account_id: int) -> list | None:
+        library = self._library
+        return library[1] if library and library[0] == account_id else None
+
+    def _session_error(self, code: str) -> bool:
+        """Apply a community error code to the session; True when it was a session code."""
+        if code not in _SESSION_BY_CODE:
+            return False
+        self._session = _SESSION_BY_CODE[code]
+        return True
 
     def _preview_payload(self, account_id: int) -> dict:
         """The farmable games read on demand. Dropped lazily when the account changed or the session signed out."""
@@ -259,24 +251,15 @@ class SteamIdleController:
     # commands: None = accepted, otherwise a refusal code
     def acknowledge(self, accepted: bool) -> None:
         self._set_setting(RISK_ACK_KEY, bool(accepted))
-        if not accepted and self._running():
-            self._farm.stop()
+        if not accepted:
+            if self._running():
+                self._farm.stop()
+            self._achv.stop()
 
     def start(self) -> str | None:
-        tools = self._find_tools()
-        if tools.unavailable:
-            return "unavailable"
-        if not self._get_setting(RISK_ACK_KEY, False):
-            return "risk_not_acknowledged"
-        client = self._client_state()
-        if (refusal := self._client_refusal(client)) is not None:
+        refusal, tools, client = self._read_gate()  # a second start must never rebind the run
+        if refusal is not None:
             return refusal
-        if self._busy() or self._running() or self._achv_active():  # a second start must never rebind the run
-            return "busy"
-        if self._session == "account_mismatch" or (self._session == "signed_in" and self._checked_account != client.account_id):
-            return "account_mismatch"
-        if self._session != "signed_in":
-            return "community_signed_out"
         self._run_tools, self._run_account, self._expected = tools, client.account_id, steam_id64(client.account_id)
         self._run_error, self._library_fetched = None, False
         self._farm.start()
@@ -295,7 +278,7 @@ class SteamIdleController:
         client = self._client_state()
         if (refusal := self._client_refusal(client)) is not None:
             return refusal, tools, client
-        if self._closed or self._busy() or self._running() or self._achv_active():
+        if self._closed or self._busy() or self._running():
             return "busy", tools, client
         if self._session == "account_mismatch" or (self._session == "signed_in" and self._checked_account != client.account_id):
             return "account_mismatch", tools, client
@@ -312,19 +295,10 @@ class SteamIdleController:
 
     # achievements: commands return None = accepted, otherwise a refusal code
     def acknowledge_achievements(self, accepted: bool) -> None:
-        self._set_setting(ACHIEVEMENTS_ACK_KEY, bool(accepted))
-        if not accepted:
-            self.stop_achievements()
+        self._achv.acknowledge(accepted)
 
     def set_achievements_settings(self, min_minutes: object, max_minutes: object, skip_hidden: object) -> str | None:
-        ints = (min_minutes, max_minutes)
-        if (any(type(value) is not int or not 0 <= value <= _MAX_PACE_MINUTES for value in ints)
-                or min_minutes > max_minutes or type(skip_hidden) is not bool):
-            return "invalid_request"
-        self._set_setting(UNLOCK_MIN_KEY, min_minutes)
-        self._set_setting(UNLOCK_MAX_KEY, max_minutes)
-        self._set_setting(SKIP_HIDDEN_KEY, skip_hidden)
-        return None
+        return self._achv.set_settings(min_minutes, max_minutes, skip_hidden)
 
     def library_scan(self) -> str | None:
         """Read the owned games on demand; same gates as scan."""
@@ -342,51 +316,27 @@ class SteamIdleController:
 
     async def achievements_of(self, app_id: int) -> list[dict] | str:
         """Live read of one game's achievements: a refusal code, or the list; AchievementsError when the read failed."""
-        refusal, tools, client = self._read_gate(achievements_ack=True)
-        if refusal is not None:
-            return refusal
-        self._achv_reading = True
-        try:
-            items = await asyncio.to_thread(self._read_ach, tools.helper, steam_id64(client.account_id), app_id)
-        finally:
-            self._achv_reading = False
-        return [{"apiName": a.api_name, "name": a.name, "description": a.description, "hidden": a.hidden,
-                 "achieved": a.achieved, "unlockTime": a.unlock_time} for a in items]
+        return await self._achv.read(app_id)
 
     def start_achievements(self, plan: SelectedPlan | GamePlan | LibraryPlan) -> str | None:
-        refusal, tools, client = self._read_gate(achievements_ack=True)
-        if refusal is not None:
-            return refusal
-        self._achv_tools, self._achv_account = tools, client.account_id
-        self._achv_expected = steam_id64(client.account_id)
-        self._achv_cancel, self._achv_preparing = False, False
-        settings = self._achv_settings()
-        rules = Rules(settings["minMinutes"], settings["maxMinutes"], settings["skipHidden"])
-        self._achv_task = asyncio.get_running_loop().create_task(self._achv_loop(plan, rules))
-        return None
+        return self._achv.start(plan)
 
     def stop_achievements(self) -> str | None:
-        if self._find_tools().unavailable:
-            return "unavailable"
-        if self._achv_active():
-            self._achv_cancel = True
-            self._queue.stop()
-        return None
+        return self._forward_achv(self._achv.stop)
 
     def pause_achievements(self) -> str | None:
-        return self._forward_achv(self._queue.pause)
+        return self._forward_achv(self._achv.pause)
 
     def resume_achievements(self) -> str | None:
-        return self._forward_achv(self._queue.resume)
+        return self._forward_achv(self._achv.resume)
 
     def skip_achievements(self) -> str | None:
-        return self._forward_achv(self._queue.skip_current)
+        return self._forward_achv(self._achv.skip)
 
     def _forward_achv(self, command: Callable[[], None]) -> str | None:
         if self._find_tools().unavailable:
             return "unavailable"
-        if self._achv_active():
-            command()
+        command()
         return None
 
     def stop(self) -> str | None:
@@ -430,7 +380,7 @@ class SteamIdleController:
         if flag != self._suspend_sent:
             self._suspend_sent = flag
             self._farm.set_suspended(flag)
-            self._queue.set_suspended(flag)
+            self._achv.set_suspended(flag)
 
     async def join(self) -> None:
         while tasks := [task for task in self._tasks() if not task.done()]:  # a check may start the auto-scan
@@ -438,22 +388,22 @@ class SteamIdleController:
 
     def _tasks(self) -> list:
         return [task for task in (self._task, self._login_task, self._check_task, self._scan_task, self._library_task,
-                                  self._achv_task) if task is not None]
+                                  self._achv.task) if task is not None]
 
     async def shutdown(self) -> None:
-        """Close the farm and the achievements queue for good, end the tasks and any read in flight, and release every
-        held game within seconds. An unlock call already in flight is not killed; nothing is written after it."""
+        """Close the farm and the achievements queue for good (nothing new is written), end the tasks and any read in
+        flight, wait for an unlock call already in flight (at most _UNLOCK_WAIT_SECONDS, never killing it) and release
+        every held game."""
         self._closed = True
         self._farm.close()
-        self._achv_cancel = True
-        self._queue.close()
+        self._achv.close()
         tasks = [task for task in self._tasks() if not task.done()]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.wait(tasks, timeout=_RELEASE_SECONDS)
         try:
-            await asyncio.wait_for(asyncio.to_thread(self._wind_down), 2 * _RELEASE_SECONDS)
+            await asyncio.wait_for(asyncio.to_thread(self._wind_down), _RELEASE_SECONDS + _UNLOCK_WAIT_SECONDS + 1.0)
         except asyncio.TimeoutError:
             logger.error("releasing the held game timed out on shutdown")
 
@@ -466,7 +416,12 @@ class SteamIdleController:
         deadline = time.monotonic() + _RELEASE_SECONDS
         if not self._step_done.wait(_RELEASE_SECONDS):
             logger.error("a farm step is still blocked on shutdown; the closed farm releases what it starts")
-        if not self._achv_step_done.wait(max(deadline - time.monotonic(), 0.0)):
+        if self._achv.unlock_in_flight:
+            logger.info("unlock in flight at shutdown, waiting")
+            if not self._achv.wait_idle(_UNLOCK_WAIT_SECONDS):
+                logger.warning("unlock still in flight after %.0f s at shutdown; the account state may be incomplete",
+                               _UNLOCK_WAIT_SECONDS)
+        elif not self._achv.wait_idle(max(deadline - time.monotonic(), 0.0)):
             logger.error("an achievements step is still blocked on shutdown; the closed queue writes nothing more")
         self._release_presences()
 
@@ -478,11 +433,8 @@ class SteamIdleController:
         return None if client.signed_in else "steam_signed_out"
 
     def _busy(self) -> bool:
-        return self._achv_reading or any(
+        return self._achv.reading or self._achv.active() or any(
             task is not None and not task.done() for task in (self._login_task, self._check_task, self._scan_task, self._library_task))
-
-    def _achv_active(self) -> bool:
-        return self._achv_task is not None and not self._achv_task.done()
 
     def _library_scan_running(self) -> bool:
         return self._library_task is not None and not self._library_task.done()
@@ -574,74 +526,6 @@ class SteamIdleController:
             self._farm.abort("internal_error")
         except Exception:
             logger.error("steam idle crash cleanup failed", exc_info=True)
-
-    # achievements run
-    def _queue_read(self, app_id: int) -> list:
-        return self._read_ach(self._achv_tools.helper, self._achv_expected, app_id)
-
-    def _queue_unlock(self, app_id: int, names: list[str]):
-        """The one write path; the helper's write gate is set inside achievements.unlock_achievements, child env only."""
-        return self._unlock_ach(self._achv_tools.helper, self._achv_expected, app_id, names)
-
-    def _queue_guard(self) -> str | None:
-        """Runs in the step thread right before every unlock: still acknowledged and still the run's account."""
-        if not self._get_setting(ACHIEVEMENTS_ACK_KEY, False):
-            return "not_acknowledged"
-        if self._client_state().account_id != self._achv_account:
-            return "account_changed"
-        return None
-
-    def _achv_step(self) -> float:
-        self._achv_step_done.clear()
-        try:
-            return self._queue.step()
-        finally:
-            self._achv_step_done.set()
-
-    def _cached_games(self) -> list | None:
-        library = self._library
-        return library[1] if library and library[0] == self._achv_account else None
-
-    async def _achv_prepare(self, plan):
-        """The plan with its game names filled in (the owned games are read first when needed), or None if the run
-        must not start: stopped meanwhile, or the games could not be read."""
-        games = self._cached_games()
-        if isinstance(plan, LibraryPlan) and games is None:
-            self._achv_preparing = True
-            try:
-                games = await asyncio.to_thread(self._read_library_fn, self._achv_tools.community,
-                                                expected_steam_id64=self._achv_expected)
-            except CommunityError as error:
-                logger.error("library read for the achievements run failed: %s", error.code)
-                code = error.code if error.code in _SESSION_BY_CODE else "library_failed"
-                if code in _SESSION_BY_CODE:
-                    self._session = _SESSION_BY_CODE[code]
-                self._queue.abort(code)
-                return None
-            finally:
-                self._achv_preparing = False
-            self._store_library(self._achv_account, games)
-        if self._achv_cancel or self._closed:
-            return None
-        if isinstance(plan, LibraryPlan):
-            return dataclasses.replace(plan, games=[(g.app_id, g.name) for g in games])
-        names = {g.app_id: g.name for g in games or []}
-        return dataclasses.replace(plan, name=plan.name or names.get(plan.app_id) or f"App {plan.app_id}")
-
-    async def _achv_loop(self, plan, rules: Rules) -> None:
-        try:
-            if (plan := await self._achv_prepare(plan)) is not None:
-                self._queue.start(plan, rules)
-            while True:
-                if self._client_state().account_id != self._achv_account:
-                    self._queue.abort("account_changed")  # no step is running here, so nothing can be written meanwhile
-                delay = await asyncio.to_thread(self._achv_step)
-                if self._queue.status()["state"] in _ENDED and delay > 0:
-                    return
-                await self._sleep(min(delay, _TICK_SECONDS))
-        except Exception:
-            logger.error("steam idle achievements loop crashed", exc_info=True)
-            self._queue.abort("internal_error")
 
     async def _do_library_scan(self, tools: Tools, account_id: int) -> None:
         """One owned-games read in a worker thread; a failure keeps the previous list and records the error."""

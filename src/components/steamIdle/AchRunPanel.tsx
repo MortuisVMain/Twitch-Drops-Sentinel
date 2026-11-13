@@ -6,7 +6,7 @@ import { Dur } from './SteamIdleParts';
 import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 
 const StateLine: React.FC<{ run: SteamIdleAchRun }> = ({ run }) => {
-  if (run.state === 'waiting' && run.nextUnlockInSeconds !== null) return <>Пауза между выдачами: следующая через <Dur s={run.nextUnlockInSeconds} /></>;
+  if (run.state === 'waiting' && run.nextUnlockInSeconds !== null) return <>Пауза между выдачами: следующая через</>;
   if (run.state === 'stopped' && run.lastError) return <>Остановлено: {achStopReason(run.lastError)}</>;
   return <>{achStateText(run)}</>;
 };
@@ -24,7 +24,7 @@ export const AchRunPanel: React.FC<{ s: SteamIdleState; run: SteamIdleAchRun; bu
   return (
     <section className="titanium-island sidle-farm" aria-labelledby="sidle-achrun-title">
       <h2 id="sidle-achrun-title" className="sidle-title">Выдача достижений</h2>
-      <p ref={stateRef} tabIndex={-1} className="sidle-state" aria-live="polite"><StateLine run={run} /></p>
+      <p ref={stateRef} tabIndex={-1} className="sidle-state"><span aria-live="polite"><StateLine run={run} /></span>{run.state === 'waiting' && run.nextUnlockInSeconds !== null && <> <Dur s={run.nextUnlockInSeconds} /></>}</p>
       {help && <p className="sidle-refusal" role="status"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {help}</p>}
       {cur && (
         <div className="sidle-current">

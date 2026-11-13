@@ -60,6 +60,8 @@ class _Game:
     unlocked: int = 0
     skipped: int = 0
     failed: int = 0
+    already: int = 0
+    rejected: int = 0
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,7 @@ class AchievementQueue:
         self._finished: list[tuple] = []
         self._totals = dict.fromkeys(("unlocked", "already", "skipped", "rejected", "failed"), 0)
         self._wait_until: float | None = None
+        self._next_write_at: float | None = None  # a paced write happened: the next one may not come earlier
         self._last_error: str | None = None
 
     # commands: record intent only
@@ -196,7 +199,7 @@ class AchievementQueue:
             "current": None if current is None else dict(zip(("appId", "name", "done", "total"), current)),
             "nextUnlockInSeconds": None if snap.wait_until is None else max(snap.wait_until - self._clock(), 0.0),
             "queue": [{"appId": app_id, "name": name} for app_id, name in snap.queue],
-            "finished": [dict(zip(("appId", "name", "unlocked", "skipped", "failed", "note"), row))
+            "finished": [dict(zip(("appId", "name", "unlocked", "skipped", "failed", "already", "rejected", "note"), row))
                          for row in snap.finished],
             "totals": dict(snap.totals),
             "lastError": snap.last_error,
@@ -240,8 +243,8 @@ class AchievementQueue:
 
     def _finish(self, note: str | None) -> None:
         game = self._cur
-        self._finished = ([(game.app_id, game.name, game.unlocked, game.skipped, game.failed, note)]
-                          + self._finished)[:_LIST_CAP]
+        self._finished = ([(game.app_id, game.name, game.unlocked, game.skipped, game.failed, game.already,
+                            game.rejected, note)] + self._finished)[:_LIST_CAP]
         self._cur = None
         self._phase = "scanning" if self._queue else "done"
 
@@ -293,20 +296,23 @@ class AchievementQueue:
             return self._finish("no_achievements")
         by_name = {item.api_name: item for item in items}
         wanted = self._requested if self._requested is not None else [i.api_name for i in items if not i.achieved]
+        skip_hidden = self._requested is None and self._rules.skip_hidden  # names the user sent are honoured as sent
         for name in wanted:
             item = by_name.get(name)
             if item is None:
+                game.rejected += 1
                 self._totals["rejected"] += 1
             elif item.achieved:
+                game.already += 1
                 self._totals["already"] += 1
-            elif item.hidden and self._rules.skip_hidden:
+            elif item.hidden and skip_hidden:
                 game.skipped += 1
                 self._totals["skipped"] += 1
             else:
                 game.targets.append(name)
         game.total = len(game.targets)
         if not game.targets:
-            return self._finish("nothing_missing" if not game.skipped else None)
+            return self._finish("only_hidden" if game.skipped else "nothing_missing")
         self._phase = "unlocking"
 
     def _paced(self) -> bool:
@@ -315,20 +321,33 @@ class AchievementQueue:
     def _write(self) -> None:
         game = self._cur
         batch = game.targets[:1 if self._paced() else MAX_UNLOCK_NAMES]
+        if self._next_write_at is not None:  # the pace wait is armed lazily, right before the next write
+            self._wait_until, self._next_write_at, self._phase = self._next_write_at, None, "waiting"
+            if self._clock() < self._wait_until:
+                return
+            self._wait_until, self._phase = None, "unlocking"
         if (why := self._refusal()) is not None:
             return self._refuse(why)
         try:
             outcome = self._unlock(game.app_id, list(batch))
         except AchievementsError as error:
-            return self._on_error(game, error, len(batch))
+            return self._on_error(game, error)
+        except Exception:  # a write may have happened: stop, never continue blindly
+            logger.error("achievements unlock crashed", exc_info=True)
+            self._lose_remaining(game)
+            self._finish("uncertain")
+            return self._halt("internal_error")
         self._apply(game, batch, outcome)
 
-    def _on_error(self, game: _Game, error: AchievementsError, batch_size: int) -> None:
-        logger.error("achievements unlock failed: %s (wrote=%s)", error.code, error.wrote)
-        lost = batch_size if error.wrote else len(game.targets)
+    def _lose_remaining(self, game: _Game) -> None:
+        lost = len(game.targets)
         game.failed += lost
         self._totals["failed"] += lost
-        self._finish(error.code)
+
+    def _on_error(self, game: _Game, error: AchievementsError) -> None:
+        logger.error("achievements unlock failed: %s (wrote=%s)", error.code, error.wrote)
+        self._lose_remaining(game)
+        self._finish("uncertain" if error.wrote else error.code)
         if error.wrote or error.code in _FATAL:
             self._halt(error.code)
 
@@ -350,7 +369,6 @@ class AchievementQueue:
             return self._halt("unlock_uncertain")
         if not game.targets:
             self._finish(None)
-        if self._paced() and outcome.changed and self._phase != "done":
+        if self._paced() and outcome.changed:
             low = self._rules.min_minutes * 60
-            self._wait_until = self._clock() + self._uniform(low, max(self._rules.max_minutes * 60, low))
-            self._phase = "waiting"
+            self._next_write_at = self._clock() + self._uniform(low, max(self._rules.max_minutes * 60, low))

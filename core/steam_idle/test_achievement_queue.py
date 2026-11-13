@@ -10,7 +10,7 @@ from steam_idle.achievements import Achievement, AchievementsError, UnlockOutcom
 RUN_KEYS = {"state", "mode", "current", "nextUnlockInSeconds", "queue", "finished", "totals", "lastError", "paused",
             "suspended"}
 TOTAL_KEYS = {"unlocked", "already", "skipped", "rejected", "failed"}
-FINISHED_KEYS = {"appId", "name", "unlocked", "skipped", "failed", "note"}
+FINISHED_KEYS = {"appId", "name", "unlocked", "skipped", "failed", "already", "rejected", "note"}
 BLOCKED = ("paused", "suspended", "stopped", "done", "idle")
 
 
@@ -127,15 +127,25 @@ class PlanTests(unittest.TestCase):
         self.assertEqual((status["state"], status["mode"], status["lastError"]), ("done", "selected", None))
         self.assertEqual(status["totals"], {"unlocked": 2, "already": 0, "skipped": 0, "rejected": 0, "failed": 0})
         self.assertEqual(status["finished"], [{"appId": 7, "name": "Seven", "unlocked": 2, "skipped": 0, "failed": 0,
-                                               "note": None}])
+                                               "already": 0, "rejected": 0, "note": None}])
         self.assertEqual((status["current"], status["queue"]), (None, []))
 
     def test_selected_counts_unknown_and_already_achieved_names_without_a_write(self):
-        env = Env({7: [ach("A", achieved=True), ach("B"), ach("H", hidden=True)]})
-        env.start(SelectedPlan(7, ["A", "B", "NOPE", "H"]))
+        env = Env({7: [ach("A", achieved=True), ach("B"), ach("C")]})
+        env.start(SelectedPlan(7, ["A", "B", "NOPE", "NOPE2"]))
         status = env.run()
         self.assertEqual(env.calls, [(7, ["B"])])
-        self.assertEqual(status["totals"], {"unlocked": 1, "already": 1, "skipped": 1, "rejected": 1, "failed": 0})
+        self.assertEqual(status["totals"], {"unlocked": 1, "already": 1, "skipped": 0, "rejected": 2, "failed": 0})
+        row = status["finished"][0]
+        self.assertEqual((row["unlocked"], row["already"], row["rejected"]), (1, 1, 2), "the game row counts them too")
+
+    def test_selected_honours_hidden_names_as_the_user_sent_them(self):
+        env = Env({7: [ach("A"), ach("H", hidden=True)]})
+        env.start(SelectedPlan(7, ["H"]))
+        status = env.run()
+        self.assertEqual(env.calls, [(7, ["H"])])
+        self.assertEqual((status["totals"]["skipped"], status["totals"]["unlocked"]), (0, 1))
+        self.assertEqual(status["finished"][0]["skipped"], 0)
 
     def test_selected_with_nothing_to_write_makes_no_call(self):
         env = Env({7: [ach("A", achieved=True)]})
@@ -152,7 +162,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(status["mode"], "game")
         self.assertEqual(status["totals"]["skipped"], 1)
         self.assertEqual(status["finished"][0], {"appId": 9, "name": "Nine", "unlocked": 2, "skipped": 1, "failed": 0,
-                                                 "note": None})
+                                                 "already": 0, "rejected": 0, "note": None})
 
     def test_hidden_are_included_when_skip_hidden_is_false(self):
         env = Env({9: [ach("A"), ach("H", hidden=True)]}, Rules(skip_hidden=False))
@@ -161,11 +171,12 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(env.calls, [(9, ["A", "H"])])
         self.assertEqual(status["totals"]["skipped"], 0)
 
-    def test_only_hidden_missing_is_not_nothing_missing(self):
+    def test_only_hidden_missing_is_noted_as_only_hidden(self):
         env = Env({9: [ach("H", hidden=True)]})
         env.start(GamePlan(9))
         status = env.run()
-        self.assertEqual((env.calls, status["finished"][0]["skipped"], status["finished"][0]["note"]), ([], 1, None))
+        self.assertEqual((env.calls, status["finished"][0]["skipped"], status["finished"][0]["note"]),
+                         ([], 1, "only_hidden"))
 
     def test_library_plan_walks_games_newest_finished_first_and_honours_exclude(self):
         reads = {1: missing(2, "X"), 2: [], 3: [ach("D", achieved=True)], 4: AchievementsError("stats_unavailable"),
@@ -261,6 +272,34 @@ class BatchAndPaceTests(unittest.TestCase):
         self.assertNotIn("waiting", states)
         self.assertEqual(len(env.calls), 3)
 
+    def test_no_wait_before_games_with_nothing_to_write(self):
+        env = Env({1: missing(1), 2: [ach("X", achieved=True)], 3: []}, Rules(min_minutes=60, max_minutes=60))
+        env.start(LibraryPlan([(1, "a"), (2, "b"), (3, "c")]))
+        states = set()
+        for _ in range(40):
+            env.step()
+            states.add(env.state())
+            if env.state() == "done":
+                break
+        self.assertEqual(env.state(), "done")
+        self.assertNotIn("waiting", states)
+        self.assertEqual((len(env.calls), env.now), (1, 1000.0), "the run ended without waiting for a write")
+
+    def test_the_wait_is_armed_only_right_before_the_next_write(self):
+        env = Env({1: missing(1), 2: [ach("X", achieved=True)], 3: missing(1, "C")}, Rules(min_minutes=1, max_minutes=1))
+        env.start(LibraryPlan([(1, "a"), (2, "b"), (3, "c")]))
+        seen = []
+        for _ in range(60):
+            env.step()
+            status = env.q.status()
+            if status["state"] == "waiting":
+                seen.append((status["current"]["appId"], len(env.calls)))
+            if status["state"] == "done":
+                break
+            env.now += 5
+        self.assertEqual(env.calls, [(1, ["A0"]), (3, ["C0"])])
+        self.assertTrue(seen and set(seen) == {(3, 1)}, seen)
+
     def test_wait_spans_games_and_the_last_game_does_not_wait(self):
         env = Env({1: missing(1), 2: missing(1, "B")}, Rules(min_minutes=1, max_minutes=1))
         env.start(LibraryPlan([(1, "a"), (2, "b")]))
@@ -323,7 +362,28 @@ class ErrorTests(unittest.TestCase):
         status = env.run()
         self.assertEqual((status["state"], status["lastError"], len(env.calls)), ("stopped", "worker_failed", 1))
         self.assertEqual(status["totals"]["failed"], 2)
-        self.assertEqual(status["finished"][0]["note"], "worker_failed")
+        self.assertEqual(status["finished"][0]["note"], "uncertain")
+
+    def test_error_with_wrote_true_counts_all_remaining_targets_of_the_game_as_failed(self):
+        env = Env({1: missing(3)}, Rules(min_minutes=1, max_minutes=1))
+        self.raising(env, "worker_failed", True)
+        env.start(GamePlan(1))
+        status = env.run()
+        self.assertEqual(len(env.calls), 1, "paced: one name per call")
+        self.assertEqual((status["totals"]["failed"], status["finished"][0]["failed"]), (3, 3))
+        self.assertEqual((status["finished"][0]["note"], status["lastError"]), ("uncertain", "worker_failed"))
+
+    def test_an_unexpected_exception_from_unlock_stops_as_internal_error_and_notes_uncertain(self):
+        env = Env({1: missing(2), 2: missing(1)})
+        env.on_unlock = lambda *args: (_ for _ in ()).throw(RuntimeError("boom"))
+        env.start(LibraryPlan([(1, "a"), (2, "b")]))
+        with self.assertLogs("steam_idle.achievement_queue", "ERROR"):
+            status = env.run()
+        self.assertEqual((status["state"], status["lastError"], len(env.calls)), ("stopped", "internal_error", 1))
+        row = status["finished"][0]
+        self.assertEqual((row["appId"], row["note"], row["failed"]), (1, "uncertain", 2))
+        self.assertEqual(status["totals"]["failed"], 2)
+        self.assertEqual((status["queue"], status["current"]), ([], None))
 
     def test_error_with_wrote_false_fails_the_game_and_continues(self):
         env = Env({1: missing(3), 2: missing(1, "B")})
@@ -360,8 +420,7 @@ class ErrorTests(unittest.TestCase):
         self.assertEqual(status["finished"][0]["note"], "read_failed")
 
     def test_a_crash_in_a_dependency_propagates_and_abort_makes_the_state_honest(self):
-        env = Env({1: missing(1)})
-        env.on_unlock = lambda *args: (_ for _ in ()).throw(RuntimeError("boom"))
+        env = Env({1: RuntimeError("boom")})
         env.start(GamePlan(1))
         with self.assertRaises(RuntimeError):
             env.run()
@@ -555,7 +614,7 @@ class StatusTests(unittest.TestCase):
     def test_status_shape_is_exact_json_and_free_of_long_numbers(self):
         env = Env({1: missing(2)}, Rules(min_minutes=1, max_minutes=1))
         env.start(GamePlan(1, "G"))
-        for _ in range(4):
+        for _ in range(5):
             env.step()
         status = env.q.status()
         self.assertEqual(set(status), RUN_KEYS)

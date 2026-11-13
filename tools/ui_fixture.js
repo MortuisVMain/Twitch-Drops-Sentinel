@@ -14,7 +14,7 @@
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
 // ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
-// ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; noach omits the achievements key (older service: no switch).
+// ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch).
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
@@ -283,6 +283,7 @@
   var siBig = siMode === 'achbig';
   if (siMode.indexOf('ach') === 0) { si.library = { count: 30, status: 'ready', ageSeconds: 300 }; }
   if (siMode === 'achgate') si.achievements.acknowledged = false;
+  else if (siMode === 'achbadshape') si.achievements.run.state = 'exploding';
   else if (siMode === 'achnolib') si.library = { count: null, status: 'none', ageSeconds: null };
   else if (siMode === 'achrunning') siAchFill('unlocking');
   else if (siMode === 'achwaiting') { siAchFill('waiting'); si.achievements.settings.minMinutes = 10; si.achievements.settings.maxMinutes = 20; siAchRun().nextUnlockInSeconds = 720; }
@@ -339,7 +340,8 @@
     var a = si.achievements, r = a.run, active = ['scanning', 'unlocking', 'waiting', 'paused', 'suspended'].indexOf(r.state) >= 0;
     if (cmd === 'achievements/ack') { a.acknowledged = !!(body && body.accepted); if (!a.acknowledged && active) { r.state = 'stopped'; r.current = null; r.queue = []; } }
     else if (cmd === 'achievements/settings') {
-      var ok = body && [body.minMinutes, body.maxMinutes].every(function (n) { return typeof n === 'number' && n % 1 === 0 && n >= 0 && n <= 1440; }) && body.minMinutes <= body.maxMinutes && typeof body.skipHidden === 'boolean';
+      var ok = body && [body.minMinutes, body.maxMinutes].every(function (n) { return typeof n === 'number' && n % 1 === 0 && n >= 0 && n <= 1440; }) && body.minMinutes <= body.maxMinutes && typeof body.skipHidden === 'boolean'
+        && Object.keys(body).sort().join(',') === 'maxMinutes,minMinutes,skipHidden';
       if (!ok) return [400, 'invalid_request'];
       a.settings = { minMinutes: body.minMinutes, maxMinutes: body.maxMinutes, skipHidden: body.skipHidden };
     } else if (cmd === 'library/scan') {
@@ -351,6 +353,8 @@
       if (!a.acknowledged) return [409, 'achievements_not_acknowledged'];
       if (active) return [409, 'busy'];
       var b = body || {};
+      // exactly the keys of one contract shape: an extra key is a client bug the service would refuse
+      if (['appId,names', 'all,appId', 'confirm,exclude,library'].indexOf(Object.keys(b).sort().join(',')) < 0) return [400, 'invalid_request'];
       if (b.library === true) {
         if (b.confirm !== 'ALL' || !Array.isArray(b.exclude)) return [400, 'invalid_request'];
         r.mode = 'library';
@@ -390,6 +394,8 @@
     if (cmd === 'library' || cmd === 'achievements') {
       var code = q.get('steamidleget');
       if (code) return siReply(409, { error: code });
+      // like the service: no reads through the helper while a run holds it
+      if (si.achievements && ['scanning', 'unlocking', 'waiting', 'paused', 'suspended'].indexOf(si.achievements.run.state) >= 0) return siReply(409, { error: 'busy' });
       if (cmd === 'library') return si.library.status === 'ready' ? siReply(200, { games: siLibGames() }) : siReply(409, { error: 'not_ready' });
       if (!si.achievements || !si.achievements.acknowledged) return siReply(409, { error: 'achievements_not_acknowledged' });
       var wanted = Number(new URLSearchParams(String(fullUrl).split('?')[1] || '').get('appId'));

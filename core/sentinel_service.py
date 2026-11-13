@@ -183,7 +183,8 @@ from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
-from steam_idle.controller import create_controller as create_steam_idle_controller, steam_idle_backend_kind
+from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
+                                   create_controller as create_steam_idle_controller, steam_idle_backend_kind)
 from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
@@ -983,6 +984,10 @@ class SentinelSupervisor:
             await asyncio.wait_for(self.giveaways.abort_claim(), timeout=2.5)
         except Exception as e:
             logger.warning(f"Could not abort giveaways process on shutdown: {e}")
+        try:  # closes the steam-idle queue first, then waits for an unlock call in flight (never kills it)
+            await asyncio.wait_for(self.steam_idle.shutdown(), timeout=STEAM_IDLE_SHUTDOWN_BUDGET)
+        except Exception as e:
+            logger.warning(f"Steam idle did not shut down cleanly: {e!r}")
         await asyncio.sleep(0.5)
         sys.exit(0)
 

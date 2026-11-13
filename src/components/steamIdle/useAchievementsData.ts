@@ -66,7 +66,21 @@ export function useArrivals<V>(value: V, target: (v: V) => boolean): number {
   return count;
 }
 
-export const useLibraryGames = (ready: boolean, gen: number) => useGet<SteamIdleLibraryGame[]>(ready ? '/library' : null, parseLibrary, gen);
+/** A read refused with 409 busy is retried once no run is on (1.5 s later, at most 3 tries until an answer is read), so the
+ * list recovers by itself after the run ends even when the refusal arrived after it did. */
+export function useBusyRetry(get: { status: GetState<unknown>['status']; error: string | null; reload: () => void }, runActive: boolean): void {
+  const tries = useRef(0);
+  const { status, error, reload } = get;
+  const busy = status === 'error' && error === 'busy';
+  useEffect(() => {
+    if (status === 'ready') tries.current = 0;
+    if (!busy || runActive || tries.current >= 3) return undefined;
+    const timer = window.setTimeout(() => { tries.current += 1; reload(); }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [busy, runActive, status, reload]);
+}
+
+export const useLibraryGames =(ready: boolean, gen: number) => useGet<SteamIdleLibraryGame[]>(ready ? '/library' : null, parseLibrary, gen);
 
 export const useAchievementList = (appId: number | null, gen: number) =>
   useGet<SteamIdleAchievement[]>(appId === null ? null : `/achievements?appId=${appId}`, parseAchievementList, gen);

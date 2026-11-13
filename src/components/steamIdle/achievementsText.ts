@@ -48,7 +48,9 @@ export const finishedNoteText = (note: string | null): string | null => {
     case 'nothing_missing': return 'всё уже получено';
     case 'read_failed': return 'не удалось прочитать';
     case 'skipped_by_user': return 'пропущено вами';
-    default: return null;
+    case 'only_hidden': return 'остались только скрытые';
+    case 'uncertain': return 'результат не подтверждён, проверьте в Steam';
+    default: return note ? 'не обработано' : null;
   }
 };
 
@@ -62,6 +64,9 @@ export const unlockDate = (time: number | null | undefined): string | null => {
   const ms = time > 1e12 ? time : time * 1000;
   return new Date(ms).toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short', year: 'numeric' });
 };
+
+/** A read refused with busy while a run is on is not a failure: it clears when the run ends. */
+export const ACH_BUSY_NOTE = 'Идёт выдача, список обновится после неё';
 
 export const achLoadErrorText = (code: string): string => {
   switch (code) {
@@ -82,12 +87,3 @@ export const achLoadErrorText = (code: string): string => {
 export const MINUTES_MAX = 1440;
 export const START_NAMES_MAX = 200;
 export const SEARCH_LIMIT = 50;
-
-/** Digits and commas only; returns the AppIDs, or null when the text is not a clean list (empty is a clean empty list). */
-export const parseExclude = (text: string): number[] | null => {
-  const t = text.replace(/\s+/g, '');
-  if (t === '') return [];
-  if (!/^\d+(,\d+)*,?$/.test(t)) return null;
-  const ids = t.split(',').filter(Boolean).map(Number);
-  return ids.every((n) => Number.isSafeInteger(n)) ? ids : null;
-};

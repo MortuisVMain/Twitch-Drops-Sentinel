@@ -31,6 +31,7 @@ const PREVIEW_STATUSES = ['none', 'scanning', 'ready', 'failed'];
 const isPreview = (p: unknown): boolean => isRec(p) && typeof p.status === 'string' && PREVIEW_STATUSES.includes(p.status)
   && isNumOrNull(p.ageSeconds) && (p.error === null || typeof p.error === 'string') && isNum(p.totalDropsRemaining)
   && Array.isArray(p.games) && p.games.every((g) => hasGame(g) && isNum(g.dropsRemaining) && isNum(g.playtimeHours));
+let achShapeLogged = false;
 const SESSIONS = ['unknown', 'checking', 'signed_in', 'signed_out', 'login_open', 'account_mismatch', 'error'];
 
 /** Checks the whole contract (progress.txt, "Service API contract v1"). Only library, totalDropsRemaining and
@@ -54,12 +55,17 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     && (farm.lastError === null || typeof farm.lastError === 'string')
     && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)
       && (json.library.status === undefined || isLibraryStatus(json.library.status)) && optNumOrNull(json.library.ageSeconds)))
-    && (json.preview === undefined || isPreview(json.preview))
-    && (json.achievements === undefined || parseAchievements(json.achievements) !== null);
+    && (json.preview === undefined || isPreview(json.preview));
   if (!ok) return null;
+  // The achievements key is judged on its own: a bad one hides that section only, the rest of the tab still renders.
+  const achievements = json.achievements === undefined ? undefined : parseAchievements(json.achievements);
+  if (achievements === null) {
+    if (!achShapeLogged) { achShapeLogged = true; console.error('Steam IDLE state: achievements key does not match the contract, section hidden', json.achievements); }
+  } else achShapeLogged = false;
   const base = json as unknown as SteamIdleState;
   return {
     ...base,
+    achievements: achievements ?? undefined,
     community: { ...base.community, checkedAgeSeconds: isNum(community.checkedAgeSeconds) ? community.checkedAgeSeconds : null },
     farm: {
       ...base.farm,
