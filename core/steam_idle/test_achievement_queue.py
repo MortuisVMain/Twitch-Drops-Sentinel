@@ -525,6 +525,18 @@ class GuardTests(unittest.TestCase):
         env.run()
         self.assertEqual(env.calls, [(1, ["A0"]), (2, ["B0"])])
 
+    def test_stop_in_the_middle_of_a_game_records_what_was_already_done(self):
+        env = Env({1: missing(3)}, Rules(min_minutes=1, max_minutes=1))
+        env.start(LibraryPlan([(1, "a")]))
+        while env.state() != "waiting":
+            env.step()
+        env.q.stop()
+        env.step()
+        status = env.q.status()
+        self.assertEqual(status["state"], "stopped")
+        self.assertEqual([(g["appId"], g["note"], g["unlocked"]) for g in status["finished"]], [(1, "stopped", 1)])
+        self.assertEqual(env.calls, [(1, ["A0"])])
+
     def test_skip_without_a_current_game_is_harmless(self):
         env = Env({1: missing(1)})
         env.q.skip_current()

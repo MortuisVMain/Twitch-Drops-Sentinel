@@ -4,12 +4,13 @@ step() runs in one worker thread; commands and status() may be called from anoth
 immediate request flag), and status() returns a snapshot published after each step, so a step blocked in a read or a
 presence start never blocks a caller and a caller never sees a half-applied transition. Every hold re-checks the
 request flags right before it starts a presence, so a stop, close, pause or suspend that arrived during a blocked step
-is honoured before a game is held.
+is honoured before a game is held. Each command also republishes the snapshot with the pending intent applied (stop,
+pause, resume and suspend show at once and hold nothing) and calls the wake hook so the run loop steps without delay.
 """
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .community import CommunityError, GameDrops, farmable
 from .presence import PresenceError
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 _ACTIVE = frozenset({"scanning", "farming", "waiting"})
 _RESTARTABLE = frozenset({"idle", "done", "stopped", "needs_login"})
 _HALTED = frozenset({"stopped", "paused", "suspended"})
+_LIVE = _ACTIVE | {"paused", "suspended"}
 
 
 @dataclass(frozen=True)
@@ -53,9 +55,10 @@ class CardFarm:
 
     def __init__(self, rules: FarmRules, read_drops: Callable[[], list[GameDrops]],
                  presence_factory: Callable[[], object], clock: Callable[[], float],
-                 hold_guard: Callable[[], str | None] | None = None):
+                 hold_guard: Callable[[], str | None] | None = None, on_command: Callable[[], None] = lambda: None):
         self._rules, self._read_drops, self._factory, self._clock = rules, read_drops, presence_factory, clock
         self._guard = hold_guard  # called right before each hold: None = allowed, else the code to stop with
+        self._wake = on_command  # called after every command; must be safe from any thread
         self._lock = threading.Lock()
         self._commands: list[tuple[Callable, tuple]] = []
         self._closed = self._stop_req = self._pause_req = self._suspend_req = False
@@ -82,11 +85,15 @@ class CardFarm:
         with self._lock:
             self._pause_req = False
             self._commands.append((self._do_start, ()))
+            self._show_intent()
+        self._wake()
 
     def stop(self) -> None:
         with self._lock:
             self._stop_req, self._pause_req = True, False
             self._commands[:] = [(self._do_stop, ())]
+            self._show_intent()
+        self._wake()
 
     def close(self) -> None:
         """Permanent stop for shutdown: releases like stop() and refuses every later hold."""
@@ -98,21 +105,28 @@ class CardFarm:
         with self._lock:
             self._pause_req = True
             self._commands.append((self._do_pause, ()))
+            self._show_intent()
+        self._wake()
 
     def resume(self) -> None:
         with self._lock:
             self._pause_req = False
             self._commands.append((self._do_resume, ()))
+            self._show_intent()
+        self._wake()
 
     def skip_current(self) -> None:
         with self._lock:
             self._commands.append((self._do_skip, ()))
+        self._wake()
 
     def set_suspended(self, flag: bool) -> None:
         flag = bool(flag)
         with self._lock:
             self._suspend_req = flag
             self._commands[:] = [c for c in self._commands if c[0] != self._do_suspend] + [(self._do_suspend, (flag,))]
+            self._show_intent()
+        self._wake()
 
     def abort(self, code: str) -> None:
         """Crash path, only when no step is running: forget everything held and report stopped with `code`.
@@ -142,6 +156,11 @@ class CardFarm:
         finally:
             self._publish()
 
+    def pending(self) -> bool:
+        """True while a command is queued and not yet applied by a step (the status may already show its effect)."""
+        with self._lock:
+            return bool(self._commands)
+
     def _delay(self) -> float:
         if self._commands or self._state == "scanning":
             return 0.0
@@ -150,9 +169,32 @@ class CardFarm:
         return self._rules.recheck_seconds
 
     def _publish(self) -> None:
-        self._snap = _Snapshot(
+        snap = _Snapshot(
             self._state, self._held, self._held_since, tuple(self._queue), tuple(self._done), tuple(self._failed),
             self._last_read, self._last_error, self._paused, self._suspended)
+        with self._lock:
+            self._snap = self._with_intent(snap)
+
+    def _show_intent(self) -> None:
+        """Lock held: the published snapshot reflects a command that no step has applied yet."""
+        self._snap = self._with_intent(self._snap)
+
+    def _with_intent(self, snap: _Snapshot) -> _Snapshot:
+        """Lock held: `snap` with the pending requests applied (nothing held), exactly as the queued commands will."""
+        state = snap.state
+        pending = {command[0] for command in self._commands}
+        if (self._closed or self._stop_req) and state in _LIVE:
+            return replace(snap, state="stopped", held=None, queue=(), paused=False, suspended=self._suspend_req)
+        if self._pause_req and state in _ACTIVE | {"suspended"}:
+            return replace(snap, state="paused", held=None, paused=True)
+        if self._suspend_req and state in _ACTIVE:
+            return replace(snap, state="suspended", held=None, suspended=True)
+        if state == "paused" and not self._pause_req and self._do_resume in pending:
+            return replace(snap, state="suspended" if self._suspend_req else "scanning", paused=False,
+                           suspended=self._suspend_req)
+        if state == "suspended" and not (self._suspend_req or self._pause_req) and self._do_suspend in pending:
+            return replace(snap, state="scanning", suspended=False)
+        return snap
 
     def status(self) -> dict:
         snap, now = self._snap, self._clock()

@@ -22,6 +22,7 @@ from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
 from .presence import Presence
+from .wake import Wake
 
 logger = logging.getLogger(__name__)
 
@@ -156,14 +157,17 @@ class SteamIdleController:
         self._kill_reads = kill_reads
         self._step_done = threading.Event()  # set while no farm step is running in the worker thread
         self._step_done.set()
-        self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard)
+        self._wake = Wake()
+        self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard,
+                              on_command=self._wake.set)
         self._achv = AchievementsRun(
             gate=self._read_gate, get_setting=get_setting, set_setting=set_setting,
             risk_acknowledged=lambda: bool(get_setting(RISK_ACK_KEY, False)),
             client_state=lambda: self._client_state(),
             read_achievements=read_achievements or _never, unlock=unlock or _never,
             read_library=lambda *args, **kwargs: self._read_library_fn(*args, **kwargs),
-            cached_games=self._cached_games, store_library=self._store_library, session_error=self._session_error,
+            cached_games=self._cached_games, cached_preview=self._cached_preview, store_library=self._store_library,
+            session_error=self._session_error,
             is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep)
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
@@ -220,6 +224,10 @@ class SteamIdleController:
     def _cached_games(self, account_id: int) -> list | None:
         library = self._library
         return library[1] if library and library[0] == account_id else None
+
+    def _cached_preview(self, account_id: int) -> list | None:
+        preview = self._preview
+        return preview[1] if preview and preview[0] == account_id else None
 
     def _session_error(self, code: str) -> bool:
         """Apply a community error code to the session; True when it was a session code."""
@@ -506,14 +514,16 @@ class SteamIdleController:
 
     async def _run_loop(self) -> None:
         try:
+            self._wake.bind()
             while True:
                 if self._client_state().account_id != self._run_account:
                     self._run_error = "account_changed"
                     self._farm.stop()
+                self._wake.clear()  # a command from here on ends the sleep below at once
                 delay = await asyncio.to_thread(self._step)
-                if self._farm.status()["state"] in _ENDED and delay > 0:
+                if self._farm.status()["state"] in _ENDED and delay > 0 and not self._farm.pending():
                     return
-                await self._sleep(min(delay, _TICK_SECONDS))
+                await self._wake.sleep(self._sleep, min(delay, _TICK_SECONDS))
         except Exception:
             logger.error("steam idle farm loop crashed", exc_info=True)
             await self._abort_run()

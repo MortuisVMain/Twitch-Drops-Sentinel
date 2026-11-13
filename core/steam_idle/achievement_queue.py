@@ -2,13 +2,15 @@
 
 step() runs in one worker thread; commands and status() may come from another. pause, resume and suspend only set
 immediate flags and stop/close set a request flag, so the guard right before every unlock sees them even when they
-arrived while a step was blocked in a read or an unlock. status() returns a snapshot published at the end of each step.
+arrived while a step was blocked in a read or an unlock. status() returns a snapshot published at the end of each step
+and again by every command with the pending intent applied, so the user's command shows at once; a command also calls
+the wake hook so the run loop steps without delay.
 Nothing is written once the queue is closed, stopped, paused, suspended or done, and any uncertain outcome stops the run.
 """
 import logging
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .achievements import MAX_UNLOCK_NAMES, Achievement, AchievementsError, UnlockOutcome
 
@@ -83,8 +85,10 @@ class AchievementQueue:
 
     def __init__(self, read_achievements: Callable[[int], list[Achievement]],
                  unlock: Callable[[int, list[str]], UnlockOutcome], clock: Callable[[], float],
-                 uniform: Callable[[float, float], float], guard: Callable[[], str | None] | None = None):
+                 uniform: Callable[[float, float], float], guard: Callable[[], str | None] | None = None,
+                 on_command: Callable[[], None] = lambda: None):
         self._read, self._unlock, self._clock, self._uniform, self._guard = read_achievements, unlock, clock, uniform, guard
+        self._wake = on_command  # called after every command; must be safe from any thread
         self._lock = threading.Lock()
         self._commands: list[tuple[Callable, tuple]] = []
         self._closed = self._stop_req = self._pause_req = self._suspend_req = False
@@ -107,11 +111,15 @@ class AchievementQueue:
         with self._lock:
             self._pause_req = False
             self._commands.append((self._do_start, (plan, rules)))
+            self._show_intent()
+        self._wake()
 
     def stop(self) -> None:
         with self._lock:
             self._stop_req, self._pause_req = True, False
             self._commands[:] = [(self._do_stop, ())]
+            self._show_intent()
+        self._wake()
 
     def close(self) -> None:
         """Permanent stop for shutdown: like stop() and every later start is ignored."""
@@ -122,18 +130,25 @@ class AchievementQueue:
     def pause(self) -> None:
         with self._lock:
             self._pause_req = True
+            self._show_intent()
+        self._wake()
 
     def resume(self) -> None:
         with self._lock:
             self._pause_req = False
+            self._show_intent()
+        self._wake()
 
     def set_suspended(self, flag: bool) -> None:
         with self._lock:
             self._suspend_req = bool(flag)
+            self._show_intent()
+        self._wake()
 
     def skip_current(self) -> None:
         with self._lock:
             self._commands.append((self._do_skip, ()))
+        self._wake()
 
     def abort(self, code: str) -> None:
         """Crash path, only when no step is running: forget everything and report stopped with `code`."""
@@ -163,6 +178,11 @@ class AchievementQueue:
         finally:
             self._publish()
 
+    def pending(self) -> bool:
+        """True while a command is queued and not yet applied by a step (the status may already show its effect)."""
+        with self._lock:
+            return bool(self._commands)
+
     def _delay(self) -> float:
         with self._lock:
             if self._commands:
@@ -175,18 +195,23 @@ class AchievementQueue:
         return 0.0
 
     def _publish(self) -> None:
-        with self._lock:
-            paused, suspended = self._pause_req, self._suspend_req
-            halted = self._closed or self._stop_req
-        if halted and self._phase in _ACTIVE:  # a stop or close that no step has applied yet is already in force
-            self._snap = _Snapshot("stopped", self._mode, None, None, (), tuple(self._finished),
-                                   tuple(self._totals.items()), self._last_error, False, False)
-            return
         cur = self._cur
-        self._snap = _Snapshot(
+        snap = _Snapshot(
             self._phase, self._mode, None if cur is None else (cur.app_id, cur.name, cur.done, cur.total),
             self._wait_until, tuple(self._queue[:_LIST_CAP]), tuple(self._finished), tuple(self._totals.items()),
-            self._last_error, paused, suspended)
+            self._last_error, False, False)
+        with self._lock:
+            self._snap = self._with_intent(snap)
+
+    def _show_intent(self) -> None:
+        """Lock held: the published snapshot reflects a command that no step has applied yet."""
+        self._snap = self._with_intent(self._snap)
+
+    def _with_intent(self, snap: _Snapshot) -> _Snapshot:
+        """Lock held: `snap` with the pending requests applied; a stop or close that no step has applied is in force."""
+        if (self._closed or self._stop_req) and snap.phase in _ACTIVE:
+            return replace(snap, phase="stopped", current=None, wait_until=None, queue=(), paused=False, suspended=False)
+        return replace(snap, paused=self._pause_req, suspended=self._suspend_req)
 
     def status(self) -> dict:
         snap = self._snap
@@ -235,6 +260,8 @@ class AchievementQueue:
             self._finish("skipped_by_user")
 
     def _halt(self, code: str | None) -> None:
+        if self._cur is not None:  # keep what was already done in the interrupted game
+            self._finish("stopped")
         self._queue, self._cur, self._wait_until, self._phase = [], None, None, "stopped"
         with self._lock:
             self._pause_req = False

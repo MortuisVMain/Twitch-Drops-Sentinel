@@ -14,7 +14,7 @@ from steam_idle.achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from steam_idle.achievements import Achievement, AchievementsError, UnlockResult, _outcome
 from steam_idle.community import CommunityError, OwnedGame
 from steam_idle.controller import SteamClient, Tools
-from steam_idle.test_controller import ACCOUNT, BASE_ID, OTHER, Env
+from steam_idle.test_controller import ACCOUNT, BASE_ID, OTHER, Env, gd
 
 ACK, RISK = "steam_idle_achievements_ack", "steam_idle_risk_ack"
 RUN_KEYS = {"state", "mode", "current", "nextUnlockInSeconds", "queue", "finished", "totals", "lastError", "paused",
@@ -462,6 +462,48 @@ class RunTests(Base):
         await self.env.settle()
         self.assertEqual(self.env.unlock_calls[0][2:], (2, ["A", "B"]))
         self.assertEqual(run_of(ctl)["finished"][0]["name"], "b")
+
+    async def names_of_a_finished_run(self, plan, library=None, preview=None):
+        """run.current's name while a paced run waits, with the cached sources given; no network read may happen."""
+        ctl = self.make()
+        self.paced()
+        ctl._sleep = ctl._achv._sleep = asyncio.sleep
+        if library:
+            ctl._store_library(ACCOUNT, library)
+        if preview:
+            ctl._store_preview(ACCOUNT, preview)
+        ctl.start_achievements(plan)
+        await self.wait_run("waiting")
+        current = run_of(ctl)["current"]["name"]
+        self.assertEqual((self.env.library_calls, self.env.drops_calls), (0, 0), "no extra network read")
+        return current
+
+    async def test_name_comes_from_the_cached_library(self):
+        current = await self.names_of_a_finished_run(GamePlan(100), library=[OwnedGame(100, "Lib Name", 0)],
+                                                     preview=[gd(100, 3)])
+        self.assertEqual(current, "Lib Name")
+
+    async def test_name_comes_from_the_cached_drops_preview_without_a_library(self):
+        current = await self.names_of_a_finished_run(GamePlan(100), preview=[gd(100, 3)])
+        self.assertEqual(current, "Game 100")
+
+    async def test_name_falls_back_to_the_preview_when_the_library_lacks_the_game(self):
+        current = await self.names_of_a_finished_run(SelectedPlan(100, ["A", "B"]), library=[OwnedGame(1, "x", 0)],
+                                                     preview=[gd(100, 3)])
+        self.assertEqual(current, "Game 100")
+
+    async def test_name_is_synthetic_when_no_source_knows_it_even_though_the_read_succeeded(self):
+        current = await self.names_of_a_finished_run(GamePlan(100), library=[OwnedGame(1, "x", 0)],
+                                                     preview=[gd(200, 3)])
+        self.assertEqual(current, "App 100")
+        self.assertEqual(self.env.ach_calls[0][2], 100, "the achievements read succeeded for the game")
+
+    async def test_finished_row_carries_the_resolved_name(self):
+        ctl = self.make()
+        ctl._store_preview(ACCOUNT, [gd(100, 3)])
+        ctl.start_achievements(GamePlan(100))
+        await self.env.settle()
+        self.assertEqual(run_of(ctl)["finished"][0]["name"], "Game 100")
 
     async def test_library_shape_from_the_cache_honours_exclude_and_skip_hidden(self):
         ctl = self.make()

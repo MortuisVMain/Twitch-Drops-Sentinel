@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from .achievement_queue import AchievementQueue, GamePlan, LibraryPlan, Rules, SelectedPlan
 from .community import CommunityError
+from .wake import Wake
 
 if TYPE_CHECKING:
     from .controller import SteamClient, Tools
@@ -32,7 +33,8 @@ class AchievementsRun:
                  get_setting: Callable[..., object], set_setting: Callable[[str, object], None],
                  risk_acknowledged: Callable[[], bool], client_state: "Callable[[], SteamClient]",
                  read_achievements: Callable[..., list], unlock: Callable[..., object], read_library: Callable[..., list],
-                 cached_games: Callable[[int], list | None], store_library: Callable[[int, list], None],
+                 cached_games: Callable[[int], list | None], cached_preview: Callable[[int], list | None],
+                 store_library: Callable[[int, list], None],
                  session_error: Callable[[str], bool], is_closed: Callable[[], bool], steam_id: Callable[[int], str],
                  clock: Callable[[], float], uniform: Callable[[float, float], float],
                  sleep: Callable[[float], Awaitable[None]]):
@@ -40,11 +42,14 @@ class AchievementsRun:
         self._risk_acknowledged, self._client_state = risk_acknowledged, client_state
         self._read_ach, self._unlock_ach, self._read_library = read_achievements, unlock, read_library
         self._cached_games, self._store_library, self._session_error = cached_games, store_library, session_error
+        self._cached_preview = cached_preview
         self._is_closed, self._steam_id, self._sleep = is_closed, steam_id, sleep
         self._step_done = threading.Event()  # set while no queue step is running in the worker thread
         self._step_done.set()
         self._unlock_in_flight = threading.Event()  # set only while an unlock call runs in the worker thread
-        self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard)
+        self._wake = Wake()
+        self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard,
+                                       on_command=self._wake.set)
         self._tools: "Tools | None" = None
         self._account, self._expected = 0, ""
         self._preparing = self._cancel = self._reading = False
@@ -202,20 +207,24 @@ class AchievementsRun:
             return None
         if isinstance(plan, LibraryPlan):
             return dataclasses.replace(plan, games=[(g.app_id, g.name) for g in games])
-        names = {g.app_id: g.name for g in games or []}
+        # the cached owned games first, then the cached drops preview; no read is made, and no name is invented
+        names = {g.app_id: g.name for g in self._cached_preview(self._account) or []}
+        names.update({g.app_id: g.name for g in games or []})
         return dataclasses.replace(plan, name=plan.name or names.get(plan.app_id) or f"App {plan.app_id}")
 
     async def _loop(self, plan, rules: Rules) -> None:
         try:
+            self._wake.bind()
             if (plan := await self._prepare(plan)) is not None:
                 self._queue.start(plan, rules)
             while True:
                 if self._client_state().account_id != self._account:
                     self._queue.abort("account_changed")  # no step is running here, so nothing can be written meanwhile
+                self._wake.clear()  # a command from here on ends the sleep below at once
                 delay = await asyncio.to_thread(self._step)
-                if self._queue.status()["state"] in _ENDED and delay > 0:
+                if self._queue.status()["state"] in _ENDED and delay > 0 and not self._queue.pending():
                     return
-                await self._sleep(min(delay, _TICK_SECONDS))
+                await self._wake.sleep(self._sleep, min(delay, _TICK_SECONDS))
         except Exception:
             logger.error("steam idle achievements loop crashed", exc_info=True)
             self._queue.abort("internal_error")

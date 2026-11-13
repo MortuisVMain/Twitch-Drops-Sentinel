@@ -128,6 +128,7 @@ export const STEAM_IDLE: Record<string, string> = {
   'не удалось прочитать': 'could not read',
   'пропущено вами': 'skipped by you',
   'остались только скрытые': 'only hidden ones left',
+  'остановлено до конца игры': 'stopped before the game was finished',
   'результат не подтверждён, проверьте в Steam': 'result not confirmed, check in Steam',
   'выдано': 'unlocked',
   'уже было': 'already had',

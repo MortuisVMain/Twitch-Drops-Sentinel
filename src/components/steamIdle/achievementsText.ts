@@ -49,6 +49,7 @@ export const finishedNoteText = (note: string | null): string | null => {
     case 'read_failed': return 'не удалось прочитать';
     case 'skipped_by_user': return 'пропущено вами';
     case 'only_hidden': return 'остались только скрытые';
+    case 'stopped': return 'остановлено до конца игры';
     case 'uncertain': return 'результат не подтверждён, проверьте в Steam';
     default: return note ? 'не обработано' : null;
   }
