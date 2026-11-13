@@ -1947,4 +1947,40 @@
 .sidle-preview-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .sidle-root .sidle-preview .tactile-btn { min-height: 32px; padding: 0 10px; }
 .sidle-skel { display: flex; flex-direction: column; gap: 10px; }
+.sidle-seg { display: inline-flex; flex-shrink: 0; width: fit-content; max-width: 100%; border: 1px solid var(--border-main); border-radius: 8px; overflow: hidden; background: var(--bg-well); }
+.sidle-seg-btn { min-height: 32px; padding: 0 16px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+.sidle-seg-btn + .sidle-seg-btn { border-left: 1px solid var(--border-main); }
+.sidle-seg-btn:hover { color: var(--text-primary); }
+.sidle-seg-btn[aria-pressed='true'] { background: var(--bg-btn-hover); color: var(--led-mint); font-weight: 700; box-shadow: inset 0 -2px 0 var(--led-mint); }
+.sidle-seg-btn:focus-visible { outline: 2px solid var(--led-mint); outline-offset: -2px; }
+.sidle-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sidle-fields { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.sidle-input { min-height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--border-main); border-radius: 8px; background: var(--bg-well); color: var(--text-primary); font: inherit; font-size: var(--fs-sm); width: 100%; max-width: 28rem; }
+.sidle-input-num { max-width: 8rem; }
+.sidle-input[aria-invalid='true'] { border-color: var(--led-amber); }
+.sidle-err { font-size: var(--fs-sm); color: var(--led-amber); }
+.sidle-textbtn { min-height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--led-mint); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.sidle-textbtn:disabled { color: var(--text-muted); cursor: not-allowed; text-decoration: none; }
+.sidle-textbtn:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
+.sidle-pick-list { max-height: 11rem; }
+.sidle-pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 32px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.sidle-pick:hover { background: var(--bg-row-hover); }
+.sidle-pick[aria-pressed='true'] { background: var(--bg-row); font-weight: 700; }
+.sidle-pick:focus-visible { outline: 2px solid var(--led-mint); outline-offset: -2px; }
+.sidle-ach-game { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
+.sidle-ach-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.sidle-ach-list { max-height: 22rem; }
+.sidle-ach-row { padding: 0; font-size: var(--fs-sm); color: var(--text-primary); border-top: 1px solid var(--border-subtle); display: flex; align-items: flex-start; gap: 10px; }
+.sidle-ach-row:first-child { border-top: 0; }
+.sidle-ach-label { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; min-height: 32px; padding: 6px 2px; cursor: pointer; }
+.sidle-ach-label input { inline-size: 18px; block-size: 18px; accent-color: var(--led-mint); margin: 1px 0 0; flex-shrink: 0; cursor: pointer; }
+.sidle-ach-lead { display: inline-flex; inline-size: 18px; flex-shrink: 0; padding: 7px 0 0 2px; box-sizing: content-box; }
+.sidle-ach-row > .sidle-row-main { padding: 6px 0; }
+.sidle-ach-row > .sidle-row-end { padding: 6px 2px 6px 0; }
+.sidle-ach-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; overflow-wrap: anywhere; font-weight: 600; }
+.sidle-ach-row .sidle-row-main { min-width: 0; }
+.sidle-tag { padding: 0 6px; border: 1px solid var(--border-main); border-radius: 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); }
+.sidle-row-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 12px; }
+.sidle-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--led-amber); border-radius: 8px; }
+.sidle-root .sidle-danger:not(:disabled):not([aria-disabled='true']) { border-color: var(--led-amber); color: var(--led-amber); }
 @media (prefers-reduced-motion: reduce) { .sidle-root, .sidle-root * { animation: none !important; transition: none !important; } }

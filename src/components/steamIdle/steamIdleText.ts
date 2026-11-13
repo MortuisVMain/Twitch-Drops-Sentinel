@@ -87,6 +87,9 @@ export const refusalText =(code: string | null): string => {
     case 'community_signed_out': return 'Нет входа на сайт Steam. Нажмите «Войти в Steam».';
     case 'account_mismatch': return 'Вход на сайте выполнен в другой аккаунт. Войдите в тот же, что и в клиенте Steam.';
     case 'busy': return 'Служба занята предыдущей командой. Повторите через пару секунд.';
+    case 'achievements_not_acknowledged': return 'Сначала включите выдачу достижений в их разделе.';
+    case 'not_ready': return 'Список игр ещё не загружен. Загрузите его и повторите.';
+    case 'invalid_request': return 'Служба не приняла запрос. Проверьте введённые значения.';
     case 'network': return 'Нет связи со службой. Повторите позже.';
     case 'timeout': return 'Служба не ответила. Повторите позже.';
     default: return 'Команда не выполнена. Повторите позже.';
@@ -102,6 +105,7 @@ export const refusalApplies = (code: string, s: SteamIdleState): boolean => {
     case 'steam_signed_out': return !s.steam.signedIn;
     case 'community_signed_out': return s.community.session !== 'signed_in';
     case 'account_mismatch': return s.community.session === 'account_mismatch';
+    case 'achievements_not_acknowledged': return s.achievements?.acknowledged === false;
     default: return true;
   }
 };

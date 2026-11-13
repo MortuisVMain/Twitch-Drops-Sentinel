@@ -270,6 +270,41 @@ class AchievementsTests(unittest.TestCase):
         self.assertEqual(wait_gone(read_pids(self.pidfile)), [])
 
 
+class KillInFlightTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pidfile = Path(self.temp.name) / "pids.txt"
+        self.script = Path(self.temp.name) / "fake_achievements.py"
+        self.script.write_text(FAKE, encoding="utf-8")
+        self.addCleanup(force_kill, self.pidfile)
+
+    def fake(self, mode):
+        return [sys.executable, "-S", "-X", "utf8", str(self.script), mode, str(self.pidfile)]
+
+    def test_kill_in_flight_ends_a_blocked_read_and_forgets_it(self):
+        from steam_idle import achievements as module
+        codes = []
+
+        def blocked_read():
+            try:
+                read_achievements(self.fake("hang"), STEAM_ID, APP_ID, timeout=30)
+            except AchievementsError as error:
+                codes.append(error.code)
+
+        worker = threading.Thread(target=blocked_read)
+        worker.start()
+        deadline = time.monotonic() + 10
+        while not module._LIVE_READS and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(module._LIVE_READS, "the read never started")
+        module.kill_in_flight()
+        worker.join(15)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(codes, ["protocol"])
+        self.assertEqual(module._LIVE_READS, set())
+
+
 class SpawnEnvironmentTests(unittest.TestCase):
     PROBE = "import os; print('set' if 'SENTINEL_STEAM_IDLE_ALLOW_WRITE' in os.environ else 'unset')"
 

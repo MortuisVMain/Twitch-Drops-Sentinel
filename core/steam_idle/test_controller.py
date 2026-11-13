@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from steam_idle.achievements import Achievement, UnlockResult, _outcome
 from steam_idle.community import CommunityError, GameDrops, OwnedGame
 from steam_idle.controller import (SteamClient, SteamIdleController, Tools, create_controller, find_tools,
                                    read_steam_client, steam_id64, steam_idle_backend_kind)
@@ -58,6 +59,9 @@ class Env:
         self.now, self.sleeps, self.on_sleep, self.freeze_at = 1000.0, [], None, None
         self.read_gate, self.read_entered, self.kills, self.start_error = None, threading.Event(), 0, None
         self.read_threads = []
+        self.ach, self.ach_calls, self.unlock_calls, self.unlock_script = {}, [], [], None
+        self.ach_gate, self.ach_entered = None, threading.Event()
+        self.unlock_gate, self.unlock_entered = None, threading.Event()
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
@@ -65,13 +69,34 @@ class Env:
             find_tools=lambda: self.tools, client_state=self.read_client,
             read_drops=self.read_drops, read_library=self.read_library, read_status=self.read_status,
             presence_factory=self.make_presence, run_login=self.run_login,
-            clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads)
+            clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads,
+            read_achievements=self.read_achievements, unlock=self.unlock_achievements)
 
     def kill_reads(self):
         """Stands in for killing the node child: the blocked read returns."""
         self.kills += 1
-        if self.read_gate is not None:
-            self.read_gate.set()
+        for gate in (self.read_gate, self.ach_gate):
+            if gate is not None:
+                gate.set()
+
+    def read_achievements(self, helper, steam_id, app_id):
+        self.ach_calls.append((helper, steam_id, app_id, threading.get_ident()))
+        if self.ach_gate is not None:
+            self.ach_entered.set()
+            self.ach_gate.wait(5)
+        item = self.ach.get(app_id, [Achievement("A", "A", "", False, False, 0), Achievement("B", "B", "", False, False, 0)])
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    def unlock_achievements(self, helper, steam_id, app_id, names):
+        self.unlock_calls.append((helper, steam_id, app_id, list(names)))
+        if self.unlock_gate is not None:
+            self.unlock_entered.set()
+            self.unlock_gate.wait(5)
+        if self.unlock_script is not None:
+            return self.unlock_script(app_id, list(names))
+        return _outcome([UnlockResult(name, "unlocked") for name in names], "yes")
 
     def read_client(self):
         self.client_reads += 1
@@ -210,11 +235,12 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctl.start(), None)
         await self.env.settle()
         state = ctl.state()
-        self.assertEqual(set(state), {"available", "unavailableReason", "riskAcknowledged", "steam", "community", "farm", "library", "preview"})
+        self.assertEqual(set(state), {"available", "unavailableReason", "riskAcknowledged", "steam", "community", "farm", "library", "preview",
+                                      "achievements"})
         self.assertEqual(set(state["steam"]), {"running", "signedIn"})
         self.assertEqual(set(state["community"]), {"session", "checkedAgeSeconds"})
         self.assertEqual(set(state["farm"]), FARM_KEYS)
-        self.assertEqual(set(state["library"]), {"count"})
+        self.assertEqual(set(state["library"]), {"count", "status", "ageSeconds"})
         dumped = json.dumps(state)
         self.assertIsNone(re.search(r"\d{17}", dumped))
         self.assertIsNone(re.search(str(ACCOUNT), dumped))

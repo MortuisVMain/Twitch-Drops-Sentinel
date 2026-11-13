@@ -251,9 +251,36 @@ export interface SteamIdleState {
     paused: boolean;
     suspended: boolean;
   };
-  library: { count: number | null };
+  library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null };
   preview?: SteamIdlePreview;
+  /** Absent when the service is older than achievements: the Achievements switch item is then hidden. */
+  achievements?: SteamIdleAchievements;
 }
+
+export type SteamIdleLibraryStatus = 'none' | 'scanning' | 'ready' | 'failed';
+export type SteamIdleAchRunState = 'idle' | 'scanning' | 'unlocking' | 'waiting' | 'paused' | 'suspended' | 'done' | 'stopped';
+export interface SteamIdleAchSettings { minMinutes: number; maxMinutes: number; skipHidden: boolean }
+export interface SteamIdleAchTotals { unlocked: number; already: number; skipped: number; rejected: number; failed: number }
+export interface SteamIdleAchGame { appId: number; name: string }
+export interface SteamIdleAchFinished extends SteamIdleAchGame { unlocked: number; skipped: number; failed: number; note: string | null }
+export interface SteamIdleAchRun {
+  state: SteamIdleAchRunState;
+  mode: 'selected' | 'game' | 'library' | null;
+  current: (SteamIdleAchGame & { done: number; total: number }) | null;
+  nextUnlockInSeconds: number | null;
+  queue: SteamIdleAchGame[];
+  finished: SteamIdleAchFinished[];
+  totals: SteamIdleAchTotals;
+  lastError: string | null;
+  paused: boolean;
+  suspended: boolean;
+}
+export interface SteamIdleAchievements { acknowledged: boolean; settings: SteamIdleAchSettings; run: SteamIdleAchRun }
+
+/** One owned game from GET /library. */
+export interface SteamIdleLibraryGame { appId: number; name: string; playtimeMinutes: number }
+/** One achievement from GET /achievements. */
+export interface SteamIdleAchievement { apiName: string; name: string; description: string; hidden: boolean; achieved: boolean; unlockTime: number | null }
 
 export interface DisplayMonitor {
   id: string;

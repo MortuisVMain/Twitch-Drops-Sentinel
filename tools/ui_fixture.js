@@ -14,7 +14,9 @@
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
 // ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch serves the Steam IDLE tab in that scenario (default farming); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
-// ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check and the farm ones) answer 409 with that code. Commands land in window.__steamIdlePosts.
+// ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; noach omits the achievements key (older service: no switch).
+// ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
+// ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -207,13 +209,18 @@
   var SI_NAMES = ['Lanternfall Chronicles', 'Brass Meridian', 'Hollow Orchard Tactics', 'Saltmarsh Cartographer: Extended Survey Edition With A Deliberately Long Title For Wrapping', 'Quiet Foundry', 'Pale Harbor', 'Ember Ledger'];
   var siMode = q.get('steamidle') || 'farming', siCalls = 0, siStart = Date.now();
   window.__steamIdlePosts = [];
+  window.__steamIdleBodies = [];
   function siGame(i, drops) { return { appId: 910000 + i, name: SI_NAMES[i], dropsRemaining: drops }; }
   function siDone(i) { return { appId: 910000 + i, name: SI_NAMES[i] }; }
   var si = {
     available: true, unavailableReason: null, riskAcknowledged: true, steam: { running: true, signedIn: true },
     community: { session: 'signed_in', checkedAgeSeconds: 40 },
     farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false },
-    library: { count: 30 },
+    library: { count: 30, status: 'ready', ageSeconds: 120 },
+    achievements: {
+      acknowledged: true, settings: { minMinutes: 0, maxMinutes: 0, skipHidden: true },
+      run: { state: 'idle', mode: null, current: null, nextUnlockInSeconds: null, queue: [], finished: [], totals: { unlocked: 0, already: 0, skipped: 0, rejected: 0, failed: 0 }, lastError: null, paused: false, suspended: false },
+    },
     preview: { status: 'none', ageSeconds: null, error: null, games: [], totalDropsRemaining: 0 },
   };
   function siPreviewGames() {
@@ -237,6 +244,61 @@
     f.queue = [siGame(0, 3), siGame(1, 4), siGame(2, 2), siGame(3, 3), siGame(4, 2)];
     f.done = [siDone(5), siDone(6)]; f.failed = []; f.lastReadAgeSeconds = 95;
   }
+  var SI_LIB_NAMES = ['Lanternfall Chronicles', 'Brass Meridian', 'Hollow Orchard Tactics', SI_NAMES[3], 'Quiet Foundry', 'Pale Harbor', 'Ember Ledger', 'Tidewrack', 'Copper Orchard', 'Veil of Marrow',
+    'Ninefold Station', 'Glasswater', 'Ashen Courier', 'Mossbridge', 'Paper Lighthouse', 'Kestrel Row', 'Dust Cathedral', 'Harrowmere', 'Old Salt Radio', 'Lowtide Ferry',
+    'Ironbark Dispatch', 'Sundial Heist', 'Fennel & Flint', 'Cinder Choir', 'Westerly', 'Halcyon Mine', 'Thistledown', 'Orrery', 'Nightjar Yard', 'Underhill Post'];
+  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { return { appId: 910100 + i, name: n, playtimeMinutes: (i * 137) % 2400 }; }); }
+  function siLibGame(i) { return { appId: 910100 + i, name: SI_LIB_NAMES[i] }; }
+  var SI_ACH_BASE = ['First light', 'Quiet hands', 'Tide table', 'Lamp keeper', 'Ledger balanced', 'Under the bridge', 'Last ferry', 'Long way round'];
+  var SI_ACH_LONG = 'Collected every lantern in the Drowned Archive without ever lighting the north beacon or waking the keeper';
+  var SI_ACH_LONG_DESC = 'Return to the archive after the third flood, carry all forty lanterns across the lower stacks in a single visit, and leave through the east gate before the bells finish ringing.';
+  function siAchList(appId, big) {
+    var n = big ? 260 : appId === 910100 ? 40 : appId === 910102 ? 0 : 8, out = [];
+    for (var i = 0; i < n; i++) {
+      var hidden = big ? i % 10 === 0 : appId === 910100 ? i % 7 === 4 : i === 3;
+      var achieved = !big && (appId === 910100 ? i % 3 === 0 && i < 36 : i % 3 === 0);
+      out.push({
+        apiName: 'ACH_' + appId + '_' + i,
+        name: i % 9 === 5 ? SI_ACH_LONG : SI_ACH_BASE[i % 8] + ' ' + (i + 1),
+        description: hidden && i % 2 === 1 ? '' : i % 8 === 2 ? SI_ACH_LONG_DESC : 'Finish part ' + (i + 1) + ' of the story.',
+        hidden: hidden, achieved: achieved, unlockTime: achieved ? 1700000000 + i * 259200 : 0,
+      });
+    }
+    return out;
+  }
+  function siAchRun() { return si.achievements.run; }
+  function siAchNext() {
+    var r = siAchRun();
+    if (r.queue.length) { var g = r.queue.shift(); r.current = { appId: g.appId, name: g.name, done: 0, total: 5 }; r.state = 'unlocking'; r.paused = false; }
+    else { r.current = null; r.state = 'done'; }
+  }
+  function siAchFill(state) {
+    var r = siAchRun();
+    r.state = state; r.mode = 'selected';
+    r.current = { appId: 910100, name: SI_LIB_NAMES[0], done: 3, total: 9 };
+    r.queue = [1, 2, 3, 4].map(siLibGame);
+    r.finished = [{ appId: 910107, name: SI_LIB_NAMES[7], unlocked: 4, skipped: 0, failed: 0, note: null }];
+    r.totals = { unlocked: 7, already: 2, skipped: 1, rejected: 0, failed: 0 };
+  }
+  var siBig = siMode === 'achbig';
+  if (siMode.indexOf('ach') === 0) { si.library = { count: 30, status: 'ready', ageSeconds: 300 }; }
+  if (siMode === 'achgate') si.achievements.acknowledged = false;
+  else if (siMode === 'achnolib') si.library = { count: null, status: 'none', ageSeconds: null };
+  else if (siMode === 'achrunning') siAchFill('unlocking');
+  else if (siMode === 'achwaiting') { siAchFill('waiting'); si.achievements.settings.minMinutes = 10; si.achievements.settings.maxMinutes = 20; siAchRun().nextUnlockInSeconds = 720; }
+  else if (siMode === 'achstopped') { siAchFill('stopped'); siAchRun().current = null; siAchRun().queue = []; siAchRun().lastError = 'unlock_uncertain'; }
+  else if (siMode === 'achdone') {
+    var rd = siAchRun();
+    rd.state = 'done'; rd.mode = 'library';
+    rd.finished = [
+      { appId: 910100, name: SI_LIB_NAMES[0], unlocked: 28, skipped: 0, failed: 0, note: null },
+      { appId: 910101, name: SI_LIB_NAMES[1], unlocked: 0, skipped: 0, failed: 0, note: 'no_achievements' },
+      { appId: 910102, name: SI_LIB_NAMES[2], unlocked: 0, skipped: 0, failed: 0, note: 'nothing_missing' },
+      { appId: 910103, name: SI_LIB_NAMES[3], unlocked: 0, skipped: 0, failed: 0, note: 'read_failed' },
+      { appId: 910104, name: SI_LIB_NAMES[4], unlocked: 2, skipped: 6, failed: 1, note: 'skipped_by_user' },
+    ];
+    rd.totals = { unlocked: 30, already: 11, skipped: 6, rejected: 1, failed: 1 };
+  } else if (siMode === 'noach') delete si.achievements;
   if (siMode === 'idle') { siPreviewReady(siPreviewGames()); si.preview.ageSeconds = 240; }
   else if (siMode === 'previewempty') { siPreviewReady([]); si.preview.ageSeconds = 240; }
   else if (siMode === 'previewscanning') si.preview.status = 'scanning';
@@ -244,7 +306,7 @@
   if (siMode === 'ack') si.riskAcknowledged = false;
   else if (siMode === 'signedout') { si.community = { session: 'signed_out', checkedAgeSeconds: 12 }; si.farm.state = 'needs_login'; }
   else if (siMode === 'mismatch') si.community = { session: 'account_mismatch', checkedAgeSeconds: 12 };
-  else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null }; }
+  else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null, status: 'none', ageSeconds: null }; }
   else if (siMode === 'badstate') { siFill(); si.farm.state = 'exploding'; siTotal(); }
   else if (siMode === 'farming' || siMode === 'slow' || siMode === 'hang' || siMode === 'nolibrary') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
   else if (siMode === 'suspended') { siFill(); si.farm.state = 'suspended'; si.farm.suspended = true; siTotal(); }
@@ -272,19 +334,67 @@
     else if (cmd === 'farm/skip') { if (f.current) f.done.push({ appId: f.current.appId, name: f.current.name }); siHold(); }
     siTotal();
   }
-  function steamIdleFetch(path, init) {
+  // The achievements commands: returns an error code and status for a refusal, null when the command went through.
+  function siAchCommand(cmd, body) {
+    var a = si.achievements, r = a.run, active = ['scanning', 'unlocking', 'waiting', 'paused', 'suspended'].indexOf(r.state) >= 0;
+    if (cmd === 'achievements/ack') { a.acknowledged = !!(body && body.accepted); if (!a.acknowledged && active) { r.state = 'stopped'; r.current = null; r.queue = []; } }
+    else if (cmd === 'achievements/settings') {
+      var ok = body && [body.minMinutes, body.maxMinutes].every(function (n) { return typeof n === 'number' && n % 1 === 0 && n >= 0 && n <= 1440; }) && body.minMinutes <= body.maxMinutes && typeof body.skipHidden === 'boolean';
+      if (!ok) return [400, 'invalid_request'];
+      a.settings = { minMinutes: body.minMinutes, maxMinutes: body.maxMinutes, skipHidden: body.skipHidden };
+    } else if (cmd === 'library/scan') {
+      if (si.library.status !== 'scanning') {
+        si.library = { count: null, status: 'scanning', ageSeconds: null };
+        setTimeout(function () { si.library = { count: 30, status: 'ready', ageSeconds: 0 }; }, 1500);
+      }
+    } else if (cmd === 'achievements/start') {
+      if (!a.acknowledged) return [409, 'achievements_not_acknowledged'];
+      if (active) return [409, 'busy'];
+      var b = body || {};
+      if (b.library === true) {
+        if (b.confirm !== 'ALL' || !Array.isArray(b.exclude)) return [400, 'invalid_request'];
+        r.mode = 'library';
+        r.queue = siLibGames().filter(function (g) { return b.exclude.indexOf(g.appId) < 0; }).map(function (g) { return { appId: g.appId, name: g.name }; });
+      } else if (typeof b.appId === 'number' && ((Array.isArray(b.names) && b.names.length >= 1 && b.names.length <= 200) || b.all === true)) {
+        r.mode = b.all ? 'game' : 'selected';
+        r.queue = [{ appId: b.appId, name: SI_LIB_NAMES[b.appId - 910100] || 'Game' }];
+      } else return [400, 'invalid_request'];
+      r.finished = []; r.totals = { unlocked: 0, already: 0, skipped: 0, rejected: 0, failed: 0 }; r.lastError = null; r.nextUnlockInSeconds = null;
+      siAchNext();
+      if (r.current && Array.isArray(b.names)) r.current.total = b.names.length;
+    } else if (cmd === 'achievements/pause') { if (r.current) { r.state = 'paused'; r.paused = true; } }
+    else if (cmd === 'achievements/resume') { if (r.state === 'paused') { r.state = 'unlocking'; r.paused = false; } }
+    else if (cmd === 'achievements/skip') {
+      if (r.current) { r.finished.unshift({ appId: r.current.appId, name: r.current.name, unlocked: r.current.done, skipped: r.current.total - r.current.done, failed: 0, note: 'skipped_by_user' }); r.totals.skipped += r.current.total - r.current.done; siAchNext(); }
+    } else if (cmd === 'achievements/stop') { r.state = 'stopped'; r.current = null; r.queue = []; r.paused = false; r.nextUnlockInSeconds = null; }
+    return null;
+  }
+  function steamIdleFetch(path, init, fullUrl) {
     var cmd = path.slice('/api/v1/steam-idle/'.length);
     if (init && init.method === 'POST') {
       window.__steamIdlePosts.push(cmd);
+      var posted = init.body ? JSON.parse(init.body) : null;
+      window.__steamIdleBodies.push({ cmd: cmd, body: posted });
       if (siMode === 'hang') return new Promise(function (res, rej) {
         if (init.signal) init.signal.addEventListener('abort', function () { rej(new DOMException('Aborted', 'AbortError')); });
       });
       if (q.get('steamidlepost')) return siReply(409, { error: q.get('steamidlepost') });
-      siCommand(cmd);
-      return siReply(200, { ok: true });
+      if (si.achievements && (cmd.indexOf('achievements/') === 0 || cmd === 'library/scan')) {
+        var refused = siAchCommand(cmd, posted);
+        if (refused) return siReply(refused[0], { error: refused[1] });
+      } else siCommand(cmd);
+      return siReply(cmd === 'library/scan' ? 202 : 200, { ok: true });
     }
     siCalls += 1;
     if (siMode === 'down') return Promise.reject(new TypeError('Failed to fetch'));
+    if (cmd === 'library' || cmd === 'achievements') {
+      var code = q.get('steamidleget');
+      if (code) return siReply(409, { error: code });
+      if (cmd === 'library') return si.library.status === 'ready' ? siReply(200, { games: siLibGames() }) : siReply(409, { error: 'not_ready' });
+      if (!si.achievements || !si.achievements.acknowledged) return siReply(409, { error: 'achievements_not_acknowledged' });
+      var wanted = Number(new URLSearchParams(String(fullUrl).split('?')[1] || '').get('appId'));
+      return new Promise(function (res) { setTimeout(function () { res(siReply(200, { appId: wanted, achievements: siAchList(wanted, siBig) })); }, 400); });
+    }
     var body = JSON.parse(JSON.stringify(si));
     if (siMode === 'nolibrary') delete body.library;
     if (siMode === 'slow' && siCalls === 1) return new Promise(function (res) { setTimeout(function () { res(siReply(200, body)); }, SLOW_MS); });
@@ -295,7 +405,7 @@
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
-    if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init);
+    if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init, url);
     if (path === '/api/v1/giveaways/browser' && init && init.method === 'POST') {
       var posted = JSON.parse(init.body);
       window.__browserPosts.push(posted);

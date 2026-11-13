@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SteamIdleState } from '../../types';
 import { LoadState, initialLoad, loadFailed, loadOk, loadRetry } from '../../utils/dataLoad';
+import { isLibraryStatus, parseAchievements } from './achievementsParse';
 import { refusalApplies } from './steamIdleText';
 
-const BASE = 'http://127.0.0.1:28492/api/v1/steam-idle';
+export const BASE = 'http://127.0.0.1:28492/api/v1/steam-idle';
 const POLL_MS = 3000;
 const SLOW_POLL_MS = 15000;
 const SLOW_AFTER_FAILS = 3;
 const COMMAND_TIMEOUT_MS = 15000;
 
-export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip';
+export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip'
+  | 'achAck' | 'achSettings' | 'libScan' | 'achStart' | 'achStop' | 'achPause' | 'achResume' | 'achSkip';
 const PATHS: Record<SteamIdleCommand, string> = {
   ack: '/ack', login: '/login', check: '/check', scan: '/scan',
   start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip',
+  achAck: '/achievements/ack', achSettings: '/achievements/settings', libScan: '/library/scan', achStart: '/achievements/start',
+  achStop: '/achievements/stop', achPause: '/achievements/pause', achResume: '/achievements/resume', achSkip: '/achievements/skip',
 };
+
+export type SendCommand = (command: SteamIdleCommand, body?: unknown) => void;
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -29,7 +35,7 @@ const SESSIONS = ['unknown', 'checking', 'signed_in', 'signed_out', 'login_open'
 
 /** Checks the whole contract (progress.txt, "Service API contract v1"). Only library, totalDropsRemaining and
  * lastReadAgeSeconds may be absent: they get neutral defaults so their lines are simply omitted. farm.state may be any string.
- * The whole preview key may be absent (older service): the preview section is then not shown. */
+ * The whole preview and achievements keys may be absent (older service): their sections are then not shown. */
 export const parseState = (json: unknown): SteamIdleState | null => {
   if (!isRec(json) || !isRec(json.steam) || !isRec(json.community) || !isRec(json.farm)) return null;
   const { steam, community, farm } = json;
@@ -46,8 +52,10 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     && Array.isArray(farm.failed) && farm.failed.every((g) => hasGame(g) && typeof g.reason === 'string')
     && optNum(farm.totalDropsRemaining) && optNumOrNull(farm.lastReadAgeSeconds)
     && (farm.lastError === null || typeof farm.lastError === 'string')
-    && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)))
-    && (json.preview === undefined || isPreview(json.preview));
+    && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)
+      && (json.library.status === undefined || isLibraryStatus(json.library.status)) && optNumOrNull(json.library.ageSeconds)))
+    && (json.preview === undefined || isPreview(json.preview))
+    && (json.achievements === undefined || parseAchievements(json.achievements) !== null);
   if (!ok) return null;
   const base = json as unknown as SteamIdleState;
   return {
@@ -58,7 +66,11 @@ export const parseState = (json: unknown): SteamIdleState | null => {
       totalDropsRemaining: isNum(farm.totalDropsRemaining) ? farm.totalDropsRemaining : 0,
       lastReadAgeSeconds: isNum(farm.lastReadAgeSeconds) ? farm.lastReadAgeSeconds : null,
     },
-    library: { count: isRec(json.library) && isNum(json.library.count) ? json.library.count : null },
+    library: {
+      count: isRec(json.library) && isNum(json.library.count) ? json.library.count : null,
+      ...(isRec(json.library) && isLibraryStatus(json.library.status) ? { status: json.library.status } : {}),
+      ...(isRec(json.library) && isNum(json.library.ageSeconds) ? { ageSeconds: json.library.ageSeconds } : {}),
+    },
   };
 };
 
@@ -148,7 +160,7 @@ export function useSteamIdle() {
 
   const retry = useCallback(() => { setLoad((prev) => loadRetry(prev)); void poll(); }, [poll]);
 
-  const send = useCallback(async (command: SteamIdleCommand) => {
+  const send = useCallback(async (command: SteamIdleCommand, body?: unknown) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(command);
@@ -161,7 +173,7 @@ export function useSteamIdle() {
       const res = await fetch(`${BASE}${PATHS[command]}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: command === 'ack' ? JSON.stringify({ accepted: true }) : undefined,
+        body: command === 'ack' || command === 'achAck' ? JSON.stringify({ accepted: true }) : body === undefined ? undefined : JSON.stringify(body),
         signal: abort.signal,
       });
       if (!res.ok) {

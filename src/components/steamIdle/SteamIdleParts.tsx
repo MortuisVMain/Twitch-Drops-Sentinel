@@ -72,7 +72,7 @@ export const RiskGate: React.FC<{ busy: SteamIdleCommand | null; send: Send }> =
         <li>Автоматическое получение карточек противоречит правилам Steam об автоматических наградах и может привести к ограничениям аккаунта.</li>
         <li>Друзья видят статус «в игре», а время в игре растёт.</li>
         <li>Пока фарм держит игру, запустить её самому нельзя: он освободит её сам.</li>
-        <li>Достижения это приложение здесь не трогает.</li>
+        <li>Достижения включаются отдельно, в своём разделе.</li>
       </ul>
       <label className="sidle-check">
         <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />

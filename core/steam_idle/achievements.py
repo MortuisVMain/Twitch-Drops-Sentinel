@@ -173,6 +173,18 @@ def _close_streams(*streams) -> None:
                 logger.warning("helper pipe close failed: %s", error)
 
 
+_LIVE_READS: "set[subprocess.Popen]" = set()  # helper processes of the reads in flight (never an unlock)
+_LIVE_READS_LOCK = threading.Lock()
+
+
+def kill_in_flight() -> None:
+    """Kill the process tree of every achievements read in flight; each blocked read then fails and returns."""
+    with _LIVE_READS_LOCK:
+        procs = list(_LIVE_READS)
+    for proc in procs:
+        kill_tree(proc)
+
+
 def read_achievements(helper_exe: "Path | str | Sequence[str]", steam_id64: str, app_id: int,
                       timeout: float = 45.0) -> list[Achievement]:
     """Every achievement of `app_id` in API order as seen by the signed-in account; all-or-nothing, never changes anything."""
@@ -187,6 +199,8 @@ def read_achievements(helper_exe: "Path | str | Sequence[str]", steam_id64: str,
     except OSError as error:
         logger.error("achievements start failed: %s", error)
         raise AchievementsError("start_failed") from error
+    with _LIVE_READS_LOCK:
+        _LIVE_READS.add(proc)
     lines: "queue.Queue" = queue.Queue()
     reader = threading.Thread(target=_reader, args=(proc.stdout, lines), daemon=True)
     reader.start()
@@ -202,6 +216,8 @@ def read_achievements(helper_exe: "Path | str | Sequence[str]", steam_id64: str,
         logger.error("achievements read failed: %s", err.code)
         raise
     finally:
+        with _LIVE_READS_LOCK:
+            _LIVE_READS.discard(proc)
         kill_tree(proc)  # also reaps anything the helper left behind
         reader.join(timeout=2)
         _close_streams(proc.stdin, proc.stdout)

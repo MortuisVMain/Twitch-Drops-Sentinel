@@ -349,6 +349,10 @@ SUPERVISOR_DEFAULTS = {
     "giveaways_headless": True,
     "giveaways_browser": "auto",
     "steam_idle_risk_ack": False,
+    "steam_idle_achievements_ack": False,
+    "steam_idle_unlock_min_minutes": 0,
+    "steam_idle_unlock_max_minutes": 0,
+    "steam_idle_unlock_skip_hidden": True,
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
@@ -620,6 +624,16 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/farm/pause", steam_idle.farm_pause)
         self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
         self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
+        self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)
+        self.app.router.add_get("/api/v1/steam-idle/library", steam_idle.library)
+        self.app.router.add_get("/api/v1/steam-idle/achievements", steam_idle.achievements_read)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/start", steam_idle.achievements_start)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/stop", steam_idle.achievements_stop)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/pause", steam_idle.achievements_pause)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/resume", steam_idle.achievements_resume)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/skip", steam_idle.achievements_skip)
 
         # CORS preflight middleware
         self.app.middlewares.append(self.cors_middleware)

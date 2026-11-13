@@ -1,0 +1,83 @@
+import React, { useState } from 'react';
+import { Check } from 'lucide-react';
+import { SteamIdleAchievement } from '../../types';
+import { START_NAMES_MAX, unlockDate } from './achievementsText';
+
+const Row: React.FC<{ a: SteamIdleAchievement; checked: boolean; onToggle: () => void }> = ({ a, checked, onToggle }) => {
+  const description = a.description !== '' ? a.description : a.hidden ? 'Скрытое достижение' : '';
+  const body = (
+    <span className="sidle-row-main">
+      <span className="sidle-ach-name">{a.name}{a.hidden && <span className="sidle-tag">скрытое</span>}</span>
+      {description && <span className="sidle-row-note">{description}</span>}
+    </span>
+  );
+  if (a.achieved) {
+    const date = unlockDate(a.unlockTime);
+    return (
+      <li className="sidle-ach-row">
+        <span className="sidle-ach-lead"><Check className="ui-icon" aria-hidden="true" focusable="false" style={{ color: 'var(--led-mint)' }} /></span>
+        {body}
+        <span className="sidle-row-end">получено{date && <> {date}</>}</span>
+      </li>
+    );
+  }
+  return (
+    <li className="sidle-ach-row">
+      <label className="sidle-ach-label">
+        <input type="checkbox" checked={checked} onChange={onToggle} />
+        {body}
+      </label>
+    </li>
+  );
+};
+
+export interface AchListProps {
+  items: SteamIdleAchievement[];
+  skipHidden: boolean;
+  runActive: boolean;
+  disabled: boolean;
+  onStart: (body: { names: string[] } | { all: true }) => void;
+}
+
+/** The achievements of one game with their selection and the two start buttons. Mounted per game, so a new game starts unselected. */
+export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, disabled, onStart }) => {
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const locked = items.filter((a) => !a.achieved);
+  const count = picked.size;
+  const tooMany = count > START_NAMES_MAX;
+  const toggle = (name: string) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (!next.delete(name)) next.add(name);
+    return next;
+  });
+  const selectAll = () => setPicked(new Set(locked.filter((a) => !(skipHidden && a.hidden)).map((a) => a.apiName)));
+  if (items.length === 0) return <p className="sidle-text">У этой игры нет достижений</p>;
+  const off = disabled || runActive;
+  return (
+    <>
+      <div className="sidle-ach-head">
+        <p className="sidle-meta"><span>получено <b className="tabular">{items.length - locked.length}</b> из <b className="tabular">{items.length}</b></span></p>
+        <div className="sidle-actions">
+          <button type="button" className="sidle-textbtn" disabled={locked.length === 0} onClick={selectAll}>Выбрать все недостающие</button>
+          <button type="button" className="sidle-textbtn" disabled={count === 0} onClick={() => setPicked(new Set())}>Снять выбор</button>
+        </div>
+      </div>
+      <ul className="sidle-list-rows sidle-ach-list" aria-label="Достижения игры">
+        {items.map((a) => <Row key={a.apiName} a={a} checked={picked.has(a.apiName)} onToggle={() => toggle(a.apiName)} />)}
+      </ul>
+      {tooMany && (
+        <p className="sidle-refusal" role="status">За один раз можно отправить не больше <b className="tabular">{START_NAMES_MAX}</b> достижений. Выбрано: <b className="tabular">{count}</b>.</p>
+      )}
+      <div className="sidle-actions">
+        <button type="button" className={runActive ? 'tactile-btn' : 'chunky-cta'} aria-disabled={off || count === 0 || tooMany}
+          onClick={() => { if (!off && count > 0 && !tooMany) onStart({ names: [...picked] }); }}>
+          Получить выбранные <span className="tabular">({count})</span>
+        </button>
+        <button type="button" className="tactile-btn" aria-disabled={off || locked.length === 0}
+          onClick={() => { if (!off && locked.length > 0) onStart({ all: true }); }}>
+          Получить все недостающие в игре
+        </button>
+      </div>
+    </>
+  );
+};
