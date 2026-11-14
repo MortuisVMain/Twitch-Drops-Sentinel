@@ -40,7 +40,7 @@ export const SteamIdleView: React.FC = () => {
           {ach && <SectionSwitch value={section} onChange={(v) => { gateSeen.current = false; setSection(v); }} />}
           {refusal && (
             <section className="titanium-island sidle-error" role="alert">
-              <p className="sidle-refusal"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {refusalText(refusal)}</p>
+              <p className="sidle-refusal"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {refusalText(refusal, s.community.session)}</p>
             </section>
           )}
           {ach && section === 'achievements' ? <AchievementsSection s={s} ach={ach} busy={busy} send={send} />

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
 import { SteamIdleState } from '../../types';
 import { SteamIdleCommand } from './useSteamIdle';
+import { durParts } from './steamIdleLogic.mjs';
 import {
   KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
   steamClientText, unavailableHelp,
@@ -12,15 +13,12 @@ type Send = (command: SteamIdleCommand) => void;
 const hasCount = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
 
 /** Seconds as a short human duration; the unit words are plain JSX text so the language switch translates them. */
-export const Dur: React.FC<{ s: number }> = ({ s }) => {
-  if (!Number.isFinite(s)) return null;
-  const sec = Math.max(0, Math.round(s));
-  if (sec < 60) return <>{sec} с</>;
-  const m = Math.floor(sec / 60);
-  if (m < 60) return <>{m} мин</>;
-  const h = Math.floor(m / 60);
-  const rest = m % 60;
-  return rest ? <>{h} ч {rest} мин</> : <>{h} ч</>;
+export const Dur: React.FC<{ s: number; up?: boolean }> = ({ s, up }) => {
+  const p = durParts(s, up);
+  if (p === null) return null;
+  if ('sec' in p) return <>{p.sec} с</>;
+  if ('min' in p) return <>{p.min} мин</>;
+  return p.rest ? <>{p.h} ч {p.rest} мин</> : <>{p.h} ч</>;
 };
 
 const Fact: React.FC<{ label: string; text: string; tone: Tone; children?: React.ReactNode }> = ({ label, text, tone, children }) => (

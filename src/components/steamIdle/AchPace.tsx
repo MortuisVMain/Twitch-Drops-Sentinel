@@ -40,7 +40,7 @@ const PaceForm: React.FC<{ saved: SteamIdleAchSettings; runActive: boolean; busy
         <Field id="sidle-pace-min" label="пауза от" value={min} error={minError} disabled={runActive} onChange={setMin} />
         <Field id="sidle-pace-max" label="до" value={max} error={maxError} disabled={runActive} onChange={setMax} />
       </div>
-      <p id="sidle-pace-help" className="sidle-meta"><span>В минутах.</span><span>0 и 0: без пауз</span>{runActive && <span>Темп меняется между запусками.</span>}</p>
+      <p id="sidle-pace-help" className="sidle-meta"><span>В минутах.</span><span>Если оба значения 0, пауз нет.</span>{runActive && <span>Темп меняется между запусками.</span>}</p>
       <label className="sidle-check">
         <input type="checkbox" checked={skipHidden} disabled={runActive} onChange={(e) => setSkipHidden(e.target.checked)} />
         <span>Пропускать скрытые достижения</span>

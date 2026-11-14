@@ -39,3 +39,23 @@ test('a bad token is reported and nothing is applied', () => {
 test('the largest AppID is accepted', () => {
   ok('4294967295', [4294967295]);
 });
+
+const { durParts, signedOutHint } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
+
+test('an age rounds its minutes down, a countdown rounds them up', () => {
+  assert.deepEqual(durParts(116), { min: 1 });
+  assert.deepEqual(durParts(116, true), { min: 2 });
+  assert.deepEqual(durParts(120, true), { min: 2 });
+  assert.deepEqual(durParts(59.4, true), { sec: 59 });
+  assert.deepEqual(durParts(3590, true), { h: 1, rest: 0 });
+  assert.deepEqual(durParts(3725), { h: 1, rest: 2 });
+  assert.deepEqual(durParts(-5), { sec: 0 });
+  assert.equal(durParts(NaN), null);
+});
+
+test('a refusal for the site session names the button that is on screen', () => {
+  assert.equal(signedOutHint('unknown'), 'check');
+  assert.equal(signedOutHint('checking'), 'check');
+  assert.equal(signedOutHint('signed_out'), 'login');
+  assert.equal(signedOutHint('account_mismatch'), 'login');
+});

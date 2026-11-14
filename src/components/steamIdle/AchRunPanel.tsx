@@ -24,7 +24,7 @@ export const AchRunPanel: React.FC<{ s: SteamIdleState; run: SteamIdleAchRun; bu
   return (
     <section className="titanium-island sidle-farm" aria-labelledby="sidle-achrun-title">
       <h2 id="sidle-achrun-title" className="sidle-title">Выдача достижений</h2>
-      <p ref={stateRef} tabIndex={-1} className="sidle-state"><span aria-live="polite"><StateLine run={run} /></span>{run.state === 'waiting' && run.nextUnlockInSeconds !== null && <> <Dur s={run.nextUnlockInSeconds} /></>}</p>
+      <p ref={stateRef} tabIndex={-1} className="sidle-state"><span aria-live="polite"><StateLine run={run} /></span>{run.state === 'waiting' && run.nextUnlockInSeconds !== null && <> <Dur s={run.nextUnlockInSeconds} up /></>}</p>
       {help && <p className="sidle-refusal" role="status"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {help}</p>}
       {cur && (
         <div className="sidle-current">

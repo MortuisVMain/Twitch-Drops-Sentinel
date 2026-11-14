@@ -51,17 +51,19 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
     return next;
   });
   const selectAll = () => setPicked(new Set(locked.filter((a) => !(skipHidden && a.hidden)).map((a) => a.apiName)));
-  // "All missing" is an irreversible write of every locked achievement the service will not skip: ask first, in the page.
+  // Both starts are irreversible writes: ask first, in the page. "All" is every locked achievement the service will not skip.
   const hiddenLocked = locked.filter((a) => a.hidden).length;
   const hiddenSkipped = skipHidden ? hiddenLocked : 0;
   const allCount = locked.length - hiddenSkipped;
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<'all' | 'picked' | null>(null);
   const allBtn = useRef<HTMLButtonElement>(null);
+  const pickedBtn = useRef<HTMLButtonElement>(null);
   const cancelBtn = useRef<HTMLButtonElement>(null);
   const off = disabled || runActive;
+  const pickedOff = off || count === 0 || tooMany;
   useEffect(() => { if (confirming) cancelBtn.current?.focus(); }, [confirming]);
-  useEffect(() => { if (off || allCount === 0) setConfirming(false); }, [off, allCount]);
-  const cancelConfirm = () => { setConfirming(false); allBtn.current?.focus(); };
+  useEffect(() => { if (confirming === 'all' ? off || allCount === 0 : pickedOff) setConfirming(null); }, [confirming, off, allCount, pickedOff]);
+  const closeConfirm = () => { (confirming === 'all' ? allBtn : pickedBtn).current?.focus(); setConfirming(null); };
   if (items.length === 0) return <p className="sidle-text">У этой игры нет достижений</p>;
   return (
     <>
@@ -80,22 +82,24 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
         <p className="sidle-refusal" role="status">За один раз можно отправить не больше <b className="tabular">{START_NAMES_MAX}</b> достижений. Выбрано: <b className="tabular">{count}</b>.</p>
       )}
       <div className="sidle-actions">
-        <button type="button" className={runActive ? 'tactile-btn' : 'chunky-cta'} aria-disabled={off || count === 0 || tooMany}
-          onClick={() => { if (!off && count > 0 && !tooMany) onStart({ names: [...picked] }); }}>
+        <button ref={pickedBtn} type="button" className={runActive ? 'tactile-btn' : 'chunky-cta'} aria-disabled={pickedOff} aria-expanded={confirming === 'picked'}
+          onClick={() => { if (!pickedOff) setConfirming('picked'); }}>
           Получить выбранные <span className="tabular">({count})</span>
         </button>
-        <button ref={allBtn} type="button" className="tactile-btn" aria-disabled={off || allCount === 0} aria-expanded={confirming}
-          onClick={() => { if (!off && allCount > 0) setConfirming(true); }}>
+        <button ref={allBtn} type="button" className="tactile-btn" aria-disabled={off || allCount === 0} aria-expanded={confirming === 'all'}
+          onClick={() => { if (!off && allCount > 0) setConfirming('all'); }}>
           Получить все недостающие в игре
         </button>
       </div>
       {confirming && (
-        <div className="sidle-confirm" role="group" aria-label="Подтверждение" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelConfirm(); } }}>
-          <p className="sidle-text">Будет выдано достижений: <b className="tabular">{allCount}</b> (скрытых пропущено: <b className="tabular">{hiddenSkipped}</b>).</p>
+        <div className="sidle-confirm" role="group" aria-label="Подтверждение" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeConfirm(); } }}>
+          {confirming === 'all'
+            ? <p className="sidle-text">Будет выдано достижений: <b className="tabular">{allCount}</b> (скрытых пропущено: <b className="tabular">{hiddenSkipped}</b>).</p>
+            : <p className="sidle-text">Будет выдано достижений: <b className="tabular">{count}</b>. <span>Снять выданное нельзя.</span></p>}
           <div className="sidle-actions">
             <button type="button" className="tactile-btn sidle-danger" aria-disabled={off}
-              onClick={() => { if (!off) { setConfirming(false); allBtn.current?.focus(); onStart({ all: true }); } }}>Выдать</button>
-            <button ref={cancelBtn} type="button" className="tactile-btn" onClick={cancelConfirm}>Отмена</button>
+              onClick={() => { if (!off) { const body = confirming === 'all' ? { all: true as const } : { names: [...picked] }; closeConfirm(); onStart(body); } }}>Выдать</button>
+            <button ref={cancelBtn} type="button" className="tactile-btn" onClick={closeConfirm}>Отмена</button>
           </div>
         </div>
       )}

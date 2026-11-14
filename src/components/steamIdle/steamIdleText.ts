@@ -1,6 +1,7 @@
 // Words for the Steam IDLE tab: the service sends codes, the screen shows sentences.
 import { uiLocale } from '../../i18n';
 import { SteamIdleCommunitySession, SteamIdleFarmState, SteamIdleState } from '../../types';
+import { signedOutHint } from './steamIdleLogic.mjs';
 
 export type Tone = 'ok' | 'warn' | 'plain';
 
@@ -78,7 +79,8 @@ export const previewErrorText = (code: string): string =>
 /** Playtime with one decimal at most ("12.5", "3"). */
 export const hoursNumber = (hours: number): string => (Math.round(hours * 10) / 10).toLocaleString(uiLocale());
 
-export const refusalText =(code: string | null): string => {
+export const refusalText = (code: string | null, session = 'signed_out'): string => {
+  if (code === 'community_signed_out' && signedOutHint(session) === 'check') return 'Вход на сайт Steam ещё не проверен. Нажмите «Проверить».';
   switch (code) {
     case 'risk_not_acknowledged': return 'Сначала подтвердите, что понимаете риск для аккаунта.';
     case 'unavailable': return 'Steam IDLE недоступен: не хватает компонентов.';
