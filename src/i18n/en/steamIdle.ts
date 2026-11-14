@@ -143,7 +143,7 @@ export const STEAM_IDLE: Record<string, string> = {
   'Нет связи со службой. Повторите.': 'No connection to the service. Try again.',
   'Сначала включите выдачу достижений.': 'First turn on unlocking achievements.',
   'Служба занята. Повторите через пару секунд.': 'The service is busy. Try again in a couple of seconds.',
-  'Нет входа на сайт Steam. Войдите в Steam в блоке готовности.': 'Not signed in on the Steam site. Sign in to Steam in the readiness block.',
+  'Вход на сайт Steam не подтверждён. Проверьте его или войдите в блоке готовности.': 'The Steam site sign-in is not confirmed. Check it or sign in from the readiness block.',
   'Не удалось прочитать данные. Повторите позже.': 'Could not read the data. Try again later.',
   'Скрытое достижение': 'Hidden achievement',
   'скрытое': 'hidden',

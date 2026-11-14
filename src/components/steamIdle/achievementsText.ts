@@ -79,7 +79,7 @@ export const achLoadErrorText = (code: string): string => {
     case 'busy': return 'Служба занята. Повторите через пару секунд.';
     case 'steam_not_running': return 'Клиент Steam не запущен. Запустите его и повторите.';
     case 'steam_signed_out': return 'В клиенте Steam не выполнен вход. Войдите и повторите.';
-    case 'community_signed_out': return 'Нет входа на сайт Steam. Войдите в Steam в блоке готовности.';
+    case 'community_signed_out': return 'Вход на сайт Steam не подтверждён. Проверьте его или войдите в блоке готовности.';
     case 'account_mismatch': return 'Вход на сайте выполнен в другой аккаунт. Войдите в тот же, что и в клиенте Steam.';
     default: return 'Не удалось прочитать данные. Повторите позже.';
   }

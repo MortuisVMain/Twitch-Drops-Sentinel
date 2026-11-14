@@ -62,8 +62,9 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
   const off = disabled || runActive;
   const pickedOff = off || count === 0 || tooMany;
   useEffect(() => { if (confirming) cancelBtn.current?.focus(); }, [confirming]);
-  useEffect(() => { if (confirming === 'all' ? off || allCount === 0 : pickedOff) setConfirming(null); }, [confirming, off, allCount, pickedOff]);
   const closeConfirm = () => { (confirming === 'all' ? allBtn : pickedBtn).current?.focus(); setConfirming(null); };
+  // The start became unavailable under an open question: close it and keep focus on the page, not on a removed button.
+  useEffect(() => { if (confirming && (confirming === 'all' ? off || allCount === 0 : pickedOff)) closeConfirm(); });
   if (items.length === 0) return <p className="sidle-text">У этой игры нет достижений</p>;
   return (
     <>
