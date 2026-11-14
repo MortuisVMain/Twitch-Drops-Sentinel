@@ -738,13 +738,14 @@
     .pip-action-btn { font-size: var(--fs-xs) !important; gap: 2.5px !important; }
   }
 
-  .autoclaim-armed-pill {
-    min-height: 29px; padding: 0 10px; border-radius: 8px;
-    background: rgba(58, 210, 159, 0.1); border: 1px solid var(--led-mint);
-    box-shadow: var(--shadow-well); color: var(--led-mint);
+  /* Plain status text, not a control: no border, no pill background */
+  .autoclaim-status {
+    min-height: 29px; padding: 0 6px 0 2px; color: var(--led-mint);
     font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 700;
     display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }
+  .target-more-wrap { position: relative; display: inline-flex; }
+  .target-more-menu { min-width: 190px; }
 
   .hex-bolt {
     position: absolute; width: 12px; height: 12px; border-radius: 50%;
@@ -1344,7 +1345,7 @@
     padding: 3px 6px; display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-xs);
   }
   .stage-pill.done { border-color: var(--led-mint); color: var(--led-mint); }
-  .stage-pill.active { border-color: var(--led-amber); color: var(--text-primary); font-weight: 700; }
+  .stage-pill.active { border-color: var(--led-mint); color: var(--text-primary); font-weight: 700; }
 
   .led-strip-40 {
     display: grid; grid-template-columns: repeat(40, 1fr); gap: 2px;
@@ -1455,6 +1456,11 @@
   }
   .override-pill-card:hover { border-color: var(--border-main); background: var(--bg-row-hover); }
   .override-pill-card.forced { border-color: var(--led-amber); }
+  /* Cannot be finished before the campaign closes: muted by colour, not opacity (a translucent layer drops LCD text, docs/solutions/067) */
+  .override-pill-card.late { background: transparent; }
+  .override-pill-card.late .override-name { color: var(--text-muted); font-weight: 600; }
+  /* "Собирать сейчас" on the cards that are not the first actionable one: plain text, no chip */
+  .override-action-text { font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary); padding: 2px 6px; white-space: nowrap; }
   /* Cover: a poster above the text while the console is collapsed (big area), a thumbnail beside it while farming (small area).
      No outer shadow, blur or transparency on these text surfaces (docs/solutions/067); hover is border/background only. */
   .override-cover { overflow: hidden; background: var(--bg-well); border-radius: 6px; min-width: 0; }
@@ -1466,14 +1472,16 @@
     display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; align-content: start; gap: 5px; padding: 6px;
   }
   .override-scroll-grid.is-poster .override-cover { aspect-ratio: 3 / 4; width: 100%; }
-  .override-scroll-grid.is-poster .override-pill-card > .version-chip { justify-self: start; }
+  .override-scroll-grid.is-poster .override-pill-card > .version-chip,
+  .override-scroll-grid.is-poster .override-pill-card > .override-action-text { justify-self: start; }
   /* Columns are counted by the dashboard from the grid's real width (--override-cols), so the cards of the two rows span the panel. */
   .override-scroll-grid.is-compact { align-content: start; grid-template-columns: repeat(var(--override-cols, 3), minmax(0, 1fr)); }
   .override-scroll-grid.is-compact .override-pill-card {
     display: grid; grid-template-columns: 36px minmax(0, 1fr); grid-template-rows: auto auto; align-content: center; gap: 3px 8px;
   }
   .override-scroll-grid.is-compact .override-cover { grid-row: 1 / span 2; width: 36px; height: 48px; align-self: center; }
-  .override-scroll-grid.is-compact .override-pill-card > .version-chip { justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .override-scroll-grid.is-compact .override-pill-card > .version-chip,
+  .override-scroll-grid.is-compact .override-pill-card > .override-action-text { justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
   /* ==========================================================================
      TAB 2, 3, 4, 5 GRIDS

@@ -2417,16 +2417,16 @@ def test_console_collapse_tray_filter_and_plain_labels():
     run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
     d = json.loads(run.stdout)
-    assert d["noChoice"] == [True, False], d["noChoice"]                 # no choice: collapsed while idle, expanded while farming
+    assert d["noChoice"] == [True, True], d["noChoice"]                  # no choice: collapsed whether idle or farming
     assert d["explicit"] == [True, True, False, False], d["explicit"]    # an explicit choice wins either way
-    assert d["junk"] == [True, False, True, False], d["junk"]            # a junk stored value falls back to the default
+    assert d["junk"] == [True, True, True, True], d["junk"]              # a junk stored value falls back to the default (collapsed)
     assert d["all"] == ["Просмотр канала: abc", "Забран трофей", "Ядро запущено", "[CORE] started", "Каталог собран: 10 игр"], d["all"]   # [TRAY] hidden in "All"
     assert d["watch"] == ["Просмотр канала: abc"] and d["claim"] == ["Забран трофей"], (d["watch"], d["claim"])
     assert "[TRAY] Icon: idle" in d["core"] and "  [tray] Icon: farming" in d["core"], d["core"]   # "Core" shows them (the service logs them at INFO)
     assert d["tray"] == [True, False, False, False], d["tray"]           # only a leading [TRAY]; other brackets untouched
     dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "aria-expanded={!consoleCollapsed}" in dash and "onClick={toggleConsole}" in dash, "the console toggle exposes aria-expanded"
-    assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice, isIdle)" in dash, "stored choice + idle state decide"
+    assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice)" in dash, "the stored choice decides, collapsed by default"
     assert "console.warn('LiveDashboard: не удалось сохранить состояние консоли'" in dash, "a failed save is reported, not swallowed"
     assert "safeRecentLogs.map((l) =>" in dash, "Copy still takes the untouched full journal"
     assert "hardware.is_paused" in dash and "Автосбор включён · Сейчас ожидает" in dash and 'id="heroDropTitle">{starting' in dash and "'Ожидание кампаний'" in dash, "idle hero states the farm switch"

@@ -462,7 +462,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             {([['ru', 'Русский'], ['en', 'English']] as const).map(([value, label]) => (
               <button
                 key={value}
-                className={`tactile-btn ${getLang() === value ? 'active-amber' : ''}`}
+                className={`tactile-btn ${getLang() === value ? 'active-mint' : ''}`}
                 onClick={() => { playClick(); if (getLang() !== value) void setLang(value as Lang); }}
               >
                 {label}
