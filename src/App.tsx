@@ -1909,7 +1909,7 @@ export const App: React.FC = () => {
                 <input 
                   type="text" 
                   placeholder="Поиск по играм, стримам и действиям... (Esc)" 
-                  className="w-full bg-transparent border-none outline-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
+                  className="w-full bg-transparent border-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
                   onKeyDown={(e) => {

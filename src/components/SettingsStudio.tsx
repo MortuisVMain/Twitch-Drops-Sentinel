@@ -603,7 +603,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span className="tag">
                 <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
-              <button className="tactile-btn active-mint" style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
+              <button className="tactile-btn active-mint" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
                 <Plus className="ui-icon" aria-hidden="true" focusable="false" /> Добавить папку
               </button>
             </div>
@@ -616,7 +616,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                     <span style={{ color: 'var(--led-mint)', fontSize: 'var(--fs-xs)' }}>[НАСТРОЕН]</span>
                     <button
                       className="tactile-btn danger-hover"
-                      style={{ padding: '1px 6px', minHeight: '18px', fontSize: 'var(--fs-xs)' }}
+                      style={{ padding: '1px 6px', minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                       onClick={() => handleRemoveFolder(dir)}
                       title="Удалить папку"
                     >
@@ -632,7 +632,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span>Обнаружено игр: {installedCount}</span>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
               <button className="chunky-cta" style={{ flex: 1 }} onClick={handleRescanClick}>
                 <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> {scanLabel}
               </button>

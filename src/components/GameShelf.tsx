@@ -650,7 +650,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 padding: '4px 22px 4px 10px',
                 fontSize: 'var(--fs-xs)',
                 color: 'var(--text-primary)',
-                outline: 'none',
+                minHeight: '28px',
                 marginLeft: '6px',
                 width: '180px',
               }}
@@ -993,7 +993,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 {isExcluded ? (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
+                    style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1005,7 +1005,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 ) : isRemoved ? (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
+                    style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1020,7 +1020,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                         <button
                           className="node-chip"
-                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
+                          style={{ minHeight: '24px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Повысить приоритет (переместить выше в очереди)"
                           disabled={priorityIndex === 0}
                           onClick={(e) => {
@@ -1033,7 +1033,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         </button>
                         <button
                           className="node-chip"
-                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
+                          style={{ minHeight: '24px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Понизить приоритет (переместить ниже в очереди)"
                           disabled={priorityIndex === priorityList.length - 1}
                           onClick={(e) => {
@@ -1064,7 +1064,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       {game.is_installed && (
                         <button
                           className="node-chip"
-                          style={{ minHeight: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
+                          style={{ minHeight: '24px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
                           title="Удалить из списка установленных"
                           onClick={(e) => {
                             e.stopPropagation();

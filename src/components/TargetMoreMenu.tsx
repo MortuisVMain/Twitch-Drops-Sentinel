@@ -60,7 +60,6 @@ export const TargetMoreMenu: React.FC<TargetMoreMenuProps> = ({ streamer, onBan 
       <button
         ref={triggerRef}
         className={`tactile-btn ${open ? 'active-mint' : ''}`}
-        style={{ minHeight: '28px' }}
         onClick={() => {
           playClick();
           setOpen((v) => !v);

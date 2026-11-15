@@ -13,7 +13,7 @@ import { TargetMoreMenu } from './TargetMoreMenu';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
-import { collapseLogs, CONSOLE_COLLAPSED_KEY, filterLogs, hostCanOpenLogFile, openLogFile, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
+import { collapseLogs, CONSOLE_COLLAPSED_KEY, CONSOLE_FILTER_KEY, type ConsoleFilter, filterLogs, hostCanOpenLogFile, openLogFile, parseConsoleFilter, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
 import { primaryChipIndex, sortOffQueue, splitQueueRows } from '../utils/dashboardLayout';
 import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueView, type CampaignState, type QueueFilter } from '../utils/campaignState';
@@ -124,7 +124,22 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const { playClick } = useTactileAudio();
   // No answer from the service yet: empty lists and zero counts below are not data, so they are not shown as facts
   const starting = connectionPhase === 'starting';
-  const [logFilter, setLogFilter] = useState<'ALL' | 'WATCH' | 'CLAIM' | 'CORE'>('ALL');
+  const [logFilter, setLogFilterState] = useState<ConsoleFilter>(() => {
+    try {
+      return parseConsoleFilter(localStorage.getItem(CONSOLE_FILTER_KEY));
+    } catch (err) {
+      console.warn('LiveDashboard: localStorage недоступен', err);
+      return 'ALL';
+    }
+  });
+  const setLogFilter = (next: ConsoleFilter) => {
+    setLogFilterState(next);
+    try {
+      localStorage.setItem(CONSOLE_FILTER_KEY, next);
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить фильтр консоли', err);
+    }
+  };
   const [expandedSync, setExpandedSync] = useState<string[]>([]);
   const [codeCopy, setCodeCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handleCopyCode = async () => {
@@ -784,9 +799,9 @@ const filteredLogs = useMemo(() => {
               <span style={{ display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--text-muted)' }}>
                 {starting ? '\u00a0' : (
                   <>
-                    <span title="Игры очереди с идущей кампанией, которую можно фармить (вместе с игрой, которая фармится сейчас)">{`Доступно ${queueStats.available}`}</span>
+                    <span title="С идущей кампанией, включая игру, что фармится сейчас">{`Доступно ${queueStats.available}`}</span>
                     {' · '}
-                    <span title="Кампания есть, но аккаунт игры не привязан: фарм невозможен, пока вы его не привяжете">{`Нужна привязка ${queueStats.needLink}`}</span>
+                    <span title="Кампания есть, но аккаунт игры не привязан">{`Нужна привязка ${queueStats.needLink}`}</span>
                     {' · '}
                     <span title="Игры очереди, где все награды уже получены">{`Завершено ${queueStats.finished}`}</span>
                   </>
@@ -797,23 +812,23 @@ const filteredLogs = useMemo(() => {
               {forcedGame ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', fontWeight: 700 }}>
                   <span><Zap className="ui-icon" aria-hidden="true" focusable="false" /> ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
-                  <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)' }}>
+                  <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)', minHeight: '24px' }}>
                     Сбросить фокус / В авто
                   </button>
                 </div>
               ) : (
                 <button 
                   className="tactile-btn" 
-                  style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                  style={{ minHeight: '24px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => setShowFullCatalogModal(true)}
-                  title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
+                  title="Фармить выбранную игру вне очереди, пока не отмените"
                 >
                   Выбрать игру для фарма <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />
                 </button>
               )}
               <button
                 className="tactile-btn active-mint"
-                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   onUpdateSettings?.({ priority_mode: settings.priority_mode === 0 ? 1 : 0 });
@@ -833,7 +848,7 @@ const filteredLogs = useMemo(() => {
               <button
                 key={option.value}
                 className={`tactile-btn ${queueFilter === option.value ? 'active-mint' : ''}`}
-                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => changeQueueFilter(option.value)}
                 aria-pressed={queueFilter === option.value}
                 title={option.hint}
@@ -902,7 +917,7 @@ const filteredLogs = useMemo(() => {
                       className="queue-finished-toggle"
                       onClick={toggleWaitingGroup}
                       aria-expanded={showWaitingQueue}
-                      title="Игры из очереди, у которых сейчас нет кампании; порядок приоритета сохраняется"
+                      title="Сейчас без кампании; приоритет сохраняется"
                     >
                       <span>{showWaitingQueue ? <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" />} Ждут кампаний · {waitingQueue.length}</span>
                     </button>
@@ -915,7 +930,7 @@ const filteredLogs = useMemo(() => {
                       className="queue-finished-toggle"
                       onClick={toggleFinishedGroup}
                       aria-expanded={showFinishedQueue}
-                      title="Игры, где все награды уже получены; порядок приоритета сохраняется"
+                      title="Игры, где все награды получены; приоритет сохраняется"
                     >
                       <span>{showFinishedQueue ? <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" />} Завершено · {finishedQueue.length}</span>
                     </button>
@@ -968,15 +983,13 @@ const filteredLogs = useMemo(() => {
                 <div className="idle-hero-actions">
                   <button
                     className="tactile-btn active-mint"
-                    style={{ minHeight: '28px' }}
                     onClick={() => { playClick(); setShowFullCatalogModal(true); }}
-                    title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
+                    title="Фармить выбранную игру вне очереди, пока не отмените"
                   >
                     Выбрать игру для фарма
                   </button>
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '28px' }}
                     onClick={scrollToOverride}
                     title="Перейти к блоку ручного фокуса"
                   >
@@ -1069,7 +1082,6 @@ const filteredLogs = useMemo(() => {
                   </div>
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '28px' }}
                     onClick={() => {
                       playClick();
                       onSwitchStreamer?.(false);
@@ -1080,7 +1092,6 @@ const filteredLogs = useMemo(() => {
                   </button>
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '28px' }}
                     onClick={() => {
                       playClick();
                       onSwitchStreamer?.(true);
@@ -1343,14 +1354,14 @@ const filteredLogs = useMemo(() => {
                     padding: '2px 8px',
                     color: 'var(--text-primary)',
                     fontSize: 'var(--fs-xs)',
-                    outline: 'none',
+                    minHeight: '28px',
                     width: '145px',
                   }}
                 />
                 {forcedGame && (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '22px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
+                    style={{ minHeight: '24px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
                     onClick={() => {
                       playClick();
                       onCancelForceFarm?.();
@@ -1494,7 +1505,7 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <button
                   className="tactile-btn active-amber"
-                  style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                   onClick={() => {
                     playClick();
                     onCancelForceFarm?.();
@@ -1519,7 +1530,7 @@ const filteredLogs = useMemo(() => {
                 {catalogModalSearch && (
                   <button 
                     onClick={() => setCatalogModalSearch('')} 
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 min-h-6 text-[var(--text-muted)] hover:text-white"
                   >
                     <X className="ui-icon" aria-hidden="true" focusable="false" />
                   </button>
@@ -1528,21 +1539,21 @@ const filteredLogs = useMemo(() => {
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   className={`tactile-btn ${catalogModalTab === 'ALL' ? 'active-mint' : ''}`}
-                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('ALL'); }}
                 >
                   Все ({activeTwitchDropsGames.length})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'TOP' ? 'active-mint' : ''}`}
-                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
                 >
                   <Star className="ui-icon" aria-hidden="true" focusable="false" /> Очередь ({topPriorityCount})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
-                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('INSTALLED'); }}
                 >
                   <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> На ПК ({installedActiveCount})

@@ -8,7 +8,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const load = file => import(pathToFileURL(path.join(ROOT, 'src', 'utils', file)).href);
-const { resolveConsoleCollapsed } = await load('consoleLog.ts');
+const { resolveConsoleCollapsed, parseConsoleFilter } = await load('consoleLog.ts');
 const { splitQueueRows, sortOffQueue, primaryChipIndex } = await load('dashboardLayout.ts');
 
 test('console is collapsed by default whether idle or farming', () => {
@@ -19,6 +19,11 @@ test('console is collapsed by default whether idle or farming', () => {
 test('an explicit console choice still wins', () => {
   assert.equal(resolveConsoleCollapsed('0'), false);
   assert.equal(resolveConsoleCollapsed('1'), true);
+});
+
+test('a stored console filter is restored, anything else falls back to "all"', () => {
+  for (const f of ['ALL', 'WATCH', 'CLAIM', 'CORE']) assert.equal(parseConsoleFilter(f), f);
+  for (const bad of [null, undefined, '', 'watch', 'JUNK', '1']) assert.equal(parseConsoleFilter(bad), 'ALL');
 });
 
 const row = (name, kind) => ({ name, state: { kind } });

@@ -469,8 +469,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   return (
     <div id="view-giveaways" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Top Header Island 1-to-1 with SPEC */}
-      <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-        <div>
+      <div className="titanium-island" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: '6px 12px', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 'var(--fs-md)', fontWeight: 800 }}>
             Бесплатные раздачи
           </div>
@@ -478,7 +478,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             Забираем бесплатные игры и ассеты в 7 магазинах
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           <button
             className="tactile-btn"
             onClick={() => { playClick(); readinessErrorAtOpen.current = actionError; setReadinessOpen(true); }}
@@ -564,7 +564,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 {isAuthed && (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '20px', width: '22px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
+                    style={{ minHeight: '24px', width: '24px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (window.confirm(SWITCH_ACCOUNT_CONFIRM)) handleStoreAuth(store.id, true);
@@ -624,7 +624,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             {load.failure === 'http' && load.status ? <>Код ответа: {load.status}. </> : null}
             {hasStaleData(load) ? 'Показаны последние полученные данные.' : 'Данные раздач недоступны.'}
           </span>
-          <button className="tactile-btn" style={{ minHeight: '22px', flexShrink: 0 }} onClick={() => { playClick(); retryLoad(); }}>
+          <button className="tactile-btn" style={{ minHeight: '24px', flexShrink: 0 }} onClick={() => { playClick(); retryLoad(); }}>
             Повторить
           </button>
         </div>
@@ -772,7 +772,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <button 
                 className={`tactile-btn ${copiedLogs ? 'active-mint' : ''}`} 
-                style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={handleCopyLogs}
                 title="Скопировать все логи терминала в буфер обмена"
               >
@@ -781,7 +781,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               </button>
               <button 
                 className={`tactile-btn ${isSchedulerActive ? 'active-mint' : ''}`} 
-                style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={handleToggleScheduler}
                 title={schedulerButtonTitle}
               >
