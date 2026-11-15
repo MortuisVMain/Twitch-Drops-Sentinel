@@ -558,7 +558,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={isAuthed ? `Вы вошли как ${accountName}` : 'Нужно войти в аккаунт магазина'}
                   >
-                    {isAuthed ? accountName : 'Требуется вход'}
+                    {isAuthed ? 'Вход есть' : 'Требуется вход'}
                   </span>
                 )}
                 {isAuthed && (
@@ -576,6 +576,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                   </button>
                 )}
               </div>
+              {isAuthed && !isLoading && !noData && (
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }} title={`Вы вошли как ${accountName}`}>
+                  {accountName}
+                </div>
+              )}
 
               {isLoading && <span className="sk-bar" aria-hidden="true" style={{ height: '24px', width: '100%' }} />}
               {!isAuthed && !noData && (
@@ -648,7 +653,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       {/* 2-Column Bento: Left Collected Collection + Right Task Scheduler 1-to-1 with SPEC */}
       <div className="giveaways-main-grid" style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px', flex: 1, minHeight: 0, overflow: 'hidden', alignItems: 'start' }}>
         {/* Left Bento: Collection */}
-        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', alignSelf: 'stretch', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header" style={{ marginBottom: '8px', flexShrink: 0 }}>
             <span className="tag">
               <span className="led-dot"></span> <span title="Коллекция забранных игр и UE5-ассетов">КОЛЛЕКЦИЯ · {noData ? '…' : claimedItems.length}</span>
@@ -687,7 +692,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           </div>
 
           {/* Compact Tiles Grid */}
-          <div className="claimed-compact-grid" style={{ flex: '0 1 auto' }}>
+          <div className="claimed-compact-grid" style={{ minHeight: 0 }}>
             {isLoading ? (
               [0, 1, 2, 3, 4, 5].map((n) => (
                 <div key={n} className="claimed-compact-card" aria-hidden="true">
