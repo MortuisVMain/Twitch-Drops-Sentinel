@@ -1495,6 +1495,10 @@
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); 
     gap: 14px; 
   }
+  /* One to four games: cards grow to 1.5x the minimum width and stay at the left instead of sitting at the minimum on an empty screen */
+  .cartridges-grid:has(> .cartridge-card):not(:has(> .cartridge-card:nth-child(5))) {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 315px), 315px));
+  }
   .cartridge-card {
     background: var(--bg-island); 
     transform: translateZ(0);
@@ -1512,16 +1516,15 @@
     border-color: var(--led-mint);
   }
   .rocker-3p {
-    display: flex; background: var(--bg-well); border-radius: var(--radius-md); padding: 2px;
+    display: flex; flex-wrap: wrap; background: var(--bg-well); border-radius: var(--radius-md); padding: 2px;
     box-shadow: var(--shadow-well); border: 1px solid var(--border-subtle);
   }
   .r-step {
-    flex: 1; text-align: center; padding: 4px 1px; font-family: var(--font-ui);
+    flex: 1 1 auto; text-align: center; padding: 4px 6px; font-family: var(--font-ui);
     font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); border-radius: var(--radius-sm); cursor: pointer;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: all 0.15s ease;
   }
-  .r-step[data-state="IDLE"] { flex-grow: 0.6; } /* the short label gives its width to the other two */
   .r-step.idle { background: var(--bg-row-hover); color: var(--text-primary); }
   .r-step.queue { background: var(--led-mint); color: var(--cta-text); }
   .r-step.force { background: var(--led-amber); color: var(--cta-text); }

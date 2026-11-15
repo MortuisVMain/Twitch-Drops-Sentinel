@@ -1079,7 +1079,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   </div>
                 )}
 
-                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (ВНЕ очереди) / QUEUE (ОЧЕРЕДЬ) / FORCE #1 (СЕЙЧАС #1) */}
+                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (Не фармить) / QUEUE (В очередь) / FORCE (Фармить сейчас) */}
                 <div className="rocker-3p" data-mode={isForced ? "FORCE #1" : isInPriority ? "QUEUE" : "IDLE"}>
                   <span 
                     className={`r-step ${!isInPriority && !isForced ? 'idle' : ''}`}
@@ -1091,7 +1091,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title="Не в очереди: игра убирается из очереди приоритетов. Она фармится только в режиме «очередь + любые», после игр очереди"
                   >
-                    ВНЕ
+                    Не фармить
                   </span>
                   <span 
                     className={`r-step ${isInPriority && !isForced ? 'queue' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -1107,7 +1107,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : 'В очереди: игра фармится раньше игр не из очереди, в порядке очереди'}
                   >
-                    ОЧЕРЕДЬ
+                    В очередь
                   </span>
                   <span 
                     className={`r-step ${isForced ? 'force' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -1126,7 +1126,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : isForced ? 'Нажмите для отмены принудительного фарма' : 'Собирать сейчас: игра встаёт первой поверх очереди, пока вы не отмените или не получены все её награды'}
                   >
-                    СЕЙЧАС #1
+                    Фармить сейчас
                   </span>
                 </div>
               </div>

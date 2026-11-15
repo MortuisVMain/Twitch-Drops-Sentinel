@@ -2435,7 +2435,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     for old in ("Только очередь ⇄", "Очередь + любые ⇄", "'ФОКУС'", "'FORCE'", "Фармить вне очереди\n"):
         assert old not in dash, old
     shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
-    assert "ВНЕ" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
+    assert "Не фармить" in shelf and "Фармить сейчас" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
     app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
     assert "relief-chip" not in app and "relief-chip" not in css and "FLAT-2D" not in app, "the backdrop chip is gone from the header"
