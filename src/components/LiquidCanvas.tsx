@@ -202,14 +202,14 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       const coreCol = useThemeColor
         ? isCyber ? '#00F0FF' : isAurora ? '#A855F7' : isDay ? '#EA580C' : isCopper ? '#F97316' : isAppleLuna ? '#73BBA5'
           : isMidnight ? '#7DB4FF' : isGraphite ? '#D8DDE3' : isPaper ? '#2457D6' : isSakura ? '#F4A7B9' : '#3AD29F'
-        : '#FF7700';
+        : '#9AA1AE'; // magma variant: neutral surface greys (--text-muted, --border-island, --bg-chassis-base), no second accent hue
       const midCol = useThemeColor
         ? isCyber ? '#FF003C' : isAurora ? '#34D399' : isDay ? '#FDBA74' : isCopper ? '#C2410C' : isAppleLuna ? '#368873'
           : isMidnight ? '#F2C879' : isGraphite ? '#FF5A4E' : isPaper ? '#E2553B' : isSakura ? '#9EE6C9' : '#059669'
-        : '#E62E00';
+        : '#27292F';
       const darkCol = useThemeColor
         ? (isDay ? '#F4F2EE' : isPaper ? '#EEF1F4' : isAppleLuna ? '#171D1C' : isMidnight ? '#0A0F1C' : isGraphite ? '#050506' : isSakura ? '#120D10' : '#03120D')
-        : '#1E0300';
+        : '#080A0E';
 
       ctx.fillStyle = darkCol;
       ctx.fillRect(0, 0, w, h);
@@ -219,6 +219,7 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
         { x: w * 0.22 + Math.sin(time * 0.0007) * 80, y: h * 0.28, rad: 440 },
         { x: w * 0.78 + Math.cos(time * 0.0006) * 80, y: h * 0.74, rad: 460 },
       ];
+      ctx.globalAlpha = useThemeColor ? 1 : 0.5; // the magma variant glows at half strength
       hotspots.forEach((hs) => {
         const g = ctx.createRadialGradient(hs.x, hs.y, 8, hs.x, hs.y, hs.rad);
         g.addColorStop(0, coreCol);
@@ -227,6 +228,7 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
       });
+      ctx.globalAlpha = 1;
 
       const facetNormals = [
         { nx: 0.866, ny: 0.5 },
@@ -254,9 +256,9 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
           const ly = (mouseY - p.y) / 500;
           const diff = Math.max(0.08, fn.nx * lx + fn.ny * ly + 0.32);
 
-          const rCol = Math.round(14 + diff * (useThemeColor ? 40 : 55));
-          const gCol = Math.round(18 + diff * (useThemeColor ? 65 : 25));
-          const bCol = Math.round(24 + diff * (useThemeColor ? 45 : 10));
+          const rCol = Math.round(14 + diff * (useThemeColor ? 40 : 28));
+          const gCol = Math.round(18 + diff * (useThemeColor ? 65 : 30));
+          const bCol = Math.round(24 + diff * (useThemeColor ? 45 : 34));
           ctx.fillStyle = `rgb(${rCol},${gCol},${bCol})`;
 
           ctx.beginPath();
