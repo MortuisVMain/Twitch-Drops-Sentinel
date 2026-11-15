@@ -409,6 +409,19 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       onToggle: () => { playClick(); void handleToggleAutostart(); },
     },
   ];
+  const renderModuleCard = (m: (typeof moduleCards)[number]) => (
+    <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{m.title}</div>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{m.hint}</div>
+      </div>
+      <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
+        <div className="knob"></div>
+      </div>
+    </div>
+  );
+  // The after-queue switch sits in the block with its choice of action, not in the grid
+  const powerCard = moduleCards.find((m) => m.key === 'powerCascade');
 
 
   return (
@@ -426,17 +439,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div className="modules-10-grid">
-              {moduleCards.map((m) => (
-                <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{m.title}</div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{m.hint}</div>
-                  </div>
-                  <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
-                    <div className="knob"></div>
-                  </div>
-                </div>
-              ))}
+              {moduleCards.filter((m) => m.key !== 'powerCascade').map(renderModuleCard)}
               {autostartError && (
                 <div role="status" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}>
                   Автозапуск недоступен: {autostartError}
@@ -498,8 +501,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div 
             id="lunaCascadeBox" 
             className="obsidian-well" 
-            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}
+            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}
           >
+            {powerCard && renderModuleCard(powerCard)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
               <button 
@@ -540,6 +545,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             >
               <Timer className="ui-icon" aria-hidden="true" focusable="false" /> {testCountdown !== null ? `Отмена (${testCountdown} с)` : 'Проверить таймер (5 с, ПК не затронет)'}
             </button>
+            </div>
           </div>
         </div>
 
