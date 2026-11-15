@@ -8,7 +8,6 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const APP_VERSION = require('../package.json').version;
 
 const dir = process.argv[2];
 if (!dir) { console.error('usage: node tools/check_startup_states.cjs <harness-dir>'); process.exit(2); }
@@ -32,11 +31,9 @@ function probe() {
   const body = document.body.innerText;
   const status = [...document.querySelectorAll('[role="status"]')].map((e) => e.innerText.trim());
   const shelf = [...document.querySelectorAll('.tab-btn')].find((b) => /Полка|Shelf/i.test(b.innerText));
-  const chip = document.querySelector('#headerThemeBadge');
   return {
     body, status,
     shelfText: shelf ? shelf.innerText.replace(/\s+/g, ' ').trim() : null,
-    chipText: chip ? chip.innerText.trim() : null,
     queueCount: document.querySelector('#queueCount') ? document.querySelector('#queueCount').innerText.trim() : null,
   };
 }
@@ -72,7 +69,6 @@ function probe() {
       if (/\b0 ИГР/i.test(res.body)) problems.push('a fake zero count "0 ИГР" while starting');
       if (/Полка Игр\s*0/.test(res.shelfText || '')) problems.push('a fake zero on the shelf tab: ' + res.shelfText);
     }
-    if (/v?7\.0/i.test(res.chipText || '')) problems.push('version chip shows the v7.0 fallback: ' + res.chipText);
     if (/\b0 (IDLE|GAMES?)\b/i.test(res.body) || /(^|\s)Shelf\s*0\b/.test(res.shelfText || '')) problems.push('a fake zero count in English: ' + res.shelfText);
     report('starting (' + lang + ', t=1s)', problems);
 
@@ -85,7 +81,6 @@ function probe() {
     if (res.body.includes(UNAVAILABLE[lang])) problems.push('the red banner shows after the service answered');
     if (!/^\d+\s+\S+/.test(res.queueCount || '')) problems.push('no real queue count after recovery: ' + res.queueCount);
     if (!/\d/.test(res.shelfText || '')) problems.push('no shelf count after recovery: ' + res.shelfText);
-    if (!(res.chipText || '').includes(APP_VERSION)) problems.push('version chip should show the service version: ' + res.chipText);
     if (errors.length) problems.push('page errors: ' + errors.join(' | '));
     report('recovered (' + lang + ')', problems);
     await ctx.close();

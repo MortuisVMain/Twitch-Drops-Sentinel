@@ -1344,7 +1344,7 @@ const filteredLogs = useMemo(() => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <input
                   type="text"
-                  placeholder="Фильтр активных кампаний..."
+                  placeholder="Фильтр кампаний"
                   value={overrideFilter}
                   onChange={(e) => setOverrideFilter(e.target.value)}
                   style={{

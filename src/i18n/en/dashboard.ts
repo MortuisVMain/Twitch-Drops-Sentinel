@@ -65,7 +65,7 @@ export const DASHBOARD: Record<string, string> = {
   'Журнал операций': 'Operations log',
   'Не удалось загрузить историю журнала: показаны последние строки': 'Could not load the log history: showing the latest lines',
   'Фарм вне очереди (ручной фокус)': 'Farm outside the queue (manual focus)',
-  'Фильтр активных кампаний...': 'Filter active campaigns...',
+  'Фильтр кампаний': 'Filter campaigns',
   'Нажмите для отмены ручного режима': 'Click to cancel manual mode',
   'В ФОКУСЕ': 'IN FOCUS',
   'Собрано (100%)': 'Collected (100%)',

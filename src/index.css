@@ -857,19 +857,6 @@
     padding: 0 2px;
   }
   .header-drag-zone:active { cursor: grabbing; }
-  .drag-grip-indicator {
-    display: flex;
-    gap: 3px;
-    opacity: 0.25;
-    transition: opacity 0.2s ease;
-  }
-  .header-drag-zone:hover .drag-grip-indicator { opacity: 0.65; }
-  .drag-grip-indicator span {
-    width: 12px;
-    height: 2px;
-    background: var(--text-muted);
-    border-radius: var(--radius-sm);
-  }
 
   .header-actions {
     display: flex; align-items: center; gap: 4px; position: relative;
@@ -929,7 +916,6 @@
   @container hdr (max-width: 57em) or (max-width: 800px) {
     .brand-title { display: none !important; }
     .header-drag-zone { min-width: 0 !important; padding: 0 !important; }
-    .drag-grip-indicator { display: none !important; }
     .tab-btn { padding: 0 4px !important; gap: 2px !important; }
   }
 
@@ -1176,6 +1162,8 @@
     letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-engraved);
     display: flex; align-items: center; gap: 6px; white-space: nowrap;
   }
+  /* The dot before a panel title carries no state */
+  .engraved-header .tag .led-dot { display: none; }
 
   .ending-soon-radar {
     display: flex; align-items: center; justify-content: space-between; padding: 5px 12px;

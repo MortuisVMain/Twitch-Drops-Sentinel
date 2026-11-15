@@ -23,6 +23,7 @@ interface SettingsStudioProps {
   updateInfo?: UpdateCheckResult | null;
   updateCheckFailure?: string | null;
   updateProgress?: UpdateProgressStatus | null;
+  appVersion?: string;
 }
 
 export const SettingsStudio: React.FC<SettingsStudioProps> = ({
@@ -39,6 +40,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   updateInfo,
   updateCheckFailure,
   updateProgress,
+  appVersion,
 }) => {
   const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
@@ -716,6 +718,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <button className="tactile-btn" onClick={handleOpenDiag} title="Диагностический отчет">
               <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Отчет
             </button>
+            {appVersion && <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} title="Версия приложения">v{appVersion}</span>}
           </div>
         </div>
 

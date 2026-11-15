@@ -1085,13 +1085,7 @@ export const App: React.FC = () => {
 
               <span className="brand-name-full">Sentinel Field-Deck</span>
 
-              <span className="brand-name-short">Sentinel</span>{' '}
-
-              {(sentinelState?.version || updateInfo?.local_version) && (
-                <span className="version-chip version-pro" id="headerThemeBadge">
-                  {sentinelState?.version || updateInfo?.local_version}
-                </span>
-              )}
+              <span className="brand-name-short">Sentinel</span>
 
             </h1>
 
@@ -1193,15 +1187,8 @@ export const App: React.FC = () => {
 
           title="Зажмите для перемещения окна / двойной клик для разворачивания"
 
-        >
+        />
 
-          <div className="drag-grip-indicator">
-
-            <span></span><span></span><span></span>
-
-          </div>
-
-        </div>
 
 
 
@@ -1827,6 +1814,7 @@ export const App: React.FC = () => {
               updateInfo={updateInfo}
               updateCheckFailure={updateCheckFailure}
               updateProgress={updateProgress}
+              appVersion={sentinelState.version}
             />
 
           )}

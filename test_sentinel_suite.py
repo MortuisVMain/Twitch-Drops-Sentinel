@@ -814,7 +814,7 @@ def test_github_updater_and_zero_mock_telemetry():
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "updateInfo" in app_tsx, "App.tsx must have updater state"
     assert "showUpdateModal" in app_tsx, "App.tsx must have update modal"
-    assert "version-pro" in app_tsx, "App.tsx must display version badge"
+    assert "version-pro" not in app_tsx, "The header carries no version badge"
     assert "TrophiesVault Verified" not in app_tsx, "Footer must not contain TrophiesVault Verified artifact"
 
     # 6. Verify SettingsStudio.tsx has GitHub updater card
@@ -1241,7 +1241,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
 
     # 4. Verify App.tsx uses dynamic version in sidebar only and removed from footer
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "sentinelState?.version || updateInfo?.local_version" in app_tsx, "App.tsx must use dynamic sentinelState version in sidebar"
+    assert "appVersion={sentinelState.version}" in app_tsx, "App.tsx must pass the dynamic sentinelState version to Settings"
     assert "Sentinel v{" not in app_tsx, "App.tsx must not contain hardcoded version string in footer"
 
     # 5. Verify SettingsStudio and HelpModal clean headers
