@@ -130,7 +130,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Диммер': 'Dimmer',
   'Управление яркостью и экранами': 'Brightness and screen control',
   'Одна карточка на монитор': 'One card per monitor',
-  'У каждого монитора свой ползунок, своя база и кнопка «Затемнить только этот». Если монитор не принимает команды яркости, доступно только программное затемнение.': 'Each monitor has its own slider, its own baseline and a “Dim only this one” button. If a monitor does not accept brightness commands, only software dimming is available.',
+  'У каждого монитора свой ползунок, своя база и кнопка «Затемнить этот». Если монитор не принимает команды яркости, доступно только программное затемнение.': 'Each monitor has its own slider, its own baseline and a “Dim this one” button. If a monitor does not accept brightness commands, only software dimming is available.',
   'По мониторам': 'Per monitor',
   'База яркости': 'Brightness baseline',
   'Нажмите «Запомнить как базу», а потом меняйте яркость как угодно: «Вернуть к базе» (или Alt+Shift+Backspace) вернёт сохранённый уровень, даже из игры.': 'Click “Save as baseline” and then change the brightness however you like: “Back to baseline” (or Alt+Shift+Backspace) restores the saved level, even from inside a game.',

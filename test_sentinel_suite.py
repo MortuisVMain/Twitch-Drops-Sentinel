@@ -1602,7 +1602,7 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     assert "Комфорт 40%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Комфорт 40%'"
     assert "Работа 75%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Работа 75%'"
     assert "Максимум 100%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Максимум 100%'"
-    assert "Затемнить только этот" in dimmer_tsx, "ScreenDimmerView must contain the single-monitor blackout button"
+    assert "Затемнить этот" in dimmer_tsx, "ScreenDimmerView must contain the single-monitor blackout button"
     assert "Alt+Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt+Backspace shortcut"
     help_tsx_keys = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
     assert "выход из блэкаута" in help_tsx_keys and "Колесо мыши над диском" in help_tsx_keys, "the Hotkeys help tab lists every dimmer hotkey"

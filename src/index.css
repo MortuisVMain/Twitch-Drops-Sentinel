@@ -586,9 +586,6 @@
     white-space: nowrap !important;
     text-overflow: ellipsis !important;
   }
-  .field-chassis.pip-mode #headerThemeBadge {
-    display: none !important;
-  }
   .field-chassis.pip-mode .deck-tabs,
   .field-chassis.pip-mode .pip-hide,
   .field-chassis.pip-mode .main-stage,
@@ -750,7 +747,6 @@
     display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }
   .more-menu-wrap { position: relative; display: inline-flex; }
-  .more-menu-narrow { min-width: 190px; }
   /* An island is its own stacking context: lift the one with an open menu above its neighbours */
   .titanium-island:has(.more-menu-narrow.open) { z-index: 20; }
 
@@ -977,6 +973,7 @@
     box-shadow: 0 28px 70px rgba(0,0,0,0.95), 0 0 0 1px var(--border-subtle);
   }
   .more-menu.open { display: flex; }
+  .more-menu.more-menu-narrow { min-width: 190px; }
   .more-item {
     display: flex; align-items: center; justify-content: space-between; gap: 14px;
     padding: 7px 10px; border-radius: var(--radius-md); border: 1px solid transparent; background: transparent;

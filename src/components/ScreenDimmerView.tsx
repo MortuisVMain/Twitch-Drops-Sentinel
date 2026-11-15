@@ -719,7 +719,7 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                       onClick={() => handleToggleSoloBlackout(idx)}
                       title={isSoloThis ? 'Включить этот монитор обратно' : 'Погасить только этот монитор, остальные не трогать'}
                     >
-                      {isSoloThis ? 'Затемнён — включить' : 'Затемнить только этот'}
+                      {isSoloThis ? 'Включить обратно' : 'Затемнить этот'}
                     </button>
                     <MoreMenu label="Ещё действия с монитором">
                       {(close) => (
