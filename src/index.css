@@ -749,8 +749,10 @@
     font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 700;
     display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }
-  .target-more-wrap { position: relative; display: inline-flex; }
-  .target-more-menu { min-width: 190px; }
+  .more-menu-wrap { position: relative; display: inline-flex; }
+  .more-menu-narrow { min-width: 190px; }
+  /* An island is its own stacking context: lift the one with an open menu above its neighbours */
+  .titanium-island:has(.more-menu-narrow.open) { z-index: 20; }
 
   .hex-bolt {
     position: absolute; width: 12px; height: 12px; border-radius: 50%;

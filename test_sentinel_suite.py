@@ -1463,7 +1463,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     assert dimmer_tsx.is_file(), "src/components/ScreenDimmerView.tsx must exist"
     dimmer_code = dimmer_tsx.read_text(encoding="utf-8")
     assert "ScreenDimmerView" in dimmer_code, "ScreenDimmerView component must be exported"
-    assert "Alt + Backspace" in dimmer_code, "ScreenDimmerView must mention tactile blackout shortcut"
+    assert "Alt+Backspace" in dimmer_code, "ScreenDimmerView must mention tactile blackout shortcut"
 
     main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
     assert "BlackoutOverlayForm" in main_cs, "desktop/MainForm.cs must contain BlackoutOverlayForm"
@@ -1603,7 +1603,9 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     assert "Работа 75%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Работа 75%'"
     assert "Максимум 100%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Максимум 100%'"
     assert "Затемнить только этот" in dimmer_tsx, "ScreenDimmerView must contain the single-monitor blackout button"
-    assert "Alt + Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt + Backspace shortcut"
+    assert "Alt+Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt+Backspace shortcut"
+    help_tsx_keys = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
+    assert "выход из блэкаута" in help_tsx_keys and "Колесо мыши над диском" in help_tsx_keys, "the Hotkeys help tab lists every dimmer hotkey"
 
     dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "Выбрать игру для фарма <ChevronDown" in dash_tsx, "LiveDashboard must contain the 'Выбрать игру для фарма' button"

@@ -1,8 +1,9 @@
-import { HardDrive, Keyboard, Laptop, Link, Monitor, Moon, Mouse, RefreshCw, Shield, Sun, Sunset, Unlink, VolumeX } from 'lucide-react';
+import { HardDrive, Laptop, Link, Monitor, Moon, RefreshCw, Shield, Sun, Sunset, Unlink, VolumeX } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DisplayMonitor } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { DIMMER_HOST_TIMEOUT_MS, dimmerPhase } from '../utils/dataLoad';
+import { MoreMenu } from './MoreMenu';
 
 interface ScreenDimmerViewProps {
   onBackToDashboard?: () => void;
@@ -711,31 +712,37 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                     {isSoloThis ? 'Затемнён отдельно' : isLinked ? 'Синхронно с общей' : 'Независимо'}
                   </div>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                    <button
-                      className="tactile-btn"
-                      style={{ flex: '1 1 auto', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
-                      onClick={() => handleSaveSingleBaseline(idx)}
-                      title={`Запомнить текущие ${mon.current_brightness}% как базовую яркость этого монитора`}
-                    >
-                      <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> Запомнить как базу
-                    </button>
-                    <button
-                      className="tactile-btn active-mint"
-                      style={{ flex: '1 1 auto', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px' }}
-                      onClick={() => handleRestoreSingleBaseline(idx)}
-                      title={`Вернуть этот монитор к базовой яркости (${baseBri}%)`}
-                    >
-                      <Sun className="ui-icon" aria-hidden="true" focusable="false" /> Вернуть к базе
-                    </button>
+                  <div style={{ display: 'flex', gap: '5px' }}>
                     <button
                       className={`tactile-btn ${isSoloThis ? 'active-rose' : ''}`}
-                      style={{ flex: '1 1 100%', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
+                      style={{ flex: '1 1 auto', minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 7px', color: isSoloThis ? '#ff5252' : undefined }}
                       onClick={() => handleToggleSoloBlackout(idx)}
                       title={isSoloThis ? 'Включить этот монитор обратно' : 'Погасить только этот монитор, остальные не трогать'}
                     >
                       {isSoloThis ? 'Затемнён — включить' : 'Затемнить только этот'}
                     </button>
+                    <MoreMenu label="Ещё действия с монитором">
+                      {(close) => (
+                        <>
+                          <button
+                            className="more-item"
+                            role="menuitem"
+                            onClick={() => { close(); handleSaveSingleBaseline(idx); }}
+                            title={`Запомнить текущие ${mon.current_brightness}% как базовую яркость этого монитора`}
+                          >
+                            <span><HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> Запомнить как базу</span>
+                          </button>
+                          <button
+                            className="more-item"
+                            role="menuitem"
+                            onClick={() => { close(); handleRestoreSingleBaseline(idx); }}
+                            title={`Вернуть этот монитор к базовой яркости (${baseBri}%)`}
+                          >
+                            <span><Sun className="ui-icon" aria-hidden="true" focusable="false" /> Вернуть к базе</span>
+                          </button>
+                        </>
+                      )}
+                    </MoreMenu>
                   </div>
                 </div>
               );
@@ -1196,39 +1203,6 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
               </span>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* =========================================================================
-         HOTKEYS REFERENCE & STATUS CHIP BAR
-         ========================================================================= */}
-      <div
-        className="obsidian-well"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '6px 14px',
-          borderRadius: '8px',
-          border: '1px solid var(--border-subtle)',
-          fontSize: 'var(--fs-xs)',
-          color: 'var(--text-secondary)',
-          fontFamily: 'var(--font-ui)',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span><Keyboard className="ui-icon" aria-hidden="true" focusable="false" /> <strong style={{ color: 'var(--text-heading)' }}>Alt + Backspace:</strong> блэкаут (0%)</span>
-          <span>•</span>
-          <span><Keyboard className="ui-icon" aria-hidden="true" focusable="false" /> <strong style={{ color: 'var(--accent-mint)' }}>Alt + Shift + Backspace:</strong> вернуть базовую яркость (работает и из игр)</span>
-          <span>•</span>
-          <span><strong style={{ color: 'var(--text-heading)' }}>Esc:</strong> выйти из блэкаута</span>
-          <span>•</span>
-          <span><Mouse className="ui-icon" aria-hidden="true" focusable="false" /> <strong style={{ color: 'var(--text-heading)' }}>Колесо над диском:</strong> ±5%</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent-mint)' }}>
-          <span className="led-dot" style={{ width: '5px', height: '5px' }}></span>
-          <span title="Подробности: управление идёт через DDC/CI, DXVA2 и WMI">{monitors.length > 0 ? 'Мониторы готовы' : phase === 'waiting' ? 'Ждём список мониторов' : phase === 'timeout' ? 'Нет данных от приложения' : 'Мониторы не найдены'}</span>
         </div>
       </div>
     </div>
