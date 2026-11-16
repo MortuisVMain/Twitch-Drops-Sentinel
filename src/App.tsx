@@ -2080,7 +2080,7 @@ export const App: React.FC = () => {
 
               onClick={() => setShowUpdateModal(false)}
 
-              className="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 rounded-[var(--radius-md)] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
 
             >
 
@@ -2092,7 +2092,7 @@ export const App: React.FC = () => {
 
             <div className="flex items-center gap-3">
 
-              <div className="w-10 h-10 rounded-xl bg-[var(--led-mint)]/20 border border-[var(--led-mint)]/40 flex items-center justify-center text-[var(--led-mint)]">
+              <div className="w-10 h-10 rounded-[var(--radius-md)] bg-[var(--led-mint)]/20 border border-[var(--led-mint)]/40 flex items-center justify-center text-[var(--led-mint)]">
 
                 <Sparkles size={20} aria-hidden="true" focusable="false" />
 
@@ -2106,7 +2106,7 @@ export const App: React.FC = () => {
 
                 </h3>
 
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
 
                   Текущая версия: v{sentinelState.version || '3.5.20'}
 
@@ -2118,17 +2118,21 @@ export const App: React.FC = () => {
 
 
 
-            <div className="obsidian-well p-4 rounded-xl text-xs space-y-2 max-h-48 overflow-y-auto">
+            {updateInfo.release_notes && (
 
-              <div className="font-semibold text-[var(--text-primary)]">Что нового:</div>
+              <div className="obsidian-well p-4 text-[length:var(--fs-xs)] space-y-2 max-h-48 overflow-y-auto">
 
-              <div className="text-[var(--text-muted)] whitespace-pre-line leading-relaxed">
+                <div className="font-semibold text-[var(--text-primary)]">Что нового:</div>
 
-                {updateInfo.release_notes || 'Улучшена стабильность работы фонового демона и оптимизирована обработка очередей.'}
+                <div className="text-[var(--text-muted)] whitespace-pre-line leading-relaxed">
+
+                  {updateInfo.release_notes}
+
+                </div>
 
               </div>
 
-            </div>
+            )}
 
 
 
@@ -2167,7 +2171,7 @@ export const App: React.FC = () => {
 
                 onClick={() => setShowUpdateModal(false)}
 
-                className="px-4 py-2 rounded-xl text-xs text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                className="tactile-btn"
 
               >
 
@@ -2181,7 +2185,7 @@ export const App: React.FC = () => {
 
                   onClick={handleRestartApp}
 
-                  className="px-5 py-2.5 rounded-xl bg-[var(--led-mint)] hover:opacity-90 text-[var(--cta-text)] text-xs font-bold transition-all cursor-pointer shadow-lg"
+                  className="chunky-cta"
 
                 >
 
@@ -2197,7 +2201,7 @@ export const App: React.FC = () => {
 
                   disabled={isApplyingUpdate}
 
-                  className="px-5 py-2.5 rounded-xl bg-[var(--led-mint)] hover:opacity-90 disabled:opacity-50 text-[var(--cta-text)] text-xs font-bold transition-all cursor-pointer shadow-lg"
+                  className="chunky-cta disabled:opacity-50"
 
                 >
 
