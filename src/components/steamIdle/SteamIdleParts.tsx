@@ -60,8 +60,8 @@ export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
           <button type="button" className="tactile-btn" onClick={openGiveawaysReadiness}>Открыть готовность раздач</button>
         )}
       </Fact>
-      {engineMissing && <p className="sidle-text">{ENGINE_MISSING_HINT}</p>}
       <Fact label="Помощник" text={helper.text} tone={helper.tone} />
+      {engineMissing && <p className="sidle-text sidle-ready-note">{ENGINE_MISSING_HINT}</p>}
     </section>
   );
 };
