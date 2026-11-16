@@ -42,7 +42,7 @@ export const achErrorHelp = (code: string | null): string | null => {
   return null;
 };
 
-export const finishedNoteText = (note: string | null): string | null => {
+export const finishedNoteText =(note: string | null): string | null => {
   switch (note) {
     case 'no_achievements': return 'нет достижений';
     case 'nothing_missing': return 'всё уже получено';
@@ -51,6 +51,8 @@ export const finishedNoteText = (note: string | null): string | null => {
     case 'only_hidden': return 'остались только скрытые';
     case 'stopped': return 'остановлено до конца игры';
     case 'uncertain': return 'результат не подтверждён, проверьте в Steam';
+    case 'protected_app': return 'Игра с античитом: достижения в ней не выдаются.';
+    case 'protection_unknown': return 'Не удалось проверить игру на античит, она пропущена.';
     default: return note ? 'не обработано' : null;
   }
 };

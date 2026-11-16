@@ -91,6 +91,7 @@ export const refusalText = (code: string | null, session = 'signed_out'): string
     case 'busy': return 'Служба занята предыдущей командой. Повторите через пару секунд.';
     case 'achievements_not_acknowledged': return 'Сначала включите выдачу достижений в их разделе.';
     case 'not_ready': return 'Список игр ещё не загружен. Загрузите его и повторите.';
+    case 'protected_app': return 'Игра с античитом: достижения в ней не выдаются.';
     case 'invalid_request': return 'Служба не приняла запрос. Проверьте введённые значения.';
     case 'network': return 'Нет связи со службой. Повторите позже.';
     case 'timeout': return 'Служба не ответила. Повторите позже.';

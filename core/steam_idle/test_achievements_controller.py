@@ -14,7 +14,7 @@ from steam_idle.achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from steam_idle.achievements import Achievement, AchievementsError, UnlockResult, _outcome
 from steam_idle.community import CommunityError, OwnedGame
 from steam_idle.controller import SteamClient, Tools
-from steam_idle.test_controller import ACCOUNT, BASE_ID, OTHER, Env, gd
+from steam_idle.test_controller import ACCOUNT, BASE_ID, OTHER, Env, FakeProtection, gd
 
 ACK, RISK = "steam_idle_achievements_ack", "steam_idle_risk_ack"
 RUN_KEYS = {"state", "mode", "current", "nextUnlockInSeconds", "queue", "finished", "totals", "lastError", "paused",
@@ -391,6 +391,34 @@ class LibraryTests(Base):
         await self.env.settle()
         self.assertEqual(ctl.state()["library"]["count"], 3)
         self.assertEqual(ctl.state()["library"]["status"], "ready")
+
+
+class ProtectionTests(Base):
+    async def test_a_game_with_anti_cheat_in_the_table_is_refused_at_start_for_game_and_selected_plans(self):
+        ctl = self.make()
+        for plan in (GamePlan(730), SelectedPlan(730, ["A"])):
+            self.assertEqual(ctl.start_achievements(plan), "protected_app")
+        self.assertEqual(run_of(ctl)["state"], "idle")
+        self.assertEqual((self.env.ach_calls, self.env.unlock_calls, self.env.protection.calls), ([], [], []))
+
+    async def test_a_library_run_skips_protected_and_unknown_games_with_notes_and_writes_the_rest(self):
+        self.make(protection=FakeProtection({2: "protected", 3: "unknown"}))
+        await self.ready()
+        self.assertIsNone(self.env.ctl.start_achievements(LibraryPlan((), [])))
+        await self.env.settle()
+        run = run_of(self.env.ctl)
+        self.assertEqual({f["appId"]: f["note"] for f in run["finished"]},
+                         {1: None, 2: "protected_app", 3: "protection_unknown"})
+        self.assertEqual([c[2] for c in self.env.unlock_calls], [1])
+        self.assertEqual([c[2] for c in self.env.ach_calls], [1])
+
+    async def test_a_game_that_is_protected_only_by_the_live_check_is_skipped_at_run_time(self):
+        self.make(protection=FakeProtection({100: "protected"}))
+        self.assertIsNone(self.env.ctl.start_achievements(GamePlan(100)))
+        await self.env.settle()
+        run = run_of(self.env.ctl)
+        self.assertEqual([(f["appId"], f["note"]) for f in run["finished"]], [(100, "protected_app")])
+        self.assertEqual((self.env.ach_calls, self.env.unlock_calls), ([], []))
 
 
 class ReadTests(Base):

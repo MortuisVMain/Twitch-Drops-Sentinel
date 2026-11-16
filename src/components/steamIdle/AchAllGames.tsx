@@ -49,6 +49,7 @@ export const AchAllGames: React.FC<{ s: SteamIdleState; games: SteamIdleLibraryG
         <div className="sidle-confirm" role="group" aria-labelledby="sidle-confirm-title" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } }}>
           <p id="sidle-confirm-title" className="sidle-refusal"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Это запустит выдачу по всей библиотеке. Выданное нельзя снять.</p>
           <p className="sidle-text">Игр к обработке: <b className="tabular">{total ?? '?'}</b>. Исключено: <b className="tabular">{excluded ?? '?'}</b>. Окончательный список определяет служба.</p>
+          <p className="sidle-text">Игры с античитом пропускаются. Список известных игр неполон: проверьте библиотеку сами.</p>
           <div className="sidle-field">
             <label htmlFor="sidle-confirm-word" className="sidle-label">Чтобы подтвердить, введите ALL</label>
             <input ref={field} id="sidle-confirm-word" type="text" className="sidle-input sidle-input-num" value={word} autoComplete="off" onChange={(e) => setWord(e.target.value)} />

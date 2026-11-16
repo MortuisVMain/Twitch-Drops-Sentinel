@@ -59,3 +59,23 @@ test('a refusal for the site session names the button that is on screen', () => 
   assert.equal(signedOutHint('signed_out'), 'login');
   assert.equal(signedOutHint('account_mismatch'), 'login');
 });
+
+// The text tables are TypeScript that imports the translation layer: bundle them once and call the real functions.
+const { build } = await import('esbuild');
+const { mkdtempSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+globalThis.localStorage = { getItem: () => 'ru', setItem() {} };
+const bundleDir = mkdtempSync(path.join(tmpdir(), 'sidle_text_'));
+const bundleOf = async (entry) => {
+  const outfile = path.join(bundleDir, `${path.basename(entry, '.ts')}.mjs`);
+  await build({ entryPoints: [path.join(ROOT, 'src', 'components', 'steamIdle', entry)], bundle: true, format: 'esm', outfile, logLevel: 'silent' });
+  return import(pathToFileURL(outfile).href);
+};
+const { finishedNoteText } = await bundleOf('achievementsText.ts');
+const { refusalText } = await bundleOf('steamIdleText.ts');
+
+test('the anti-cheat notes and refusal have their own sentences', () => {
+  assert.equal(finishedNoteText('protected_app'), 'Игра с античитом: достижения в ней не выдаются.');
+  assert.equal(finishedNoteText('protection_unknown'), 'Не удалось проверить игру на античит, она пропущена.');
+  assert.equal(refusalText('protected_app'), 'Игра с античитом: достижения в ней не выдаются.');
+});

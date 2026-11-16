@@ -22,6 +22,7 @@ from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
 from .presence import Presence
+from .protection import CACHE_FILE_NAME, ProtectionChecker
 from .wake import Wake
 
 logger = logging.getLogger(__name__)
@@ -149,8 +150,9 @@ class SteamIdleController:
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, rules: FarmRules | None = None,
                  kill_reads: Callable[[], None] = lambda: None,
                  read_achievements: Callable[..., list] | None = None, unlock: Callable[..., object] | None = None,
-                 uniform: Callable[[float, float], float] = random.uniform):
+                 uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None):
         self._get_setting, self._set_setting = get_setting, set_setting
+        self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
         self._find_tools, self._client_state = find_tools, client_state
         self._read_drops_fn, self._read_library_fn, self._read_status_fn = read_drops, read_library, read_status
         self._presence_factory, self._run_login, self._clock, self._sleep = presence_factory, run_login, clock, sleep
@@ -168,7 +170,8 @@ class SteamIdleController:
             read_library=lambda *args, **kwargs: self._read_library_fn(*args, **kwargs),
             cached_games=self._cached_games, cached_preview=self._cached_preview, store_library=self._store_library,
             session_error=self._session_error,
-            is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep)
+            is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep,
+            protection=self._protection)
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
         self._library_error: str | None = None
@@ -622,6 +625,7 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
             client_state=lambda: SteamClient(False, 0), read_drops=_never, read_library=_never, read_status=_never,
             presence_factory=_never, run_login=_never, clock=time.monotonic)
     return SteamIdleController(
+        protection=ProtectionChecker(app_root / CACHE_FILE_NAME),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,

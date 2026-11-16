@@ -47,6 +47,7 @@ Working contract between the service (`core/steam_idle`) and the UI tab. All rou
 - `run.finished`: `[{"appId", "name", "unlocked", "skipped", "failed", "note"}]`, newest first, at most 200 entries. `note` is null or a short code such as `no_achievements`, `nothing_missing`, `read_failed`, `skipped_by_user`.
 - `run.finished` notes also include `uncertain` (an unlock call raised after it may have written, or raised an unexpected error; every remaining target of that game counts as failed and the run stops) and `only_hidden` (every missing achievement of the game is hidden and was skipped).
 - Each `run.finished` entry also carries `already` and `rejected`: the per-game counts of requested names that were already achieved or not found in the game, mirroring the totals.
+- `run.finished` notes also include `protected_app` (the game has anti-cheat; nothing of it was read or written) and `protection_unknown` (the anti-cheat check gave no answer; the game is skipped the same way). The check runs for every game of every plan kind, right before its achievements are read (see "Anti-cheat" below).
 - `state.library` becomes `{"count": number|null, "status": "none"|"scanning"|"ready"|"failed", "ageSeconds": number|null}`.
 
 ## Routes
@@ -69,11 +70,15 @@ Start shapes:
 
 ## Refusals
 
-HTTP 409 `{"error": code}` with the existing codes (`risk_not_acknowledged`, `unavailable`, `steam_not_running`, `steam_signed_out`, `community_signed_out`, `account_mismatch`, `busy`) plus `achievements_not_acknowledged` and `not_ready`. Malformed bodies give HTTP 400 `{"error": "invalid_request"}`.
+HTTP 409 `{"error": code}` with the existing codes (`risk_not_acknowledged`, `unavailable`, `steam_not_running`, `steam_signed_out`, `community_signed_out`, `account_mismatch`, `busy`) plus `achievements_not_acknowledged`, `not_ready` and `protected_app` (a single-game or selected-names start for an app of the built-in anti-cheat table; same 409 shape, checked after the gates above). Malformed bodies give HTTP 400 `{"error": "invalid_request"}`.
 
 `GET /achievements` and `POST /library/scan` use the same gates as `POST /scan`. `GET /achievements` additionally needs the achievements acknowledgement.
 
 `GET /achievements` answers HTTP 502 `{"error": "read_failed", "reason": code}` when the helper read fails. `POST /achievements/start` and `POST /achievements/settings` bodies are rejected with HTTP 400 `{"error": "invalid_request"}` when they contain unknown keys (the key sets above are exact).
+
+## Anti-cheat
+
+No achievement of a game with anti-cheat is ever written. `core/steam_idle/protection.py` classifies an app id as `protected`, `clear` or `unknown`: the built-in table first (ids confirmed against the public store data), then the cache file `steam_idle_protection_cache.json` next to `config.json`, then one request to the public store `appdetails` endpoint (app id only) that looks for category 8 ("Valve Anti-Cheat enabled"). Requests are one at a time, at least 1.5 s apart, 10 s timeout. An HTTP error, timeout, 429 or unexpected body is `unknown`, is logged with the app id and is not cached. `clear` entries expire after 30 days, `protected` entries never do. Only `clear` opens a game; `protected` and `unknown` finish it with the notes above. The built-in table is incomplete by design: engines the store does not flag (for example BattlEye or Easy Anti-Cheat) are only caught when listed.
 
 ## Pace
 

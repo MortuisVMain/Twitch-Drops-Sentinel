@@ -154,7 +154,7 @@ class AchievementsRoutesTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_refusals_answer_409_with_the_code_for_every_route(self):
         for code in ("risk_not_acknowledged", "achievements_not_acknowledged", "unavailable", "steam_not_running",
-                     "steam_signed_out", "community_signed_out", "account_mismatch", "busy"):
+                     "steam_signed_out", "community_signed_out", "account_mismatch", "busy", "protected_app"):
             routes = SteamIdleRoutes(Stub(code))
             requests = {
                 routes.library_scan: FakeRequest(), routes.achievements_stop: FakeRequest(),

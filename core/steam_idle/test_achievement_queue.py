@@ -30,13 +30,15 @@ def outcome(names, result="unlocked", stored="yes"):
 class Env:
     """Drives one queue; asserts after every step that unlock never ran while writing was not allowed."""
 
-    def __init__(self, reads=None, rules=None, seed=1):
+    def __init__(self, reads=None, rules=None, seed=1, verdicts=None):
         self.now, self.reads = 1000.0, dict(reads or {})
-        self.calls, self.read_calls, self.violations = [], [], []
+        self.calls, self.read_calls, self.violations, self.classify_calls = [], [], [], []
+        self.verdicts = verdicts
         self.guard_result = self.on_unlock = None
         self.gate, self.entered = None, threading.Event()
         self.intent = {"paused": False, "suspended": False, "stopped": True, "closed": False}
-        self.q = AchievementQueue(self.read, self.unlock, lambda: self.now, random.Random(seed).uniform, self.guard)
+        self.q = AchievementQueue(self.read, self.unlock, lambda: self.now, random.Random(seed).uniform, self.guard,
+                                  classify=None if verdicts is None else self.classify)
         self.rules = rules or Rules()
 
     def read(self, app_id):
@@ -48,6 +50,13 @@ class Env:
 
     def guard(self):
         return self.guard_result
+
+    def classify(self, app_id):
+        self.classify_calls.append(app_id)
+        verdict = self.verdicts.get(app_id, "clear")
+        if isinstance(verdict, Exception):
+            raise verdict
+        return verdict
 
     def unlock(self, app_id, names):
         names = list(names)
@@ -660,6 +669,52 @@ class StatusTests(unittest.TestCase):
         before["queue"].append("x")
         before["totals"]["unlocked"] = 99
         self.assertEqual(env.q.status()["totals"]["unlocked"], 1)
+
+
+class ProtectionTests(unittest.TestCase):
+    """The anti-cheat verdict is asked once per game, before its achievements are read; only a clear game is opened."""
+
+    def test_protected_and_unknown_games_are_finished_with_a_note_and_nothing_is_read_or_written(self):
+        plans = {"game": GamePlan(1), "selected": SelectedPlan(1, ["A0"]), "library": LibraryPlan([(1, "one")])}
+        for verdict, note in (("protected", "protected_app"), ("unknown", "protection_unknown")):
+            for kind, plan in plans.items():
+                with self.subTest(verdict=verdict, kind=kind):
+                    env = Env({1: missing(2)}, verdicts={1: verdict})
+                    env.start(plan)
+                    status = env.run()
+                    self.assertEqual((env.read_calls, env.calls), ([], []))
+                    self.assertEqual([(f["appId"], f["note"], f["unlocked"]) for f in status["finished"]], [(1, note, 0)])
+                    self.assertEqual((status["state"], status["lastError"]), ("done", None))
+
+    def test_a_clear_game_is_read_and_written_and_asked_once(self):
+        env = Env({1: missing(2)}, verdicts={})
+        env.start(GamePlan(1))
+        env.run()
+        self.assertEqual((env.classify_calls, env.calls), ([1], [(1, ["A0", "A1"])]))
+
+    def test_library_skips_only_the_flagged_games(self):
+        env = Env({1: missing(1), 2: missing(1, "B"), 3: missing(1, "C")}, verdicts={2: "protected", 3: "unknown"})
+        env.start(LibraryPlan([(1, "one"), (2, "two"), (3, "three")]))
+        status = env.run()
+        self.assertEqual(env.calls, [(1, ["A0"])])
+        self.assertEqual({f["appId"]: f["note"] for f in status["finished"]},
+                         {1: None, 2: "protected_app", 3: "protection_unknown"})
+
+    def test_a_failing_classifier_counts_as_unknown(self):
+        env = Env({1: missing(1)}, verdicts={1: RuntimeError("boom")})
+        env.start(GamePlan(1))
+        with self.assertLogs("steam_idle.achievement_queue", level="ERROR"):
+            status = env.run()
+        self.assertEqual((env.read_calls, status["finished"][0]["note"]), ([], "protection_unknown"))
+
+    def test_a_stop_during_the_check_is_not_noted_as_a_verdict(self):
+        env = Env({1: missing(1)}, verdicts={})
+        env.q._classify = lambda app_id: (env.stop(), "protected")[1]  # the user stops while the check runs
+        env.start(GamePlan(1))
+        env.run()
+        env.step()  # the stop command is applied by a step
+        self.assertEqual((env.calls, env.read_calls), ([], []))
+        self.assertEqual(env.q.status()["finished"][0]["note"], "stopped")
 
 
 class InvariantSweepTests(unittest.TestCase):

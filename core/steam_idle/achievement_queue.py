@@ -64,6 +64,7 @@ class _Game:
     failed: int = 0
     already: int = 0
     rejected: int = 0
+    checked: bool = False  # the anti-cheat verdict was asked for this game
 
 
 @dataclass(frozen=True)
@@ -86,8 +87,11 @@ class AchievementQueue:
     def __init__(self, read_achievements: Callable[[int], list[Achievement]],
                  unlock: Callable[[int, list[str]], UnlockOutcome], clock: Callable[[], float],
                  uniform: Callable[[float, float], float], guard: Callable[[], str | None] | None = None,
-                 on_command: Callable[[], None] = lambda: None):
+                 on_command: Callable[[], None] = lambda: None, classify: Callable[[int], str] | None = None):
+        """`classify(app_id)` returns "protected", "clear" or "unknown" (blocking); only "clear" opens a game.
+        None skips the check and is meant for tests of the queue alone."""
         self._read, self._unlock, self._clock, self._uniform, self._guard = read_achievements, unlock, clock, uniform, guard
+        self._classify = classify
         self._wake = on_command  # called after every command; must be safe from any thread
         self._lock = threading.Lock()
         self._commands: list[tuple[Callable, tuple]] = []
@@ -308,6 +312,8 @@ class AchievementQueue:
             self._cur = _Game(app_id, name, [])
             return
         game = self._cur
+        if self._classify is not None and not game.checked:
+            return self._check_protection(game)
         try:
             items = self._read(game.app_id)
         except AchievementsError as error:
@@ -317,6 +323,21 @@ class AchievementQueue:
                 self._halt(error.code)
             return
         self._open(game, items)
+
+    def _check_protection(self, game: _Game) -> None:
+        """Before anything of the game is read: a game with anti-cheat, or one that could not be checked, is skipped."""
+        game.checked = True
+        try:
+            verdict = self._classify(game.app_id)
+        except Exception:
+            logger.error("anti-cheat check for app %s crashed", game.app_id, exc_info=True)
+            verdict = "unknown"
+        with self._lock:
+            if self._closed or self._stop_req:  # the queued stop finishes the game as stopped
+                return
+        if verdict == "clear":
+            return
+        self._finish("protected_app" if verdict == "protected" else "protection_unknown")
 
     def _open(self, game: _Game, items: list[Achievement]) -> None:
         if not items:

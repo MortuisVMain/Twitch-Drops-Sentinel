@@ -5,9 +5,11 @@ reader, the clock, the sleep hook), so the class is as testable as the controlle
 a refusal code from the service contract; no account identifier is ever stored in a payload.
 """
 import asyncio
+import concurrent.futures
 import dataclasses
 import logging
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -17,6 +19,7 @@ from .wake import Wake
 
 if TYPE_CHECKING:
     from .controller import SteamClient, Tools
+    from .protection import ProtectionChecker
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,7 @@ SKIP_HIDDEN_KEY = "steam_idle_unlock_skip_hidden"
 _MAX_PACE_MINUTES = 1440
 _ENDED = frozenset({"idle", "done", "stopped"})
 _TICK_SECONDS = 5.0
+_CLASSIFY_WAIT_SECONDS = 15.0  # a request (10 s) plus the spacing between requests (1.5 s) and slack
 
 
 class AchievementsRun:
@@ -37,8 +41,10 @@ class AchievementsRun:
                  store_library: Callable[[int, list], None],
                  session_error: Callable[[str], bool], is_closed: Callable[[], bool], steam_id: Callable[[int], str],
                  clock: Callable[[], float], uniform: Callable[[float, float], float],
-                 sleep: Callable[[float], Awaitable[None]]):
+                 sleep: Callable[[float], Awaitable[None]], protection: "ProtectionChecker"):
         self._gate, self._get_setting, self._set_setting = gate, get_setting, set_setting
+        self._protection = protection
+        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._risk_acknowledged, self._client_state = risk_acknowledged, client_state
         self._read_ach, self._unlock_ach, self._read_library = read_achievements, unlock, read_library
         self._cached_games, self._store_library, self._session_error = cached_games, store_library, session_error
@@ -49,7 +55,7 @@ class AchievementsRun:
         self._unlock_in_flight = threading.Event()  # set only while an unlock call runs in the worker thread
         self._wake = Wake()
         self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard,
-                                       on_command=self._wake.set)
+                                       on_command=self._wake.set, classify=self._queue_classify)
         self._tools: "Tools | None" = None
         self._account, self._expected = 0, ""
         self._preparing = self._cancel = self._reading = False
@@ -127,12 +133,15 @@ class AchievementsRun:
         refusal, tools, client = self._gate(True)
         if refusal is not None:
             return refusal
+        if not isinstance(plan, LibraryPlan) and self._protection.is_builtin(plan.app_id):
+            return "protected_app"
         self._tools, self._account = tools, client.account_id
         self._expected = self._steam_id(client.account_id)
         self._cancel, self._preparing = False, False
         settings = self.settings()
         rules = Rules(settings["minMinutes"], settings["maxMinutes"], settings["skipHidden"])
-        self.task = asyncio.get_running_loop().create_task(self._loop(plan, rules))
+        self._event_loop = asyncio.get_running_loop()
+        self.task = self._event_loop.create_task(self._loop(plan, rules))
         return None
 
     def stop(self) -> None:
@@ -171,6 +180,23 @@ class AchievementsRun:
             return self._unlock_ach(self._tools.helper, self._expected, app_id, names)
         finally:
             self._unlock_in_flight.clear()
+
+    def _queue_classify(self, app_id: int) -> str:
+        """Step thread: the anti-cheat verdict, asked of the checker on the event loop. Anything but an answer is unknown;
+        a shutdown or stop abandons the wait."""
+        future = asyncio.run_coroutine_threadsafe(self._protection.classify(app_id), self._event_loop)
+        deadline = time.monotonic() + _CLASSIFY_WAIT_SECONDS
+        while True:
+            try:
+                return future.result(timeout=0.25)
+            except concurrent.futures.TimeoutError:
+                if self._cancel or self._is_closed() or time.monotonic() > deadline:
+                    future.cancel()
+                    logger.warning("anti-cheat check for app %s abandoned", app_id)
+                    return "unknown"
+            except Exception:
+                logger.error("anti-cheat check for app %s failed", app_id, exc_info=True)
+                return "unknown"
 
     def _queue_guard(self) -> str | None:
         """Runs in the step thread right before every unlock: both acknowledgements still given, same account."""

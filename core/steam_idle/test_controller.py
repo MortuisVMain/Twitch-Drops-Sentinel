@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from steam_idle import protection
 from steam_idle.achievements import Achievement, UnlockResult, _outcome
 from steam_idle.community import CommunityError, GameDrops, OwnedGame
 from steam_idle.controller import (SteamClient, SteamIdleController, Tools, create_controller, find_tools,
@@ -25,6 +26,20 @@ REFUSALS = {"risk_not_acknowledged", "unavailable", "steam_not_running", "steam_
 
 def gd(app_id, drops):
     return GameDrops(app_id, f"Game {app_id}", drops, 1.0)
+
+
+class FakeProtection:
+    """Stands in for the anti-cheat checker: a table lookup and scripted verdicts, never a request."""
+
+    def __init__(self, verdicts=None):
+        self.verdicts, self.calls = dict(verdicts or {}), []
+
+    def is_builtin(self, app_id):
+        return protection.is_builtin(app_id)
+
+    async def classify(self, app_id):
+        self.calls.append(app_id)
+        return protection.PROTECTED if self.is_builtin(app_id) else self.verdicts.get(app_id, protection.CLEAR)
 
 
 class FakePresence:
@@ -62,6 +77,7 @@ class Env:
         self.ach, self.ach_calls, self.unlock_calls, self.unlock_script = {}, [], [], None
         self.ach_gate, self.ach_entered = None, threading.Event()
         self.unlock_gate, self.unlock_entered = None, threading.Event()
+        self.protection = FakeProtection()
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
@@ -70,7 +86,7 @@ class Env:
             read_drops=self.read_drops, read_library=self.read_library, read_status=self.read_status,
             presence_factory=self.make_presence, run_login=self.run_login,
             clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads,
-            read_achievements=self.read_achievements, unlock=self.unlock_achievements)
+            read_achievements=self.read_achievements, unlock=self.unlock_achievements, protection=self.protection)
 
     def kill_reads(self):
         """Stands in for killing the node child: the blocked read returns."""
@@ -858,6 +874,22 @@ class FactoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctl.login(), "unavailable")
         ctl.set_suspended(True)
         await ctl.shutdown()
+
+    async def test_inert_controller_never_makes_a_protection_request(self):
+        stored = {}
+        ctl = create_controller(Path("nowhere"), Path("nowhere"), lambda key, default=False: stored.get(key, default),
+                                stored.__setitem__, inert=True)
+        with mock.patch.object(protection, "http_fetch", side_effect=AssertionError("network")):
+            with self.assertLogs("steam_idle.protection", level="WARNING"):
+                self.assertEqual(await ctl._protection.classify(5), protection.UNKNOWN)
+        self.assertEqual(await ctl._protection.classify(730), protection.PROTECTED)
+        await ctl.shutdown()
+
+    async def test_real_controller_keeps_the_cache_next_to_the_other_data_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = create_controller(Path(tmp), Path(tmp), lambda key, default=False: default, lambda k, v: None)
+            self.assertEqual(ctl._protection.cache_path, Path(tmp) / "steam_idle_protection_cache.json")
+            await ctl.shutdown()
 
 
 if __name__ == "__main__":
