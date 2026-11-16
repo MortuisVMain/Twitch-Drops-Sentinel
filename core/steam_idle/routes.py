@@ -84,6 +84,12 @@ class SteamIdleRoutes:
     async def farm_skip(self, request: web.Request) -> web.Response:
         return self._reply(self._c.skip())
 
+    async def farm_release(self, request: web.Request) -> web.Response:
+        body = await self._body(request)
+        if not isinstance(body, dict) or set(body) != {"appId"} or not _app_id(body["appId"]):
+            return web.json_response(_INVALID, status=400)
+        return self._reply(self._c.release_held(body["appId"]))
+
     # achievements
     @staticmethod
     async def _body(request: web.Request) -> object:

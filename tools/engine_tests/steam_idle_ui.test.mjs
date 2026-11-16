@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const { refundNote, releaseQuestion } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
 const { parseExcludeList } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'excludeParse.mjs')).href);
 
 const ok = (text, ids) => assert.deepEqual(parseExcludeList(text), { ids, bad: null }, JSON.stringify(text));
@@ -92,4 +93,15 @@ test('the anti-cheat notes and refusal have their own sentences', () => {
 
 test('a resume on another account is refused with its own sentence', () => {
   assert.equal(refusalText('account_changed'), 'Сейчас в Steam другой аккаунт. Продолжить эту выдачу нельзя.');
+});
+
+test('the refund hold note counts the days left, at least one, whole days', () => {
+  assert.equal(refundNote(5), 'Куплена недавно: фарм отнимет право на возврат. Осталось дней: 5.');
+  assert.equal(refundNote(0), 'Куплена недавно: фарм отнимет право на возврат. Осталось дней: 1.');
+  assert.equal(refundNote(1.2), 'Куплена недавно: фарм отнимет право на возврат. Осталось дней: 2.');
+  assert.equal(refundNote(Number.NaN), 'Куплена недавно: фарм отнимет право на возврат. Осталось дней: 1.');
+});
+
+test('the release question names the game and the two-hour limit', () => {
+  assert.equal(releaseQuestion('Portal'), 'Фармить Portal? После 2 часов в игре вернуть её будет нельзя.');
 });

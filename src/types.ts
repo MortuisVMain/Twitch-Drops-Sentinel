@@ -221,6 +221,8 @@ export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | '
 export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaining: number }
 export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }
 export interface SteamIdleFailedGame { appId: number; name: string; reason: string }
+/** A game kept out of the queue because it may still be refundable. */
+export interface SteamIdleHeldGame { appId: number; name: string; reason: 'refund_window'; daysLeft: number }
 
 export type SteamIdlePreviewStatus = 'none' | 'scanning' | 'ready' | 'failed';
 export interface SteamIdlePreviewGame { appId: number; name: string; dropsRemaining: number; playtimeHours: number }
@@ -250,6 +252,7 @@ export interface SteamIdleState {
     lastError: string | null;
     paused: boolean;
     suspended: boolean;
+    refundHeld: SteamIdleHeldGame[];
   };
   library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null };
   preview?: SteamIdlePreview;

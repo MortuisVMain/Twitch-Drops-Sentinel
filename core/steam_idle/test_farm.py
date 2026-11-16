@@ -7,6 +7,7 @@ import unittest
 
 from steam_idle.community import CommunityError, GameDrops
 from steam_idle.farm import CardFarm, FarmRules
+from steam_idle.first_seen import FirstSeenStore
 from steam_idle.presence import PresenceError
 
 
@@ -45,14 +46,14 @@ class FakePresence:
 class Harness:
     """Drives a CardFarm and asserts the one-presence invariant after every step."""
 
-    def __init__(self, reads, rules=None, start_fail=None, stop_fail=False):
+    def __init__(self, reads, rules=None, start_fail=None, stop_fail=False, refund=None):
         self.reads, self.read_calls = list(reads), 0
         self.start_fail = {k: list(v) for k, v in (start_fail or {}).items()}
         self.stop_fail, self.dead_starts = stop_fail, 0
         self.presences, self.now = [], 1000.0
         self.read_gate = self.start_gate = self.stop_gate = None
         self.read_entered, self.start_entered, self.stop_entered = (threading.Event() for _ in range(3))
-        self.farm = CardFarm(rules or FarmRules(), self.read, self.make, lambda: self.now)
+        self.farm = CardFarm(rules or FarmRules(), self.read, self.make, lambda: self.now, refund=refund)
 
     def read(self):
         self.read_calls += 1
@@ -426,6 +427,97 @@ class FarmFindingsTests(unittest.TestCase):
         for flag in (False, True) * 25:
             farm.set_suspended(flag)
         self.assertLessEqual(len(farm._commands), 1)
+
+
+class RefundHoldTests(unittest.TestCase):
+    """Games bought recently (first seen under 14 days ago, under 2 hours played) stay out of the queue."""
+
+    DAY = 86400.0
+
+    def setUp(self):
+        self.wall = 1_800_000_000.0
+        self.store = FirstSeenStore(None, lambda: self.wall)
+        self.store.observe([])  # the baseline: games seen later are new
+
+    def see(self, *games):
+        self.store.observe(list(games))
+
+    def test_held_games_are_left_out_of_the_queue_and_listed_with_days_left(self):
+        self.see(gd(20, 2), gd(30, 3))
+        h = Harness([[gd(10, 1), gd(20, 2), gd(30, 3)]], refund=self.store)
+        h.begin()
+        status = h.farm.status()
+        self.assertEqual(h.held_ids(), [10])
+        self.assertEqual(status["queue"], [])
+        self.assertEqual(status["refundHeld"], [
+            {"appId": 20, "name": "Game 20", "reason": "refund_window", "daysLeft": 14},
+            {"appId": 30, "name": "Game 30", "reason": "refund_window", "daysLeft": 14}])
+        self.assertEqual((status["done"], status["failed"]), ([], []))
+        self.assertEqual(status["totalDropsRemaining"], 1)
+
+    def test_a_held_game_returns_to_the_queue_when_the_window_passes(self):
+        self.see(gd(20, 2))
+        h = Harness([[gd(10, 1), gd(20, 2)], [gd(10, 1), gd(20, 2)]], refund=self.store)
+        h.begin()
+        self.wall += 13.5 * self.DAY
+        h.tick(600)
+        self.assertEqual(h.farm.status()["refundHeld"][0]["daysLeft"], 1)
+        self.assertEqual(h.farm.status()["queue"], [])
+        self.wall += self.DAY
+        h.tick(600)
+        status = h.farm.status()
+        self.assertEqual(([g["appId"] for g in status["queue"]], status["refundHeld"]), ([20], []))
+
+    def test_a_held_game_returns_when_its_playtime_reaches_two_hours(self):
+        self.see(gd(20, 2))
+        played = GameDrops(20, "Game 20", 2, 2.0)
+        h = Harness([[gd(10, 1), gd(20, 2)], [gd(10, 1), played]], refund=self.store)
+        h.begin()
+        h.tick(600)
+        self.assertEqual(([g["appId"] for g in h.farm.status()["queue"]], h.farm.status()["refundHeld"]), ([20], []))
+
+    def test_a_missing_playtime_is_held(self):
+        self.see(gd(20, 2))
+        h = Harness([[gd(10, 1), GameDrops(20, "Game 20", 2, None)]], refund=self.store)
+        h.begin()
+        self.assertEqual([g["appId"] for g in h.farm.status()["refundHeld"]], [20])
+
+    def test_releasing_by_hand_queues_the_game_at_once_and_hides_it_from_the_list(self):
+        self.see(gd(20, 2))
+        h = Harness([[gd(10, 1), gd(20, 2)]], refund=self.store)
+        h.begin()
+        self.store.release(20)
+        self.assertEqual(h.farm.status()["refundHeld"], [])
+        h.do(h.farm.refresh)
+        self.assertEqual([g["appId"] for g in h.farm.status()["queue"]], [20])
+        self.assertEqual(h.held_ids(), [10])
+
+    def test_a_held_game_is_not_failed_skipped_or_done_when_everything_else_is_finished(self):
+        self.see(gd(20, 2))
+        h = Harness([[gd(10, 1), gd(20, 2)], [gd(10, 0), gd(20, 2)]], refund=self.store)
+        h.begin()
+        h.tick(600)
+        status = h.farm.status()
+        self.assertEqual(status["state"], "done")
+        self.assertEqual([g["appId"] for g in status["done"]], [10])
+        self.assertEqual([g["appId"] for g in status["refundHeld"]], [20])
+        self.assertEqual(h.presences[-1].app_id, 10)
+
+    def test_the_game_in_progress_is_not_interrupted_when_the_rule_starts_to_apply(self):
+        h = Harness([[gd(10, 1), gd(20, 2)], [gd(10, 1), gd(20, 2)]], refund=self.store)
+        h.begin()
+        self.see(gd(10, 1))  # a later preview now knows the held game as recent
+        h.tick(600)
+        status = h.farm.status()
+        self.assertEqual((h.held_ids(), h.state), ([10], "farming"))
+        self.assertEqual(status["current"]["appId"], 10)
+        self.assertEqual((status["refundHeld"], status["done"], status["failed"]), ([], [], []))
+        self.assertEqual(h.presences[0].stops, 0)
+
+    def test_refresh_without_a_read_is_harmless(self):
+        h = Harness([[gd(10, 1)]], refund=self.store)
+        h.do(h.farm.refresh)
+        self.assertEqual((h.state, h.farm.status()["refundHeld"]), ("idle", []))
 
 
 class FarmThreadingTests(unittest.TestCase):

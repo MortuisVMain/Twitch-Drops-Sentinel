@@ -94,3 +94,15 @@ No achievement of a game with anti-cheat is ever written. `core/steam_idle/prote
 After each unlocked achievement the run waits a random number of seconds between `minMinutes * 60` and `maxMinutes * 60`. With both at 0 the achievements of one game are written in one helper call (at most 200 per call). With a non-zero pace each achievement is its own helper call.
 
 Correction: the wait happens only between two writes. It is armed lazily, immediately before the next write call, so reading the next game is never delayed, and no wait happens when the run ends without another write (for example when the remaining games have nothing missing).
+
+## Refund hold (card farm)
+
+Idling raises playtime, and a game bought under 14 days ago with under 2 hours played can still be refunded. The pages the app reads carry no purchase date, so the moment the app first saw the game in a drops preview stands in for it. `core/steam_idle/first_seen.py` keeps `steam_idle_first_seen.json` next to `config.json`: `{"version": 1, "firstSeen": {"<appId>": epochSeconds}, "released": [appId...]}`. The first preview ever read (no file yet) is recorded with timestamp 0, so an existing library is not held back; games first seen later get the current time; entries of games that left the preview are kept. A corrupt file is logged, renamed to `steam_idle_first_seen.json.corrupt` and the store starts empty without a baseline, so every game seen afterwards counts as new.
+
+A game is held while `now - firstSeen < 14 days` and `playtimeHours < 2` (a missing value counts as 0) and it was not released by hand. Held games are left out of the queue but are not failed, skipped or done; they farm normally once the window or the playtime limit passes (seen on the next read) or when released. A held game that is being idled when the rule first applies is not interrupted.
+
+`GET /state` farm gains `refundHeld`: `[{"appId", "name", "reason": "refund_window", "daysLeft"}]` (`daysLeft` rounded up, at least 1). The other farm keys are unchanged.
+
+| Method and path | Body | Success | Notes |
+|---|---|---|---|
+| `POST /farm/release` | `{"appId": N}` (exact key set) | 200 `{"ok": true}` | stores the release, rebuilds the queue; 409 `not_held` for an unknown app id or a game that is not in `refundHeld`; 400 `invalid_request` for a bad body |

@@ -15,11 +15,12 @@ from steam_idle.community import CommunityError, GameDrops, OwnedGame
 from steam_idle.controller import (SteamClient, SteamIdleController, Tools, create_controller, find_tools,
                                    read_steam_client, steam_id64, steam_idle_backend_kind)
 from steam_idle.farm import FarmRules
+from steam_idle.first_seen import FILE_NAME as FIRST_SEEN_FILE, FirstSeenStore
 
 ACCOUNT, OTHER = 38734272, 1234567
 BASE_ID = 76561197960265728
 FARM_KEYS = {"state", "current", "queue", "done", "failed", "totalDropsRemaining", "lastReadAgeSeconds",
-             "lastError", "paused", "suspended"}
+             "lastError", "paused", "suspended", "refundHeld"}
 REFUSALS = {"risk_not_acknowledged", "unavailable", "steam_not_running", "steam_signed_out",
             "community_signed_out", "account_mismatch", "busy"}
 
@@ -78,6 +79,7 @@ class Env:
         self.ach_gate, self.ach_entered = None, threading.Event()
         self.unlock_gate, self.unlock_entered = None, threading.Event()
         self.protection, self.data_dir, self.wall_clock = FakeProtection(), None, time.time
+        self.first_seen = None
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
@@ -87,7 +89,7 @@ class Env:
             presence_factory=self.make_presence, run_login=self.run_login,
             clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads,
             read_achievements=self.read_achievements, unlock=self.unlock_achievements, protection=self.protection,
-            data_dir=self.data_dir, wall_clock=self.wall_clock)
+            data_dir=self.data_dir, wall_clock=self.wall_clock, first_seen=self.first_seen)
 
     def kill_reads(self):
         """Stands in for killing the node child: the blocked read returns."""
@@ -428,6 +430,48 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         skip.assert_called_once_with()
         self.assertEqual(ctl.state()["farm"]["state"], "stopped")
         self.assertTrue(all(not p.running for p in self.env.presences))
+
+    async def test_a_recent_game_is_held_back_until_released_by_hand(self):
+        wall = [1_800_000_000.0]
+        store = FirstSeenStore(None, lambda: wall[0])
+        store.observe([gd(100, 5)])
+        store.observe([gd(200, 2)])
+        ctl = self.make(drops=[[gd(100, 5), gd(200, 6)]], first_seen=store)
+        self.env.signed_in()
+        ctl.start()
+        await self.env.wait_running()
+        farm = ctl.state()["farm"]
+        self.assertEqual(farm["queue"], [])
+        self.assertEqual(farm["refundHeld"], [{"appId": 200, "name": "Game 200", "reason": "refund_window", "daysLeft": 14}])
+        self.assertEqual(ctl.release_held(999), "not_held")
+        self.assertEqual(ctl.release_held(100), "not_held")
+        self.assertIsNone(ctl.release_held(200))
+        self.assertEqual(ctl.release_held(200), "not_held")
+        self.assertEqual(ctl.state()["farm"]["refundHeld"], [])
+        for _ in range(300):
+            if [g["appId"] for g in ctl.state()["farm"]["queue"]] == [200]:
+                break
+            await asyncio.sleep(0.01)
+        self.assertEqual([g["appId"] for g in ctl.state()["farm"]["queue"]], [200])
+        ctl.stop()
+        await self.env.settle()
+
+    async def test_the_first_preview_baselines_the_file_and_a_later_game_is_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wall = [1_800_000_000.0]
+            store = FirstSeenStore(Path(tmp) / FIRST_SEEN_FILE, lambda: wall[0])
+            ctl = self.make(drops=[[gd(100, 2)], [gd(100, 2), gd(200, 1)]], first_seen=store)
+            self.env.signed_in()
+            self.assertIsNone(ctl.scan())
+            await self.env.settle()
+            wall[0] += 86400
+            self.assertIsNone(ctl.scan())
+            await self.env.settle()
+            data = json.loads((Path(tmp) / FIRST_SEEN_FILE).read_text(encoding="utf-8"))
+            self.assertEqual(data["firstSeen"], {"100": 0, "200": wall[0]})
+
+    async def test_release_held_without_a_run_is_not_held(self):
+        self.assertEqual(self.make().release_held(5), "not_held")
 
     async def test_suspend_is_forwarded_only_when_it_changes(self):
         ctl = self.make()

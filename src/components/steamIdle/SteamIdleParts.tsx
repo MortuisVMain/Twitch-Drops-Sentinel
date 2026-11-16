@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
 import { SteamIdleState } from '../../types';
-import { SteamIdleCommand } from './useSteamIdle';
+import { SendCommand, SteamIdleCommand } from './useSteamIdle';
+import { RefundHeldRow } from './RefundHeldRow';
 import { durParts } from './steamIdleLogic.mjs';
 import {
   KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
@@ -204,9 +205,9 @@ export const PreviewPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand 
   );
 };
 
-export const Lists: React.FC<{ s: SteamIdleState }> = ({ s }) => {
-  const { queue, done, failed } = s.farm;
-  if (!queue.length && !done.length && !failed.length) return null;
+export const Lists: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: SendCommand }> = ({ s, busy, send }) => {
+  const { queue, done, failed, refundHeld } = s.farm;
+  if (!queue.length && !done.length && !failed.length && !refundHeld.length) return null;
   return (
     <section className="titanium-island" aria-labelledby="sidle-queue-title">
       <h2 id="sidle-queue-title" className="sidle-title">Очередь{queue.length > 0 && <span className="sidle-count tabular"> {queue.length}</span>}</h2>
@@ -215,6 +216,14 @@ export const Lists: React.FC<{ s: SteamIdleState }> = ({ s }) => {
           {queue.map((g) => <NameRow key={g.appId} name={g.name} end={<span className="sidle-row-end tabular">{g.dropsRemaining}</span>} />)}
         </ul>
       ) : <p className="sidle-text">Очередь пуста</p>}
+      {refundHeld.length > 0 && (
+        <>
+          <h3 id="sidle-held-title" className="sidle-subtitle">Отложены<span className="sidle-count tabular"> {refundHeld.length}</span></h3>
+          <ul className="sidle-list-rows short" aria-labelledby="sidle-held-title">
+            {refundHeld.map((g) => <RefundHeldRow key={g.appId} game={g} busy={busy} send={send} />)}
+          </ul>
+        </>
+      )}
       {done.length > 0 && (
         <>
           <h3 id="sidle-done-title" className="sidle-subtitle">Уже готово<span className="sidle-count tabular"> {done.length}</span></h3>

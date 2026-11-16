@@ -1944,6 +1944,9 @@
 .sidle-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidle-row-note { color: var(--text-muted); overflow-wrap: anywhere; }
 .sidle-row-end { color: var(--text-secondary); flex-shrink: 0; }
+.sidle-row-held { flex-wrap: wrap; align-items: center; }
+.sidle-row-held .sidle-row-name { color: var(--text-muted); }
+.sidle-row-held .sidle-confirm { flex-basis: 100%; }
 .sidle-preview-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .sidle-root .sidle-preview .tactile-btn { min-height: 32px; padding: 0 10px; }
 .sidle-skel { display: flex; flex-direction: column; gap: 10px; }

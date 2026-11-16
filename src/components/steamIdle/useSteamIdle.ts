@@ -10,12 +10,12 @@ const SLOW_POLL_MS = 15000;
 const SLOW_AFTER_FAILS = 3;
 const COMMAND_TIMEOUT_MS = 15000;
 
-export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip'
+export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip' | 'release'
   | 'achAck' | 'achSettings' | 'libScan' | 'achStart' | 'achStop' | 'achPause' | 'achResume' | 'achSkip'
   | 'achResumeInterrupted' | 'achDiscardInterrupted';
 const PATHS: Record<SteamIdleCommand, string> = {
   ack: '/ack', login: '/login', check: '/check', scan: '/scan',
-  start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip',
+  start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip', release: '/farm/release',
   achAck: '/achievements/ack', achSettings: '/achievements/settings', libScan: '/library/scan', achStart: '/achievements/start',
   achStop: '/achievements/stop', achPause: '/achievements/pause', achResume: '/achievements/resume', achSkip: '/achievements/skip',
   achResumeInterrupted: '/achievements/resume-interrupted', achDiscardInterrupted: '/achievements/discard-interrupted',
@@ -53,6 +53,7 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     && Array.isArray(farm.queue) && farm.queue.every((g) => hasGame(g) && isNum(g.dropsRemaining))
     && Array.isArray(farm.done) && farm.done.every(hasGame)
     && Array.isArray(farm.failed) && farm.failed.every((g) => hasGame(g) && typeof g.reason === 'string')
+    && (farm.refundHeld === undefined || (Array.isArray(farm.refundHeld) && farm.refundHeld.every((g) => hasGame(g) && typeof g.reason === 'string' && isNum(g.daysLeft))))
     && optNum(farm.totalDropsRemaining) && optNumOrNull(farm.lastReadAgeSeconds)
     && (farm.lastError === null || typeof farm.lastError === 'string')
     && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)
@@ -71,6 +72,7 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     community: { ...base.community, checkedAgeSeconds: isNum(community.checkedAgeSeconds) ? community.checkedAgeSeconds : null },
     farm: {
       ...base.farm,
+      refundHeld: Array.isArray(farm.refundHeld) ? base.farm.refundHeld : [],
       totalDropsRemaining: isNum(farm.totalDropsRemaining) ? farm.totalDropsRemaining : 0,
       lastReadAgeSeconds: isNum(farm.lastReadAgeSeconds) ? farm.lastReadAgeSeconds : null,
     },

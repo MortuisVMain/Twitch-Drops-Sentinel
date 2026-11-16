@@ -9,10 +9,12 @@ pause, resume and suspend show at once and hold nothing) and calls the wake hook
 """
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from .community import CommunityError, GameDrops, farmable
+from .first_seen import FirstSeenStore
 from .presence import PresenceError
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,7 @@ class _Snapshot:
     last_error: str | None
     paused: bool
     suspended: bool
+    refund_held: tuple = ()
 
 
 def _brief(game: GameDrops) -> dict:
@@ -55,8 +58,10 @@ class CardFarm:
 
     def __init__(self, rules: FarmRules, read_drops: Callable[[], list[GameDrops]],
                  presence_factory: Callable[[], object], clock: Callable[[], float],
-                 hold_guard: Callable[[], str | None] | None = None, on_command: Callable[[], None] = lambda: None):
+                 hold_guard: Callable[[], str | None] | None = None, on_command: Callable[[], None] = lambda: None,
+                 refund: FirstSeenStore | None = None):
         self._rules, self._read_drops, self._factory, self._clock = rules, read_drops, presence_factory, clock
+        self._refund = refund or FirstSeenStore(None, time.time)  # games that may still be refundable stay queued out
         self._guard = hold_guard  # called right before each hold: None = allowed, else the code to stop with
         self._wake = on_command  # called after every command; must be safe from any thread
         self._lock = threading.Lock()
@@ -77,6 +82,8 @@ class CardFarm:
         self._failed: list[tuple[GameDrops, str]] = []
         self._skipped: set[int] = set()
         self._failures = 0
+        self._refund_held: list[tuple[GameDrops, int]] = []
+        self._last_drops: list[GameDrops] | None = None
         self._last_error: str | None = None
         self._last_read: float | None = None
 
@@ -118,6 +125,12 @@ class CardFarm:
     def skip_current(self) -> None:
         with self._lock:
             self._commands.append((self._do_skip, ()))
+        self._wake()
+
+    def refresh(self) -> None:
+        """Rebuild the queue from the last read (a game was released by hand)."""
+        with self._lock:
+            self._commands.append((self._do_refresh, ()))
         self._wake()
 
     def set_suspended(self, flag: bool) -> None:
@@ -171,7 +184,7 @@ class CardFarm:
     def _publish(self) -> None:
         snap = _Snapshot(
             self._state, self._held, self._held_since, tuple(self._queue), tuple(self._done), tuple(self._failed),
-            self._last_read, self._last_error, self._paused, self._suspended)
+            self._last_read, self._last_error, self._paused, self._suspended, tuple(self._refund_held))
         with self._lock:
             self._snap = self._with_intent(snap)
 
@@ -210,6 +223,8 @@ class CardFarm:
             "lastError": snap.last_error,
             "paused": snap.paused,
             "suspended": snap.suspended,
+            "refundHeld": [{"appId": g.app_id, "name": g.name, "reason": "refund_window", "daysLeft": days}
+                           for g, days in snap.refund_held if not self._refund.is_released(g.app_id)],
         }
 
     # command handlers
@@ -247,6 +262,14 @@ class CardFarm:
             self._state = "suspended"
         elif not flag and self._state == "suspended":
             self._state = "scanning"
+
+    def _do_refresh(self) -> None:
+        if self._last_drops is None:
+            return
+        queue = self._queue
+        self._rebuild(self._last_drops)
+        if self._state not in _ACTIVE:
+            self._queue = queue  # a finished or stopped run does not start holding again by itself
 
     def _do_skip(self) -> None:
         if self._state == "farming" and self._held is not None:
@@ -334,7 +357,11 @@ class CardFarm:
     def _rebuild(self, drops: list[GameDrops]) -> None:
         out = self._rules.blacklist | self._skipped | {g.app_id for g in self._done}
         out |= {g.app_id for g, _ in self._failed} | ({self._held.app_id} if self._held else set())
-        self._queue = [g for g in farmable(drops) if g.app_id not in out]
+        wanted = [g for g in farmable(drops) if g.app_id not in out]
+        self._refund_held = self._refund.held(wanted)
+        back = {g.app_id for g, _ in self._refund_held}
+        self._queue = [g for g in wanted if g.app_id not in back]
+        self._last_drops = drops
 
     # reading and farming
     def _read(self) -> list[GameDrops] | None:

@@ -17,6 +17,17 @@ export function interruptedBanner(interrupted, runActive) {
   return { done: interrupted.gamesDone, total: interrupted.gamesTotal, unlocked: interrupted.unlocked, needsConfirm: interrupted.kind === 'library' };
 }
 
+/** The note under a game the refund hold keeps out of the queue. Days are whole and at least 1. */
+export function refundNote(daysLeft) {
+  const days = Number.isFinite(daysLeft) ? Math.max(1, Math.ceil(daysLeft)) : 1;
+  return `Куплена недавно: фарм отнимет право на возврат. Осталось дней: ${days}.`;
+}
+
+/** The in-page question before a held game is farmed anyway. */
+export function releaseQuestion(name) {
+  return `Фармить ${name}? После 2 часов в игре вернуть её будет нельзя.`;
+}
+
 /** Which readiness button a "no site session" refusal should point at: only a known sign-out shows the login button. */
 export function signedOutHint(session) {
   return session === 'unknown' || session === 'checking' ? 'check' : 'login';

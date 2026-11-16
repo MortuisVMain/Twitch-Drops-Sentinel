@@ -50,7 +50,7 @@ export const SteamIdleView: React.FC = () => {
               <>
                 <FarmPanel s={s} busy={busy} takeFocus={gateSeen.current} send={send} />
                 <PreviewPanel s={s} busy={busy} send={send} />
-                <Lists s={s} />
+                <Lists s={s} busy={busy} send={send} />
               </>
             )}
         </>

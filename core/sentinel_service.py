@@ -625,6 +625,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/farm/pause", steam_idle.farm_pause)
         self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
         self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
+        self.app.router.add_post("/api/v1/steam-idle/farm/release", steam_idle.farm_release)
         self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)
         self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
         self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)

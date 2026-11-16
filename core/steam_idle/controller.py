@@ -21,6 +21,7 @@ from .achievements import AchievementsError
 from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
+from .first_seen import FILE_NAME as FIRST_SEEN_FILE_NAME, FirstSeenStore
 from .interrupted import RECORD_FILE_NAME, InterruptedStore
 from .presence import Presence
 from .protection import CACHE_FILE_NAME, ProtectionChecker
@@ -152,7 +153,8 @@ class SteamIdleController:
                  kill_reads: Callable[[], None] = lambda: None,
                  read_achievements: Callable[..., list] | None = None, unlock: Callable[..., object] | None = None,
                  uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None,
-                 data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time):
+                 data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time,
+                 first_seen: FirstSeenStore | None = None):
         self._get_setting, self._set_setting = get_setting, set_setting
         self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
         self._find_tools, self._client_state = find_tools, client_state
@@ -162,8 +164,9 @@ class SteamIdleController:
         self._step_done = threading.Event()  # set while no farm step is running in the worker thread
         self._step_done.set()
         self._wake = Wake()
+        self._first_seen = first_seen or FirstSeenStore(None, wall_clock)
         self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard,
-                              on_command=self._wake.set)
+                              on_command=self._wake.set, refund=self._first_seen)
         self._achv = AchievementsRun(
             gate=self._read_gate, get_setting=get_setting, set_setting=set_setting,
             risk_acknowledged=lambda: bool(get_setting(RISK_ACK_KEY, False)),
@@ -260,7 +263,9 @@ class SteamIdleController:
         }
 
     def _store_preview(self, account_id: int, drops: list) -> None:
-        self._preview, self._preview_error = (account_id, community.farmable(drops), self._clock()), None
+        games = community.farmable(drops)
+        self._first_seen.observe(games)
+        self._preview, self._preview_error = (account_id, games, self._clock()), None
 
     # commands: None = accepted, otherwise a refusal code
     def acknowledge(self, accepted: bool) -> None:
@@ -371,6 +376,14 @@ class SteamIdleController:
 
     def skip(self) -> str | None:
         return self._forward("skip_current")
+
+    def release_held(self, app_id: int) -> str | None:
+        """Farm a game the refund hold keeps back, on the user's word; `not_held` for any other game."""
+        if not any(game["appId"] == app_id for game in self._farm.status()["refundHeld"]):
+            return "not_held"
+        self._first_seen.release(app_id)
+        self._farm.refresh()
+        return None
 
     def login(self) -> str | None:
         tools = self._find_tools()
@@ -636,6 +649,7 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
             presence_factory=_never, run_login=_never, clock=time.monotonic)
     return SteamIdleController(
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
+        first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,
