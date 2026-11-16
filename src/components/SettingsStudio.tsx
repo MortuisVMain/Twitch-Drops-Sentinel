@@ -46,7 +46,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
   const [scanLabel, setScanLabel] = useState<string>('Пересканировать все диски');
   const [backupLabel, setBackupLabel] = useState<string>('Бэкап профиля (.zip)');
-  const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | null>(null);
+  const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | 'cache' | null>(null);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
   const diagDialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(showDiagModal, diagDialogRef, () => setShowDiagModal(false));
@@ -155,16 +155,22 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     return () => clearTimeout(timer);
   }, [testCountdown]);
 
-  const handleConfirmDanger = (type: 'trophies' | 'logout') => {
+  const handleConfirmDanger = async (type: 'trophies' | 'logout' | 'cache') => {
     playClick();
-    if (type === 'trophies') {
-      fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' }).catch(() => {});
-      alert('Журнал Trophies.md очищен!');
-    } else {
-      fetch('http://127.0.0.1:28492/api/logout', { method: 'POST' }).catch(() => {});
-      alert('Сессия сброшена! Перезапустите Sentinel.');
-    }
     setPendingDanger(null);
+    const action = {
+      trophies: { path: '/api/trophies/clear', done: 'Журнал Trophies.md очищен!', failed: 'Не удалось очистить журнал: сервис не ответил' },
+      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Sentinel.', failed: 'Не удалось сбросить сессию: сервис не ответил' },
+      cache: { path: '/api/game-directories/clear-cache', done: 'Кэш распознавания игр очищен!', failed: 'Не удалось очистить кэш: сервис недоступен' },
+    }[type];
+    try {
+      const res = await fetch(`http://127.0.0.1:28492${action.path}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      alert(action.done);
+    } catch (err) {
+      console.error(`SettingsStudio: ${action.path} failed`, err);
+      alert(action.failed);
+    }
   };
 
   const handleBackupProfile = async () => {
@@ -239,16 +245,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     }
   };
 
-  const handleClearCache = async () => {
-    playClick();
-    try {
-      await fetch('http://127.0.0.1:28492/api/game-directories/clear-cache', { method: 'POST' });
-      alert('Кэш распознавания игр очищен!');
-    } catch (err) {
-      console.error('SettingsStudio: не удалось очистить кэш распознавания', err);
-      alert('Не удалось очистить кэш: сервис недоступен');
-    }
-  };
+  const handleClearCache = () => { playClick(); setPendingDanger('cache'); };
 
   const handleOpenDiag = async () => {
     playClick();
@@ -644,9 +641,17 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <button className="chunky-cta" style={{ flex: 1 }} onClick={handleRescanClick}>
                 <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> {scanLabel}
               </button>
-              <button className="tactile-btn danger-hover" onClick={handleClearInstalledGames} title="Очистить список">
-                <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Очистить кэш / Очистить список
-              </button>
+              {pendingDanger === 'cache' ? (
+                <>
+                  <span className="danger-zone-question" style={{ alignSelf: 'center' }}>Очистить список найденных игр? Его вернёт пересканирование.</span>
+                  <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('cache')}>Да, очистить</button>
+                  <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+                </>
+              ) : (
+                <button className="tactile-btn danger-hover" onClick={handleClearInstalledGames} title="Очистить список">
+                  <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Очистить кэш / Очистить список
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -660,7 +665,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <>
               <span className="danger-zone-question">Очистить трофеи? Журнал будет удалён.</span>
               <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('trophies')}>Да, очистить</button>
-              <button className="tactile-btn" onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+              <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
             </>
           ) : (
             <>
@@ -672,9 +677,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         <div className="danger-zone-item">
           {pendingDanger === 'logout' ? (
             <>
-              <span className="danger-zone-question">Выйти из аккаунта Twitch?</span>
+              <span className="danger-zone-question">Выйти из аккаунта Twitch? Фарм остановится, войти придётся заново.</span>
               <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('logout')}>Да, выйти</button>
-              <button className="tactile-btn" onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+              <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
             </>
           ) : (
             <>
