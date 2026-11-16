@@ -677,7 +677,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 >
                   <span><s.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                   <span>{s.name}</span>
-                  <span style={{ opacity: 0.7 }}>({storeCounts[s.id] || 0})</span>
+                  <span>({storeCounts[s.id] || 0})</span>
                 </button>
               ))}
             </div>

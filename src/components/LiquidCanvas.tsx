@@ -538,6 +538,7 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       ref={canvasRef}
       id="relief3DCanvas"
       className="relief-canvas"
+      data-relief={reliefMode}
       style={{
         position: 'absolute',
         inset: 0,

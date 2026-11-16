@@ -970,7 +970,7 @@ export const App: React.FC = () => {
 
   const progressPct = activeDrop?.progress_percent || 0;
 
-  const circumference = 188;
+  const circumference = 201;
 
   const strokeDashoffset = circumference - (progressPct / 100) * circumference;
 
@@ -1459,7 +1459,7 @@ export const App: React.FC = () => {
 
             <svg width="72" height="72" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
 
-              <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth="6"></circle>
+              <circle cx="36" cy="36" r="32" fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth="4"></circle>
 
               <circle 
 
@@ -1467,13 +1467,13 @@ export const App: React.FC = () => {
 
                 cy="36" 
 
-                r="30" 
+                r="32" 
 
                 fill="none" 
 
                 stroke="var(--led-mint)" 
 
-                strokeWidth="6" 
+                strokeWidth="4"
 
                 strokeLinecap="round" 
 
@@ -1487,13 +1487,13 @@ export const App: React.FC = () => {
 
             <div style={{ textAlign: 'center', zIndex: 2 }}>
 
-              <div className="tabular" style={{ fontSize: 'var(--fs-md)', fontWeight: 800 }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-md)', fontWeight: 800, lineHeight: 1 }}>
 
                 {Math.round(progressPct)}%
 
               </div>
 
-              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
+              <div className="tabular" style={{ fontSize: 'calc(var(--fs-xs) * 0.93)', lineHeight: 1, letterSpacing: '-0.06em', color: 'var(--led-mint)' }}>
 
                 {activeDrop ? `~${Math.round(activeDrop.remaining_seconds / 60)}М` : 'ГОТОВ'}
 
