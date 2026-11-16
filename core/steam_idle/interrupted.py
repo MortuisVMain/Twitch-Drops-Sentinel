@@ -10,19 +10,31 @@ from pathlib import Path
 
 from atomic_json import atomic_write_json
 
+from .achievements import valid_api_name
+
 logger = logging.getLogger(__name__)
 
 RECORD_FILE_NAME = "steam_idle_interrupted_run.json"
 _KINDS = frozenset({"game", "selected", "library"})
 _COUNTS = ("gamesDone", "gamesTotal", "unlocked")
+_MAX_APP_ID = 2 ** 32 - 1
+_MAX_IDS, _MAX_NAMES = 100_000, 200
 
 
 def account_hash(steam_id: str) -> str:
     return hashlib.sha256(steam_id.encode("ascii")).hexdigest()
 
 
-def _int_list(value: object) -> bool:
-    return isinstance(value, list) and all(type(item) is int for item in value)
+def _app_id(value: object) -> bool:
+    return type(value) is int and 1 <= value <= _MAX_APP_ID
+
+
+def _id_list(value: object) -> bool:
+    return isinstance(value, list) and len(value) <= _MAX_IDS and all(_app_id(item) for item in value)
+
+
+def _names(value: object) -> bool:
+    return isinstance(value, list) and len(value) <= _MAX_NAMES and all(valid_api_name(name) for name in value)
 
 
 def _check(data: object) -> None:
@@ -32,17 +44,16 @@ def _check(data: object) -> None:
     if any(type(data.get(key)) is not int or data[key] < 0 for key in _COUNTS):
         raise ValueError("bad counts")
     started = data.get("startedAt")
-    if type(started) not in (int, float) or not _int_list(data.get("finished")):
+    if type(started) not in (int, float) or not _id_list(data.get("finished")):
         raise ValueError("bad start time or finished list")
     if not isinstance(data.get("accountHash"), str) or len(data["accountHash"]) != 64:
         raise ValueError("bad account hash")
     if data["kind"] == "library":
-        if not _int_list(data.get("exclude")):
+        if not _id_list(data.get("exclude")):
             raise ValueError("bad exclude list")
-    elif type(data.get("appId")) is not int or not isinstance(data.get("name"), str):
+    elif not _app_id(data.get("appId")) or not isinstance(data.get("name"), str):
         raise ValueError("bad game")
-    elif data["kind"] == "selected" and not (isinstance(data.get("names"), list)
-                                              and all(isinstance(name, str) for name in data["names"])):
+    elif data["kind"] == "selected" and not _names(data.get("names")):
         raise ValueError("bad names")
 
 

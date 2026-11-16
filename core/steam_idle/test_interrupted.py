@@ -50,6 +50,31 @@ class StoreTests(unittest.TestCase):
                 self.assertEqual(aside.read_text(encoding="utf-8"), text)
                 aside.unlink()
 
+    def test_app_ids_and_names_that_the_unlock_path_would_refuse_make_the_record_corrupt(self):
+        game = record(kind="game", appId=7, name="g", names=None, exclude=None)
+        selected = dict(game, kind="selected", names=["A"])
+        bad = [record(finished=[0]), record(finished=[2 ** 32]), record(finished=[True]), record(finished=[-5]),
+               record(exclude=[0]), record(exclude=[2 ** 32]), record(exclude=[False]),
+               record(finished=list(range(1, 100002))), record(exclude=list(range(1, 100002))),
+               dict(game, appId=0), dict(game, appId=2 ** 32), dict(game, appId=True),
+               dict(selected, names=[""]), dict(selected, names=["a\nb"]), dict(selected, names=["x" * 257]),
+               dict(selected, names=["bad�"]), dict(selected, names=["A"] * 201), dict(selected, names=[5])]
+        for rec in bad:
+            with self.subTest(rec={k: str(v)[:30] for k, v in rec.items() if k in ("appId", "names", "finished", "exclude")}):
+                path = self.dir / RECORD_FILE_NAME
+                path.write_text(json.dumps(rec), encoding="utf-8")
+                with self.assertLogs("steam_idle.interrupted", level="ERROR"):
+                    self.assertIsNone(self.store.load())
+                self.assertFalse(path.exists())
+                (self.dir / (RECORD_FILE_NAME + ".corrupt")).unlink()
+
+    def test_the_largest_valid_ids_and_lists_are_accepted(self):
+        for rec in (record(finished=[1, 2 ** 32 - 1], exclude=list(range(1, 100001))),
+                    record(finished=list(range(1, 100001))),
+                    record(kind="selected", appId=2 ** 32 - 1, name="g", names=["A"] * 200, exclude=None)):
+            self.store.save(rec)
+            self.assertEqual(self.store.load(), rec)
+
     def test_per_kind_shapes_are_accepted(self):
         for rec in (record(kind="game", appId=7, name="g", names=None, exclude=None),
                     record(kind="selected", appId=7, name="g", names=["A", "B"], exclude=None)):

@@ -24,6 +24,7 @@ _FATAL = frozenset({"identity_mismatch", "account_mismatch", "active_account_cha
 _RESULT_TOTAL = {"unlocked": "unlocked", "already": "already", "unknown": "rejected", "rejected": "rejected"}
 _LIST_CAP = 200
 _IDLE_SECONDS = 5.0
+_MAX_UNKNOWN_IN_A_ROW = 5
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,7 @@ class AchievementQueue:
         self._wait_until: float | None = None
         self._next_write_at: float | None = None  # a paced write happened: the next one may not come earlier
         self._last_error: str | None = None
+        self._unknown_streak = 0  # anti-cheat checks in a row that gave no answer
 
     # commands: record intent only
     def start(self, plan: SelectedPlan | GamePlan | LibraryPlan, rules: Rules = Rules()) -> None:
@@ -343,9 +345,12 @@ class AchievementQueue:
         with self._lock:
             if self._closed or self._stop_req:  # the queued stop finishes the game as stopped
                 return
+        self._unknown_streak = self._unknown_streak + 1 if verdict not in ("clear", "protected") else 0
         if verdict == "clear":
             return
         self._finish("protected_app" if verdict == "protected" else "protection_unknown")
+        if self._unknown_streak >= _MAX_UNKNOWN_IN_A_ROW:  # the store is not answering: stop instead of skipping every game
+            self._halt("protection_unavailable")
 
     def _open(self, game: _Game, items: list[Achievement]) -> None:
         if not items:

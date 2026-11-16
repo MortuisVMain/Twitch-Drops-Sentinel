@@ -31,7 +31,7 @@ _MAX_PACE_MINUTES = 1440
 _ENDED = frozenset({"idle", "done", "stopped"})
 _TICK_SECONDS = 5.0
 _SUMMARY_KEYS = ("kind", "startedAt", "gamesDone", "gamesTotal", "unlocked")
-_NOT_FINISHED = frozenset({"stopped", "uncertain", "unlock_uncertain"})  # notes of a game that was cut short
+_NOT_FINISHED = frozenset({"stopped", "uncertain", "unlock_uncertain", "protection_unknown"})  # cut short or unchecked
 _CLASSIFY_WAIT_SECONDS = 15.0  # a request (10 s) plus the spacing between requests (1.5 s) and slack
 
 
@@ -151,8 +151,6 @@ class AchievementsRun:
             return "account_changed"
         if not isinstance(plan, LibraryPlan) and self._protection.is_builtin(plan.app_id):
             return "protected_app"
-        self._interrupted = None  # any new run replaces the record of the interrupted one
-        self._store.delete()
         self._tools, self._account, self._expected = tools, client.account_id, expected
         self._cancel, self._preparing = False, False
         settings = self.settings()
@@ -232,6 +230,12 @@ class AchievementsRun:
             try:
                 return future.result(timeout=0.25)
             except concurrent.futures.TimeoutError:
+                if future.done():  # the checker itself raised TimeoutError: that is its answer, not a slow wait
+                    try:
+                        return future.result()
+                    except Exception:
+                        logger.error("anti-cheat check for app %s failed", app_id, exc_info=True)
+                        return "unknown"
                 if self._cancel or self._is_closed() or time.monotonic() > deadline:
                     future.cancel()
                     logger.warning("anti-cheat check for app %s abandoned", app_id)
@@ -294,7 +298,8 @@ class AchievementsRun:
             if isinstance(plan, SelectedPlan):
                 record["names"] = list(plan.names)
         self._record = record
-        self._store.save(record)
+        self._store.save(record)  # one atomic write: it replaces the record of an earlier interrupted run
+        self._interrupted = None
 
     def _on_game_finished(self, app_id: int, note: str | None, unlocked: int) -> None:
         """Step thread: a game was done with. One cut short (stopped, uncertain) is not counted, so a resume redoes it."""
@@ -308,9 +313,16 @@ class AchievementsRun:
         self._store.save(record)
 
     def _end_record(self) -> None:
-        if self._record is not None:
-            self._record = None
+        """The run is over: its record goes when the queue finished or the user stopped it. A run that halted with an
+        error code keeps the record and offers it as an interrupted run (a resume still checks the account)."""
+        record, self._record = self._record, None
+        if record is None:
+            return
+        run = self._queue.status()
+        if run["state"] == "done" or run["lastError"] is None:
             self._store.delete()
+        else:
+            self._interrupted = record
 
     async def _loop(self, plan, rules: Rules) -> None:
         try:

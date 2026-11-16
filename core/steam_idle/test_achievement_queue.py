@@ -707,6 +707,39 @@ class ProtectionTests(unittest.TestCase):
             status = env.run()
         self.assertEqual((env.read_calls, status["finished"][0]["note"]), ([], "protection_unknown"))
 
+    @staticmethod
+    def library_env(count, verdicts):
+        env = Env({i: missing(1, f"G{i}") for i in range(1, count + 1)}, verdicts=verdicts)
+        env.start(LibraryPlan([(i, f"game {i}") for i in range(1, count + 1)]))
+        return env
+
+    def test_five_unknown_verdicts_in_a_row_stop_the_run(self):
+        env = self.library_env(8, {i: "unknown" for i in range(1, 9)})
+        status = env.run()
+        self.assertEqual((status["state"], status["lastError"]), ("stopped", "protection_unavailable"))
+        self.assertEqual((env.classify_calls, env.read_calls, env.calls), ([1, 2, 3, 4, 5], [], []))
+        self.assertEqual([f["note"] for f in status["finished"]], ["protection_unknown"] * 5)
+
+    def test_four_unknown_verdicts_in_a_row_do_not_stop_the_run(self):
+        env = self.library_env(6, {i: "unknown" for i in range(1, 5)})
+        status = env.run()
+        self.assertEqual((status["state"], status["lastError"]), ("done", None))
+        self.assertEqual(env.calls, [(5, ["G50"]), (6, ["G60"])])
+
+    def test_a_clear_or_protected_verdict_resets_the_count(self):
+        verdicts = {i: "unknown" for i in range(1, 11)}
+        verdicts.update({4: "clear", 8: "protected"})
+        status = self.library_env(10, verdicts).run()
+        self.assertEqual((status["state"], status["lastError"]), ("done", None))
+
+    def test_the_count_starts_again_with_every_run(self):
+        env = self.library_env(4, {i: "unknown" for i in range(1, 5)})
+        env.run()
+        env.verdicts = {i: "unknown" for i in range(1, 5)}
+        env.start(LibraryPlan([(i, f"game {i}") for i in range(1, 5)]))
+        status = env.run()
+        self.assertEqual((status["state"], status["lastError"]), ("done", None))
+
     def test_a_stop_during_the_check_is_not_noted_as_a_verdict(self):
         env = Env({1: missing(1)}, verdicts={})
         env.q._classify = lambda app_id: (env.stop(), "protected")[1]  # the user stops while the check runs

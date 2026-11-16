@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from steam_idle import protection
 from steam_idle.protection import BUILTIN, CLEAR, PROTECTED, UNKNOWN, ProtectionChecker
@@ -50,6 +51,96 @@ class TableTests(unittest.TestCase):
     def test_is_builtin(self):
         self.assertTrue(protection.is_builtin(730))
         self.assertFalse(protection.is_builtin(100))
+
+
+    def test_third_party_anti_cheat_games_are_listed_with_the_store_names(self):
+        expected = {252950: "Rocket League®", 1097150: "Fall Guys", 2767030: "Marvel Rivals",
+                    1517290: "Battlefield™ 2042", 976730: "Halo: The Master Chief Collection",
+                    3240220: "Grand Theft Auto V Enhanced", 1665460: "eFootball™", 1623730: "Palworld",
+                    2073850: "THE FINALS", 1240440: "Halo Infinite"}
+        for app_id, name in expected.items():
+            with self.subTest(app_id=app_id):
+                self.assertEqual(BUILTIN.get(app_id), name)
+
+
+class FakeResponse:
+    def __init__(self, status=200, chunks=(b"{}",), content_length=None):
+        self.status, self.content_length = status, content_length
+        self.content = self
+        self._chunks = chunks
+        self.read_bytes = 0
+
+    async def iter_chunked(self, size):
+        for chunk in self._chunks:
+            self.read_bytes += len(chunk)
+            yield chunk
+
+
+class Yields:
+    """An async context manager that yields `value`."""
+
+    def __init__(self, value):
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class FakeSession(Yields):
+    """Stands in for aiohttp.ClientSession: records the get() arguments and serves one scripted response."""
+
+    def __init__(self, response):
+        super().__init__(self)
+        self.response, self.get_calls = response, []
+
+    def get(self, url, **kwargs):
+        self.get_calls.append((url, kwargs))
+        return Yields(self.response)
+
+
+class HttpFetchTests(unittest.IsolatedAsyncioTestCase):
+    def serve(self, response):
+        self.session = FakeSession(response)
+        patcher = mock.patch.object(protection.aiohttp, "ClientSession", lambda *a, **k: self.session)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def test_redirects_are_not_followed(self):
+        self.serve(FakeResponse(chunks=(b"{}",)))
+        await protection.http_fetch("https://store.steampowered.com/x")
+        self.assertIs(self.session.get_calls[0][1].get("allow_redirects"), False)
+
+    async def test_a_status_other_than_200_is_returned_without_reading_the_body(self):
+        response = FakeResponse(status=302, chunks=(b"x" * 10,))
+        self.serve(response)
+        status, text = await protection.http_fetch("u")
+        self.assertEqual((status, text, response.read_bytes), (302, "", 0))
+
+    async def test_a_body_is_read_and_decoded(self):
+        self.serve(FakeResponse(chunks=(b'{"a":', b' 1}')))
+        self.assertEqual(await protection.http_fetch("u"), (200, '{"a": 1}'))
+
+    async def test_a_body_over_one_megabyte_is_refused_without_reading_all_of_it(self):
+        response = FakeResponse(chunks=[b"x" * 400_000] * 10)
+        self.serve(response)
+        with self.assertRaises(ValueError):
+            await protection.http_fetch("u")
+        self.assertLess(response.read_bytes, 1_500_000)
+
+    async def test_a_declared_length_over_one_megabyte_is_refused_before_reading(self):
+        response = FakeResponse(chunks=(b"{}",), content_length=5_000_000)
+        self.serve(response)
+        with self.assertRaises(ValueError):
+            await protection.http_fetch("u")
+        self.assertEqual(response.read_bytes, 0)
+
+    async def test_a_body_of_exactly_one_megabyte_is_accepted(self):
+        self.serve(FakeResponse(chunks=[b"x" * 500_000] * 2))
+        status, text = await protection.http_fetch("u")
+        self.assertEqual((status, len(text)), (200, 1_000_000))
 
 
 class CheckerTests(unittest.IsolatedAsyncioTestCase):
@@ -148,6 +239,41 @@ class CheckerTests(unittest.IsolatedAsyncioTestCase):
         checker = self.checker((200, body(5)))
         with self.assertLogs("steam_idle.protection", level="ERROR"):
             self.assertEqual(await checker.classify(5), CLEAR)
+
+    async def test_a_cache_of_another_version_is_logged_set_aside_and_ignored(self):
+        self.path.write_text(json.dumps({"version": 2, "entries": {"5": {"status": "protected", "checkedAt": 1}}}),
+                             encoding="utf-8")
+        checker = self.checker((200, body(5)))
+        with self.assertLogs("steam_idle.protection", level="ERROR"):
+            self.assertEqual(await checker.classify(5), CLEAR)  # the entry of the unknown version is not trusted
+        self.assertTrue(self.path.with_name(self.path.name + ".corrupt").exists())
+
+    async def test_a_cache_without_a_version_is_ignored_too(self):
+        self.path.write_text(json.dumps({"entries": {"5": {"status": "protected", "checkedAt": 1}}}), encoding="utf-8")
+        checker = self.checker((200, body(5)))
+        with self.assertLogs("steam_idle.protection", level="ERROR"):
+            self.assertEqual(await checker.classify(5), CLEAR)
+
+    async def test_after_a_429_or_a_5xx_the_next_request_waits_30_seconds(self):
+        for status in (429, 500, 503):
+            with self.subTest(status=status):
+                self.clock.sleeps.clear()
+                checker = self.checker((status, "x"), (200, body(5)), path=None)
+                with self.assertLogs("steam_idle.protection", level="WARNING"):
+                    self.assertEqual(await checker.classify(5), UNKNOWN)
+                self.assertEqual(await checker.classify(5), CLEAR)
+                self.assertEqual(self.clock.sleeps, [30.0])
+                self.assertGreaterEqual(self.net.calls[1][1] - self.net.calls[0][1], 30.0)
+
+    async def test_other_failures_keep_the_normal_spacing_and_the_back_off_is_paid_once(self):
+        checker = self.checker((404, "x"), (200, body(1)), (429, "x"), (200, body(2)), (200, body(3)), path=None)
+        with self.assertLogs("steam_idle.protection", level="WARNING"):
+            await checker.classify(5)
+            await checker.classify(1)
+            await checker.classify(6)
+            await checker.classify(2)
+            await checker.classify(3)
+        self.assertEqual(self.clock.sleeps, [1.5, 1.5, 30.0, 1.5])
 
     async def test_no_cache_path_works_in_memory(self):
         checker = self.checker((200, body(5)), path=None)

@@ -123,6 +123,7 @@ export const STEAM_IDLE: Record<string, string> = {
   'запись достижений не разрешена': 'writing achievements is not allowed',
   'Steam не ответил вовремя': 'Steam did not answer in time',
   'Steam не подтвердил сохранение. Проверьте достижения игры в Steam, прежде чем продолжать.': 'Steam did not confirm the save. Check the game\'s achievements in Steam before continuing.',
+  'Не удаётся проверить игры на античит: магазин Steam не отвечает. Выдача остановлена, её можно продолжить позже.': 'Cannot check the games for anti-cheat: the Steam store is not responding. Unlocking has stopped; you can continue it later.',
   'Выдача достижений не разрешена. Включите её заново в этом разделе.': 'Unlocking achievements is not allowed. Turn it on again in this section.',
   'нет достижений': 'no achievements',
   'всё уже получено': 'everything is already unlocked',

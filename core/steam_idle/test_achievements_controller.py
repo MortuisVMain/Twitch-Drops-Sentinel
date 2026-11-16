@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from steam_idle import achievements_run
 from steam_idle import controller as controller_module
 from steam_idle._helper import WRITE_GATE
 from steam_idle.achievement_queue import GamePlan, LibraryPlan, SelectedPlan
@@ -624,14 +625,120 @@ class InterruptedTests(Base):
         gate.set()
         await self.env.settle()
 
-    async def test_starting_any_new_run_discards_the_record(self):
+    async def test_a_new_run_replaces_the_old_record_when_its_own_record_is_written(self):
         self.saved()
         ctl = self.make()
         self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+        entered, gate = self.block_game(100)
         self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+        self.assertEqual((self.stored()["kind"], self.stored()["appId"]), ("game", 100))
         self.assertIsNone(ctl.state()["achievements"]["interrupted"])
+        gate.set()
         await self.env.settle()
         self.assertFalse(self.path.exists())
+
+    async def test_a_resume_whose_library_read_fails_keeps_the_record(self):
+        old = self.saved(finished=[1], gamesDone=1)
+        ctl = self.make()
+        ctl._read_library_fn = mock.Mock(side_effect=CommunityError("timeout"))
+        self.assertIsNone(ctl.resume_interrupted(True))
+        with self.assertLogs("steam_idle.achievements_run", "ERROR"):
+            await self.env.settle()
+        self.assertEqual(run_of(ctl)["lastError"], "library_failed")
+        self.assertEqual(self.stored(), old)
+        self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+
+    async def test_a_stop_during_the_prepare_phase_keeps_the_record(self):
+        old = self.saved()
+        ctl = self.make(read_gate=threading.Event())
+        ctl._read_library_fn = lambda *a, **k: (self.env.read_entered.set(), self.env.read_gate.wait(5), self.env.library)[2]
+        self.assertIsNone(ctl.resume_interrupted(True))
+        self.assertTrue(await asyncio.to_thread(self.env.read_entered.wait, 5))
+        ctl.stop_achievements()
+        self.env.read_gate.set()
+        await self.env.settle()
+        self.assertEqual((run_of(ctl)["state"], self.env.unlock_calls), ("stopped", []))
+        self.assertEqual(self.stored(), old)
+        self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+
+    async def assert_error_keeps_the_record(self, ctl, code):
+        run = run_of(ctl)
+        self.assertEqual((run["state"], run["lastError"]), ("stopped", code))
+        self.assertEqual(self.stored()["kind"], "library")
+        self.assertEqual(ctl.state()["achievements"]["interrupted"]["kind"], "library")
+
+    async def test_a_run_that_stops_with_an_error_keeps_the_record_and_offers_it(self):
+        ctl = self.make()
+        await self.ready()
+        self.env.unlock_script = lambda app_id, names: _outcome([UnlockResult(n, "pending") for n in names], "timeout")
+        ctl.start_achievements(LibraryPlan((), []))
+        await self.env.settle()
+        await self.assert_error_keeps_the_record(ctl, "unlock_uncertain")
+
+    async def test_an_account_change_mid_run_keeps_the_record_and_resume_is_refused_while_it_lasts(self):
+        ctl = self.make()
+        self.paced()
+        await self.ready()
+        self.env.on_sleep = lambda: setattr(self.env, "client", SteamClient(True, OTHER)) if self.env.unlock_calls else None
+        ctl.start_achievements(LibraryPlan((), []))
+        await self.env.settle()
+        await self.assert_error_keeps_the_record(ctl, "account_changed")
+        self.assertIn(ctl.resume_interrupted(True), ("account_changed", "account_mismatch"))  # the gate or the hash
+        self.assertEqual(len(self.env.unlock_calls), 1)
+
+    async def test_a_withdrawn_acknowledgement_keeps_the_record(self):
+        ctl = self.make()
+        await self.ready()
+        self.paced()
+        self.env.on_sleep = lambda: self.env.settings.update({ACK: False}) if self.env.unlock_calls else None
+        ctl.start_achievements(LibraryPlan((), []))
+        await self.env.settle()
+        await self.assert_error_keeps_the_record(ctl, "not_acknowledged")
+
+    async def test_a_crash_in_the_loop_keeps_the_record(self):
+        ctl = self.make()
+        await self.ready()
+        original = ctl._achv._queue.step
+        ctl._achv._queue.step = mock.Mock(side_effect=lambda: original() if not self.env.unlock_calls else 1 / 0)
+        with self.assertLogs("steam_idle.achievements_run", "ERROR"):
+            ctl.start_achievements(LibraryPlan((), []))
+            await self.env.settle()
+        await self.assert_error_keeps_the_record(ctl, "internal_error")
+
+    async def test_a_game_noted_protection_unknown_is_not_recorded_as_finished(self):
+        ctl = self.make(protection=FakeProtection({2: "unknown"}))
+        await self.ready()
+        entered, gate = self.block_game(3)
+        self.assertIsNone(ctl.start_achievements(LibraryPlan((), [])))
+        self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+        self.assertEqual(self.stored()["finished"], [1])
+        gate.set()
+        await self.env.settle()
+
+    async def test_five_unknown_checks_in_a_row_stop_the_run_and_keep_the_record(self):
+        self.make(protection=FakeProtection({i: "unknown" for i in range(1, 8)}))
+        self.env.library = [OwnedGame(i, f"g{i}", 0) for i in range(1, 8)]
+        await self.ready()
+        self.assertIsNone(self.env.ctl.start_achievements(LibraryPlan((), [])))
+        await self.env.settle()
+        await self.assert_error_keeps_the_record(self.env.ctl, "protection_unavailable")
+        self.assertEqual((self.env.protection.calls, self.stored()["finished"]), ([1, 2, 3, 4, 5], []))
+        self.assertEqual(self.env.ach_calls, [])
+
+    async def test_a_timeout_raised_by_the_check_itself_is_unknown_at_once(self):
+        class TimesOut(FakeProtection):
+            async def classify(self, app_id):
+                raise TimeoutError("inside the checker")
+        self.make(protection=TimesOut())
+        with mock.patch.object(achievements_run, "_CLASSIFY_WAIT_SECONDS", 0.6):
+            self.assertIsNone(self.env.ctl.start_achievements(GamePlan(100)))
+            with self.assertLogs("steam_idle", "WARNING") as logs:
+                await self.env.settle()
+        text = "\n".join(logs.output)
+        self.assertIn("failed", text)
+        self.assertNotIn("abandoned", text)
+        self.assertEqual([f["note"] for f in run_of(self.env.ctl)["finished"]], ["protection_unknown"])
 
     async def test_a_refused_start_keeps_the_record(self):
         self.saved()

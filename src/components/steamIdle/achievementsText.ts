@@ -38,6 +38,7 @@ export const achStopReason = (code: string): string => {
 /** What the user has to do after a stop, for the codes where doing nothing is the wrong answer. */
 export const achErrorHelp = (code: string | null): string | null => {
   if (code === 'unlock_uncertain') return 'Steam не подтвердил сохранение. Проверьте достижения игры в Steam, прежде чем продолжать.';
+  if (code === 'protection_unavailable') return 'Не удаётся проверить игры на античит: магазин Steam не отвечает. Выдача остановлена, её можно продолжить позже.';
   if (code === 'write_not_allowed') return 'Выдача достижений не разрешена. Включите её заново в этом разделе.';
   return null;
 };
