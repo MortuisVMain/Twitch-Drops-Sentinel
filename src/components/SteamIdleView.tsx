@@ -9,7 +9,7 @@ import { useSteamIdle } from './steamIdle/useSteamIdle';
 
 /** The Steam IDLE tab: readiness, a Cards / Achievements switch (the latter only when the service has achievements),
  * then the section chosen. Cards: the risk gate until it is accepted, then the farm and its queue. */
-export const SteamIdleView: React.FC = () => {
+export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void }> = ({ onOpenGiveawaysReadiness }) => {
   const { load, busy, refusal, send, retry } = useSteamIdle();
   const s = load.data;
   const stale = hasStaleData(load);
@@ -36,7 +36,7 @@ export const SteamIdleView: React.FC = () => {
               <div className="sidle-actions"><button type="button" className="tactile-btn" onClick={retry}>Повторить</button></div>
             </section>
           )}
-          <Readiness s={s} busy={busy} send={send} />
+          <Readiness s={s} busy={busy} send={send} openGiveawaysReadiness={onOpenGiveawaysReadiness} />
           {ach && <SectionSwitch value={section} onChange={(v) => { gateSeen.current = false; setSection(v); }} />}
           {refusal && (
             <section className="titanium-island sidle-error" role="alert">

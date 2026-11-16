@@ -198,6 +198,8 @@ export const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
 
+  const [giveawaysReadinessRequested, setGiveawaysReadinessRequested] = useState(false);
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -960,6 +962,8 @@ export const App: React.FC = () => {
     playClick();
 
     setActiveTab(tab);
+
+    setGiveawaysReadinessRequested(false);
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -1780,13 +1784,15 @@ export const App: React.FC = () => {
 
               appVersion={sentinelState.version}
 
+              openReadinessOnMount={giveawaysReadinessRequested}
+
             />
 
           )}
 
 
 
-          {activeTab === 'steamidle' && <SteamIdleView />}
+          {activeTab === 'steamidle' && <SteamIdleView onOpenGiveawaysReadiness={() => { handleTabChange('giveaways'); setGiveawaysReadinessRequested(true); }} />}
 
 
 

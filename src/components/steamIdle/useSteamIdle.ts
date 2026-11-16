@@ -34,7 +34,7 @@ const isPreview = (p: unknown): boolean => isRec(p) && typeof p.status === 'stri
   && isNumOrNull(p.ageSeconds) && (p.error === null || typeof p.error === 'string') && isNum(p.totalDropsRemaining)
   && Array.isArray(p.games) && p.games.every((g) => hasGame(g) && isNum(g.dropsRemaining) && isNum(g.playtimeHours));
 let achShapeLogged = false;
-const SESSIONS = ['unknown', 'checking', 'signed_in', 'signed_out', 'login_open', 'account_mismatch', 'error'];
+const SESSIONS = ['unknown', 'checking', 'signed_in', 'signed_out', 'login_open', 'account_mismatch', 'engine_missing', 'error'];
 
 /** Checks the whole contract (progress.txt, "Service API contract v1"). Only library, totalDropsRemaining and
  * lastReadAgeSeconds may be absent: they get neutral defaults so their lines are simply omitted. farm.state may be any string.

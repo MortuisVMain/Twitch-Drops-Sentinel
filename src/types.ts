@@ -216,7 +216,7 @@ export interface GiveawaysStateResponse {
 export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'steamidle' | 'dimmer' | 'settings';
 
 export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped';
-export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | 'signed_out' | 'login_open' | 'account_mismatch' | 'error';
+export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | 'signed_out' | 'login_open' | 'account_mismatch' | 'engine_missing' | 'error';
 
 export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaining: number }
 export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }

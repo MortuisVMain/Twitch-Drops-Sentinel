@@ -5,7 +5,7 @@ import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 import { RefundHeldRow } from './RefundHeldRow';
 import { durParts } from './steamIdleLogic.mjs';
 import {
-  KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
+  ENGINE_MISSING_HINT, KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
   steamClientText, unavailableHelp,
 } from './steamIdleText';
 
@@ -34,14 +34,15 @@ const Fact: React.FC<{ label: string; text: string; tone: Tone; children?: React
   </div>
 );
 
-export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: Send }> = ({ s, busy, send }) => {
+export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: Send; openGiveawaysReadiness?: () => void }> = ({ s, busy, send, openGiveawaysReadiness }) => {
   const steam = steamClientText(s.steam);
   const community = communityText(s.community.session);
   const helper = helperText(s);
   const session = s.community.session;
   const needsLogin = session === 'signed_out' || session === 'account_mismatch' || session === 'login_open';
   const loginOff = !s.available || session === 'login_open' || busy !== null;
-  const checkOff = !s.available || session === 'checking' || session === 'login_open' || busy !== null;
+  const engineMissing = session === 'engine_missing';
+  const checkOff = !s.available || session === 'checking' || session === 'login_open' || engineMissing || busy !== null;
   return (
     <section className="titanium-island sidle-ready" aria-label="Готовность">
       <Fact label="Клиент Steam" text={steam.text} tone={steam.tone} />
@@ -54,7 +55,11 @@ export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
         <button type="button" className="tactile-btn" aria-disabled={checkOff} onClick={() => { if (!checkOff) send('check'); }}>
           <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Проверить
         </button>
+        {engineMissing && openGiveawaysReadiness && (
+          <button type="button" className="tactile-btn" onClick={openGiveawaysReadiness}>Открыть готовность раздач</button>
+        )}
       </Fact>
+      {engineMissing && <p className="sidle-text">{ENGINE_MISSING_HINT}</p>}
       <Fact label="Помощник" text={helper.text} tone={helper.tone} />
     </section>
   );

@@ -20,6 +20,7 @@ interface GiveawaysViewProps {
   settings?: SentinelSettings;
   onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
   appVersion?: string;
+  openReadinessOnMount?: boolean;
 }
 
 interface StoreMeta {
@@ -95,8 +96,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   settings,
   onUpdateSettings,
   appVersion = '',
+  openReadinessOnMount = false,
 }) => {
-  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(openReadinessOnMount);
   const readinessErrorAtOpen = useRef<string | null>(null);
   const readiness = useGiveawaysReadiness(readinessOpen);
   const [load, setLoad] = useState<LoadState<GiveawaysStateResponse>>(initialLoad);

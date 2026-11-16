@@ -154,10 +154,10 @@ class SteamIdleController:
                  read_achievements: Callable[..., list] | None = None, unlock: Callable[..., object] | None = None,
                  uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None,
                  data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time,
-                 first_seen: FirstSeenStore | None = None):
+                 first_seen: FirstSeenStore | None = None, engine_installed: Callable[[], bool] = lambda: True):
         self._get_setting, self._set_setting = get_setting, set_setting
         self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
-        self._find_tools, self._client_state = find_tools, client_state
+        self._find_tools, self._client_state, self._engine_installed = find_tools, client_state, engine_installed
         self._read_drops_fn, self._read_library_fn, self._read_status_fn = read_drops, read_library, read_status
         self._presence_factory, self._run_login, self._clock, self._sleep = presence_factory, run_login, clock, sleep
         self._kill_reads = kill_reads
@@ -203,12 +203,15 @@ class SteamIdleController:
         if self._run_error and farm["state"] in ("stopped", "needs_login"):
             farm["lastError"] = self._run_error
         age = None if self._checked_at is None else self._clock() - self._checked_at
+        session = self._session
+        if tools.unavailable is None and not self._engine_installed():  # computed, so installing the engine clears it
+            session, age = "engine_missing", None
         return {
             "available": tools.unavailable is None,
             "unavailableReason": tools.unavailable,
             "riskAcknowledged": bool(self._get_setting(RISK_ACK_KEY, False)),
             "steam": {"running": client.running, "signedIn": client.signed_in},
-            "community": {"session": self._session, "checkedAgeSeconds": age},
+            "community": {"session": session, "checkedAgeSeconds": age},
             "farm": farm,
             "library": self._library_payload(client.account_id),
             "preview": self._preview_payload(client.account_id),
@@ -290,6 +293,8 @@ class SteamIdleController:
         tools = self._find_tools()
         if tools.unavailable:
             return "unavailable", tools, None
+        if not self._engine_installed():
+            return "engine_missing", tools, None
         if not self._get_setting(RISK_ACK_KEY, False):
             return "risk_not_acknowledged", tools, None
         if achievements_ack and not self._get_setting(ACHIEVEMENTS_ACK_KEY, False):
@@ -389,6 +394,8 @@ class SteamIdleController:
         tools = self._find_tools()
         if tools.unavailable:
             return "unavailable"
+        if not self._engine_installed():
+            return "engine_missing"
         if self._busy():
             return "busy"
         self._session = "login_open"
@@ -399,6 +406,8 @@ class SteamIdleController:
         tools = self._find_tools()
         if tools.unavailable:
             return "unavailable"
+        if not self._engine_installed():
+            return "engine_missing"
         if self._busy():
             return "busy"
         client = self._client_state()
@@ -647,7 +656,9 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
             get_setting=get_setting, set_setting=set_setting, find_tools=lambda: Tools("unsupported"),
             client_state=lambda: SteamClient(False, 0), read_drops=_never, read_library=_never, read_status=_never,
             presence_factory=_never, run_login=_never, clock=time.monotonic)
+    from giveaways_controller import engine_installed  # the readiness window's own check, imported late: it is heavy
     return SteamIdleController(
+        engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
         first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),

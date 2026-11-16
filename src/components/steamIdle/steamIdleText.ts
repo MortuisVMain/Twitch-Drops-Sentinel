@@ -18,6 +18,7 @@ export const communityText = (session: SteamIdleCommunitySession): { text: strin
     case 'checking': return { text: 'Проверяем…', tone: 'plain' };
     case 'login_open': return { text: 'Окно входа открыто, войдите в нём сами', tone: 'warn' };
     case 'account_mismatch': return { text: 'Вход в другой аккаунт, не в тот, что в клиенте Steam', tone: 'warn' };
+    case 'engine_missing': return { text: 'Нужен браузерный движок', tone: 'warn' };
     case 'error': return { text: 'Не удалось проверить вход', tone: 'warn' };
     default: return { text: 'Ещё не проверено', tone: 'plain' };
   }
@@ -79,11 +80,14 @@ export const previewErrorText = (code: string): string =>
 /** Playtime with one decimal at most ("12.5", "3"). */
 export const hoursNumber = (hours: number): string => (Math.round(hours * 10) / 10).toLocaleString(uiLocale());
 
+export const ENGINE_MISSING_HINT = 'Steam IDLE читает сайт Steam через браузерный движок раздач. Установите его: вкладка «Раздачи» → «Проверить готовность» → «Браузерный движок».';
+
 export const refusalText = (code: string | null, session = 'signed_out'): string => {
   if (code === 'community_signed_out' && signedOutHint(session) === 'check') return 'Вход на сайт Steam ещё не проверен. Нажмите «Проверить».';
   switch (code) {
     case 'risk_not_acknowledged': return 'Сначала подтвердите, что понимаете риск для аккаунта.';
     case 'unavailable': return 'Steam IDLE недоступен: не хватает компонентов.';
+    case 'engine_missing': return ENGINE_MISSING_HINT;
     case 'steam_not_running': return 'Клиент Steam не запущен. Запустите его и повторите.';
     case 'steam_signed_out': return 'В клиенте Steam не выполнен вход. Войдите и повторите.';
     case 'community_signed_out': return 'Нет входа на сайт Steam. Нажмите «Войти в Steam».';
@@ -107,6 +111,7 @@ export const refusalApplies = (code: string, s: SteamIdleState): boolean => {
   switch (code) {
     case 'risk_not_acknowledged': return !s.riskAcknowledged;
     case 'unavailable': return !s.available;
+    case 'engine_missing': return s.community.session === 'engine_missing';
     case 'steam_not_running': return !s.steam.running;
     case 'steam_signed_out': return !s.steam.signedIn;
     case 'community_signed_out': return s.community.session !== 'signed_in';

@@ -105,3 +105,18 @@ test('the refund hold note counts the days left, at least one, whole days', () =
 test('the release question names the game and the two-hour limit', () => {
   assert.equal(releaseQuestion('Portal'), 'Фармить Portal? После 2 часов в игре вернуть её будет нельзя.');
 });
+
+const ENGINE_HINT = 'Steam IDLE читает сайт Steam через браузерный движок раздач. Установите его: вкладка «Раздачи» → «Проверить готовность» → «Браузерный движок».';
+
+test('a missing browser engine has its own readiness text, refusal text and hint', async () => {
+  const text = await bundleOf('steamIdleText.ts');
+  assert.deepEqual(text.communityText('engine_missing'), { text: 'Нужен браузерный движок', tone: 'warn' });
+  assert.equal(text.refusalText('engine_missing'), ENGINE_HINT);
+  assert.equal(text.ENGINE_MISSING_HINT, ENGINE_HINT);
+});
+
+test('the engine refusal goes stale once the session is no longer engine_missing', async () => {
+  const { refusalApplies } = await bundleOf('steamIdleText.ts');
+  assert.equal(refusalApplies('engine_missing', { community: { session: 'engine_missing' } }), true);
+  assert.equal(refusalApplies('engine_missing', { community: { session: 'unknown' } }), false);
+});

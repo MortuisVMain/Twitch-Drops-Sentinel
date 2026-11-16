@@ -14,6 +14,10 @@ export const STEAM_IDLE: Record<string, string> = {
   'Окно входа открыто, войдите в нём сами': 'Sign-in window is open, sign in there yourself',
   'Вход в другой аккаунт, не в тот, что в клиенте Steam': 'Signed in to a different account than the one in the Steam client',
   'Не удалось проверить вход': 'Could not check the sign-in',
+  'Нужен браузерный движок': 'The browser engine is needed',
+  'Steam IDLE читает сайт Steam через браузерный движок раздач. Установите его: вкладка «Раздачи» → «Проверить готовность» → «Браузерный движок».':
+    'Steam IDLE reads the Steam site through the giveaways browser engine. Install it: the Giveaways tab → "Check readiness" → "Browser engine".',
+  'Открыть готовность раздач': 'Open giveaways readiness',
   'Ещё не проверено': 'Not checked yet',
   'Готов': 'Ready',
   'Не найден файл помощника': 'Helper file not found',
