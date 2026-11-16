@@ -333,6 +333,7 @@ class ResultTests(unittest.TestCase):
                 self.assertEqual(status["totals"][total], 1)
                 self.assertEqual(sum(status["totals"].values()), 1)
                 self.assertEqual((status["state"], status["lastError"]), ("done", None))
+                self.assertEqual(status["finished"][0][total], 1, "the game row counts the write result too")
 
     def test_pending_unconfirmed_and_store_failed_count_as_failed_and_stop_the_run(self):
         for result, stored in (("pending", "timeout"), ("unconfirmed", "yes"), ("store_failed", "no")):

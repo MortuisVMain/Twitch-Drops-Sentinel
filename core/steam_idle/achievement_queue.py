@@ -420,7 +420,7 @@ class AchievementQueue:
                 failed += 1
                 continue
             self._totals[key] += 1
-            game.unlocked += key == "unlocked"
+            setattr(game, key, getattr(game, key) + 1)
         game.failed += failed
         self._totals["failed"] += failed
         game.done += len(batch)
