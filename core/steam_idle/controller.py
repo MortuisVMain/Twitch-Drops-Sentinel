@@ -21,6 +21,7 @@ from .achievements import AchievementsError
 from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
+from .interrupted import RECORD_FILE_NAME, InterruptedStore
 from .presence import Presence
 from .protection import CACHE_FILE_NAME, ProtectionChecker
 from .wake import Wake
@@ -150,7 +151,8 @@ class SteamIdleController:
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, rules: FarmRules | None = None,
                  kill_reads: Callable[[], None] = lambda: None,
                  read_achievements: Callable[..., list] | None = None, unlock: Callable[..., object] | None = None,
-                 uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None):
+                 uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None,
+                 data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time):
         self._get_setting, self._set_setting = get_setting, set_setting
         self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
         self._find_tools, self._client_state = find_tools, client_state
@@ -171,7 +173,8 @@ class SteamIdleController:
             cached_games=self._cached_games, cached_preview=self._cached_preview, store_library=self._store_library,
             session_error=self._session_error,
             is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep,
-            protection=self._protection)
+            protection=self._protection, wall_clock=wall_clock,
+            store=InterruptedStore(None if data_dir is None else data_dir / RECORD_FILE_NAME))
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
         self._library_error: str | None = None
@@ -331,6 +334,13 @@ class SteamIdleController:
 
     def start_achievements(self, plan: SelectedPlan | GamePlan | LibraryPlan) -> str | None:
         return self._achv.start(plan)
+
+    def resume_interrupted(self, library_confirmed: bool) -> str | None:
+        return self._achv.resume_interrupted(library_confirmed)
+
+    def discard_interrupted(self) -> str | None:
+        self._achv.discard_interrupted()
+        return None
 
     def stop_achievements(self) -> str | None:
         return self._forward_achv(self._achv.stop)
@@ -625,7 +635,7 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
             client_state=lambda: SteamClient(False, 0), read_drops=_never, read_library=_never, read_status=_never,
             presence_factory=_never, run_login=_never, clock=time.monotonic)
     return SteamIdleController(
-        protection=ProtectionChecker(app_root / CACHE_FILE_NAME),
+        protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,

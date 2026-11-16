@@ -38,6 +38,12 @@ class Stub:
     def start_achievements(self, plan):
         return self._record("start", plan)
 
+    def resume_interrupted(self, confirmed):
+        return self._record("resume_interrupted", confirmed)
+
+    def discard_interrupted(self):
+        return self._record("discard_interrupted")
+
     def stop_achievements(self):
         return self._record("stop")
 
@@ -152,11 +158,31 @@ class AchievementsRoutesTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(reply(await getattr(self.routes, f"achievements_{name}")(FakeRequest())), (200, {"ok": True}))
         self.assertEqual([call[0] for call in self.stub.calls], ["stop", "pause", "resume", "skip"])
 
+    async def test_resume_interrupted_passes_the_library_confirmation_only_for_the_exact_word(self):
+        ok = (200, {"ok": True})
+        for body, confirmed in ((None, False), ({}, False), ({"confirm": "ALL"}, True)):
+            self.stub.calls.clear()
+            self.assertEqual(reply(await self.routes.achievements_resume_interrupted(FakeRequest(body))), ok, body)
+            self.assertEqual(self.stub.calls, [("resume_interrupted", confirmed)])
+        self.stub.calls.clear()
+        for body in ({"confirm": "all"}, {"confirm": True}, {"confirm": "ALL", "x": 1}, {"x": 1}, [], "ALL"):
+            self.assertEqual(reply(await self.routes.achievements_resume_interrupted(FakeRequest(body))), INVALID, body)
+        self.assertEqual(self.stub.calls, [])
+
+    async def test_resume_interrupted_invalid_request_from_the_controller_is_a_400(self):
+        routes = SteamIdleRoutes(Stub("invalid_request"))
+        self.assertEqual(reply(await routes.achievements_resume_interrupted(FakeRequest({}))), INVALID)
+
+    async def test_discard_interrupted_answers_200(self):
+        self.assertEqual(reply(await self.routes.achievements_discard_interrupted(FakeRequest())), (200, {"ok": True}))
+        self.assertEqual(self.stub.calls, [("discard_interrupted",)])
+
     async def test_refusals_answer_409_with_the_code_for_every_route(self):
         for code in ("risk_not_acknowledged", "achievements_not_acknowledged", "unavailable", "steam_not_running",
-                     "steam_signed_out", "community_signed_out", "account_mismatch", "busy", "protected_app"):
+                     "steam_signed_out", "community_signed_out", "account_mismatch", "busy", "protected_app", "account_changed", "no_interrupted_run"):
             routes = SteamIdleRoutes(Stub(code))
             requests = {
+                routes.achievements_resume_interrupted: FakeRequest({"confirm": "ALL"}),
                 routes.library_scan: FakeRequest(), routes.achievements_stop: FakeRequest(),
                 routes.achievements_pause: FakeRequest(), routes.achievements_resume: FakeRequest(),
                 routes.achievements_skip: FakeRequest(),

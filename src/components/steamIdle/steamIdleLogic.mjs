@@ -10,6 +10,13 @@ export function durParts(s, up = false) {
   return { h: Math.floor(m / 60), rest: m % 60 };
 }
 
+/** What the "run interrupted by a restart" banner shows, or null when it must not show: nothing recorded, or a run is on.
+ * A library run is the one that needs the in-page confirmation before it continues. */
+export function interruptedBanner(interrupted, runActive) {
+  if (!interrupted || runActive) return null;
+  return { done: interrupted.gamesDone, total: interrupted.gamesTotal, unlocked: interrupted.unlocked, needsConfirm: interrupted.kind === 'library' };
+}
+
 /** Which readiness button a "no site session" refusal should point at: only a known sign-out shows the login button. */
 export function signedOutHint(session) {
   return session === 'unknown' || session === 'checking' ? 'check' : 'login';

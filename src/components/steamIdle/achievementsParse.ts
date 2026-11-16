@@ -8,6 +8,7 @@ const isGame = (g: unknown): g is Rec => isRec(g) && isNum(g.appId) && typeof g.
 export const LIBRARY_STATUSES: readonly string[] = ['none', 'scanning', 'ready', 'failed'];
 const RUN_STATES = ['idle', 'scanning', 'unlocking', 'waiting', 'paused', 'suspended', 'done', 'stopped'];
 const MODES = ['selected', 'game', 'library'];
+const INTERRUPTED_KINDS = MODES;
 const TOTAL_KEYS = ['unlocked', 'already', 'skipped', 'rejected', 'failed'];
 
 const isRun = (r: unknown): boolean => isRec(r)
@@ -26,6 +27,9 @@ export const parseAchievements = (v: unknown): SteamIdleAchievements | null => {
   if (!isRec(v) || typeof v.acknowledged !== 'boolean' || !isRec(v.settings) || !isRun(v.run)) return null;
   const st = v.settings;
   if (!isNum(st.minMinutes) || !isNum(st.maxMinutes) || typeof st.skipHidden !== 'boolean') return null;
+  const i = v.interrupted;  // absent on an older service; otherwise null or the summary of the recorded run
+  if (i !== undefined && i !== null && !(isRec(i) && typeof i.kind === 'string' && INTERRUPTED_KINDS.includes(i.kind)
+    && isNum(i.startedAt) && isNum(i.gamesDone) && isNum(i.gamesTotal) && isNum(i.unlocked))) return null;
   return v as unknown as SteamIdleAchievements;
 };
 

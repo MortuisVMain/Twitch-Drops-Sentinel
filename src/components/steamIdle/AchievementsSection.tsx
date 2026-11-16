@@ -3,6 +3,7 @@ import { SteamIdleAchievements, SteamIdleState } from '../../types';
 import { AchAllGames } from './AchAllGames';
 import { AchFinished } from './AchFinished';
 import { AchGate } from './AchGate';
+import { AchInterrupted } from './AchInterrupted';
 import { AchOneGame } from './AchOneGame';
 import { AchPace } from './AchPace';
 import { AchRunPanel } from './AchRunPanel';
@@ -25,6 +26,7 @@ const Workspace: React.FC<Props & { takeFocus: boolean }> = ({ s, ach, busy, sen
   useBusyRetry(library, runActive);
   return (
     <>
+      <AchInterrupted interrupted={ach.interrupted} runActive={runActive} busy={busy} send={send} />
       <AchRunPanel s={s} run={ach.run} busy={busy} takeFocus={takeFocus} send={send} />
       <AchOneGame s={s} ach={ach} library={library} busy={busy} send={send} />
       <AchPace saved={ach.settings} runActive={runActive} busy={busy} send={send} />

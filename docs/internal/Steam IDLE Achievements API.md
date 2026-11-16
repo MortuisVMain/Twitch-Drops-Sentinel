@@ -48,6 +48,7 @@ Working contract between the service (`core/steam_idle`) and the UI tab. All rou
 - `run.finished` notes also include `uncertain` (an unlock call raised after it may have written, or raised an unexpected error; every remaining target of that game counts as failed and the run stops) and `only_hidden` (every missing achievement of the game is hidden and was skipped).
 - Each `run.finished` entry also carries `already` and `rejected`: the per-game counts of requested names that were already achieved or not found in the game, mirroring the totals.
 - `run.finished` notes also include `protected_app` (the game has anti-cheat; nothing of it was read or written) and `protection_unknown` (the anti-cheat check gave no answer; the game is skipped the same way). The check runs for every game of every plan kind, right before its achievements are read (see "Anti-cheat" below).
+- `achievements.interrupted`: `null`, or `{"kind": "game"|"selected"|"library", "startedAt": epochSeconds, "gamesDone", "gamesTotal", "unlocked"}`, the summary of a run the last session did not finish (see "Interrupted run" below). It is `null` while a run is active and after any new start.
 - `state.library` becomes `{"count": number|null, "status": "none"|"scanning"|"ready"|"failed", "ageSeconds": number|null}`.
 
 ## Routes
@@ -60,6 +61,8 @@ Working contract between the service (`core/steam_idle`) and the UI tab. All rou
 | `GET /library` | none | 200 `{"games": [{"appId", "name", "playtimeMinutes"}]}` | 409 `not_ready` when no list is cached |
 | `GET /achievements?appId=N` | none | 200 `{"appId", "achievements": [{"apiName", "name", "description", "hidden", "achieved", "unlockTime"}]}` | reads live through the helper; can take a few seconds |
 | `POST /achievements/start` | one of the three shapes below | 200 `{"ok": true}` | |
+| `POST /achievements/resume-interrupted` | none, `{}` or `{"confirm": "ALL"}` | 200 `{"ok": true}` | starts the interrupted run again minus its finished games; a library run needs `{"confirm": "ALL"}` (otherwise 400 `invalid_request`); refusals: the normal start ones, `account_changed`, `no_interrupted_run` |
+| `POST /achievements/discard-interrupted` | none | 200 `{"ok": true}` | forgets the record; always 200; never touches the record of a run in progress |
 | `POST /achievements/stop`, `/pause`, `/resume`, `/skip` | none | 200 `{"ok": true}` | `skip` skips the current game |
 
 Start shapes:
@@ -70,11 +73,17 @@ Start shapes:
 
 ## Refusals
 
-HTTP 409 `{"error": code}` with the existing codes (`risk_not_acknowledged`, `unavailable`, `steam_not_running`, `steam_signed_out`, `community_signed_out`, `account_mismatch`, `busy`) plus `achievements_not_acknowledged`, `not_ready` and `protected_app` (a single-game or selected-names start for an app of the built-in anti-cheat table; same 409 shape, checked after the gates above). Malformed bodies give HTTP 400 `{"error": "invalid_request"}`.
+HTTP 409 `{"error": code}` with the existing codes (`risk_not_acknowledged`, `unavailable`, `steam_not_running`, `steam_signed_out`, `community_signed_out`, `account_mismatch`, `busy`) plus `achievements_not_acknowledged`, `not_ready`, `account_changed` and `no_interrupted_run` (resume only) and `protected_app` (a single-game or selected-names start for an app of the built-in anti-cheat table; same 409 shape, checked after the gates above). Malformed bodies give HTTP 400 `{"error": "invalid_request"}`.
 
 `GET /achievements` and `POST /library/scan` use the same gates as `POST /scan`. `GET /achievements` additionally needs the achievements acknowledgement.
 
 `GET /achievements` answers HTTP 502 `{"error": "read_failed", "reason": code}` when the helper read fails. `POST /achievements/start` and `POST /achievements/settings` bodies are rejected with HTTP 400 `{"error": "invalid_request"}` when they contain unknown keys (the key sets above are exact).
+
+## Interrupted run
+
+While a run is active the service keeps `steam_idle_interrupted_run.json` next to `config.json`: `{"version": 1, "kind", "startedAt", "appId", "name", "names", "exclude", "finished": [appId...], "gamesDone", "gamesTotal", "unlocked", "accountHash"}`. `appId`/`name` (and `names` for `selected`) belong to the single-game kinds, `exclude` to `library`. `accountHash` is the SHA-256 (hex) of the SteamID64 string the run was started for; the id itself is never stored. The record is written when the queue starts and rewritten whenever a game is done with (a game cut short, noted `stopped`, `uncertain` or `unlock_uncertain`, is not added to `finished`, so a resume does it again). It is deleted when the run ends (done, stopped by the user, stopped by an error) and when a new run starts. A service shutdown or crash mid-run leaves it. On the next start the service loads it, reports `achievements.interrupted` and starts nothing. A corrupt or malformed file is logged and renamed to `steam_idle_interrupted_run.json.corrupt`.
+
+Resume goes through the normal start path (both acknowledgements, the account check, every refusal) with the original plan: for `library`, the original `exclude` plus the finished ids; for `game` and `selected`, the same app (nothing to do, `no_interrupted_run`, when it is already finished). If the hash of the current account differs, resume is refused with `account_changed` and the record is kept until it is discarded. Counts of a resumed run restart from zero: they describe the latest run only.
 
 ## Anti-cheat
 

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from .achievement_queue import AchievementQueue, GamePlan, LibraryPlan, Rules, SelectedPlan
 from .community import CommunityError
+from .interrupted import InterruptedStore, account_hash
 from .wake import Wake
 
 if TYPE_CHECKING:
@@ -29,6 +30,8 @@ SKIP_HIDDEN_KEY = "steam_idle_unlock_skip_hidden"
 _MAX_PACE_MINUTES = 1440
 _ENDED = frozenset({"idle", "done", "stopped"})
 _TICK_SECONDS = 5.0
+_SUMMARY_KEYS = ("kind", "startedAt", "gamesDone", "gamesTotal", "unlocked")
+_NOT_FINISHED = frozenset({"stopped", "uncertain", "unlock_uncertain"})  # notes of a game that was cut short
 _CLASSIFY_WAIT_SECONDS = 15.0  # a request (10 s) plus the spacing between requests (1.5 s) and slack
 
 
@@ -41,9 +44,14 @@ class AchievementsRun:
                  store_library: Callable[[int, list], None],
                  session_error: Callable[[str], bool], is_closed: Callable[[], bool], steam_id: Callable[[int], str],
                  clock: Callable[[], float], uniform: Callable[[float, float], float],
-                 sleep: Callable[[float], Awaitable[None]], protection: "ProtectionChecker"):
+                 sleep: Callable[[float], Awaitable[None]], protection: "ProtectionChecker",
+                 store: InterruptedStore, wall_clock: Callable[[], float] = time.time):
         self._gate, self._get_setting, self._set_setting = gate, get_setting, set_setting
         self._protection = protection
+        self._store, self._wall_clock = store, wall_clock
+        self._interrupted: dict | None = store.load()  # a run the last session did not finish; never started by itself
+        self._record: dict | None = None  # the record of the run in progress, rewritten whenever a game finishes
+        self._closing = False
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._risk_acknowledged, self._client_state = risk_acknowledged, client_state
         self._read_ach, self._unlock_ach, self._read_library = read_achievements, unlock, read_library
@@ -55,7 +63,8 @@ class AchievementsRun:
         self._unlock_in_flight = threading.Event()  # set only while an unlock call runs in the worker thread
         self._wake = Wake()
         self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard,
-                                       on_command=self._wake.set, classify=self._queue_classify)
+                                       on_command=self._wake.set, classify=self._queue_classify,
+                                       on_finished=self._on_game_finished)
         self._tools: "Tools | None" = None
         self._account, self._expected = 0, ""
         self._preparing = self._cancel = self._reading = False
@@ -64,7 +73,11 @@ class AchievementsRun:
     # state
     def payload(self) -> dict:
         return {"acknowledged": bool(self._get_setting(ACHIEVEMENTS_ACK_KEY, False)), "settings": self.settings(),
-                "run": self._run_status()}
+                "run": self._run_status(), "interrupted": self._interrupted_summary()}
+
+    def _interrupted_summary(self) -> dict | None:
+        record = self._interrupted
+        return None if record is None else {key: record[key] for key in _SUMMARY_KEYS}
 
     def settings(self) -> dict:
         low, high = self._setting_minutes(UNLOCK_MIN_KEY), self._setting_minutes(UNLOCK_MAX_KEY)
@@ -129,20 +142,49 @@ class AchievementsRun:
         return [{"apiName": a.api_name, "name": a.name, "description": a.description, "hidden": a.hidden,
                  "achieved": a.achieved, "unlockTime": a.unlock_time} for a in items]
 
-    def start(self, plan: SelectedPlan | GamePlan | LibraryPlan) -> str | None:
+    def start(self, plan: SelectedPlan | GamePlan | LibraryPlan, account_hash_required: str | None = None) -> str | None:
         refusal, tools, client = self._gate(True)
         if refusal is not None:
             return refusal
+        expected = self._steam_id(client.account_id)
+        if account_hash_required is not None and account_hash(expected) != account_hash_required:
+            return "account_changed"
         if not isinstance(plan, LibraryPlan) and self._protection.is_builtin(plan.app_id):
             return "protected_app"
-        self._tools, self._account = tools, client.account_id
-        self._expected = self._steam_id(client.account_id)
+        self._interrupted = None  # any new run replaces the record of the interrupted one
+        self._store.delete()
+        self._tools, self._account, self._expected = tools, client.account_id, expected
         self._cancel, self._preparing = False, False
         settings = self.settings()
         rules = Rules(settings["minMinutes"], settings["maxMinutes"], settings["skipHidden"])
         self._event_loop = asyncio.get_running_loop()
         self.task = self._event_loop.create_task(self._loop(plan, rules))
         return None
+
+    def resume_interrupted(self, library_confirmed: bool) -> str | None:
+        """Start the interrupted run again minus the games it had finished, through the normal start path."""
+        record = self._interrupted
+        if record is None:
+            return "no_interrupted_run"
+        finished = set(record["finished"])
+        if record["kind"] == "library":
+            if not library_confirmed:
+                return "invalid_request"
+            plan = LibraryPlan((), sorted(set(record["exclude"]) | finished))
+        elif record["appId"] in finished:
+            self.discard_interrupted()
+            return "no_interrupted_run"
+        elif record["kind"] == "selected":
+            plan = SelectedPlan(record["appId"], record["names"], record["name"])
+        else:
+            plan = GamePlan(record["appId"], record["name"])
+        return self.start(plan, account_hash_required=record["accountHash"])
+
+    def discard_interrupted(self) -> None:
+        """Forget the interrupted run; the file of a run in progress is not touched."""
+        self._interrupted = None
+        if not self.active():
+            self._store.delete()
 
     def stop(self) -> None:
         if self.active():
@@ -165,8 +207,8 @@ class AchievementsRun:
         self._queue.set_suspended(flag)
 
     def close(self) -> None:
-        """For shutdown: nothing new is written from now on."""
-        self._cancel = True
+        """For shutdown: nothing new is written from now on, and the record of a run in progress stays on disk."""
+        self._closing = self._cancel = True
         self._queue.close()
 
     # the run
@@ -238,10 +280,43 @@ class AchievementsRun:
         names.update({g.app_id: g.name for g in games or []})
         return dataclasses.replace(plan, name=plan.name or names.get(plan.app_id) or f"App {plan.app_id}")
 
+    def _begin_record(self, plan) -> None:
+        """The record of the run that is about to start; the account is stored as a hash only."""
+        record = {"version": 1, "startedAt": self._wall_clock(), "appId": None, "name": None, "names": None,
+                  "exclude": None, "finished": [], "gamesDone": 0, "unlocked": 0, "accountHash": account_hash(self._expected)}
+        if isinstance(plan, LibraryPlan):
+            excluded = set(plan.exclude)
+            record.update(kind="library", exclude=list(plan.exclude),
+                          gamesTotal=sum(1 for app_id, _ in plan.games if app_id not in excluded))
+        else:
+            record.update(kind="selected" if isinstance(plan, SelectedPlan) else "game", appId=plan.app_id,
+                          name=plan.name, gamesTotal=1)
+            if isinstance(plan, SelectedPlan):
+                record["names"] = list(plan.names)
+        self._record = record
+        self._store.save(record)
+
+    def _on_game_finished(self, app_id: int, note: str | None, unlocked: int) -> None:
+        """Step thread: a game was done with. One cut short (stopped, uncertain) is not counted, so a resume redoes it."""
+        record = self._record
+        if record is None:
+            return
+        if note not in _NOT_FINISHED:
+            record["finished"].append(app_id)
+            record["gamesDone"] = len(record["finished"])
+        record["unlocked"] = unlocked
+        self._store.save(record)
+
+    def _end_record(self) -> None:
+        if self._record is not None:
+            self._record = None
+            self._store.delete()
+
     async def _loop(self, plan, rules: Rules) -> None:
         try:
             self._wake.bind()
             if (plan := await self._prepare(plan)) is not None:
+                self._begin_record(plan)
                 self._queue.start(plan, rules)
             while True:
                 if self._client_state().account_id != self._account:
@@ -254,3 +329,6 @@ class AchievementsRun:
         except Exception:
             logger.error("steam idle achievements loop crashed", exc_info=True)
             self._queue.abort("internal_error")
+        finally:
+            if not self._closing:  # a shutdown keeps the record: the run was interrupted, not ended
+                self._end_record()

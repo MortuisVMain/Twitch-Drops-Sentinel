@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import re
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -13,7 +14,8 @@ from steam_idle._helper import WRITE_GATE
 from steam_idle.achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from steam_idle.achievements import Achievement, AchievementsError, UnlockResult, _outcome
 from steam_idle.community import CommunityError, OwnedGame
-from steam_idle.controller import SteamClient, Tools
+from steam_idle.controller import SteamClient, Tools, steam_id64
+from steam_idle.interrupted import RECORD_FILE_NAME, InterruptedStore, account_hash
 from steam_idle.test_controller import ACCOUNT, BASE_ID, OTHER, Env, FakeProtection, gd
 
 ACK, RISK = "steam_idle_achievements_ack", "steam_idle_risk_ack"
@@ -80,7 +82,8 @@ class StateTests(Base):
             "acknowledged": False, "settings": {"minMinutes": 0, "maxMinutes": 0, "skipHidden": True},
             "run": {"state": "idle", "mode": None, "current": None, "nextUnlockInSeconds": None, "queue": [],
                     "finished": [], "totals": {"unlocked": 0, "already": 0, "skipped": 0, "rejected": 0, "failed": 0},
-                    "lastError": None, "paused": False, "suspended": False}})
+                    "lastError": None, "paused": False, "suspended": False},
+            "interrupted": None})
         self.assertEqual(state["library"], {"count": None, "status": "none", "ageSeconds": None})
 
     async def test_payload_is_json_free_of_ids_during_and_after_a_run(self):
@@ -419,6 +422,223 @@ class ProtectionTests(Base):
         run = run_of(self.env.ctl)
         self.assertEqual([(f["appId"], f["note"]) for f in run["finished"]], [(100, "protected_app")])
         self.assertEqual((self.env.ach_calls, self.env.unlock_calls), ([], []))
+
+
+class InterruptedTests(Base):
+    """The on-disk record of a run in progress: written, updated, deleted, kept over a shutdown, offered after a restart."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / RECORD_FILE_NAME
+
+    def make(self, **over):
+        over.setdefault("data_dir", Path(self.tmp.name))
+        over.setdefault("wall_clock", lambda: 1700000000.0)
+        return super().make(**over)
+
+    def stored(self):
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def saved(self, **over):
+        record = {"version": 1, "kind": "library", "startedAt": 1699990000.0, "appId": None, "name": None,
+                  "names": None, "exclude": [], "finished": [], "gamesDone": 0, "gamesTotal": 3, "unlocked": 0,
+                  "accountHash": account_hash(steam_id64(ACCOUNT))}
+        record.update(over)
+        InterruptedStore(self.path).save(record)
+        return record
+
+    def block_game(self, app_id):
+        """The unlock of `app_id` waits in the worker thread; returns (entered, gate)."""
+        entered, gate = threading.Event(), threading.Event()
+
+        def script(app, names):
+            if app == app_id:
+                entered.set()
+                gate.wait(5)
+            return _outcome([UnlockResult(name, "unlocked") for name in names], "yes")
+        self.env.unlock_script = script
+        return entered, gate
+
+    async def start_library_blocked_on_two(self):
+        ctl = self.make()
+        await self.ready()
+        entered, gate = self.block_game(2)
+        self.assertIsNone(ctl.start_achievements(LibraryPlan((), [])))
+        self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+        return ctl, gate
+
+    async def test_record_is_written_with_the_plan_and_updated_when_a_game_finishes(self):
+        ctl, gate = await self.start_library_blocked_on_two()
+        record = self.stored()
+        self.assertEqual({k: record[k] for k in ("kind", "startedAt", "exclude", "finished", "gamesDone", "gamesTotal",
+                                                 "unlocked", "accountHash")},
+                         {"kind": "library", "startedAt": 1700000000.0, "exclude": [], "finished": [1], "gamesDone": 1,
+                          "gamesTotal": 3, "unlocked": 2, "accountHash": account_hash(steam_id64(ACCOUNT))})
+        gate.set()
+        await self.env.settle()
+
+    async def test_the_record_never_holds_the_account_id(self):
+        ctl, gate = await self.start_library_blocked_on_two()
+        text = self.path.read_text(encoding="utf-8")
+        self.assertNotIn(str(ACCOUNT), text)
+        self.assertNotIn(steam_id64(ACCOUNT), text)
+        gate.set()
+        await self.env.settle()
+
+    async def test_game_and_selected_records_carry_their_plan(self):
+        ctl = self.make()
+        entered, gate = self.block_game(100)
+        self.assertIsNone(ctl.start_achievements(SelectedPlan(100, ["B"])))
+        self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+        record = self.stored()
+        self.assertEqual((record["kind"], record["appId"], record["name"], record["names"], record["gamesTotal"]),
+                         ("selected", 100, "App 100", ["B"], 1))
+        gate.set()
+        await self.env.settle()
+
+    async def test_the_record_is_deleted_when_the_run_ends_normally(self):
+        ctl = self.make()
+        await self.ready()
+        self.assertIsNone(ctl.start_achievements(LibraryPlan((), [])))
+        await self.env.settle()
+        self.assertEqual(run_of(ctl)["state"], "done")
+        self.assertFalse(self.path.exists())
+
+    async def test_the_record_is_deleted_when_the_user_stops_the_run(self):
+        ctl, gate = await self.start_library_blocked_on_two()
+        self.assertTrue(self.path.exists())
+        ctl.stop_achievements()
+        gate.set()
+        await self.env.settle()
+        self.assertEqual(run_of(ctl)["state"], "stopped")
+        self.assertFalse(self.path.exists())
+
+    async def test_the_record_survives_a_shutdown_in_the_middle_of_a_run(self):
+        ctl, gate = await self.start_library_blocked_on_two()
+        threading.Timer(0.3, gate.set).start()
+        await ctl.shutdown()
+        record = self.stored()
+        self.assertEqual((record["kind"], record["finished"][:1]), ("library", [1]))
+        self.assertNotIn(3, record["finished"])
+
+    async def test_a_game_cut_short_by_a_shutdown_is_not_recorded_as_finished(self):
+        ctl = self.make()
+        await self.ready()
+        self.paced()
+        entered, gate = self.block_game(1)
+        self.assertIsNone(ctl.start_achievements(LibraryPlan((), [])))
+        self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+        threading.Timer(0.3, gate.set).start()
+        await ctl.shutdown()
+        self.assertEqual(self.stored()["finished"], [])
+
+    async def test_the_record_is_loaded_on_start_and_nothing_is_started(self):
+        self.saved(finished=[1], gamesDone=1, unlocked=4)
+        ctl = self.make()
+        self.assertEqual(ctl.state()["achievements"]["interrupted"],
+                         {"kind": "library", "startedAt": 1699990000.0, "gamesDone": 1, "gamesTotal": 3, "unlocked": 4})
+        await asyncio.sleep(0.05)
+        self.assertEqual((run_of(ctl)["state"], self.env.unlock_calls, self.env.ach_calls), ("idle", [], []))
+
+    async def test_a_corrupt_record_is_logged_set_aside_and_not_offered(self):
+        self.path.write_text("{not json", encoding="utf-8")
+        with self.assertLogs("steam_idle.interrupted", level="ERROR"):
+            ctl = self.make()
+        self.assertIsNone(ctl.state()["achievements"]["interrupted"])
+        self.assertFalse(self.path.exists())
+        self.assertTrue(self.path.with_name(self.path.name + ".corrupt").exists())
+
+    async def test_resume_of_a_library_run_skips_the_finished_and_the_excluded_games(self):
+        self.saved(exclude=[3], finished=[1], gamesDone=1)
+        ctl = self.make()
+        await self.ready()
+        self.assertIsNone(ctl.resume_interrupted(True))
+        await self.env.settle()
+        self.assertEqual([call[2] for call in self.env.unlock_calls], [2])
+        self.assertEqual(run_of(ctl)["mode"], "library")
+        self.assertIsNone(ctl.state()["achievements"]["interrupted"])
+        self.assertFalse(self.path.exists())
+
+    async def test_resume_of_a_library_run_needs_the_confirmation_and_keeps_the_record(self):
+        self.saved()
+        ctl = self.make()
+        await self.ready()
+        self.assertEqual(ctl.resume_interrupted(False), "invalid_request")
+        self.assertEqual((run_of(ctl)["state"], self.env.unlock_calls), ("idle", []))
+        self.assertTrue(self.path.exists())
+        self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+
+    async def test_resume_of_a_game_run_and_of_a_selected_run(self):
+        for record, expected in ((dict(kind="game", appId=100, name="Game 100", exclude=None), (100, ["A", "B"])),
+                                 (dict(kind="selected", appId=100, name="Game 100", names=["B"], exclude=None), (100, ["B"]))):
+            with self.subTest(kind=record["kind"]):
+                self.saved(**record)
+                ctl = self.make()
+                self.assertIsNone(ctl.resume_interrupted(False))
+                await self.env.settle()
+                self.assertEqual([(c[2], c[3]) for c in self.env.unlock_calls], [expected])
+                await ctl.shutdown()
+
+    async def test_resume_of_a_run_whose_game_is_already_finished_has_nothing_to_do(self):
+        self.saved(kind="game", appId=100, name="Game 100", exclude=None, finished=[100])
+        ctl = self.make()
+        self.assertEqual(ctl.resume_interrupted(False), "no_interrupted_run")
+        self.assertEqual(self.env.unlock_calls, [])
+        self.assertFalse(self.path.exists())
+
+    async def test_resume_with_nothing_recorded_is_refused(self):
+        ctl = self.make()
+        self.assertEqual(ctl.resume_interrupted(True), "no_interrupted_run")
+
+    async def test_resume_for_another_account_is_refused_and_the_record_is_kept(self):
+        self.saved(accountHash=account_hash(steam_id64(OTHER)))
+        ctl = self.make()
+        await self.ready()
+        self.assertEqual(ctl.resume_interrupted(True), "account_changed")
+        self.assertEqual(self.env.unlock_calls, [])
+        self.assertTrue(self.path.exists())
+        self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+
+    async def test_resume_goes_through_the_normal_start_refusals_and_keeps_the_record(self):
+        self.saved()
+        ctl = self.make(settings={RISK: False, ACK: True})
+        self.assertEqual(ctl.resume_interrupted(True), "risk_not_acknowledged")
+        self.assertTrue(self.path.exists())
+        self.env.settings[RISK], self.env.settings[ACK] = True, False
+        self.assertEqual(ctl.resume_interrupted(True), "achievements_not_acknowledged")
+        self.assertTrue(self.path.exists())
+
+    async def test_discard_forgets_the_record(self):
+        self.saved()
+        ctl = self.make()
+        self.assertIsNone(ctl.discard_interrupted())
+        self.assertIsNone(ctl.state()["achievements"]["interrupted"])
+        self.assertFalse(self.path.exists())
+        self.assertIsNone(ctl.discard_interrupted())
+
+    async def test_discard_never_touches_the_record_of_the_run_in_progress(self):
+        ctl, gate = await self.start_library_blocked_on_two()
+        self.assertIsNone(ctl.discard_interrupted())
+        self.assertTrue(self.path.exists())
+        gate.set()
+        await self.env.settle()
+
+    async def test_starting_any_new_run_discards_the_record(self):
+        self.saved()
+        ctl = self.make()
+        self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+        self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertIsNone(ctl.state()["achievements"]["interrupted"])
+        await self.env.settle()
+        self.assertFalse(self.path.exists())
+
+    async def test_a_refused_start_keeps_the_record(self):
+        self.saved()
+        ctl = self.make()
+        self.assertEqual(ctl.start_achievements(GamePlan(730)), "protected_app")
+        self.assertIsNotNone(ctl.state()["achievements"]["interrupted"])
+        self.assertTrue(self.path.exists())
 
 
 class ReadTests(Base):

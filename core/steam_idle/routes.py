@@ -136,6 +136,19 @@ class SteamIdleRoutes:
             return web.json_response(_INVALID, status=400)
         return self._reply(self._c.start_achievements(plan))
 
+    async def achievements_resume_interrupted(self, request: web.Request) -> web.Response:
+        """Body: none, `{}` or `{"confirm": "ALL"}`; the word is what a library resume needs."""
+        body = await self._body(request)
+        if body is not None and not (isinstance(body, dict) and (not body or body == {"confirm": "ALL"})):
+            return web.json_response(_INVALID, status=400)
+        refusal = self._c.resume_interrupted(body == {"confirm": "ALL"})
+        if refusal == "invalid_request":
+            return web.json_response(_INVALID, status=400)
+        return self._reply(refusal)
+
+    async def achievements_discard_interrupted(self, request: web.Request) -> web.Response:
+        return self._reply(self._c.discard_interrupted())
+
     async def achievements_stop(self, request: web.Request) -> web.Response:
         return self._reply(self._c.stop_achievements())
 

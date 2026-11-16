@@ -77,7 +77,7 @@ class Env:
         self.ach, self.ach_calls, self.unlock_calls, self.unlock_script = {}, [], [], None
         self.ach_gate, self.ach_entered = None, threading.Event()
         self.unlock_gate, self.unlock_entered = None, threading.Event()
-        self.protection = FakeProtection()
+        self.protection, self.data_dir, self.wall_clock = FakeProtection(), None, time.time
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
@@ -86,7 +86,8 @@ class Env:
             read_drops=self.read_drops, read_library=self.read_library, read_status=self.read_status,
             presence_factory=self.make_presence, run_login=self.run_login,
             clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads,
-            read_achievements=self.read_achievements, unlock=self.unlock_achievements, protection=self.protection)
+            read_achievements=self.read_achievements, unlock=self.unlock_achievements, protection=self.protection,
+            data_dir=self.data_dir, wall_clock=self.wall_clock)
 
     def kill_reads(self):
         """Stands in for killing the node child: the blocked read returns."""

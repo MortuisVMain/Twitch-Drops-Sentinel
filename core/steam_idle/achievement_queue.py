@@ -87,9 +87,12 @@ class AchievementQueue:
     def __init__(self, read_achievements: Callable[[int], list[Achievement]],
                  unlock: Callable[[int, list[str]], UnlockOutcome], clock: Callable[[], float],
                  uniform: Callable[[float, float], float], guard: Callable[[], str | None] | None = None,
-                 on_command: Callable[[], None] = lambda: None, classify: Callable[[int], str] | None = None):
+                 on_command: Callable[[], None] = lambda: None, classify: Callable[[int], str] | None = None,
+                 on_finished: Callable[[int, str | None, int], None] | None = None):
         """`classify(app_id)` returns "protected", "clear" or "unknown" (blocking); only "clear" opens a game.
-        None skips the check and is meant for tests of the queue alone."""
+        None skips the check and is meant for tests of the queue alone.
+        `on_finished(app_id, note, unlocked_total)` is called in the step thread whenever a game is done with."""
+        self._on_finished = on_finished
         self._read, self._unlock, self._clock, self._uniform, self._guard = read_achievements, unlock, clock, uniform, guard
         self._classify = classify
         self._wake = on_command  # called after every command; must be safe from any thread
@@ -278,6 +281,11 @@ class AchievementQueue:
                             game.rejected, note)] + self._finished)[:_LIST_CAP]
         self._cur = None
         self._phase = "scanning" if self._queue else "done"
+        if self._on_finished is not None:
+            try:
+                self._on_finished(game.app_id, note, self._totals["unlocked"])
+            except Exception:
+                logger.error("achievements finish hook failed for app %s", game.app_id, exc_info=True)
 
     # writing is allowed only through here
     def _refusal(self) -> str | None:

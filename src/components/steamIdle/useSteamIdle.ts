@@ -11,12 +11,14 @@ const SLOW_AFTER_FAILS = 3;
 const COMMAND_TIMEOUT_MS = 15000;
 
 export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip'
-  | 'achAck' | 'achSettings' | 'libScan' | 'achStart' | 'achStop' | 'achPause' | 'achResume' | 'achSkip';
+  | 'achAck' | 'achSettings' | 'libScan' | 'achStart' | 'achStop' | 'achPause' | 'achResume' | 'achSkip'
+  | 'achResumeInterrupted' | 'achDiscardInterrupted';
 const PATHS: Record<SteamIdleCommand, string> = {
   ack: '/ack', login: '/login', check: '/check', scan: '/scan',
   start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip',
   achAck: '/achievements/ack', achSettings: '/achievements/settings', libScan: '/library/scan', achStart: '/achievements/start',
   achStop: '/achievements/stop', achPause: '/achievements/pause', achResume: '/achievements/resume', achSkip: '/achievements/skip',
+  achResumeInterrupted: '/achievements/resume-interrupted', achDiscardInterrupted: '/achievements/discard-interrupted',
 };
 
 export type SendCommand = (command: SteamIdleCommand, body?: unknown) => void;

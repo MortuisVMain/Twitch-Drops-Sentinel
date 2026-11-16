@@ -275,7 +275,9 @@ export interface SteamIdleAchRun {
   paused: boolean;
   suspended: boolean;
 }
-export interface SteamIdleAchievements { acknowledged: boolean; settings: SteamIdleAchSettings; run: SteamIdleAchRun }
+/** A run the last session did not finish; nothing resumes by itself. */
+export interface SteamIdleAchInterrupted { kind: 'game' | 'selected' | 'library'; startedAt: number; gamesDone: number; gamesTotal: number; unlocked: number }
+export interface SteamIdleAchievements { acknowledged: boolean; settings: SteamIdleAchSettings; run: SteamIdleAchRun; interrupted?: SteamIdleAchInterrupted | null }
 
 /** One owned game from GET /library. */
 export interface SteamIdleLibraryGame { appId: number; name: string; playtimeMinutes: number }

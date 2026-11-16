@@ -40,7 +40,7 @@ test('the largest AppID is accepted', () => {
   ok('4294967295', [4294967295]);
 });
 
-const { durParts, signedOutHint } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
+const { durParts, signedOutHint, interruptedBanner } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
 
 test('an age rounds its minutes down, a countdown rounds them up', () => {
   assert.deepEqual(durParts(116), { min: 1 });
@@ -58,6 +58,16 @@ test('a refusal for the site session names the button that is on screen', () => 
   assert.equal(signedOutHint('checking'), 'check');
   assert.equal(signedOutHint('signed_out'), 'login');
   assert.equal(signedOutHint('account_mismatch'), 'login');
+});
+
+test('the interrupted-run banner shows only for a recorded run while nothing is running', () => {
+  const rec = { kind: 'library', startedAt: 1, gamesDone: 4, gamesTotal: 9, unlocked: 31 };
+  assert.deepEqual(interruptedBanner(rec, false), { done: 4, total: 9, unlocked: 31, needsConfirm: true });
+  assert.deepEqual(interruptedBanner({ ...rec, kind: 'game' }, false), { done: 4, total: 9, unlocked: 31, needsConfirm: false });
+  assert.deepEqual(interruptedBanner({ ...rec, kind: 'selected' }, false).needsConfirm, false);
+  assert.equal(interruptedBanner(rec, true), null);
+  assert.equal(interruptedBanner(null, false), null);
+  assert.equal(interruptedBanner(undefined, false), null);
 });
 
 // The text tables are TypeScript that imports the translation layer: bundle them once and call the real functions.
@@ -78,4 +88,8 @@ test('the anti-cheat notes and refusal have their own sentences', () => {
   assert.equal(finishedNoteText('protected_app'), 'Игра с античитом: достижения в ней не выдаются.');
   assert.equal(finishedNoteText('protection_unknown'), 'Не удалось проверить игру на античит, она пропущена.');
   assert.equal(refusalText('protected_app'), 'Игра с античитом: достижения в ней не выдаются.');
+});
+
+test('a resume on another account is refused with its own sentence', () => {
+  assert.equal(refusalText('account_changed'), 'Сейчас в Steam другой аккаунт. Продолжить эту выдачу нельзя.');
 });

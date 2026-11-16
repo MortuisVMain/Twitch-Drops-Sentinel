@@ -92,6 +92,8 @@ export const refusalText = (code: string | null, session = 'signed_out'): string
     case 'achievements_not_acknowledged': return 'Сначала включите выдачу достижений в их разделе.';
     case 'not_ready': return 'Список игр ещё не загружен. Загрузите его и повторите.';
     case 'protected_app': return 'Игра с античитом: достижения в ней не выдаются.';
+    case 'account_changed': return 'Сейчас в Steam другой аккаунт. Продолжить эту выдачу нельзя.';
+    case 'no_interrupted_run': return 'Прерванной выдачи больше нет.';
     case 'invalid_request': return 'Служба не приняла запрос. Проверьте введённые значения.';
     case 'network': return 'Нет связи со службой. Повторите позже.';
     case 'timeout': return 'Служба не ответила. Повторите позже.';
