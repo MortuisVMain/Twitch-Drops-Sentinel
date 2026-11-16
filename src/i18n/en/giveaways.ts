@@ -172,7 +172,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Двойной клик по шапке': 'Double-click the title bar',
   'Оконный режим': 'Window mode',
   'Переключение между полноэкранным и стандартным размером окна': 'Switches between the maximized and standard window size',
-  'Колесико мыши': 'Mouse wheel',
+  'Колесо мыши': 'Mouse wheel',
   'Лог консоли': 'Console log',
   'Скролл ленты реального времени в терминале активности': 'Scrolls the real-time feed in the activity terminal',
   'Текущая открытая вкладка': 'The currently open tab',

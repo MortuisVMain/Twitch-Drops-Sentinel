@@ -1782,7 +1782,7 @@ export const App: React.FC = () => {
 
               onUpdateSettings={handleUpdateSettings}
 
-              appVersion={sentinelState.version}
+              appVersion={sentinelState.version || updateInfo?.local_version}
 
               openReadinessOnMount={giveawaysReadinessRequested}
 
@@ -1838,7 +1838,7 @@ export const App: React.FC = () => {
               updateInfo={updateInfo}
               updateCheckFailure={updateCheckFailure}
               updateProgress={updateProgress}
-              appVersion={sentinelState.version}
+              appVersion={sentinelState.version || updateInfo?.local_version}
             />
 
           )}

@@ -1241,7 +1241,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
 
     # 4. Verify App.tsx uses dynamic version in sidebar only and removed from footer
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "appVersion={sentinelState.version}" in app_tsx, "App.tsx must pass the dynamic sentinelState version to Settings"
+    assert "appVersion={sentinelState.version || updateInfo?.local_version}" in app_tsx, "App.tsx must pass the dynamic sentinelState version to Settings"
     assert "Sentinel v{" not in app_tsx, "App.tsx must not contain hardcoded version string in footer"
 
     # 5. Verify SettingsStudio and HelpModal clean headers
@@ -2437,7 +2437,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     for old in ("Только очередь ⇄", "Очередь + любые ⇄", "'ФОКУС'", "'FORCE'", "Фармить вне очереди\n"):
         assert old not in dash, old
     shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
-    assert "Не фармить" in shelf and "Фармить сейчас" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
+    assert "Вне очереди" in shelf and "Фармить сейчас" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
     app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
     assert "relief-chip" not in app and "relief-chip" not in css and "FLAT-2D" not in app, "the backdrop chip is gone from the header"

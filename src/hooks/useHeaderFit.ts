@@ -10,9 +10,12 @@ const MAX_LEVEL = 2;
  */
 export function useHeaderFit() {
   const observerRef = useRef<ResizeObserver | null>(null);
+  const mutationRef = useRef<MutationObserver | null>(null);
   return useCallback((header: HTMLElement | null) => {
     observerRef.current?.disconnect();
     observerRef.current = null;
+    mutationRef.current?.disconnect();
+    mutationRef.current = null;
     if (!header) return;
     const fit = () => {
       let level = 0;
@@ -26,7 +29,20 @@ export function useHeaderFit() {
     // text size, language, the update button and the night icon change the width of a child, not of the header
     const observer = new ResizeObserver(fit);
     observer.observe(header);
-    for (const child of Array.from(header.children)) observer.observe(child);
+    const watch = () => {
+      for (const child of Array.from(header.children)) {
+        observer.observe(child);
+        for (const item of Array.from(child.children)) observer.observe(item); // each tab and header button
+      }
+    };
+    watch();
     observerRef.current = observer;
+    // a tab added later (Steam IDLE) or a font swap can overflow the header without resizing any observed box
+    let queued: ReturnType<typeof setTimeout> | null = null;
+    const refit = () => { if (queued === null) queued = setTimeout(() => { queued = null; watch(); fit(); }, 50); };
+    const mutation = new MutationObserver(refit);
+    mutation.observe(header, { childList: true, subtree: true, characterData: true });
+    mutationRef.current = mutation;
+    document.fonts?.ready.then(refit).catch((err) => console.error('useHeaderFit: font wait failed', err));
   }, []);
 }

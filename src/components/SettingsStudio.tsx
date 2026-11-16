@@ -47,6 +47,14 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const [scanLabel, setScanLabel] = useState<string>('Пересканировать все диски');
   const [backupLabel, setBackupLabel] = useState<string>('Бэкап профиля (.zip)');
   const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | 'cache' | null>(null);
+  const lastDanger = useRef<'trophies' | 'logout' | 'cache' | null>(null);
+  // A closed question unmounts the focused button: hand focus back to the button that asked it
+  useEffect(() => {
+    if (pendingDanger !== null) { lastDanger.current = pendingDanger; return; }
+    const asked = lastDanger.current;
+    lastDanger.current = null;
+    if (asked) document.querySelector<HTMLButtonElement>(`[data-danger="${asked}"]`)?.focus();
+  }, [pendingDanger]);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
   const diagDialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(showDiagModal, diagDialogRef, () => setShowDiagModal(false));
@@ -159,9 +167,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     playClick();
     setPendingDanger(null);
     const action = {
-      trophies: { path: '/api/trophies/clear', done: 'Журнал Trophies.md очищен!', failed: 'Не удалось очистить журнал: сервис не ответил' },
-      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Sentinel.', failed: 'Не удалось сбросить сессию: сервис не ответил' },
-      cache: { path: '/api/game-directories/clear-cache', done: 'Кэш распознавания игр очищен!', failed: 'Не удалось очистить кэш: сервис недоступен' },
+      trophies: { path: '/api/trophies/clear', done: 'Журнал Trophies.md очищен!', failed: 'Не удалось очистить журнал: ошибка сервиса' },
+      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Sentinel.', failed: 'Не удалось сбросить сессию: ошибка сервиса' },
+      cache: { path: '/api/game-directories/clear-cache', done: 'Кэш распознавания игр очищен!', failed: 'Не удалось очистить кэш: ошибка сервиса' },
     }[type];
     try {
       const res = await fetch(`http://127.0.0.1:28492${action.path}`, { method: 'POST' });
@@ -648,7 +656,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                   <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
                 </>
               ) : (
-                <button className="tactile-btn danger-hover" onClick={handleClearInstalledGames} title="Очистить список">
+                <button className="tactile-btn danger-hover" data-danger="cache" onClick={handleClearInstalledGames} title="Очистить список">
                   <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Очистить кэш / Очистить список
                 </button>
               )}
@@ -669,7 +677,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </>
           ) : (
             <>
-              <button className="safety-guard-btn" onClick={handleClearTrophies} title="Удалить журнал полученных наград Trophies.md">Очистить трофеи</button>
+              <button className="safety-guard-btn" data-danger="trophies" onClick={handleClearTrophies} title="Удалить журнал полученных наград Trophies.md">Очистить трофеи</button>
               <span className="danger-zone-hint">Удаляет журнал полученных наград</span>
             </>
           )}
@@ -683,7 +691,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </>
           ) : (
             <>
-              <button className="safety-guard-btn" onClick={handleLogout} title="Сбросить вход в Twitch и войти другим аккаунтом">Сменить аккаунт</button>
+              <button className="safety-guard-btn" data-danger="logout" onClick={handleLogout} title="Сбросить вход в Twitch и войти другим аккаунтом">Сменить аккаунт</button>
               <span className="danger-zone-hint">Сбрасывает вход в Twitch</span>
             </>
           )}

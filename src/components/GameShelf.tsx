@@ -1019,7 +1019,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   </div>
                 )}
 
-                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (Не фармить) / QUEUE (В очередь) / FORCE (Фармить сейчас) */}
+                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (Вне очереди) / QUEUE (В очередь) / FORCE (Фармить сейчас) */}
                 <div className="rocker-3p" data-mode={isForced ? "FORCE #1" : isInPriority ? "QUEUE" : "IDLE"}>
                   <span 
                     className={`r-step ${!isInPriority && !isForced ? 'idle' : ''}`}
@@ -1031,7 +1031,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title="Не в очереди: игра убирается из очереди приоритетов. Она фармится только в режиме «очередь + любые», после игр очереди"
                   >
-                    Не фармить
+                    Вне очереди
                   </span>
                   <span 
                     className={`r-step ${isInPriority && !isForced ? 'queue' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}

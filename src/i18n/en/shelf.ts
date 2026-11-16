@@ -106,7 +106,7 @@ export const SHELF: Record<string, string> = {
   'Требуется привязка': 'Link needed',
   'Восстановить из исключений': 'Restore from exclusions',
   'Исключить': 'Exclude',
-  'Не фармить': "Don't farm",
+  'Вне очереди': 'Off queue',
   'ОЧЕРЕДЬ': 'QUEUE',
   'Фармить сейчас': 'Farm now',
 };

@@ -72,7 +72,7 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({ label, resetKey, children })
       </button>
       {open && (
         <div id={menuId} ref={menuRef} className="more-menu open more-menu-narrow" role="menu">
-          {children(() => setOpen(false))}
+          {children(() => { setOpen(false); triggerRef.current?.focus(); })}
         </div>
       )}
     </div>
