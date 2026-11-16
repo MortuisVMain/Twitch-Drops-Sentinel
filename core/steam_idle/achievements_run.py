@@ -64,7 +64,7 @@ class AchievementsRun:
         self._wake = Wake()
         self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard,
                                        on_command=self._wake.set, classify=self._queue_classify,
-                                       on_finished=self._on_game_finished)
+                                       on_finished=self._on_game_finished, on_written=self._on_written)
         self._tools: "Tools | None" = None
         self._account, self._expected = 0, ""
         self._preparing = self._cancel = self._reading = False
@@ -311,6 +311,13 @@ class AchievementsRun:
             record["gamesDone"] = len(record["finished"])
         record["unlocked"] = unlocked
         self._store.save(record)
+
+    def _on_written(self, unlocked: int) -> None:
+        """Step thread: a write batch changed the account; the count of an unfinished game survives a restart."""
+        record = self._record
+        if record is not None:
+            record["unlocked"] = unlocked
+            self._store.save(record)
 
     def _end_record(self) -> None:
         """The run is over: its record goes when the queue finished or the user stopped it. A run that halted with an

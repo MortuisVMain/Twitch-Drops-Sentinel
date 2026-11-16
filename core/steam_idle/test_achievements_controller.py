@@ -479,6 +479,26 @@ class InterruptedTests(Base):
         gate.set()
         await self.env.settle()
 
+    async def test_the_record_counts_the_writes_of_a_game_that_is_not_finished_yet(self):
+        ctl = self.make()
+        await self.ready()
+        self.env.ach[100] = [ach(f"N{i}") for i in range(450)]  # batches of 200: the second one is blocked
+        entered, gate, calls = threading.Event(), threading.Event(), []
+
+        def script(app, names):
+            calls.append(len(names))
+            if len(calls) == 2:
+                entered.set()
+                gate.wait(5)
+            return _outcome([UnlockResult(name, "unlocked") for name in names], "yes")
+        self.env.unlock_script = script
+        self.assertIsNone(ctl.start_achievements(GamePlan(100)))
+        self.assertTrue(await asyncio.to_thread(entered.wait, 5))
+        record = self.stored()
+        self.assertEqual((record["unlocked"], record["gamesDone"], record["finished"]), (200, 0, []))
+        gate.set()
+        await self.env.settle()
+
     async def test_the_record_never_holds_the_account_id(self):
         ctl, gate = await self.start_library_blocked_on_two()
         text = self.path.read_text(encoding="utf-8")

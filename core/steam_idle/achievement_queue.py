@@ -89,11 +89,13 @@ class AchievementQueue:
                  unlock: Callable[[int, list[str]], UnlockOutcome], clock: Callable[[], float],
                  uniform: Callable[[float, float], float], guard: Callable[[], str | None] | None = None,
                  on_command: Callable[[], None] = lambda: None, classify: Callable[[int], str] | None = None,
-                 on_finished: Callable[[int, str | None, int], None] | None = None):
+                 on_finished: Callable[[int, str | None, int], None] | None = None,
+                 on_written: Callable[[int], None] | None = None):
         """`classify(app_id)` returns "protected", "clear" or "unknown" (blocking); only "clear" opens a game.
         None skips the check and is meant for tests of the queue alone.
-        `on_finished(app_id, note, unlocked_total)` is called in the step thread whenever a game is done with."""
-        self._on_finished = on_finished
+        `on_finished(app_id, note, unlocked_total)` is called in the step thread whenever a game is done with;
+        `on_written(unlocked_total)`, also there, after every write batch that changed the account."""
+        self._on_finished, self._on_written = on_finished, on_written
         self._read, self._unlock, self._clock, self._uniform, self._guard = read_achievements, unlock, clock, uniform, guard
         self._classify = classify
         self._wake = on_command  # called after every command; must be safe from any thread
@@ -425,6 +427,11 @@ class AchievementQueue:
         self._totals["failed"] += failed
         game.done += len(batch)
         del game.targets[:len(batch)]
+        if outcome.changed and self._on_written is not None:
+            try:
+                self._on_written(self._totals["unlocked"])
+            except Exception:
+                logger.error("achievements write hook failed for app %s", game.app_id, exc_info=True)
         if outcome.uncertain or failed or len(outcome.results) != len(batch):
             self._finish("unlock_uncertain")
             return self._halt("unlock_uncertain")
