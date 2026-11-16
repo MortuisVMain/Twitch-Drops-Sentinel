@@ -47,7 +47,7 @@ def create_release():
     print(f"[*] Copying {exe_src.name} ({exe_src.stat().st_size / (1024*1024):.1f} MB)...")
     shutil.copy2(exe_src, RELEASE_DIR / "TwitchDropsSentinel.exe")
 
-    # 1b. Steam idle helper (published single-file exe; no pdb, no checks project)
+    # 1b. Steam idle helper (published single-file exe, compressed; no pdb, no checks project)
     helper_src = WORKSPACE / "tools" / "steam_idle_probe" / "publish"
     if not (helper_src / "SteamIdleProbe.exe").is_file():
         raise SystemExit(f"Missing Steam idle helper build: {helper_src / 'SteamIdleProbe.exe'} (run the helper dotnet publish first)")
