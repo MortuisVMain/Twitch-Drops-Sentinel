@@ -1475,7 +1475,7 @@ export const App: React.FC = () => {
 
           <div className="pip-ring-wrap">
 
-            <svg width="72" height="72" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
+            <svg width="100%" height="100%" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
 
               <circle cx="36" cy="36" r="32" fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth="4"></circle>
 
