@@ -19,6 +19,8 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Библиотека подключена: (.+)$/, 'Library connected: $1'],
   [/^Обновление доступно: v(.+)$/, 'Update available: v$1'],
   [/^Фармится: (.+)$/, 'Farming: $1'],
+  [/^Куплена недавно: фарм отнимет право на возврат\. Осталось дней: (\d+)\.$/, 'Bought recently: farming takes away the right to a refund. Days left: $1.'],
+  [/^Фармить (.+)\? После 2 часов в игре вернуть её будет нельзя\.$/, 'Farm $1? After 2 hours in the game it can no longer be refunded.'],
   [/^~(\d+)М$/, '~$1M'],
   [/^Фокус: (.+)$/, 'Focus: $1'],
   // LiveDashboard

@@ -47,6 +47,13 @@ def create_release():
     print(f"[*] Copying {exe_src.name} ({exe_src.stat().st_size / (1024*1024):.1f} MB)...")
     shutil.copy2(exe_src, RELEASE_DIR / "TwitchDropsSentinel.exe")
 
+    # 1b. Steam idle helper (published single-file exe, compressed; no pdb, no checks project)
+    helper_src = WORKSPACE / "tools" / "steam_idle_probe" / "publish"
+    if not (helper_src / "SteamIdleProbe.exe").is_file():
+        raise SystemExit(f"Missing Steam idle helper build: {helper_src / 'SteamIdleProbe.exe'} (run the helper dotnet publish first)")
+    print("[*] Copying Steam idle helper (steam_idle/)...")
+    shutil.copytree(helper_src, RELEASE_DIR / "steam_idle", ignore=shutil.ignore_patterns("*.pdb"))
+
     # 2. Dist Frontend Bundle
     dist_src = WORKSPACE / "dist"
     print("[*] Copying frontend bundle (dist/)...")
@@ -188,6 +195,10 @@ def create_release():
             if file.is_file():
                 arcname = file.relative_to(RELEASE_DIR)
                 pzf.write(file, arcname)
+        # Include steam_idle/ (the updater extracts subfolders the same way as core/)
+        for file in (RELEASE_DIR / "steam_idle").rglob("*"):
+            if file.is_file():
+                pzf.write(file, file.relative_to(RELEASE_DIR))
         # Include giveaways_engine/
         fgc_dir = RELEASE_DIR / "giveaways_engine"
         if fgc_dir.exists():

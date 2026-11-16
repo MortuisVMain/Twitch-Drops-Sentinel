@@ -213,7 +213,79 @@ export interface GiveawaysStateResponse {
   totalClaimed: number;
 }
 
-export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'dimmer' | 'settings';
+export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'steamidle' | 'dimmer' | 'settings';
+
+export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped';
+export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | 'signed_out' | 'login_open' | 'account_mismatch' | 'error';
+
+export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaining: number }
+export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }
+export interface SteamIdleFailedGame { appId: number; name: string; reason: string }
+/** A game kept out of the queue because it may still be refundable. */
+export interface SteamIdleHeldGame { appId: number; name: string; reason: 'refund_window'; daysLeft: number }
+
+export type SteamIdlePreviewStatus = 'none' | 'scanning' | 'ready' | 'failed';
+export interface SteamIdlePreviewGame { appId: number; name: string; dropsRemaining: number; playtimeHours: number }
+/** Farmable games read on demand; absent when the service is older than the scan command. */
+export interface SteamIdlePreview {
+  status: SteamIdlePreviewStatus;
+  ageSeconds: number | null;
+  error: string | null;
+  games: SteamIdlePreviewGame[];
+  totalDropsRemaining: number;
+}
+
+export interface SteamIdleState {
+  available: boolean;
+  unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | null;
+  riskAcknowledged: boolean;
+  steam: { running: boolean; signedIn: boolean };
+  community: { session: SteamIdleCommunitySession; checkedAgeSeconds: number | null };
+  farm: {
+    state: SteamIdleFarmState;
+    current: SteamIdleCurrentGame | null;
+    queue: SteamIdleQueuedGame[];
+    done: { appId: number; name: string }[];
+    failed: SteamIdleFailedGame[];
+    totalDropsRemaining: number;
+    lastReadAgeSeconds: number | null;
+    lastError: string | null;
+    paused: boolean;
+    suspended: boolean;
+    refundHeld: SteamIdleHeldGame[];
+  };
+  library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null };
+  preview?: SteamIdlePreview;
+  /** Absent when the service is older than achievements: the Achievements switch item is then hidden. */
+  achievements?: SteamIdleAchievements;
+}
+
+export type SteamIdleLibraryStatus = 'none' | 'scanning' | 'ready' | 'failed';
+export type SteamIdleAchRunState = 'idle' | 'scanning' | 'unlocking' | 'waiting' | 'paused' | 'suspended' | 'done' | 'stopped';
+export interface SteamIdleAchSettings { minMinutes: number; maxMinutes: number; skipHidden: boolean }
+export interface SteamIdleAchTotals { unlocked: number; already: number; skipped: number; rejected: number; failed: number }
+export interface SteamIdleAchGame { appId: number; name: string }
+export interface SteamIdleAchFinished extends SteamIdleAchGame { unlocked: number; skipped: number; failed: number; note: string | null }
+export interface SteamIdleAchRun {
+  state: SteamIdleAchRunState;
+  mode: 'selected' | 'game' | 'library' | null;
+  current: (SteamIdleAchGame & { done: number; total: number }) | null;
+  nextUnlockInSeconds: number | null;
+  queue: SteamIdleAchGame[];
+  finished: SteamIdleAchFinished[];
+  totals: SteamIdleAchTotals;
+  lastError: string | null;
+  paused: boolean;
+  suspended: boolean;
+}
+/** A run the last session did not finish; nothing resumes by itself. */
+export interface SteamIdleAchInterrupted { kind: 'game' | 'selected' | 'library'; startedAt: number; gamesDone: number; gamesTotal: number; unlocked: number }
+export interface SteamIdleAchievements { acknowledged: boolean; settings: SteamIdleAchSettings; run: SteamIdleAchRun; interrupted?: SteamIdleAchInterrupted | null }
+
+/** One owned game from GET /library. */
+export interface SteamIdleLibraryGame { appId: number; name: string; playtimeMinutes: number }
+/** One achievement from GET /achievements. */
+export interface SteamIdleAchievement { apiName: string; name: string; description: string; hidden: boolean; achieved: boolean; unlockTime: number | null }
 
 export interface DisplayMonitor {
   id: string;

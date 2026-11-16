@@ -179,10 +179,13 @@ from gui_headless import STATE_BRIDGE, send_windows_toast
 from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
-from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
+from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE, STEAM_IDLE_LIVE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
-from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser
+from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
+from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
+                                   create_controller as create_steam_idle_controller, steam_idle_backend_kind)
+from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
@@ -346,6 +349,11 @@ SUPERVISOR_DEFAULTS = {
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
     "giveaways_browser": "auto",
+    "steam_idle_risk_ack": False,
+    "steam_idle_achievements_ack": False,
+    "steam_idle_unlock_min_minutes": 0,
+    "steam_idle_unlock_max_minutes": 0,
+    "steam_idle_unlock_skip_hidden": True,
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
@@ -385,6 +393,11 @@ class SentinelSupervisor:
         self.luna_fired = False
         self.giveaways = GiveawaysOrchestrator()
         self.dimmer = DimmerController()
+        self.steam_idle = create_steam_idle_controller(
+            PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
+            lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
+            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert")
+        self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
 
@@ -601,6 +614,30 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/dimmer/mute", self.handle_dimmer_mute)
         self.app.router.add_post("/api/v1/dimmer/save-baseline", self.handle_dimmer_save_baseline)
         self.app.router.add_post("/api/v1/dimmer/restore-baseline", self.handle_dimmer_restore_baseline)
+        steam_idle = self.steam_idle_routes
+        self.app.router.add_get("/api/v1/steam-idle/state", steam_idle.state)
+        self.app.router.add_post("/api/v1/steam-idle/ack", steam_idle.ack)
+        self.app.router.add_post("/api/v1/steam-idle/login", steam_idle.login)
+        self.app.router.add_post("/api/v1/steam-idle/check", steam_idle.check)
+        self.app.router.add_post("/api/v1/steam-idle/scan", steam_idle.scan)
+        self.app.router.add_post("/api/v1/steam-idle/farm/start", steam_idle.farm_start)
+        self.app.router.add_post("/api/v1/steam-idle/farm/stop", steam_idle.farm_stop)
+        self.app.router.add_post("/api/v1/steam-idle/farm/pause", steam_idle.farm_pause)
+        self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
+        self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
+        self.app.router.add_post("/api/v1/steam-idle/farm/release", steam_idle.farm_release)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
+        self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)
+        self.app.router.add_get("/api/v1/steam-idle/library", steam_idle.library)
+        self.app.router.add_get("/api/v1/steam-idle/achievements", steam_idle.achievements_read)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/start", steam_idle.achievements_start)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/resume-interrupted", steam_idle.achievements_resume_interrupted)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/discard-interrupted", steam_idle.achievements_discard_interrupted)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/stop", steam_idle.achievements_stop)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/pause", steam_idle.achievements_pause)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/resume", steam_idle.achievements_resume)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/skip", steam_idle.achievements_skip)
 
         # CORS preflight middleware
         self.app.middlewares.append(self.cors_middleware)
@@ -950,6 +987,10 @@ class SentinelSupervisor:
             await asyncio.wait_for(self.giveaways.abort_claim(), timeout=2.5)
         except Exception as e:
             logger.warning(f"Could not abort giveaways process on shutdown: {e}")
+        try:  # closes the steam-idle queue first, then waits for an unlock call in flight (never kills it)
+            await asyncio.wait_for(self.steam_idle.shutdown(), timeout=STEAM_IDLE_SHUTDOWN_BUDGET)
+        except Exception as e:
+            logger.warning(f"Steam idle did not shut down cleanly: {e!r}")
         await asyncio.sleep(0.5)
         sys.exit(0)
 
@@ -1633,6 +1674,7 @@ class SentinelSupervisor:
     async def _on_app_shutdown(self, app):
         logger.info("Cleaning up Giveaways processes on shutdown...")
         await self.giveaways.abort_claim()
+        await self.steam_idle.shutdown()
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -1692,6 +1734,10 @@ class SentinelSupervisor:
                         break
 
                 is_gaming = detected_game is not None
+                try:  # any detected game suspends Steam IDLE, even with pause_on_gaming off: a held game blocks launching it
+                    self.steam_idle.set_suspended(is_gaming)
+                except Exception:
+                    logger.error("Steam IDLE suspend hook failed", exc_info=True)
 
                 self.hardware_state.update({
                     "is_gaming": is_gaming,

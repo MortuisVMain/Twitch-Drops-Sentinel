@@ -26,6 +26,8 @@ IS_PACKAGED = hasattr(sys, "_MEIPASS") or IS_APPIMAGE
 DEFAULT_SERVICE_PORT: int = int(os.environ.get("SENTINEL_SERVICE_PORT", "28492"))
 # SENTINEL_TEST_MODE=1 keeps the API up but never starts the Twitch engine or campaign fetcher.
 TEST_MODE: bool = os.environ.get("SENTINEL_TEST_MODE") == "1"
+# SENTINEL_STEAM_IDLE_LIVE=1 together with test mode builds the real Steam IDLE backend (the rest of test mode stays off).
+STEAM_IDLE_LIVE: bool = os.environ.get("SENTINEL_STEAM_IDLE_LIVE") == "1"
 # logging special levels
 CALL: int = logging.INFO - 1
 logging.addLevelName(CALL, "CALL")
