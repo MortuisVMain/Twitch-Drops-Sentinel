@@ -4948,6 +4948,168 @@ def test_local_service_refuses_foreign_pages_and_resets_cleanly():
     print("      Local service: ALL PASS [OK]")
 
 
+def test_local_api_token_guards_every_route_when_the_host_sets_one():
+    print("[security] Local API: a per-launch secret is required when the host sets one...")
+    import secrets
+    import urllib.error
+
+    sys.path.insert(0, str(SANDBOX / "core"))
+    try:
+        import local_access
+    finally:
+        sys.path.remove(str(SANDBOX / "core"))
+
+    # Pure rules
+    assert local_access.TOKEN_HEADER == "X-Sentinel-Token" and local_access.API_TOKEN_ENV == "SENTINEL_API_TOKEN"
+    environ = {"SENTINEL_API_TOKEN": "abc", "KEEP": "1"}
+    assert local_access.take_api_token(environ) == "abc" and "SENTINEL_API_TOKEN" not in environ and environ["KEEP"] == "1", "taken once, then gone from the environment"
+    assert local_access.take_api_token({}) is None and local_access.take_api_token({"SENTINEL_API_TOKEN": ""}) is None, "unset or empty means no token mode"
+    allowed = local_access.token_allowed
+    assert allowed(None, "/api/state", {}, {}), "no token configured: nothing is required"
+    assert allowed("s3", "/api/state", {"X-Sentinel-Token": "s3"}, {})
+    assert not allowed("s3", "/api/state", {}, {}) and not allowed("s3", "/api/state", {"X-Sentinel-Token": "other"}, {})
+    assert not allowed("s3", "/api/state", {}, {"token": "s3"}), "the query form is for the two streams only"
+    assert allowed("s3", "/ws", {}, {"token": "s3"}) and allowed("s3", "/api/v1/giveaways/stream", {}, {"token": "s3"})
+    assert not allowed("s3", "/ws", {}, {"token": "x"}) and not allowed("s3", "/ws", {}, {})
+    assert not allowed("s3", "/api/state", {"X-Sentinel-Token": "sé3"}, {}), "a non-ASCII value is a mismatch, not a crash"
+
+    # A second sandbox service with a token, next to the one the other gates use
+    token = secrets.token_urlsafe(32)
+    port = _free_port()
+    base = f"http://127.0.0.1:{port}"
+    out_path = SANDBOX / f"token_service_{port}.out"
+    with open(out_path, "wb") as out:
+        proc = subprocess.Popen(
+            [sys.executable, str(SANDBOX / "core" / "sentinel_service.py")],
+            env={**os.environ, "SENTINEL_SERVICE_PORT": str(port), "SENTINEL_TEST_MODE": "1", "SENTINEL_API_TOKEN": token},
+            cwd=str(SANDBOX / "core"), stdout=out, stderr=subprocess.STDOUT)
+    try:
+        def call(path, method="GET", headers=None, body=None):
+            req = urllib.request.Request(base + path, method=method, data=body)
+            for key, value in (headers or {}).items():
+                req.add_header(key, value)
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    return resp.status, resp.headers, resp.read()
+            except urllib.error.HTTPError as err:
+                return err.code, err.headers, err.read()
+
+        good = {"X-Sentinel-Token": token}
+        for _ in range(40):
+            try:
+                if call("/api/state", headers=good)[0] == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.5)
+
+        # Normal routes: none / wrong / empty
+        wrong = token[:-1] + ("A" if token[-1] != "A" else "B")
+        for path, method, body in (("/api/state", "GET", None), ("/api/v1/steam-idle/ack", "POST", b"{}"), ("/api/shutdown", "POST", b"{}")):
+            code, _h, answer = call(path, method, body=body)
+            assert code == 401 and json.loads(answer) == {"error": "unauthorized"}, (path, "no token", code, answer[:100])
+            code, _h, _a = call(path, method, {"X-Sentinel-Token": wrong}, body)
+            assert code == 401, (path, "wrong token", code)
+            code, _h, _a = call(path, method, {"X-Sentinel-Token": ""}, body)
+            assert code == 401, (path, "empty token", code)
+        code, _h, _a = call("/api/state", headers=good)
+        assert code == 200, f"the right token must pass: {code}"
+        code, _h, answer = call("/api/v1/steam-idle/state", headers=good)
+        assert code == 200, f"a Steam IDLE read with the right token: {code} {answer[:100]}"
+        code, _h, answer = call("/api/v1/steam-idle/farm/stop", "POST", {**good, "Content-Type": "application/json"}, b"{}")
+        assert code not in (401, 403), f"a Steam IDLE POST with the right token reaches its handler: {code}"
+        code, _h, _a = call("/api/state?token=" + token)
+        assert code == 401, "the query token is not accepted on a normal route"
+        code, _h, _a = call("/api/state", headers={"X-Sentinel-Token": token, "Origin": "https://evil.example"})
+        assert code == 403, "the origin check runs first and still refuses a foreign page"
+        code, _h, _a = call("/api/state", headers={"X-Sentinel-Token": token, "Host": "evil.example"})
+        assert code == 403, "the host check runs first and still refuses a rebound name"
+
+        # Preflight needs no token (browsers send none), but the origin rules stay; the header is announced
+        code, headers, _a = call("/api/state", "OPTIONS", {"Origin": "https://app.sentinel", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-sentinel-token"})
+        assert code == 200 and "X-Sentinel-Token" in headers.get("Access-Control-Allow-Headers", ""), (code, dict(headers))
+        code, headers, _a = call("/api/state", "OPTIONS", {"Origin": "https://evil.example"})
+        assert code == 403 and "Access-Control-Allow-Origin" not in headers, "a foreign preflight is still refused"
+        code, headers, _a = call("/api/state", headers={"Origin": "https://app.sentinel", **good})
+        assert code == 200 and headers.get("Access-Control-Allow-Origin") == "https://app.sentinel"
+        code, headers, _a = call("/api/state", headers={"Origin": "https://app.sentinel"})
+        assert code == 401 and headers.get("Access-Control-Allow-Origin") == "https://app.sentinel", "the page can read the refusal, not the data"
+
+        # The event stream and the WebSocket carry the token in the address
+        code, _h, _a = call("/api/v1/giveaways/stream")
+        assert code == 401, f"stream without a token: {code}"
+        code, _h, _a = call("/api/v1/giveaways/stream?token=wrong")
+        assert code == 401, f"stream with a wrong token: {code}"
+        stream = urllib.request.urlopen(base + "/api/v1/giveaways/stream?token=" + token, timeout=15)
+        try:
+            assert stream.status == 200, stream.status
+        finally:
+            stream.close()
+
+        import aiohttp
+
+        async def ws_status(query):
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.ws_connect(f"ws://127.0.0.1:{port}/ws{query}", timeout=10) as sock:
+                        await sock.close()
+                        return 101
+                except aiohttp.WSServerHandshakeError as err:
+                    return err.status
+
+        assert asyncio.run(ws_status("")) == 401, "ws without a token"
+        assert asyncio.run(ws_status("?token=wrong")) == 401, "ws with a wrong token"
+        assert asyncio.run(ws_status("?token=" + token)) == 101, "ws with the right token"
+    finally:
+        proc.terminate()
+        with suppress(Exception):
+            proc.wait(timeout=5)
+        if proc.poll() is None:
+            proc.kill()
+
+    # The secret never reaches a log, and the service takes it out of its environment before any child exists
+    captured = out_path.read_text(encoding="utf-8", errors="replace")
+    service_log = SANDBOX / "core" / "sentinel_service.log"
+    logged = service_log.read_text(encoding="utf-8", errors="replace") if service_log.exists() else ""
+    assert token not in captured and token not in logged, "the token value must never be logged"
+    assert "Local API token: required" in captured + logged, "the active mode is logged once at start"
+
+    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert source.index("take_api_token(") < source.index("GiveawaysOrchestrator()"), "taken out of the environment before any child process exists"
+    print("      Local API token: ALL PASS [OK]")
+
+
+def test_host_and_page_carry_the_local_api_token():
+    print("[security] Host and page: the secret goes host -> environment -> service, host -> page script -> header...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    token_cs = (WORKSPACE / "desktop" / "LocalApiToken.cs").read_text(encoding="utf-8")
+    assert "RandomNumberGenerator.GetBytes(32)" in token_cs and "Convert.ToBase64String" in token_cs, "32 random bytes from the system generator"
+    assert "JsonSerializer.Serialize(token)" in token_cs, "the value is JSON-encoded inside the page script"
+    assert "static readonly string Current" in token_cs or "Lazy<string>" in token_cs, "one secret per launch"
+
+    start = form.index("FileName = pythonExe")
+    spawn = form[start:form.index("_pythonBackendProcess = Process.Start(psi)", start)]
+    assert "psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current;" in spawn, "the child gets the secret through its environment"
+    assert "Arguments = $\"-X utf8 \\\"{scriptPath}\\\"\"" in spawn and "LocalApiToken" not in spawn.split("Arguments =", 1)[1].split("\n", 1)[0], "never on the command line"
+    assert form.count("LocalApiToken.HeaderName") >= 3, "both health probes and the shutdown call send the header"
+    assert "LogDesktopError" not in token_cs and "File.Write" not in token_cs and "Console." not in token_cs, "the secret is never written anywhere"
+
+    first_navigate = form.index("CoreWebView2.Navigate(")
+    script_at = form.index("AddScriptToExecuteOnDocumentCreatedAsync(LocalApiToken.PageScript(LocalApiToken.Current))")
+    assert script_at < first_navigate, "the page script is registered before the first navigation"
+    assert form.count("AddScriptToExecuteOnDocumentCreatedAsync(") == 1
+    assert "NavigateToString" in form and "cannot" in form.split("NavigateToString(\"", 1)[0][-600:].lower(), "the opaque-origin fallback says why it gets no token"
+
+    main = (WORKSPACE / "src" / "main.tsx").read_text(encoding="utf-8")
+    assert "installServiceAuth()" in main and main.index("installServiceAuth()") < main.index("ReactDOM.createRoot"), "fetch is wrapped before the app renders"
+    assert "from './utils/serviceAuth.mjs'" in main
+    assert "withServiceToken('ws://127.0.0.1:28492/ws')" in (WORKSPACE / "src" / "hooks" / "useSentinelState.ts").read_text(encoding="utf-8")
+    assert "withServiceToken('http://127.0.0.1:28492/api/v1/giveaways/stream')" in (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    adr = WORKSPACE / "docs" / "adr" / "005-local-api-token.md"
+    assert adr.exists() and "same user" in adr.read_text(encoding="utf-8"), "the threat model is written down"
+    print("      Host and page carry the token: PASS [OK]")
+
+
 def test_store_card_shows_login_even_with_nothing_claimed():
     print("[friend-report] Store card: a finished login counts, claimed games are not required...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -7410,6 +7572,8 @@ if __name__ == "__main__":
         test_english_ui_covers_every_russian_string,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
         test_local_service_refuses_foreign_pages_and_resets_cleanly,
+        test_local_api_token_guards_every_route_when_the_host_sets_one,
+        test_host_and_page_carry_the_local_api_token,
         test_resolve_fgc_root_has_no_undefined_names,
         test_steam_login_window_fits_a_small_screen,
         test_concurrent_update_checks_share_one_request,

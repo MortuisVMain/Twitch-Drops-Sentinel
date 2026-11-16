@@ -12,6 +12,7 @@ import { useTactileAudio } from '../hooks/useTactileAudio';
 import { initialLoad, loadOk, loadFailed, loadRetry, hasStaleData, isGiveawaysState, failureText, type LoadState } from '../utils/dataLoad';
 import { loginAttemptSucceeded, loginHintVisible } from '../utils/loginAttempt';
 import { useGiveawaysReadiness } from '../hooks/useGiveawaysReadiness';
+import { withServiceToken } from '../utils/serviceAuth.mjs';
 import { GiveawaysReadiness } from './GiveawaysReadiness';
 import { countTodo } from '../utils/giveawaysReadiness';
 
@@ -177,7 +178,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   // Connect SSE Stream for real-time logs
   useEffect(() => {
     try {
-      const sse = new EventSource('http://127.0.0.1:28492/api/v1/giveaways/stream');
+      const sse = new EventSource(withServiceToken('http://127.0.0.1:28492/api/v1/giveaways/stream'));
       eventSourceRef.current = sse;
 
       sse.addEventListener('log', (event: MessageEvent) => {

@@ -4,6 +4,7 @@ import { App } from './App';
 import { installTranslator } from './i18n';
 import { applyTextScale, getTextScale } from './utils/textScale';
 import { installTruncationTitles } from './utils/truncationTitles';
+import { installServiceAuth } from './utils/serviceAuth.mjs';
 import './fonts.css';
 import './index.css';
 
@@ -70,6 +71,7 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
   }
 }
 
+installServiceAuth(); // before anything can call the local service
 applyTextScale(getTextScale());
 installTranslator();
 installTruncationTitles();

@@ -190,7 +190,7 @@ from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
 from engine_flags import apply_engine_flags
-from local_access import host_allowed, origin_allowed
+from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
 from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
@@ -372,6 +372,8 @@ SUPERVISOR_DEFAULTS = {
 
 class SentinelSupervisor:
     def __init__(self):
+        self.api_token = take_api_token()  # first, so no child process created below inherits it
+        logger.info("Local API token: %s", "required" if self.api_token else "not set (development or test run)")
         self.app = web.Application()
         self.twitch_client: Optional[Twitch] = None
         self.scanner = GameScanner()
@@ -654,10 +656,15 @@ class SentinelSupervisor:
                 headers["Access-Control-Allow-Origin"] = origin
                 headers["Vary"] = "Origin"
                 headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-                headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+                headers["Access-Control-Allow-Headers"] = f"Content-Type, Authorization, X-Requested-With, {TOKEN_HEADER}"
 
-        if request.method == "OPTIONS":
+        if request.method == "OPTIONS":  # a preflight carries no custom headers: the origin and host checks above are its only gate
             response = web.Response()
+            allow(response.headers)
+            return response
+        if not token_allowed(self.api_token, request.path, request.headers, request.query):
+            logger.warning(f"Refused {request.method} {request.path}: missing or wrong API token")
+            response = web.json_response({"error": "unauthorized"}, status=401)
             allow(response.headers)
             return response
         try:

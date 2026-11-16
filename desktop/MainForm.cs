@@ -795,6 +795,7 @@ namespace TwitchDropsSentinel
             {
 
                 using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(800) };
+                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
 
                 var res = await client.GetAsync("http://127.0.0.1:28492/api/state");
 
@@ -904,6 +905,7 @@ namespace TwitchDropsSentinel
             {
 
                 using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(400) };
+                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
 
                 var res = client.GetAsync("http://127.0.0.1:28492/api/state").GetAwaiter().GetResult();
 
@@ -1099,6 +1101,8 @@ namespace TwitchDropsSentinel
 
                     psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
 
+                    psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current; // environment only: never the command line, a file or a log
+
 
 
                     _pythonBackendProcess = Process.Start(psi);
@@ -1242,6 +1246,7 @@ namespace TwitchDropsSentinel
             {
 
                 using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
 
                 client.PostAsync("http://127.0.0.1:28492/api/shutdown", null).GetAwaiter().GetResult();
 
@@ -1538,6 +1543,9 @@ namespace TwitchDropsSentinel
 
 
 
+                // The page learns the per-launch secret of the local service from this script, and only on the app's own origin; it must exist before the first Navigate
+                await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(LocalApiToken.PageScript(LocalApiToken.Current));
+
                 // Priority 1: dist/ folder next to .exe or in project root
 
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -1628,6 +1636,7 @@ namespace TwitchDropsSentinel
 
                     {
 
+                        // This last fallback cannot use the token: its origin is not the app's, so the page script stays inert and the page cannot talk to the service (it only shows this message)
                         _allowInlineNavigation = true; // NavigateToString arrives as a data: navigation; OnNavigationStarting lets this one through
                         _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Twitch Drops Sentinel v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
 
