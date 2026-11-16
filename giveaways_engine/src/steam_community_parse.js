@@ -44,9 +44,11 @@ const parseGameRow = row => {
   const appId = Number(/\/gamecards\/(\d+)/.exec(row)?.[1]);
   const name = /<div class="badge_title">([\s\S]*?)<span class="badge_view_details"/.exec(row)?.[1];
   const drops = /<div class="badge_title_stats_drops">[\s\S]*?<span class="progress_info_bold">([\s\S]*?)<\/span>/.exec(row)?.[1];
+  const dropsCell = divText(row, 'badge_title_stats_drops');
   const playtime = divText(row, 'badge_title_stats_playtime');
-  const dropsRemaining = parseDropsText(drops === undefined ? null : squash(drops));
-  const playtimeHours = playtime === null ? 0 : parseHours(squash(playtime));
+  // Steam leaves the drops cell empty once no drops are left, and the playtime cell empty for a game never played
+  const dropsRemaining = drops === undefined && dropsCell !== null && squash(dropsCell) === '' ? 0 : parseDropsText(drops === undefined ? null : squash(drops));
+  const playtimeHours = playtime === null || squash(playtime) === '' ? 0 : parseHours(squash(playtime));
   const cleanName = name === undefined ? '' : squash(name);
   if (!Number.isSafeInteger(appId) || appId <= 0 || !cleanName || dropsRemaining === null || playtimeHours === null) throw new ParseError('unparsed_row');
   return { appId, name: cleanName, dropsRemaining, playtimeHours };

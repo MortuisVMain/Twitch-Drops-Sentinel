@@ -288,3 +288,30 @@ test('collectStatus: signed_in only for the expected id, signed_out on a login p
   assert.deepEqual(await sc.collectStatus(fetcher([null]), FAKE_ID), { status: 'signed_out' });
   assert.deepEqual(await sc.collectStatus(fetcher([Object.assign(new Error('x'), { code: 'http_503' })]), FAKE_ID), { status: 'failed', error: 'http_503', page: 1 });
 });
+
+// Shapes seen on a real account with many games: a never-played game has an empty playtime cell, and a game with no
+// drops left has an empty drops cell instead of "No card drops remaining".
+test('parseBadgesPage: an empty playtime cell is 0 hours and an empty drops cell is 0 drops', () => {
+  const row = (id, playtime, drops) => `<div class="badge_row is_link"><a class="badge_row_overlay" href="https://steamcommunity.com/profiles/P/gamecards/${id}/"></a>`
+    + `<div class="badge_title_stats_playtime"> ${playtime} </div><div class="badge_title_stats_drops"> ${drops} </div>`
+    + `<div class="badge_title">G${id} &nbsp;<span class="badge_view_details">View details</span></div></div>`;
+  const page = parse.parseBadgesPage(row(1, '&nbsp;', '<span class="progress_info_bold">6 card drops remaining</span>') + row(2, '&nbsp; 4,114 hrs on record', ''));
+  assert.deepEqual(page.rows, [
+    { appId: 1, name: 'G1', dropsRemaining: 6, playtimeHours: 0 },
+    { appId: 2, name: 'G2', dropsRemaining: 0, playtimeHours: 4114 },
+  ]);
+});
+
+// A library of thousands of games is a page of tens of megabytes: a navigated page loses its body, a request does not.
+test('fetchHtml reads the page through the context request API with the browser cookies', async () => {
+  const calls = [];
+  const reply = (url, status, body) => ({ url: () => url, status: () => status, text: async () => body });
+  const page = answer => ({ context: () => ({ request: { get: async (url, options) => { calls.push([url, options?.timeout]); return answer(url); } } }) });
+  const BADGES = 'https://steamcommunity.com/my/badges/?l=english';
+  assert.equal(await sc.fetchHtml(page(url => reply(url, 200, '<html>ok</html>')), BADGES), '<html>ok</html>');
+  assert.equal(calls[0][0], BADGES);
+  assert.ok(calls[0][1] > 0, 'a timeout is passed');
+  assert.equal(await sc.fetchHtml(page(() => reply('https://steamcommunity.com/login/home/?goto=my', 200, 'login')), BADGES), null);
+  await assert.rejects(sc.fetchHtml(page(url => reply(url, 503, '')), BADGES), error => error.code == 'http_503');
+  await assert.rejects(sc.fetchHtml(page(() => { throw new Error('net down'); }), BADGES), error => error.code == 'load_failed');
+});
