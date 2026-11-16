@@ -25,8 +25,9 @@ TIMEOUT_SECONDS = 10.0
 _VAC_CATEGORY = 8
 _URL = "https://store.steampowered.com/api/appdetails?appids={}&filters=basic,categories"
 
-# Confirmed against the store's own data for each app: category 8 (Valve Anti-Cheat enabled), or, where the category
-# is absent, the store text naming the anti-cheat (359550 and 107410: BattlEye).
+# Ids and names are confirmed against the store. Anti-cheat: category 8 (Valve Anti-Cheat enabled), the store text
+# naming it (359550 and 107410), or, for the last block, a third-party anti-cheat the store data does not flag.
+# That last block is from common knowledge of those games: listing one too many only refuses a write.
 BUILTIN: dict[int, str] = {
     10: "Counter-Strike",
     240: "Counter-Strike: Source",
@@ -41,6 +42,18 @@ BUILTIN: dict[int, str] = {
     346110: "ARK: Survival Evolved",
     359550: "Tom Clancy's Rainbow Six Siege",
     393380: "Squad",
+    236390: "War Thunder",
+    271590: "Grand Theft Auto V Legacy",
+    381210: "Dead by Daylight",
+    553850: "HELLDIVERS 2",
+    578080: "PUBG: BATTLEGROUNDS",
+    594650: "Hunt: Showdown 1896",
+    1085660: "Destiny 2",
+    1172470: "Apex Legends",
+    1203220: "NARAKA: BLADEPOINT",
+    1245620: "ELDEN RING",
+    1938090: "Call of Duty",
+    2357570: "Overwatch 2",
 }
 
 Fetch = Callable[[str], Awaitable[tuple[int, str]]]  # url -> (HTTP status, body text)
