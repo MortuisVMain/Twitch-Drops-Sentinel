@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { SteamIdleHeldGame } from '../../types';
+import { SteamGameCard } from './SteamGameCard';
 import { refundNote, releaseQuestion } from './steamIdleLogic.mjs';
 import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 
-/** A game the farm keeps out of the queue because it may still be refunded. Farming it anyway asks first, in the page. */
+/** A game the farm keeps out of the queue because it may still be refunded, as a card. Farming it anyway asks first, in the page. */
 export const RefundHeldRow: React.FC<{ game: SteamIdleHeldGame; busy: SteamIdleCommand | null; send: SendCommand }> = ({ game, busy, send }) => {
   const [confirming, setConfirming] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
@@ -13,11 +14,7 @@ export const RefundHeldRow: React.FC<{ game: SteamIdleHeldGame; busy: SteamIdleC
   useEffect(() => { if (confirming) cancelBtn.current?.focus(); }, [confirming]);
   const close = () => { opener.current?.focus(); setConfirming(false); };
   return (
-    <li className="sidle-row sidle-row-held">
-      <span className="sidle-row-main">
-        <span className="sidle-row-name" title={game.name}>{game.name}</span>
-        <span className="sidle-row-note">{refundNote(game.daysLeft)}</span>
-      </span>
+    <SteamGameCard appId={game.appId} name={game.name} facts={[refundNote(game.daysLeft)]}>
       <button ref={opener} type="button" className="tactile-btn" aria-disabled={off} aria-expanded={confirming}
         onClick={() => { if (!off) setConfirming(true); }}>Фармить всё равно</button>
       {confirming && (
@@ -30,6 +27,6 @@ export const RefundHeldRow: React.FC<{ game: SteamIdleHeldGame; busy: SteamIdleC
           </div>
         </div>
       )}
-    </li>
+    </SteamGameCard>
   );
 };

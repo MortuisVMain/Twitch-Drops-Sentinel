@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, RefreshCw, TriangleAlert } from 'lucide-react';
+import { RefreshCw, TriangleAlert } from 'lucide-react';
 import { SteamIdleAchievements, SteamIdleLibraryGame, SteamIdleState } from '../../types';
 import { ACH_BUSY_NOTE, achLoadErrorText, achRunActive, SEARCH_LIMIT } from './achievementsText';
 import { AchList } from './AchList';
+import { SteamCardGrid, SteamGameCard } from './SteamGameCard';
+import { playedHours } from './steamIdleLogic.mjs';
+import { hoursNumber } from './steamIdleText';
 import { GetState, useAchievementList, useBusyRetry } from './useAchievementsData';
 import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 
@@ -39,16 +42,15 @@ const GamePicker: React.FC<{ games: SteamIdleLibraryGame[]; appId: number | null
         <input type="search" className="sidle-input" value={query} autoComplete="off" onChange={(e) => setQuery(e.target.value)} />
       </label>
       {shown.length === 0 ? <p className="sidle-text" role="status">Ничего не найдено</p> : (
-        <ul className="sidle-list-rows sidle-pick-list" aria-label="Игры библиотеки">
-          {shown.map((g) => (
-            <li key={g.appId}>
-              <button type="button" className="sidle-pick" aria-pressed={g.appId === appId} onClick={() => onPick(g.appId)}>
-                <span className="sidle-row-name" title={g.name}>{g.name}</span>
-                {g.appId === appId && <Check className="ui-icon" aria-hidden="true" focusable="false" style={{ color: 'var(--led-mint)' }} />}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <SteamCardGrid label="Игры библиотеки" compact scroll>
+          {shown.map((g) => {
+            const hours = playedHours(g.playtimeMinutes);
+            return (
+              <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact selected={g.appId === appId} onSelect={() => onPick(g.appId)}
+                facts={[hours === null ? 'Не запускалась' : <>В игре: <b className="tabular">{hoursNumber(hours)}</b> ч</>]} />
+            );
+          })}
+        </SteamCardGrid>
       )}
       {matches.length > SEARCH_LIMIT && <p className="sidle-meta">показаны первые {SEARCH_LIMIT}</p>}
     </>

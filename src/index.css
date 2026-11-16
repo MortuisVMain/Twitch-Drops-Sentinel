@@ -1957,9 +1957,30 @@
 .sidle-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidle-row-note { color: var(--text-muted); overflow-wrap: anywhere; }
 .sidle-row-end { color: var(--text-secondary); flex-shrink: 0; }
-.sidle-row-held { flex-wrap: wrap; align-items: center; }
-.sidle-row-held .sidle-row-name { color: var(--text-muted); }
-.sidle-row-held .sidle-confirm { flex-basis: 100%; }
+/* Game cards, the Game Shelf look: 3:4 cover on top, title and facts under it. A few cards keep a fixed width, many share the row. */
+.sidle-card-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); }
+.sidle-card-grid:not(:has(> :nth-child(5))) { grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 240px)); }
+.sidle-card-grid.compact { gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); }
+.sidle-card-grid.compact:not(:has(> :nth-child(5))) { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 180px)); }
+.sidle-card-grid.scroll { max-height: 34rem; overflow-y: auto; overflow-x: hidden; }
+.sidle-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; background: var(--bg-island); border: 1px solid var(--border-island); border-radius: var(--radius-lg); box-shadow: var(--shadow-island-inset); transition: border-color 0.2s ease; }
+.sidle-card:hover, .sidle-card.selected { border-color: var(--led-mint); }
+.sidle-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; text-align: left; }
+button.sidle-card-body { width: 100%; cursor: pointer; border-radius: var(--radius-md); }
+button.sidle-card-body:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
+.sidle-card-cover { position: relative; display: block; width: 100%; aspect-ratio: 3 / 4; max-height: 260px; margin-bottom: 4px; overflow: hidden; border-radius: var(--radius-md); background: var(--bg-well); }
+.sidle-card.compact .sidle-card-cover { max-height: 200px; }
+.sidle-card-badge { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border: 1px solid var(--border-main); border-radius: var(--radius-sm); background: var(--bg-well); color: var(--text-primary); font-size: var(--fs-xs); font-weight: 700; }
+.sidle-card-check { color: var(--led-mint); padding: 0 4px; }
+.sidle-card-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidle-card-fact { font-size: var(--fs-xs); color: var(--text-secondary); overflow-wrap: anywhere; }
+.sidle-card-fact b { color: var(--text-primary); }
+.sidle-card-counts { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.sidle-current-cover { flex-direction: row; align-items: center; gap: 12px; }
+.sidle-current-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sidle-cover-small { flex: 0 0 64px; width: 64px; margin: 0; }
+.sidle-card-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.sidle-card-actions .tactile-btn { white-space: normal; }
 .sidle-preview-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .sidle-root .sidle-preview .tactile-btn { min-height: 32px; padding: 0 10px; }
 .sidle-skel { display: flex; flex-direction: column; gap: 10px; }
@@ -1978,11 +1999,6 @@
 .sidle-textbtn { min-height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--led-mint); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .sidle-textbtn:disabled { color: var(--text-muted); cursor: not-allowed; text-decoration: none; }
 .sidle-textbtn:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
-.sidle-pick-list { max-height: 11rem; }
-.sidle-pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 32px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
-.sidle-pick:hover { background: var(--bg-row-hover); }
-.sidle-pick[aria-pressed='true'] { background: var(--bg-row); font-weight: 700; }
-.sidle-pick:focus-visible { outline: 2px solid var(--led-mint); outline-offset: -2px; }
 .sidle-ach-game { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
 .sidle-ach-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
 .sidle-ach-list { max-height: 22rem; }

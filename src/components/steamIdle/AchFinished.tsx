@@ -1,31 +1,25 @@
 import React from 'react';
 import { SteamIdleAchFinished } from '../../types';
 import { finishedNoteText } from './achievementsText';
+import { SteamCardGrid, SteamGameCard } from './SteamGameCard';
+import { finishedFacts } from './steamIdleLogic.mjs';
 
-/** Games this run is done with, newest first. Not shown while empty. */
+/** Games this run is done with, newest first, as compact cards. Not shown while empty. */
 export const AchFinished: React.FC<{ finished: SteamIdleAchFinished[] }> = ({ finished }) => {
   if (finished.length === 0) return null;
   return (
     <section className="titanium-island" aria-labelledby="sidle-fin-title">
       <h2 id="sidle-fin-title" className="sidle-title">Готово в этом запуске<span className="sidle-count tabular"> {finished.length}</span></h2>
-      <ul className="sidle-list-rows" tabIndex={0} aria-labelledby="sidle-fin-title">
+      <SteamCardGrid labelledBy="sidle-fin-title" compact scroll>
         {finished.map((g) => {
           const note = finishedNoteText(g.note);
+          const counts = finishedFacts(g).map(({ label, count }) => <span key={label}>{label} <b className="tabular">{count}</b></span>);
           return (
-            <li key={g.appId} className="sidle-row">
-              <span className="sidle-row-main">
-                <span className="sidle-row-name" title={g.name}>{g.name}</span>
-                {note && <span className="sidle-row-note">{note}</span>}
-              </span>
-              <span className="sidle-row-end sidle-row-stats">
-                <span>выдано <b className="tabular">{g.unlocked}</b></span>
-                <span>пропущено <b className="tabular">{g.skipped}</b></span>
-                <span>не удалось <b className="tabular">{g.failed}</b></span>
-              </span>
-            </li>
+            <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact
+              facts={[<span className="sidle-card-counts">{counts}</span>, ...(note ? [note] : [])]} />
           );
         })}
-      </ul>
+      </SteamCardGrid>
     </section>
   );
 };

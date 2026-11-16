@@ -32,3 +32,22 @@ export function releaseQuestion(name) {
 export function signedOutHint(session) {
   return session === 'unknown' || session === 'checking' ? 'check' : 'login';
 }
+
+/** The portrait cover of a Steam app; the cover component adds header and capsule as fallbacks. */
+export function steamCover(appId) {
+  return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+}
+
+/** Hours played from minutes, or null when the game was never launched (or the value is unusable). */
+export function playedHours(minutes) {
+  return Number.isFinite(minutes) && minutes > 0 ? minutes / 60 : null;
+}
+
+const FINISHED_EXTRA = [['skipped', 'Пропущено'], ['rejected', 'Отклонено'], ['already', 'Уже было'], ['failed', 'Не удалось']];
+
+/** The counts under a finished game: the unlocked one always, the others only when not zero. */
+export function finishedFacts(game) {
+  const facts = [{ label: 'Выдано', count: game.unlocked ?? 0 }];
+  for (const [key, label] of FINISHED_EXTRA) if (game[key] > 0) facts.push({ label, count: game[key] });
+  return facts;
+}

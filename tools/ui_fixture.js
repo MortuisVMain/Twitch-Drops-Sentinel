@@ -14,6 +14,7 @@
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
 // ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch|enginemissing serves the Steam IDLE tab in that scenario (default farming; enginemissing has community.session "engine_missing": the browser engine of the giveaways is not installed); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
+// ?steamidle=farmingmore is the farming scenario plus two refund-held games (card with the "Фармить всё равно" button) and two failed ones (reasons no_progress and presence_lost).
 // ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch).
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
@@ -296,7 +297,7 @@
       { appId: 910101, name: SI_LIB_NAMES[1], unlocked: 0, skipped: 0, failed: 0, note: 'no_achievements' },
       { appId: 910102, name: SI_LIB_NAMES[2], unlocked: 0, skipped: 0, failed: 0, note: 'nothing_missing' },
       { appId: 910103, name: SI_LIB_NAMES[3], unlocked: 0, skipped: 0, failed: 0, note: 'read_failed' },
-      { appId: 910104, name: SI_LIB_NAMES[4], unlocked: 2, skipped: 6, failed: 1, note: 'skipped_by_user' },
+      { appId: 910104, name: SI_LIB_NAMES[4], unlocked: 2, skipped: 6, failed: 1, already: 3, rejected: 1, note: 'skipped_by_user' },
     ];
     rd.totals = { unlocked: 30, already: 11, skipped: 6, rejected: 1, failed: 1 };
   } else if (siMode === 'noach') delete si.achievements;
@@ -311,6 +312,11 @@
   else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null, status: 'none', ageSeconds: null }; }
   else if (siMode === 'badstate') { siFill(); si.farm.state = 'exploding'; siTotal(); }
   else if (siMode === 'farming' || siMode === 'slow' || siMode === 'hang' || siMode === 'nolibrary') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
+  else if (siMode === 'farmingmore') {
+    siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal();
+    si.farm.refundHeld = [{ appId: 910007, name: 'Tidewrack', reason: 'refund_window', daysLeft: 1.4 }, { appId: 910008, name: SI_NAMES[3], reason: 'refund_window', daysLeft: 6 }];
+    si.farm.failed = [{ appId: 910009, name: 'Copper Orchard', reason: 'no_progress' }, { appId: 910010, name: SI_NAMES[2], reason: 'presence_lost' }];
+  }
   else if (siMode === 'suspended') { siFill(); si.farm.state = 'suspended'; si.farm.suspended = true; siTotal(); }
   else if (siMode === 'paused') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; siTotal(); }
   else if (siMode === 'done') { si.farm.state = 'done'; si.farm.done = [0, 1, 2, 3, 4].map(siDone); si.farm.lastReadAgeSeconds = 20; }

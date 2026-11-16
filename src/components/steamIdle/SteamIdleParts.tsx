@@ -3,6 +3,7 @@ import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
 import { SteamIdleState } from '../../types';
 import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 import { RefundHeldRow } from './RefundHeldRow';
+import { isCompactList, SteamCardGrid, SteamGameCard } from './SteamGameCard';
 import { durParts } from './steamIdleLogic.mjs';
 import {
   ENGINE_MISSING_HINT, KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
@@ -148,15 +149,7 @@ export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
   );
 };
 
-const NameRow: React.FC<{ name: string; end?: React.ReactNode; note?: string }> = ({ name, end, note }) => (
-  <li className="sidle-row">
-    <span className="sidle-row-main">
-      <span className="sidle-row-name" title={name}>{name}</span>
-      {note && <span className="sidle-row-note">{note}</span>}
-    </span>
-    {end}
-  </li>
-);
+const Cards: React.FC<{ n: number }> = ({ n }) => <>Карточек: <b className="tabular">{n}</b></>;
 
 /** Games with card drops, read on demand, shown while the farm is not active (an active farm shows its queue instead). */
 export const PreviewPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: Send }> = ({ s, busy, send }) => {
@@ -182,17 +175,12 @@ export const PreviewPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand 
         </div>
       )}
       {p.games.length > 0 && (
-        <ul className="sidle-list-rows" tabIndex={0} aria-labelledby="sidle-preview-title">
+        <SteamCardGrid labelledBy="sidle-preview-title" compact={isCompactList(p.games.length)} scroll>
           {p.games.map((g) => (
-            <li key={g.appId} className="sidle-row">
-              <span className="sidle-row-main">
-                <span className="sidle-row-name" title={g.name}>{g.name}</span>
-                <span className="sidle-row-note">осталось карточек: <b className="tabular">{g.dropsRemaining}</b></span>
-              </span>
-              <span className="sidle-row-end tabular">{hoursNumber(g.playtimeHours)} ч</span>
-            </li>
+            <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact={isCompactList(p.games.length)}
+              facts={[<Cards n={g.dropsRemaining} />, <>В игре: <b className="tabular">{hoursNumber(g.playtimeHours)}</b> ч</>]} />
           ))}
-        </ul>
+        </SteamCardGrid>
       )}
       {p.ageSeconds !== null && (
         <p className="sidle-meta">
@@ -211,38 +199,40 @@ export const PreviewPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand 
 };
 
 export const Lists: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: SendCommand }> = ({ s, busy, send }) => {
-  const { queue, done, failed, refundHeld } = s.farm;
-  if (!queue.length && !done.length && !failed.length && !refundHeld.length) return null;
+  const { queue, done, failed, refundHeld, current } = s.farm;
+  if (!queue.length && !done.length && !failed.length && !refundHeld.length && !current) return null;
+  const queueCompact = isCompactList(queue.length + (current ? 1 : 0));
   return (
     <section className="titanium-island" aria-labelledby="sidle-queue-title">
       <h2 id="sidle-queue-title" className="sidle-title">Очередь{queue.length > 0 && <span className="sidle-count tabular"> {queue.length}</span>}</h2>
-      {queue.length > 0 ? (
-        <ul className="sidle-list-rows" tabIndex={0} aria-labelledby="sidle-queue-title">
-          {queue.map((g) => <NameRow key={g.appId} name={g.name} end={<span className="sidle-row-end tabular">{g.dropsRemaining}</span>} />)}
-        </ul>
+      {queue.length > 0 || current ? (
+        <SteamCardGrid labelledBy="sidle-queue-title" compact={queueCompact} scroll>
+          {current && <SteamGameCard appId={current.appId} name={current.name} compact={queueCompact} badge="Сейчас" facts={[<Cards n={current.dropsRemaining} />]} />}
+          {queue.map((g) => <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact={queueCompact} facts={[<Cards n={g.dropsRemaining} />]} />)}
+        </SteamCardGrid>
       ) : <p className="sidle-text">Очередь пуста</p>}
       {refundHeld.length > 0 && (
         <>
           <h3 id="sidle-held-title" className="sidle-subtitle">Отложены<span className="sidle-count tabular"> {refundHeld.length}</span></h3>
-          <ul className="sidle-list-rows short" aria-labelledby="sidle-held-title">
+          <SteamCardGrid labelledBy="sidle-held-title">
             {refundHeld.map((g) => <RefundHeldRow key={g.appId} game={g} busy={busy} send={send} />)}
-          </ul>
+          </SteamCardGrid>
         </>
       )}
       {done.length > 0 && (
         <>
           <h3 id="sidle-done-title" className="sidle-subtitle">Уже готово<span className="sidle-count tabular"> {done.length}</span></h3>
-          <ul className="sidle-list-rows short" tabIndex={0} aria-labelledby="sidle-done-title">
-            {done.map((g) => <NameRow key={g.appId} name={g.name} />)}
-          </ul>
+          <SteamCardGrid labelledBy="sidle-done-title" compact scroll>
+            {done.map((g) => <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact />)}
+          </SteamCardGrid>
         </>
       )}
       {failed.length > 0 && (
         <>
           <h3 id="sidle-failed-title" className="sidle-subtitle">Не получилось<span className="sidle-count tabular"> {failed.length}</span></h3>
-          <ul className="sidle-list-rows short" tabIndex={0} aria-labelledby="sidle-failed-title">
-            {failed.map((g) => <NameRow key={g.appId} name={g.name} note={failedReasonText(g.reason)} />)}
-          </ul>
+          <SteamCardGrid labelledBy="sidle-failed-title" compact scroll>
+            {failed.map((g) => <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact facts={[failedReasonText(g.reason)]} />)}
+          </SteamCardGrid>
         </>
       )}
     </section>

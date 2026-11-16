@@ -265,7 +265,7 @@ export type SteamIdleAchRunState = 'idle' | 'scanning' | 'unlocking' | 'waiting'
 export interface SteamIdleAchSettings { minMinutes: number; maxMinutes: number; skipHidden: boolean }
 export interface SteamIdleAchTotals { unlocked: number; already: number; skipped: number; rejected: number; failed: number }
 export interface SteamIdleAchGame { appId: number; name: string }
-export interface SteamIdleAchFinished extends SteamIdleAchGame { unlocked: number; skipped: number; failed: number; note: string | null }
+export interface SteamIdleAchFinished extends SteamIdleAchGame { unlocked: number; skipped: number; failed: number; already?: number; rejected?: number; note: string | null }
 export interface SteamIdleAchRun {
   state: SteamIdleAchRunState;
   mode: 'selected' | 'game' | 'library' | null;

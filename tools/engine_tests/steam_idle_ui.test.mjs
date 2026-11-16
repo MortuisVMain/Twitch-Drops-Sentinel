@@ -41,7 +41,7 @@ test('the largest AppID is accepted', () => {
   ok('4294967295', [4294967295]);
 });
 
-const { durParts, signedOutHint, interruptedBanner } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
+const { durParts, signedOutHint, interruptedBanner, steamCover, playedHours, finishedFacts } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
 
 test('an age rounds its minutes down, a countdown rounds them up', () => {
   assert.deepEqual(durParts(116), { min: 1 });
@@ -119,4 +119,26 @@ test('the engine refusal goes stale once the session is no longer engine_missing
   const { refusalApplies } = await bundleOf('steamIdleText.ts');
   assert.equal(refusalApplies('engine_missing', { community: { session: 'engine_missing' } }), true);
   assert.equal(refusalApplies('engine_missing', { community: { session: 'unknown' } }), false);
+});
+
+test('a game card cover is the Steam portrait for the app id', () => {
+  assert.equal(steamCover(620), 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/620/library_600x900.jpg');
+});
+
+test('playtime in minutes becomes hours, and a game never launched has none', () => {
+  assert.equal(playedHours(90), 1.5);
+  assert.equal(playedHours(0), null);
+  assert.equal(playedHours(-5), null);
+  assert.equal(playedHours(Number.NaN), null);
+  assert.equal(playedHours(undefined), null);
+});
+
+test('the finished-game facts always show the unlocked count and the other counts only when not zero', () => {
+  const g = { unlocked: 4, skipped: 0, failed: 0, already: 0, rejected: 0 };
+  assert.deepEqual(finishedFacts(g), [{ label: 'Выдано', count: 4 }]);
+  assert.deepEqual(finishedFacts({ unlocked: 0, skipped: 2, failed: 1, already: 3, rejected: 5 }), [
+    { label: 'Выдано', count: 0 }, { label: 'Пропущено', count: 2 }, { label: 'Отклонено', count: 5 },
+    { label: 'Уже было', count: 3 }, { label: 'Не удалось', count: 1 },
+  ]);
+  assert.deepEqual(finishedFacts({ unlocked: 1 }), [{ label: 'Выдано', count: 1 }]);
 });
