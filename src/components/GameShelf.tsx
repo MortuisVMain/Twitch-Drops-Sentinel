@@ -4,7 +4,7 @@ import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../u
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, TrophyItem } from '../types';
-import { resolveGameBoxArtSources, isBlankCover, isSteamArt, serverCoverFor } from '../utils/gameBoxArts';
+import { CartridgeCover } from './CartridgeCover';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
 interface GameShelfProps {
@@ -31,67 +31,7 @@ interface GameShelfProps {
   lastSyncAt?: number | null;
 }
 
-// compact: a thumbnail-sized cover (the fallback drops its caption and shrinks the initials)
-export const CartridgeCover: React.FC<{ name: string; boxArt?: string; compact?: boolean }> = ({ name, boxArt, compact = false }) => {
-  const found = serverCoverFor(name); // arrives with a later poll: the list is rebuilt then
-  const sources = useMemo(() => resolveGameBoxArtSources(name, [boxArt]), [name, boxArt, found]);
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setCurrentIdx(0);
-    setFailed(false);
-  }, [sources]);
-
-  const currentSrc = sources[currentIdx];
-  const nextSource = () => {
-    if (currentIdx + 1 < sources.length) setCurrentIdx(prev => prev + 1);
-    else setFailed(true);
-  };
-
-  if (!currentSrc || failed) {
-    const initials = name.slice(0, 2).toUpperCase();
-    return (
-      <div 
-        style={{
-          width: '100%',
-          height: '100%',
-          background: 'radial-gradient(circle at 50% 35%, rgba(115, 187, 165, 0.12) 0%, transparent 70%), linear-gradient(180deg, #1A2220 0%, #111716 100%)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: compact ? 0 : '6px',
-          fontFamily: 'var(--font-ui)',
-          color: 'var(--led-mint)',
-          letterSpacing: '0.04em',
-          userSelect: 'none'
-        }}
-      >
-        <span style={{ fontSize: compact ? 'var(--fs-sm)' : 'var(--fs-xl)', fontWeight: 900, textShadow: compact ? undefined : '0 0 16px rgba(115, 187, 165, 0.35)' }}>
-          {initials}
-        </span>
-        {!compact && (
-          <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-            NO POSTER
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={currentSrc}
-      alt={name}
-      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      loading="lazy"
-      crossOrigin={isSteamArt(currentSrc) ? 'anonymous' : undefined}
-      onLoad={(e) => { if (isBlankCover(e.currentTarget)) nextSource(); }}
-      onError={nextSource}
-    />
-  );
-};
+export { CartridgeCover };
 
 const isTitleMatch = (a: string, b: string): boolean => {
   if (!a || !b) return false;
@@ -650,7 +590,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 padding: '4px 22px 4px 10px',
                 fontSize: 'var(--fs-xs)',
                 color: 'var(--text-primary)',
-                outline: 'none',
+                minHeight: '28px',
                 marginLeft: '6px',
                 width: '180px',
               }}
@@ -877,9 +817,9 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         fontSize: 'var(--fs-xs)',
                         fontWeight: 800,
                         fontFamily: 'var(--font-ui)',
-                        background: 'rgba(6, 44, 28, 0.94)',
+                        background: 'var(--bg-island)',
                         color: 'var(--led-mint)',
-                        border: '1px solid rgba(58, 210, 159, 0.5)',
+                        border: '1px solid var(--led-mint)',
                         backdropFilter: 'blur(8px)',
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.65)',
                         display: 'flex',
@@ -993,7 +933,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 {isExcluded ? (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
+                    style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1005,7 +945,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 ) : isRemoved ? (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', width: '100%' }}
+                    style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%' }}
                     onClick={() => {
                       playClick();
                       handleRestoreGame(game.name);
@@ -1020,7 +960,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                         <button
                           className="node-chip"
-                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
+                          style={{ minHeight: '24px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Повысить приоритет (переместить выше в очереди)"
                           disabled={priorityIndex === 0}
                           onClick={(e) => {
@@ -1033,7 +973,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         </button>
                         <button
                           className="node-chip"
-                          style={{ minHeight: '18px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
+                          style={{ minHeight: '24px', padding: '0 5px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                           title="Понизить приоритет (переместить ниже в очереди)"
                           disabled={priorityIndex === priorityList.length - 1}
                           onClick={(e) => {
@@ -1064,7 +1004,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                       {game.is_installed && (
                         <button
                           className="node-chip"
-                          style={{ minHeight: '18px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
+                          style={{ minHeight: '24px', padding: '0 4px', fontSize: 'var(--fs-xs)' }}
                           title="Удалить из списка установленных"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1079,7 +1019,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                   </div>
                 )}
 
-                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (ВНЕ очереди) / QUEUE (ОЧЕРЕДЬ) / FORCE #1 (СЕЙЧАС #1) */}
+                {/* 3-Position Rocker Switch (.rocker-3p): IDLE (Вне очереди) / QUEUE (В очередь) / FORCE (Фармить сейчас) */}
                 <div className="rocker-3p" data-mode={isForced ? "FORCE #1" : isInPriority ? "QUEUE" : "IDLE"}>
                   <span 
                     className={`r-step ${!isInPriority && !isForced ? 'idle' : ''}`}
@@ -1091,7 +1031,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title="Не в очереди: игра убирается из очереди приоритетов. Она фармится только в режиме «очередь + любые», после игр очереди"
                   >
-                    ВНЕ
+                    Вне очереди
                   </span>
                   <span 
                     className={`r-step ${isInPriority && !isForced ? 'queue' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -1107,7 +1047,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : 'В очереди: игра фармится раньше игр не из очереди, в порядке очереди'}
                   >
-                    ОЧЕРЕДЬ
+                    В очередь
                   </span>
                   <span 
                     className={`r-step ${isForced ? 'force' : ''} ${isExcluded || isRemoved ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -1126,7 +1066,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                     }}
                     title={isExcluded ? 'В исключениях (нельзя в очередь)' : isRemoved ? 'В удалённых (нельзя в очередь)' : isForced ? 'Нажмите для отмены принудительного фарма' : 'Собирать сейчас: игра встаёт первой поверх очереди, пока вы не отмените или не получены все её награды'}
                   >
-                    СЕЙЧАС #1
+                    Фармить сейчас
                   </span>
                 </div>
               </div>

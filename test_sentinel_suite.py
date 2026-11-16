@@ -790,10 +790,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.5.20", f"Version mismatch: {__version__}"
-    assert parse_version("3.5.20") == (3, 5, 20)
+    assert __version__ == "3.6.0", f"Version mismatch: {__version__}"
+    assert parse_version("3.6.0") == (3, 6, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.5.20") > parse_version("3.5.6")
+    assert parse_version("v3.6.0") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -814,7 +814,7 @@ def test_github_updater_and_zero_mock_telemetry():
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "updateInfo" in app_tsx, "App.tsx must have updater state"
     assert "showUpdateModal" in app_tsx, "App.tsx must have update modal"
-    assert "version-pro" in app_tsx, "App.tsx must display version badge"
+    assert "version-pro" not in app_tsx, "The header carries no version badge"
     assert "TrophiesVault Verified" not in app_tsx, "Footer must not contain TrophiesVault Verified artifact"
 
     # 6. Verify SettingsStudio.tsx has GitHub updater card
@@ -1241,7 +1241,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
 
     # 4. Verify App.tsx uses dynamic version in sidebar only and removed from footer
     app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "sentinelState?.version || updateInfo?.local_version" in app_tsx, "App.tsx must use dynamic sentinelState version in sidebar"
+    assert "appVersion={sentinelState.version || updateInfo?.local_version}" in app_tsx, "App.tsx must pass the dynamic sentinelState version to Settings"
     assert "Sentinel v{" not in app_tsx, "App.tsx must not contain hardcoded version string in footer"
 
     # 5. Verify SettingsStudio and HelpModal clean headers
@@ -1463,7 +1463,7 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     assert dimmer_tsx.is_file(), "src/components/ScreenDimmerView.tsx must exist"
     dimmer_code = dimmer_tsx.read_text(encoding="utf-8")
     assert "ScreenDimmerView" in dimmer_code, "ScreenDimmerView component must be exported"
-    assert "Alt + Backspace" in dimmer_code, "ScreenDimmerView must mention tactile blackout shortcut"
+    assert "Alt+Backspace" in dimmer_code, "ScreenDimmerView must mention tactile blackout shortcut"
 
     main_cs = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
     assert "BlackoutOverlayForm" in main_cs, "desktop/MainForm.cs must contain BlackoutOverlayForm"
@@ -1602,8 +1602,10 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     assert "Комфорт 40%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Комфорт 40%'"
     assert "Работа 75%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Работа 75%'"
     assert "Максимум 100%" in dimmer_tsx, "ScreenDimmerView must contain quick preset 'Максимум 100%'"
-    assert "Затемнить только этот" in dimmer_tsx, "ScreenDimmerView must contain the single-monitor blackout button"
-    assert "Alt + Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt + Backspace shortcut"
+    assert "Затемнить этот" in dimmer_tsx, "ScreenDimmerView must contain the single-monitor blackout button"
+    assert "Alt+Backspace" in dimmer_tsx, "ScreenDimmerView must support Alt+Backspace shortcut"
+    help_tsx_keys = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
+    assert "выход из блэкаута" in help_tsx_keys and "Колесо мыши над диском" in help_tsx_keys, "the Hotkeys help tab lists every dimmer hotkey"
 
     dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "Выбрать игру для фарма <ChevronDown" in dash_tsx, "LiveDashboard must contain the 'Выбрать игру для фарма' button"
@@ -2417,16 +2419,16 @@ def test_console_collapse_tray_filter_and_plain_labels():
     run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert run.returncode == 0, run.stderr
     d = json.loads(run.stdout)
-    assert d["noChoice"] == [True, False], d["noChoice"]                 # no choice: collapsed while idle, expanded while farming
+    assert d["noChoice"] == [True, True], d["noChoice"]                  # no choice: collapsed whether idle or farming
     assert d["explicit"] == [True, True, False, False], d["explicit"]    # an explicit choice wins either way
-    assert d["junk"] == [True, False, True, False], d["junk"]            # a junk stored value falls back to the default
+    assert d["junk"] == [True, True, True, True], d["junk"]              # a junk stored value falls back to the default (collapsed)
     assert d["all"] == ["Просмотр канала: abc", "Забран трофей", "Ядро запущено", "[CORE] started", "Каталог собран: 10 игр"], d["all"]   # [TRAY] hidden in "All"
     assert d["watch"] == ["Просмотр канала: abc"] and d["claim"] == ["Забран трофей"], (d["watch"], d["claim"])
     assert "[TRAY] Icon: idle" in d["core"] and "  [tray] Icon: farming" in d["core"], d["core"]   # "Core" shows them (the service logs them at INFO)
     assert d["tray"] == [True, False, False, False], d["tray"]           # only a leading [TRAY]; other brackets untouched
     dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "aria-expanded={!consoleCollapsed}" in dash and "onClick={toggleConsole}" in dash, "the console toggle exposes aria-expanded"
-    assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice, isIdle)" in dash, "stored choice + idle state decide"
+    assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice)" in dash, "the stored choice decides, collapsed by default"
     assert "console.warn('LiveDashboard: не удалось сохранить состояние консоли'" in dash, "a failed save is reported, not swallowed"
     assert "safeRecentLogs.map((l) =>" in dash, "Copy still takes the untouched full journal"
     assert "hardware.is_paused" in dash and "Автосбор включён · Сейчас ожидает" in dash and 'id="heroDropTitle">{starting' in dash and "'Ожидание кампаний'" in dash, "idle hero states the farm switch"
@@ -2435,7 +2437,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     for old in ("Только очередь ⇄", "Очередь + любые ⇄", "'ФОКУС'", "'FORCE'", "Фармить вне очереди\n"):
         assert old not in dash, old
     shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
-    assert "ВНЕ" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
+    assert "Вне очереди" in shelf and "Фармить сейчас" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
     app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
     assert "relief-chip" not in app and "relief-chip" not in css and "FLAT-2D" not in app, "the backdrop chip is gone from the header"
@@ -3139,7 +3141,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.5.20'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.6.0'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -4944,6 +4946,168 @@ def test_local_service_refuses_foreign_pages_and_resets_cleanly():
     config = json.loads((SANDBOX / "config.json").read_text(encoding="utf-8"))
     assert config["ui_theme"] == settings["ui_theme"], "the file and the answer must agree"
     print("      Local service: ALL PASS [OK]")
+
+
+def test_local_api_token_guards_every_route_when_the_host_sets_one():
+    print("[security] Local API: a per-launch secret is required when the host sets one...")
+    import secrets
+    import urllib.error
+
+    sys.path.insert(0, str(SANDBOX / "core"))
+    try:
+        import local_access
+    finally:
+        sys.path.remove(str(SANDBOX / "core"))
+
+    # Pure rules
+    assert local_access.TOKEN_HEADER == "X-Sentinel-Token" and local_access.API_TOKEN_ENV == "SENTINEL_API_TOKEN"
+    environ = {"SENTINEL_API_TOKEN": "abc", "KEEP": "1"}
+    assert local_access.take_api_token(environ) == "abc" and "SENTINEL_API_TOKEN" not in environ and environ["KEEP"] == "1", "taken once, then gone from the environment"
+    assert local_access.take_api_token({}) is None and local_access.take_api_token({"SENTINEL_API_TOKEN": ""}) is None, "unset or empty means no token mode"
+    allowed = local_access.token_allowed
+    assert allowed(None, "/api/state", {}, {}), "no token configured: nothing is required"
+    assert allowed("s3", "/api/state", {"X-Sentinel-Token": "s3"}, {})
+    assert not allowed("s3", "/api/state", {}, {}) and not allowed("s3", "/api/state", {"X-Sentinel-Token": "other"}, {})
+    assert not allowed("s3", "/api/state", {}, {"token": "s3"}), "the query form is for the two streams only"
+    assert allowed("s3", "/ws", {}, {"token": "s3"}) and allowed("s3", "/api/v1/giveaways/stream", {}, {"token": "s3"})
+    assert not allowed("s3", "/ws", {}, {"token": "x"}) and not allowed("s3", "/ws", {}, {})
+    assert not allowed("s3", "/api/state", {"X-Sentinel-Token": "sé3"}, {}), "a non-ASCII value is a mismatch, not a crash"
+
+    # A second sandbox service with a token, next to the one the other gates use
+    token = secrets.token_urlsafe(32)
+    port = _free_port()
+    base = f"http://127.0.0.1:{port}"
+    out_path = SANDBOX / f"token_service_{port}.out"
+    with open(out_path, "wb") as out:
+        proc = subprocess.Popen(
+            [sys.executable, str(SANDBOX / "core" / "sentinel_service.py")],
+            env={**os.environ, "SENTINEL_SERVICE_PORT": str(port), "SENTINEL_TEST_MODE": "1", "SENTINEL_API_TOKEN": token},
+            cwd=str(SANDBOX / "core"), stdout=out, stderr=subprocess.STDOUT)
+    try:
+        def call(path, method="GET", headers=None, body=None):
+            req = urllib.request.Request(base + path, method=method, data=body)
+            for key, value in (headers or {}).items():
+                req.add_header(key, value)
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    return resp.status, resp.headers, resp.read()
+            except urllib.error.HTTPError as err:
+                return err.code, err.headers, err.read()
+
+        good = {"X-Sentinel-Token": token}
+        for _ in range(40):
+            try:
+                if call("/api/state", headers=good)[0] == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.5)
+
+        # Normal routes: none / wrong / empty
+        wrong = token[:-1] + ("A" if token[-1] != "A" else "B")
+        for path, method, body in (("/api/state", "GET", None), ("/api/v1/steam-idle/ack", "POST", b"{}"), ("/api/shutdown", "POST", b"{}")):
+            code, _h, answer = call(path, method, body=body)
+            assert code == 401 and json.loads(answer) == {"error": "unauthorized"}, (path, "no token", code, answer[:100])
+            code, _h, _a = call(path, method, {"X-Sentinel-Token": wrong}, body)
+            assert code == 401, (path, "wrong token", code)
+            code, _h, _a = call(path, method, {"X-Sentinel-Token": ""}, body)
+            assert code == 401, (path, "empty token", code)
+        code, _h, _a = call("/api/state", headers=good)
+        assert code == 200, f"the right token must pass: {code}"
+        code, _h, answer = call("/api/v1/steam-idle/state", headers=good)
+        assert code == 200, f"a Steam IDLE read with the right token: {code} {answer[:100]}"
+        code, _h, answer = call("/api/v1/steam-idle/farm/stop", "POST", {**good, "Content-Type": "application/json"}, b"{}")
+        assert code not in (401, 403), f"a Steam IDLE POST with the right token reaches its handler: {code}"
+        code, _h, _a = call("/api/state?token=" + token)
+        assert code == 401, "the query token is not accepted on a normal route"
+        code, _h, _a = call("/api/state", headers={"X-Sentinel-Token": token, "Origin": "https://evil.example"})
+        assert code == 403, "the origin check runs first and still refuses a foreign page"
+        code, _h, _a = call("/api/state", headers={"X-Sentinel-Token": token, "Host": "evil.example"})
+        assert code == 403, "the host check runs first and still refuses a rebound name"
+
+        # Preflight needs no token (browsers send none), but the origin rules stay; the header is announced
+        code, headers, _a = call("/api/state", "OPTIONS", {"Origin": "https://app.sentinel", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-sentinel-token"})
+        assert code == 200 and "X-Sentinel-Token" in headers.get("Access-Control-Allow-Headers", ""), (code, dict(headers))
+        code, headers, _a = call("/api/state", "OPTIONS", {"Origin": "https://evil.example"})
+        assert code == 403 and "Access-Control-Allow-Origin" not in headers, "a foreign preflight is still refused"
+        code, headers, _a = call("/api/state", headers={"Origin": "https://app.sentinel", **good})
+        assert code == 200 and headers.get("Access-Control-Allow-Origin") == "https://app.sentinel"
+        code, headers, _a = call("/api/state", headers={"Origin": "https://app.sentinel"})
+        assert code == 401 and headers.get("Access-Control-Allow-Origin") == "https://app.sentinel", "the page can read the refusal, not the data"
+
+        # The event stream and the WebSocket carry the token in the address
+        code, _h, _a = call("/api/v1/giveaways/stream")
+        assert code == 401, f"stream without a token: {code}"
+        code, _h, _a = call("/api/v1/giveaways/stream?token=wrong")
+        assert code == 401, f"stream with a wrong token: {code}"
+        stream = urllib.request.urlopen(base + "/api/v1/giveaways/stream?token=" + token, timeout=15)
+        try:
+            assert stream.status == 200, stream.status
+        finally:
+            stream.close()
+
+        import aiohttp
+
+        async def ws_status(query):
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.ws_connect(f"ws://127.0.0.1:{port}/ws{query}", timeout=10) as sock:
+                        await sock.close()
+                        return 101
+                except aiohttp.WSServerHandshakeError as err:
+                    return err.status
+
+        assert asyncio.run(ws_status("")) == 401, "ws without a token"
+        assert asyncio.run(ws_status("?token=wrong")) == 401, "ws with a wrong token"
+        assert asyncio.run(ws_status("?token=" + token)) == 101, "ws with the right token"
+    finally:
+        proc.terminate()
+        with suppress(Exception):
+            proc.wait(timeout=5)
+        if proc.poll() is None:
+            proc.kill()
+
+    # The secret never reaches a log, and the service takes it out of its environment before any child exists
+    captured = out_path.read_text(encoding="utf-8", errors="replace")
+    service_log = SANDBOX / "core" / "sentinel_service.log"
+    logged = service_log.read_text(encoding="utf-8", errors="replace") if service_log.exists() else ""
+    assert token not in captured and token not in logged, "the token value must never be logged"
+    assert "Local API token: required" in captured + logged, "the active mode is logged once at start"
+
+    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert source.index("take_api_token(") < source.index("GiveawaysOrchestrator()"), "taken out of the environment before any child process exists"
+    print("      Local API token: ALL PASS [OK]")
+
+
+def test_host_and_page_carry_the_local_api_token():
+    print("[security] Host and page: the secret goes host -> environment -> service, host -> page script -> header...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    token_cs = (WORKSPACE / "desktop" / "LocalApiToken.cs").read_text(encoding="utf-8")
+    assert "RandomNumberGenerator.GetBytes(32)" in token_cs and "Convert.ToBase64String" in token_cs, "32 random bytes from the system generator"
+    assert "JsonSerializer.Serialize(token)" in token_cs, "the value is JSON-encoded inside the page script"
+    assert "static readonly string Current" in token_cs or "Lazy<string>" in token_cs, "one secret per launch"
+
+    start = form.index("FileName = pythonExe")
+    spawn = form[start:form.index("_pythonBackendProcess = Process.Start(psi)", start)]
+    assert "psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current;" in spawn, "the child gets the secret through its environment"
+    assert "Arguments = $\"-X utf8 \\\"{scriptPath}\\\"\"" in spawn and "LocalApiToken" not in spawn.split("Arguments =", 1)[1].split("\n", 1)[0], "never on the command line"
+    assert form.count("LocalApiToken.HeaderName") >= 3, "both health probes and the shutdown call send the header"
+    assert "LogDesktopError" not in token_cs and "File.Write" not in token_cs and "Console." not in token_cs, "the secret is never written anywhere"
+
+    first_navigate = form.index("CoreWebView2.Navigate(")
+    script_at = form.index("AddScriptToExecuteOnDocumentCreatedAsync(LocalApiToken.PageScript(LocalApiToken.Current))")
+    assert script_at < first_navigate, "the page script is registered before the first navigation"
+    assert form.count("AddScriptToExecuteOnDocumentCreatedAsync(") == 1
+    assert "NavigateToString" in form and "cannot" in form.split("NavigateToString(\"", 1)[0][-600:].lower(), "the opaque-origin fallback says why it gets no token"
+
+    main = (WORKSPACE / "src" / "main.tsx").read_text(encoding="utf-8")
+    assert "installServiceAuth()" in main and main.index("installServiceAuth()") < main.index("ReactDOM.createRoot"), "fetch is wrapped before the app renders"
+    assert "from './utils/serviceAuth.mjs'" in main
+    assert "withServiceToken('ws://127.0.0.1:28492/ws')" in (WORKSPACE / "src" / "hooks" / "useSentinelState.ts").read_text(encoding="utf-8")
+    assert "withServiceToken('http://127.0.0.1:28492/api/v1/giveaways/stream')" in (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
+    adr = WORKSPACE / "docs" / "adr" / "005-local-api-token.md"
+    assert adr.exists() and "same user" in adr.read_text(encoding="utf-8"), "the threat model is written down"
+    print("      Host and page carry the token: PASS [OK]")
 
 
 def test_store_card_shows_login_even_with_nothing_claimed():
@@ -7277,6 +7441,33 @@ def test_argon_v3_5_hardening_suite():
     print("      Argon v3.5 hardening & giveaways polish suite: PASS [OK]")
 
 
+def test_steam_idle_package_unit_tests():
+    print("[steam idle] Run the steam_idle unittest modules against the sandbox copy of core...")
+    import io
+    import unittest
+    import logging
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    package_logger = logging.getLogger("steam_idle")
+    old_level = package_logger.level
+    package_logger.setLevel(logging.CRITICAL)  # expected-failure log lines would flood the suite output
+    try:
+        suite = unittest.defaultTestLoader.discover(str(core_dir / "steam_idle"), pattern="test_*.py", top_level_dir=str(core_dir))
+        assert suite.countTestCases() > 0, "no steam_idle tests were discovered"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        package_logger.setLevel(old_level)
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in [m for m in sys.modules if m == "steam_idle" or m.startswith("steam_idle.")]:
+            del sys.modules[name]
+    assert result.wasSuccessful(), f"steam_idle unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -7381,6 +7572,8 @@ if __name__ == "__main__":
         test_english_ui_covers_every_russian_string,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
         test_local_service_refuses_foreign_pages_and_resets_cleanly,
+        test_local_api_token_guards_every_route_when_the_host_sets_one,
+        test_host_and_page_carry_the_local_api_token,
         test_resolve_fgc_root_has_no_undefined_names,
         test_steam_login_window_fits_a_small_screen,
         test_concurrent_update_checks_share_one_request,
@@ -7415,6 +7608,7 @@ if __name__ == "__main__":
         test_service_log_file_rotates_and_stays_utf8,
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
+        test_steam_idle_package_unit_tests,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

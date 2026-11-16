@@ -147,7 +147,6 @@ export const APP: Record<string, string> = {
   'Выключить звук интерфейса': 'Turn interface sound off',
   'Справка и горячие клавиши': 'Help & hotkeys',
   'Поиск по играм, стримам и действиям... (Esc)': 'Search games, streams and actions... (Esc)',
-  'Улучшена стабильность работы фонового демона и оптимизирована обработка очередей.': 'Better background daemon stability and optimized queue handling.',
   'Установка...': 'Installing...',
   'Установить обновление': 'Install update',
   'Неизвестная ошибка': 'Unknown error',

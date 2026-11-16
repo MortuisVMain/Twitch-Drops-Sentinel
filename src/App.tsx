@@ -7,6 +7,7 @@ import { LiveDashboard } from './components/LiveDashboard';
 import { GameShelf } from './components/GameShelf';
 
 import { GiveawaysView } from './components/GiveawaysView';
+import { SteamIdleView } from './components/SteamIdleView';
 
 import { SettingsStudio } from './components/SettingsStudio';
 
@@ -28,7 +29,7 @@ import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
 import {
-  Ban, Check, ChevronRight, CircleHelp, Copy, CornerDownLeft, Ellipsis, Gamepad2, Gift,
+  Ban, Check, ChevronRight, CircleHelp, Copy, CornerDownLeft, Ellipsis, Gamepad2, Gift, Hourglass,
   LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Pin, Play,
   RefreshCw, Settings, SkipForward, Square, Target,
 } from 'lucide-react';
@@ -196,6 +197,8 @@ const CMD_SELECTED_STYLE: React.CSSProperties = { background: 'rgba(255, 255, 25
 export const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+
+  const [giveawaysReadinessRequested, setGiveawaysReadinessRequested] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -960,6 +963,8 @@ export const App: React.FC = () => {
 
     setActiveTab(tab);
 
+    setGiveawaysReadinessRequested(false);
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
   };
@@ -970,7 +975,7 @@ export const App: React.FC = () => {
 
   const progressPct = activeDrop?.progress_percent || 0;
 
-  const circumference = 188;
+  const circumference = 201;
 
   const strokeDashoffset = circumference - (progressPct / 100) * circumference;
 
@@ -1085,13 +1090,7 @@ export const App: React.FC = () => {
 
               <span className="brand-name-full">Sentinel Field-Deck</span>
 
-              <span className="brand-name-short">Sentinel</span>{' '}
-
-              {(sentinelState?.version || updateInfo?.local_version) && (
-                <span className="version-chip version-pro" id="headerThemeBadge">
-                  {sentinelState?.version || updateInfo?.local_version}
-                </span>
-              )}
+              <span className="brand-name-short">Sentinel</span>
 
             </h1>
 
@@ -1149,6 +1148,19 @@ export const App: React.FC = () => {
 
           </button>
 
+          <button
+
+            className={`tab-btn ${activeTab === 'steamidle' ? 'active' : ''}`}
+
+            onClick={() => handleTabChange('steamidle')}
+            title="Steam IDLE: фарм карточек"
+
+          >
+
+            <span className="tab-ico"><Hourglass className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Steam IDLE</span>
+
+          </button>
+
           <button 
 
             className={`tab-btn ${activeTab === 'dimmer' ? 'active' : ''}`} 
@@ -1193,15 +1205,8 @@ export const App: React.FC = () => {
 
           title="Зажмите для перемещения окна / двойной клик для разворачивания"
 
-        >
+        />
 
-          <div className="drag-grip-indicator">
-
-            <span></span><span></span><span></span>
-
-          </div>
-
-        </div>
 
 
 
@@ -1470,9 +1475,9 @@ export const App: React.FC = () => {
 
           <div className="pip-ring-wrap">
 
-            <svg width="72" height="72" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
+            <svg width="100%" height="100%" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
 
-              <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth="6"></circle>
+              <circle cx="36" cy="36" r="32" fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth="4"></circle>
 
               <circle 
 
@@ -1480,13 +1485,13 @@ export const App: React.FC = () => {
 
                 cy="36" 
 
-                r="30" 
+                r="32" 
 
                 fill="none" 
 
                 stroke="var(--led-mint)" 
 
-                strokeWidth="6" 
+                strokeWidth="4"
 
                 strokeLinecap="round" 
 
@@ -1500,13 +1505,13 @@ export const App: React.FC = () => {
 
             <div style={{ textAlign: 'center', zIndex: 2 }}>
 
-              <div className="tabular" style={{ fontSize: 'var(--fs-md)', fontWeight: 800 }}>
+              <div className="tabular" style={{ fontSize: 'var(--fs-md)', fontWeight: 800, lineHeight: 1 }}>
 
                 {Math.round(progressPct)}%
 
               </div>
 
-              <div className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-mint)' }}>
+              <div className="tabular" style={{ fontSize: 'calc(var(--fs-xs) * 0.93)', lineHeight: 1, letterSpacing: '-0.06em', color: 'var(--led-mint)' }}>
 
                 {activeDrop ? `~${Math.round(activeDrop.remaining_seconds / 60)}М` : 'ГОТОВ'}
 
@@ -1777,11 +1782,17 @@ export const App: React.FC = () => {
 
               onUpdateSettings={handleUpdateSettings}
 
-              appVersion={sentinelState.version}
+              appVersion={sentinelState.version || updateInfo?.local_version}
+
+              openReadinessOnMount={giveawaysReadinessRequested}
 
             />
 
           )}
+
+
+
+          {activeTab === 'steamidle' && <SteamIdleView onOpenGiveawaysReadiness={() => { handleTabChange('giveaways'); setGiveawaysReadinessRequested(true); }} />}
 
 
 
@@ -1827,6 +1838,7 @@ export const App: React.FC = () => {
               updateInfo={updateInfo}
               updateCheckFailure={updateCheckFailure}
               updateProgress={updateProgress}
+              appVersion={sentinelState.version || updateInfo?.local_version}
             />
 
           )}
@@ -1909,7 +1921,7 @@ export const App: React.FC = () => {
                 <input 
                   type="text" 
                   placeholder="Поиск по играм, стримам и действиям... (Esc)" 
-                  className="w-full bg-transparent border-none outline-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
+                  className="w-full bg-transparent border-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
                   onKeyDown={(e) => {
@@ -2092,7 +2104,7 @@ export const App: React.FC = () => {
 
               onClick={() => setShowUpdateModal(false)}
 
-              className="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 rounded-[var(--radius-md)] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
 
             >
 
@@ -2104,7 +2116,7 @@ export const App: React.FC = () => {
 
             <div className="flex items-center gap-3">
 
-              <div className="w-10 h-10 rounded-xl bg-[var(--led-mint)]/20 border border-[var(--led-mint)]/40 flex items-center justify-center text-[var(--led-mint)]">
+              <div className="w-10 h-10 rounded-[var(--radius-md)] bg-[var(--led-mint)]/20 border border-[var(--led-mint)]/40 flex items-center justify-center text-[var(--led-mint)]">
 
                 <Sparkles size={20} aria-hidden="true" focusable="false" />
 
@@ -2118,9 +2130,9 @@ export const App: React.FC = () => {
 
                 </h3>
 
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '3.5.20'}
+                  Текущая версия: v{sentinelState.version || '3.6.0'}
 
                 </p>
 
@@ -2130,17 +2142,21 @@ export const App: React.FC = () => {
 
 
 
-            <div className="obsidian-well p-4 rounded-xl text-xs space-y-2 max-h-48 overflow-y-auto">
+            {updateInfo.release_notes && (
 
-              <div className="font-semibold text-[var(--text-primary)]">Что нового:</div>
+              <div className="obsidian-well p-4 text-[length:var(--fs-xs)] space-y-2 max-h-48 overflow-y-auto">
 
-              <div className="text-[var(--text-muted)] whitespace-pre-line leading-relaxed">
+                <div className="font-semibold text-[var(--text-primary)]">Что нового:</div>
 
-                {updateInfo.release_notes || 'Улучшена стабильность работы фонового демона и оптимизирована обработка очередей.'}
+                <div className="text-[var(--text-muted)] whitespace-pre-line leading-relaxed">
+
+                  {updateInfo.release_notes}
+
+                </div>
 
               </div>
 
-            </div>
+            )}
 
 
 
@@ -2179,7 +2195,7 @@ export const App: React.FC = () => {
 
                 onClick={() => setShowUpdateModal(false)}
 
-                className="px-4 py-2 rounded-xl text-xs text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                className="tactile-btn"
 
               >
 
@@ -2193,7 +2209,7 @@ export const App: React.FC = () => {
 
                   onClick={handleRestartApp}
 
-                  className="px-5 py-2.5 rounded-xl bg-[var(--led-mint)] hover:opacity-90 text-[var(--cta-text)] text-xs font-bold transition-all cursor-pointer shadow-lg"
+                  className="chunky-cta"
 
                 >
 
@@ -2209,7 +2225,7 @@ export const App: React.FC = () => {
 
                   disabled={isApplyingUpdate}
 
-                  className="px-5 py-2.5 rounded-xl bg-[var(--led-mint)] hover:opacity-90 disabled:opacity-50 text-[var(--cta-text)] text-xs font-bold transition-all cursor-pointer shadow-lg"
+                  className="chunky-cta disabled:opacity-50"
 
                 >
 

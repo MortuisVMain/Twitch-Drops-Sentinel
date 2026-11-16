@@ -12,6 +12,7 @@ import { useTactileAudio } from '../hooks/useTactileAudio';
 import { initialLoad, loadOk, loadFailed, loadRetry, hasStaleData, isGiveawaysState, failureText, type LoadState } from '../utils/dataLoad';
 import { loginAttemptSucceeded, loginHintVisible } from '../utils/loginAttempt';
 import { useGiveawaysReadiness } from '../hooks/useGiveawaysReadiness';
+import { withServiceToken } from '../utils/serviceAuth.mjs';
 import { GiveawaysReadiness } from './GiveawaysReadiness';
 import { countTodo } from '../utils/giveawaysReadiness';
 
@@ -20,6 +21,7 @@ interface GiveawaysViewProps {
   settings?: SentinelSettings;
   onUpdateSettings?: (newSettings: Partial<SentinelSettings>) => void;
   appVersion?: string;
+  openReadinessOnMount?: boolean;
 }
 
 interface StoreMeta {
@@ -95,8 +97,9 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   settings,
   onUpdateSettings,
   appVersion = '',
+  openReadinessOnMount = false,
 }) => {
-  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(openReadinessOnMount);
   const readinessErrorAtOpen = useRef<string | null>(null);
   const readiness = useGiveawaysReadiness(readinessOpen);
   const [load, setLoad] = useState<LoadState<GiveawaysStateResponse>>(initialLoad);
@@ -175,7 +178,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   // Connect SSE Stream for real-time logs
   useEffect(() => {
     try {
-      const sse = new EventSource('http://127.0.0.1:28492/api/v1/giveaways/stream');
+      const sse = new EventSource(withServiceToken('http://127.0.0.1:28492/api/v1/giveaways/stream'));
       eventSourceRef.current = sse;
 
       sse.addEventListener('log', (event: MessageEvent) => {
@@ -469,8 +472,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   return (
     <div id="view-giveaways" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Top Header Island 1-to-1 with SPEC */}
-      <div className="titanium-island" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-        <div>
+      <div className="titanium-island" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: '6px 12px', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 'var(--fs-md)', fontWeight: 800 }}>
             Бесплатные раздачи
           </div>
@@ -478,7 +481,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             Забираем бесплатные игры и ассеты в 7 магазинах
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           <button
             className="tactile-btn"
             onClick={() => { playClick(); readinessErrorAtOpen.current = actionError; setReadinessOpen(true); }}
@@ -558,13 +561,13 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     style={{ color: isAuthed ? 'var(--led-mint)' : 'var(--led-amber)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={isAuthed ? `Вы вошли как ${accountName}` : 'Нужно войти в аккаунт магазина'}
                   >
-                    {isAuthed ? accountName : 'Требуется вход'}
+                    {isAuthed ? 'Вход есть' : 'Требуется вход'}
                   </span>
                 )}
                 {isAuthed && (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '20px', width: '22px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
+                    style={{ minHeight: '24px', width: '24px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (window.confirm(SWITCH_ACCOUNT_CONFIRM)) handleStoreAuth(store.id, true);
@@ -576,6 +579,11 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                   </button>
                 )}
               </div>
+              {isAuthed && !isLoading && !noData && (
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }} title={`Вы вошли как ${accountName}`}>
+                  {accountName}
+                </div>
+              )}
 
               {isLoading && <span className="sk-bar" aria-hidden="true" style={{ height: '24px', width: '100%' }} />}
               {!isAuthed && !noData && (
@@ -624,7 +632,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             {load.failure === 'http' && load.status ? <>Код ответа: {load.status}. </> : null}
             {hasStaleData(load) ? 'Показаны последние полученные данные.' : 'Данные раздач недоступны.'}
           </span>
-          <button className="tactile-btn" style={{ minHeight: '22px', flexShrink: 0 }} onClick={() => { playClick(); retryLoad(); }}>
+          <button className="tactile-btn" style={{ minHeight: '24px', flexShrink: 0 }} onClick={() => { playClick(); retryLoad(); }}>
             Повторить
           </button>
         </div>
@@ -648,7 +656,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
       {/* 2-Column Bento: Left Collected Collection + Right Task Scheduler 1-to-1 with SPEC */}
       <div className="giveaways-main-grid" style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px', flex: 1, minHeight: 0, overflow: 'hidden', alignItems: 'start' }}>
         {/* Left Bento: Collection */}
-        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
+        <div className="titanium-island" style={{ display: 'flex', flexDirection: 'column', alignSelf: 'stretch', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="engraved-header" style={{ marginBottom: '8px', flexShrink: 0 }}>
             <span className="tag">
               <span className="led-dot"></span> <span title="Коллекция забранных игр и UE5-ассетов">КОЛЛЕКЦИЯ · {noData ? '…' : claimedItems.length}</span>
@@ -672,7 +680,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 >
                   <span><s.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
                   <span>{s.name}</span>
-                  <span style={{ opacity: 0.7 }}>({storeCounts[s.id] || 0})</span>
+                  <span>({storeCounts[s.id] || 0})</span>
                 </button>
               ))}
             </div>
@@ -687,7 +695,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
           </div>
 
           {/* Compact Tiles Grid */}
-          <div className="claimed-compact-grid" style={{ flex: '0 1 auto' }}>
+          <div className="claimed-compact-grid" style={{ minHeight: 0 }}>
             {isLoading ? (
               [0, 1, 2, 3, 4, 5].map((n) => (
                 <div key={n} className="claimed-compact-card" aria-hidden="true">
@@ -772,7 +780,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <button 
                 className={`tactile-btn ${copiedLogs ? 'active-mint' : ''}`} 
-                style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 onClick={handleCopyLogs}
                 title="Скопировать все логи терминала в буфер обмена"
               >
@@ -781,7 +789,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               </button>
               <button 
                 className={`tactile-btn ${isSchedulerActive ? 'active-mint' : ''}`} 
-                style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                 onClick={handleToggleScheduler}
                 title={schedulerButtonTitle}
               >

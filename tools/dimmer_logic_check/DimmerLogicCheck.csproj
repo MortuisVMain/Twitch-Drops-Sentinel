@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\desktop\DimmerLogic.cs" />
+    <Compile Include="..\..\desktop\LocalApiToken.cs" />
   </ItemGroup>
 
 </Project>

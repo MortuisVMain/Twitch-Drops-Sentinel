@@ -1,4 +1,4 @@
-import { Ban, ChevronRight, ClipboardCopy, Clock, FileText, HardDrive, Play, Plus, SkipForward, Star, Zap } from 'lucide-react';
+import { Ban, ChevronRight, ClipboardCopy, FileText, HardDrive, Play, Plus, SkipForward, Star, Zap } from 'lucide-react';
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { 
   KeyRound, ShieldAlert, Copy, Check, ExternalLink, RefreshCw, 
@@ -9,11 +9,13 @@ import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLog
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { CartridgeCover } from './GameShelf';
+import { TargetMoreMenu } from './TargetMoreMenu';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
-import { collapseLogs, CONSOLE_COLLAPSED_KEY, filterLogs, hostCanOpenLogFile, openLogFile, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
+import { collapseLogs, CONSOLE_COLLAPSED_KEY, CONSOLE_FILTER_KEY, type ConsoleFilter, filterLogs, hostCanOpenLogFile, openLogFile, parseConsoleFilter, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
+import { primaryChipIndex, sortOffQueue, splitQueueRows } from '../utils/dashboardLayout';
 import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueView, type CampaignState, type QueueFilter } from '../utils/campaignState';
 
 // Narrowest compact off-queue card (a 36 px cover, a name, a chip); the columns that fit this are the columns shown.
@@ -122,7 +124,22 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   const { playClick } = useTactileAudio();
   // No answer from the service yet: empty lists and zero counts below are not data, so they are not shown as facts
   const starting = connectionPhase === 'starting';
-  const [logFilter, setLogFilter] = useState<'ALL' | 'WATCH' | 'CLAIM' | 'CORE'>('ALL');
+  const [logFilter, setLogFilterState] = useState<ConsoleFilter>(() => {
+    try {
+      return parseConsoleFilter(localStorage.getItem(CONSOLE_FILTER_KEY));
+    } catch (err) {
+      console.warn('LiveDashboard: localStorage недоступен', err);
+      return 'ALL';
+    }
+  });
+  const setLogFilter = (next: ConsoleFilter) => {
+    setLogFilterState(next);
+    try {
+      localStorage.setItem(CONSOLE_FILTER_KEY, next);
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить фильтр консоли', err);
+    }
+  };
   const [expandedSync, setExpandedSync] = useState<string[]>([]);
   const [codeCopy, setCodeCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handleCopyCode = async () => {
@@ -415,7 +432,7 @@ const endingSoonGame = useMemo(() => {
   // Idle hero: why nothing is being farmed right now, from data already in /api/state
   const isIdle = !(activeDrop && activeGame);
 
-  // Console: one line while idle, full while farming; an explicit user choice ('1'/'0') always wins
+  // Console: collapsed by default; an explicit user choice ('1'/'0') always wins
   const [consoleChoice, setConsoleChoice] = useState<string | null>(() => {
     try {
       return localStorage.getItem(CONSOLE_COLLAPSED_KEY);
@@ -424,7 +441,7 @@ const endingSoonGame = useMemo(() => {
       return null;
     }
   });
-  const consoleCollapsed = resolveConsoleCollapsed(consoleChoice, isIdle);
+  const consoleCollapsed = resolveConsoleCollapsed(consoleChoice);
   const toggleConsole = () => {
     playClick();
     const next = consoleCollapsed ? '0' : '1';
@@ -462,7 +479,19 @@ const endingSoonGame = useMemo(() => {
   }, []);
   // The height freed by a collapsed console goes to the off-queue block
   const OVERRIDE_VISIBLE = consoleCollapsed ? 12 : overrideCols * 2;
-  const overrideGames = overrideAll.slice(0, OVERRIDE_VISIBLE);
+  // One verdict per render for the order, the muted look and the chip: a campaign that cannot be finished before it closes
+  const overrideNow = Date.now();
+  const overrideFinished = (g: GameItem): boolean =>
+    Boolean(g.is_finished || (g.total_drops && g.claimed_drops && g.claimed_drops >= g.total_drops) || (g.progress_percent !== undefined && g.progress_percent >= 100));
+  const overrideLate = (g: GameItem): boolean =>
+    forcedGame !== g.name && !overrideFinished(g) && endingSoonByGame.has(safeLower(g.name)) &&
+    deadlineFacts(g.drops_end_at, g.remaining_watch_minutes, overrideNow).verdict === 'late';
+  // late cards go after all the others, in their own order
+  const overrideGames = sortOffQueue(overrideAll, () => 0, overrideLate).slice(0, OVERRIDE_VISIBLE);
+  // Only the first card that can be started right now keeps the tinted "Собирать сейчас" chip
+  const primaryOverride = primaryChipIndex(
+    overrideGames.map((g) => ({ late: overrideLate(g), forced: forcedGame === g.name, finished: overrideFinished(g) }))
+  );
 
   // Filtered console logs
 const filteredLogs = useMemo(() => {
@@ -512,6 +541,16 @@ const filteredLogs = useMemo(() => {
       console.warn('LiveDashboard: не удалось сохранить состояние группы', err);
     }
   };
+  // Games without a campaign wait in their own group under "All"; a stored choice wins, otherwise collapsed
+  const [waitingChoice, setWaitingChoice] = useState<boolean | null>(() => {
+    try {
+      const stored = localStorage.getItem('sentinel_queue_waiting_open');
+      return stored === '1' ? true : stored === '0' ? false : null;
+    } catch (err) {
+      console.warn('LiveDashboard: localStorage недоступен', err);
+      return null;
+    }
+  });
   const [queueFilter, setQueueFilter] = useState<QueueFilter>(() => {
     try {
       return parseQueueFilter(localStorage.getItem('sentinel_queue_filter'));
@@ -530,8 +569,18 @@ const filteredLogs = useMemo(() => {
     }
   };
   const queueShown = queueView(queueCampaigns, queueFilter);
-  const activeQueue = queueShown.visible.filter((item) => item.state.kind !== 'done');
-  const finishedQueue = queueShown.visible.filter((item) => item.state.kind === 'done');
+  const { live: activeQueue, waiting: waitingQueue, finished: finishedQueue, expandWaiting } = splitQueueRows(queueShown.visible, queueFilter);
+  const showWaitingQueue = waitingChoice ?? expandWaiting;
+  const toggleWaitingGroup = () => {
+    playClick();
+    const next = !showWaitingQueue;
+    setWaitingChoice(next);
+    try {
+      localStorage.setItem('sentinel_queue_waiting_open', next ? '1' : '0');
+    } catch (err) {
+      console.warn('LiveDashboard: не удалось сохранить состояние группы', err);
+    }
+  };
   // the game that is farming right now is not a row: it is counted as available
   const queueStats = queueCounts(queueCampaigns, Boolean(activeGame));
 
@@ -750,9 +799,9 @@ const filteredLogs = useMemo(() => {
               <span style={{ display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--text-muted)' }}>
                 {starting ? '\u00a0' : (
                   <>
-                    <span title="Игры очереди с идущей кампанией, которую можно фармить (вместе с игрой, которая фармится сейчас)">{`Доступно ${queueStats.available}`}</span>
+                    <span title="С идущей кампанией, включая игру, что фармится сейчас">{`Доступно ${queueStats.available}`}</span>
                     {' · '}
-                    <span title="Кампания есть, но аккаунт игры не привязан: фарм невозможен, пока вы его не привяжете">{`Нужна привязка ${queueStats.needLink}`}</span>
+                    <span title="Кампания есть, но аккаунт игры не привязан">{`Нужна привязка ${queueStats.needLink}`}</span>
                     {' · '}
                     <span title="Игры очереди, где все награды уже получены">{`Завершено ${queueStats.finished}`}</span>
                   </>
@@ -763,23 +812,23 @@ const filteredLogs = useMemo(() => {
               {forcedGame ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', fontWeight: 700 }}>
                   <span><Zap className="ui-icon" aria-hidden="true" focusable="false" /> ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
-                  <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)' }}>
+                  <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)', minHeight: '24px' }}>
                     Сбросить фокус / В авто
                   </button>
                 </div>
               ) : (
                 <button 
                   className="tactile-btn" 
-                  style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                  style={{ minHeight: '24px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                   onClick={() => setShowFullCatalogModal(true)}
-                  title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
+                  title="Фармить выбранную игру вне очереди, пока не отмените"
                 >
                   Выбрать игру для фарма <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />
                 </button>
               )}
               <button
                 className="tactile-btn active-mint"
-                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => {
                   playClick();
                   onUpdateSettings?.({ priority_mode: settings.priority_mode === 0 ? 1 : 0 });
@@ -799,7 +848,7 @@ const filteredLogs = useMemo(() => {
               <button
                 key={option.value}
                 className={`tactile-btn ${queueFilter === option.value ? 'active-mint' : ''}`}
-                style={{ minHeight: '22px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
+                style={{ minHeight: '24px', padding: '0 8px', fontSize: 'var(--fs-xs)' }}
                 onClick={() => changeQueueFilter(option.value)}
                 aria-pressed={queueFilter === option.value}
                 title={option.hint}
@@ -862,13 +911,26 @@ const filteredLogs = useMemo(() => {
             ) : (
               <>
                 {activeQueue.map(renderQueueRow)}
+                {waitingQueue.length > 0 && (
+                  <>
+                    <button
+                      className="queue-finished-toggle"
+                      onClick={toggleWaitingGroup}
+                      aria-expanded={showWaitingQueue}
+                      title="Сейчас без кампании; приоритет сохраняется"
+                    >
+                      <span>{showWaitingQueue ? <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" />} Ждут кампаний · {waitingQueue.length}</span>
+                    </button>
+                    {showWaitingQueue && waitingQueue.map(renderQueueRow)}
+                  </>
+                )}
                 {finishedQueue.length > 0 && (
                   <>
                     <button
                       className="queue-finished-toggle"
                       onClick={toggleFinishedGroup}
                       aria-expanded={showFinishedQueue}
-                      title="Игры, где все награды уже получены; порядок приоритета сохраняется"
+                      title="Игры, где все награды получены; приоритет сохраняется"
                     >
                       <span>{showFinishedQueue ? <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronRight className="ui-icon" aria-hidden="true" focusable="false" />} Завершено · {finishedQueue.length}</span>
                     </button>
@@ -921,15 +983,13 @@ const filteredLogs = useMemo(() => {
                 <div className="idle-hero-actions">
                   <button
                     className="tactile-btn active-mint"
-                    style={{ minHeight: '28px' }}
                     onClick={() => { playClick(); setShowFullCatalogModal(true); }}
-                    title="Открыть каталог игр: выбранная игра встаёт первой поверх очереди и фармится, пока вы не отмените выбор или не получены все её награды"
+                    title="Фармить выбранную игру вне очереди, пока не отмените"
                   >
                     Выбрать игру для фарма
                   </button>
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '28px' }}
                     onClick={scrollToOverride}
                     title="Перейти к блоку ручного фокуса"
                   >
@@ -1016,13 +1076,12 @@ const filteredLogs = useMemo(() => {
                 </div>
 
                 <div style={{ display: 'flex', gap: '5px', marginTop: '2px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div className="autoclaim-armed-pill">
+                  <div className="autoclaim-status">
                     <span className="led-dot" />
                     <span>АВТОЗАБОР НАГРАД: ВКЛ</span>
                   </div>
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '28px' }}
                     onClick={() => {
                       playClick();
                       onSwitchStreamer?.(false);
@@ -1033,7 +1092,6 @@ const filteredLogs = useMemo(() => {
                   </button>
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '28px' }}
                     onClick={() => {
                       playClick();
                       onSwitchStreamer?.(true);
@@ -1042,32 +1100,7 @@ const filteredLogs = useMemo(() => {
                   >
                     <SkipForward className="ui-icon" aria-hidden="true" focusable="false" /> След. игра
                   </button>
-                  {activeStreamer && onBanStreamer && (
-                    <>
-                      <button
-                        className="tactile-btn"
-                        style={{ minHeight: '28px' }}
-                        onClick={() => {
-                          playClick();
-                          onBanStreamer(activeStreamer, true);
-                        }}
-                        title="Поставить стримера на паузу на 2 часа"
-                      >
-                        <Clock className="ui-icon" aria-hidden="true" focusable="false" /> Скрыть на 2 ч
-                      </button>
-                      <button
-                        className="tactile-btn danger-hover"
-                        style={{ minHeight: '28px' }}
-                        onClick={() => {
-                          playClick();
-                          onBanStreamer(activeStreamer, false);
-                        }}
-                        title="Исключить стримера из фарма навсегда"
-                      >
-                        <Ban className="ui-icon" aria-hidden="true" focusable="false" /> Исключить
-                      </button>
-                    </>
-                  )}
+                  {activeStreamer && onBanStreamer && <TargetMoreMenu streamer={activeStreamer} onBan={onBanStreamer} />}
                 </div>
               </div>
 
@@ -1306,12 +1339,12 @@ const filteredLogs = useMemo(() => {
           >
             <div className="engraved-header" style={{ marginBottom: '4px' }}>
               <span className="tag">
-                <span className="led-dot amber" /> <span title="Фарм вне очереди (ручной фокус)">ВНЕ ОЧЕРЕДИ</span>
+                <span className="led-dot" /> <span title="Фарм вне очереди (ручной фокус)">ВНЕ ОЧЕРЕДИ</span>
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <input
                   type="text"
-                  placeholder="Фильтр активных кампаний..."
+                  placeholder="Фильтр кампаний"
                   value={overrideFilter}
                   onChange={(e) => setOverrideFilter(e.target.value)}
                   style={{
@@ -1321,14 +1354,14 @@ const filteredLogs = useMemo(() => {
                     padding: '2px 8px',
                     color: 'var(--text-primary)',
                     fontSize: 'var(--fs-xs)',
-                    outline: 'none',
+                    minHeight: '28px',
                     width: '145px',
                   }}
                 />
                 {forcedGame && (
                   <button
                     className="tactile-btn"
-                    style={{ minHeight: '22px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
+                    style={{ minHeight: '24px', padding: '0 7px', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}
                     onClick={() => {
                       playClick();
                       onCancelForceFarm?.();
@@ -1369,7 +1402,7 @@ const filteredLogs = useMemo(() => {
                   return (
                     <div
                       key={idx}
-                      className={`override-pill-card ${isForced ? 'forced' : ''}`}
+                      className={`override-pill-card ${isForced ? 'forced' : ''} ${overrideLate(g) ? 'late' : ''}`}
                       onClick={() => {
                         playClick();
                         if (isForced) {
@@ -1384,7 +1417,7 @@ const filteredLogs = useMemo(() => {
                         <CartridgeCover name={g.name} boxArt={g.box_art} compact={!consoleCollapsed} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div className="override-name" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {g.name}
                         </div>
                         <div
@@ -1396,8 +1429,8 @@ const filteredLogs = useMemo(() => {
                         </div>
                       </div>
                       <span
-                        className="version-chip shrink-0"
-                        style={{ color: isForced ? 'var(--led-amber)' : isFinished ? 'var(--led-mint)' : 'var(--led-mint)' }}
+                        className={`${isForced || isFinished || idx === primaryOverride ? 'version-chip' : 'override-action-text'} shrink-0`}
+                        style={isForced || isFinished || idx === primaryOverride ? { color: isForced ? 'var(--led-amber)' : 'var(--led-mint)' } : undefined}
                       >
                         {isForced ? 'Сейчас · отменить' : isFinished ? 'СОБРАНО' : 'Собирать сейчас'}
                       </span>
@@ -1472,7 +1505,7 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <button
                   className="tactile-btn active-amber"
-                  style={{ minHeight: '22px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
+                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
                   onClick={() => {
                     playClick();
                     onCancelForceFarm?.();
@@ -1497,7 +1530,7 @@ const filteredLogs = useMemo(() => {
                 {catalogModalSearch && (
                   <button 
                     onClick={() => setCatalogModalSearch('')} 
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 min-h-6 text-[var(--text-muted)] hover:text-white"
                   >
                     <X className="ui-icon" aria-hidden="true" focusable="false" />
                   </button>
@@ -1506,21 +1539,21 @@ const filteredLogs = useMemo(() => {
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   className={`tactile-btn ${catalogModalTab === 'ALL' ? 'active-mint' : ''}`}
-                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('ALL'); }}
                 >
                   Все ({activeTwitchDropsGames.length})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'TOP' ? 'active-mint' : ''}`}
-                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
                 >
                   <Star className="ui-icon" aria-hidden="true" focusable="false" /> Очередь ({topPriorityCount})
                 </button>
                 <button
                   className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
-                  style={{ minHeight: '28px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
+                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
                   onClick={() => { playClick(); setCatalogModalTab('INSTALLED'); }}
                 >
                   <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> На ПК ({installedActiveCount})

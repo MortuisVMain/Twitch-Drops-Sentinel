@@ -5,6 +5,7 @@ import { GIVEAWAYS } from './giveaways';
 import { SETTINGS } from './settings';
 import { SHELF } from './shelf';
 import { STATE } from './state';
+import { STEAM_IDLE } from './steamIdle';
 
 export const EN: Record<string, string> = {
   ...APP,
@@ -14,4 +15,5 @@ export const EN: Record<string, string> = {
   ...SETTINGS,
   ...SHELF,
   ...STATE,
+  ...STEAM_IDLE,
 };

@@ -219,6 +219,7 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
         { x: w * 0.22 + Math.sin(time * 0.0007) * 80, y: h * 0.28, rad: 440 },
         { x: w * 0.78 + Math.cos(time * 0.0006) * 80, y: h * 0.74, rad: 460 },
       ];
+      ctx.globalAlpha = useThemeColor ? 1 : 0.5; // the magma variant glows at half strength
       hotspots.forEach((hs) => {
         const g = ctx.createRadialGradient(hs.x, hs.y, 8, hs.x, hs.y, hs.rad);
         g.addColorStop(0, coreCol);
@@ -227,6 +228,7 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
       });
+      ctx.globalAlpha = 1;
 
       const facetNormals = [
         { nx: 0.866, ny: 0.5 },
@@ -536,6 +538,7 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       ref={canvasRef}
       id="relief3DCanvas"
       className="relief-canvas"
+      data-relief={reliefMode}
       style={{
         position: 'absolute',
         inset: 0,

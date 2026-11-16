@@ -23,6 +23,7 @@ interface SettingsStudioProps {
   updateInfo?: UpdateCheckResult | null;
   updateCheckFailure?: string | null;
   updateProgress?: UpdateProgressStatus | null;
+  appVersion?: string;
 }
 
 export const SettingsStudio: React.FC<SettingsStudioProps> = ({
@@ -39,12 +40,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   updateInfo,
   updateCheckFailure,
   updateProgress,
+  appVersion,
 }) => {
   const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
   const [scanLabel, setScanLabel] = useState<string>('Пересканировать все диски');
   const [backupLabel, setBackupLabel] = useState<string>('Бэкап профиля (.zip)');
-  const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | null>(null);
+  const [pendingDanger, setPendingDanger] = useState<'trophies' | 'logout' | 'cache' | null>(null);
+  const lastDanger = useRef<'trophies' | 'logout' | 'cache' | null>(null);
+  // A closed question unmounts the focused button: hand focus back to the button that asked it
+  useEffect(() => {
+    if (pendingDanger !== null) { lastDanger.current = pendingDanger; return; }
+    const asked = lastDanger.current;
+    lastDanger.current = null;
+    if (asked) document.querySelector<HTMLButtonElement>(`[data-danger="${asked}"]`)?.focus();
+  }, [pendingDanger]);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
   const diagDialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(showDiagModal, diagDialogRef, () => setShowDiagModal(false));
@@ -153,16 +163,22 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     return () => clearTimeout(timer);
   }, [testCountdown]);
 
-  const handleConfirmDanger = (type: 'trophies' | 'logout') => {
+  const handleConfirmDanger = async (type: 'trophies' | 'logout' | 'cache') => {
     playClick();
-    if (type === 'trophies') {
-      fetch('http://127.0.0.1:28492/api/trophies/clear', { method: 'POST' }).catch(() => {});
-      alert('Журнал Trophies.md очищен!');
-    } else {
-      fetch('http://127.0.0.1:28492/api/logout', { method: 'POST' }).catch(() => {});
-      alert('Сессия сброшена! Перезапустите Sentinel.');
-    }
     setPendingDanger(null);
+    const action = {
+      trophies: { path: '/api/trophies/clear', done: 'Журнал Trophies.md очищен!', failed: 'Не удалось очистить журнал: ошибка сервиса' },
+      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Sentinel.', failed: 'Не удалось сбросить сессию: ошибка сервиса' },
+      cache: { path: '/api/game-directories/clear-cache', done: 'Кэш распознавания игр очищен!', failed: 'Не удалось очистить кэш: ошибка сервиса' },
+    }[type];
+    try {
+      const res = await fetch(`http://127.0.0.1:28492${action.path}`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      alert(action.done);
+    } catch (err) {
+      console.error(`SettingsStudio: ${action.path} failed`, err);
+      alert(action.failed);
+    }
   };
 
   const handleBackupProfile = async () => {
@@ -237,16 +253,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     }
   };
 
-  const handleClearCache = async () => {
-    playClick();
-    try {
-      await fetch('http://127.0.0.1:28492/api/game-directories/clear-cache', { method: 'POST' });
-      alert('Кэш распознавания игр очищен!');
-    } catch (err) {
-      console.error('SettingsStudio: не удалось очистить кэш распознавания', err);
-      alert('Не удалось очистить кэш: сервис недоступен');
-    }
-  };
+  const handleClearCache = () => { playClick(); setPendingDanger('cache'); };
 
   const handleOpenDiag = async () => {
     playClick();
@@ -407,6 +414,19 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       onToggle: () => { playClick(); void handleToggleAutostart(); },
     },
   ];
+  const renderModuleCard = (m: (typeof moduleCards)[number]) => (
+    <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{m.title}</div>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{m.hint}</div>
+      </div>
+      <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
+        <div className="knob"></div>
+      </div>
+    </div>
+  );
+  // The after-queue switch sits in the block with its choice of action, not in the grid
+  const powerCard = moduleCards.find((m) => m.key === 'powerCascade');
 
 
   return (
@@ -424,17 +444,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
 
             <div className="modules-10-grid">
-              {moduleCards.map((m) => (
-                <div key={m.key} className="module-switch-card" onClick={m.onToggle} title={m.tooltip}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700 }}>{m.title}</div>
-                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>{m.hint}</div>
-                  </div>
-                  <div className={`cnc-switch ${moduleOn[m.key] ? 'on' : ''}`} id={m.key === 'powerCascade' ? 'lunaSwitch' : undefined}>
-                    <div className="knob"></div>
-                  </div>
-                </div>
-              ))}
+              {moduleCards.filter((m) => m.key !== 'powerCascade').map(renderModuleCard)}
               {autostartError && (
                 <div role="status" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)' }}>
                   Автозапуск недоступен: {autostartError}
@@ -462,7 +472,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             {([['ru', 'Русский'], ['en', 'English']] as const).map(([value, label]) => (
               <button
                 key={value}
-                className={`tactile-btn ${getLang() === value ? 'active-amber' : ''}`}
+                className={`tactile-btn ${getLang() === value ? 'active-mint' : ''}`}
                 onClick={() => { playClick(); if (getLang() !== value) void setLang(value as Lang); }}
               >
                 {label}
@@ -496,8 +506,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div 
             id="lunaCascadeBox" 
             className="obsidian-well" 
-            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}
+            style={{ marginTop: '8px', padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}
           >
+            {powerCard && renderModuleCard(powerCard)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>ПОСЛЕ ОЧЕРЕДИ:</span>
               <button 
@@ -538,6 +550,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             >
               <Timer className="ui-icon" aria-hidden="true" focusable="false" /> {testCountdown !== null ? `Отмена (${testCountdown} с)` : 'Проверить таймер (5 с, ПК не затронет)'}
             </button>
+            </div>
           </div>
         </div>
 
@@ -603,7 +616,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span className="tag">
                 <span className="led-dot"></span> <span title="Библиотеки и папки с играми">ПАПКИ С ИГРАМИ · {installedCount}</span>
               </span>
-              <button className="tactile-btn active-mint" style={{ minHeight: '22px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
+              <button className="tactile-btn active-mint" style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }} onClick={handleAddFolder}>
                 <Plus className="ui-icon" aria-hidden="true" focusable="false" /> Добавить папку
               </button>
             </div>
@@ -616,7 +629,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                     <span style={{ color: 'var(--led-mint)', fontSize: 'var(--fs-xs)' }}>[НАСТРОЕН]</span>
                     <button
                       className="tactile-btn danger-hover"
-                      style={{ padding: '1px 6px', minHeight: '18px', fontSize: 'var(--fs-xs)' }}
+                      style={{ padding: '1px 6px', minHeight: '24px', fontSize: 'var(--fs-xs)' }}
                       onClick={() => handleRemoveFolder(dir)}
                       title="Удалить папку"
                     >
@@ -632,13 +645,21 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               <span>Обнаружено игр: {installedCount}</span>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
               <button className="chunky-cta" style={{ flex: 1 }} onClick={handleRescanClick}>
                 <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> {scanLabel}
               </button>
-              <button className="tactile-btn danger-hover" onClick={handleClearInstalledGames} title="Очистить список">
-                <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Очистить кэш / Очистить список
-              </button>
+              {pendingDanger === 'cache' ? (
+                <>
+                  <span className="danger-zone-question" style={{ alignSelf: 'center' }}>Очистить список найденных игр? Его вернёт пересканирование.</span>
+                  <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('cache')}>Да, очистить</button>
+                  <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+                </>
+              ) : (
+                <button className="tactile-btn danger-hover" data-danger="cache" onClick={handleClearInstalledGames} title="Очистить список">
+                  <Trash2 className="ui-icon" aria-hidden="true" focusable="false" /> Очистить кэш / Очистить список
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -652,11 +673,11 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <>
               <span className="danger-zone-question">Очистить трофеи? Журнал будет удалён.</span>
               <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('trophies')}>Да, очистить</button>
-              <button className="tactile-btn" onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+              <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
             </>
           ) : (
             <>
-              <button className="safety-guard-btn" onClick={handleClearTrophies} title="Удалить журнал полученных наград Trophies.md">Очистить трофеи</button>
+              <button className="safety-guard-btn" data-danger="trophies" onClick={handleClearTrophies} title="Удалить журнал полученных наград Trophies.md">Очистить трофеи</button>
               <span className="danger-zone-hint">Удаляет журнал полученных наград</span>
             </>
           )}
@@ -664,13 +685,13 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         <div className="danger-zone-item">
           {pendingDanger === 'logout' ? (
             <>
-              <span className="danger-zone-question">Выйти из аккаунта Twitch?</span>
+              <span className="danger-zone-question">Выйти из аккаунта Twitch? Фарм остановится, войти придётся заново.</span>
               <button className="safety-guard-btn armed" onClick={() => handleConfirmDanger('logout')}>Да, выйти</button>
-              <button className="tactile-btn" onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
+              <button className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingDanger(null); }}>Отмена</button>
             </>
           ) : (
             <>
-              <button className="safety-guard-btn" onClick={handleLogout} title="Сбросить вход в Twitch и войти другим аккаунтом">Сменить аккаунт</button>
+              <button className="safety-guard-btn" data-danger="logout" onClick={handleLogout} title="Сбросить вход в Twitch и войти другим аккаунтом">Сменить аккаунт</button>
               <span className="danger-zone-hint">Сбрасывает вход в Twitch</span>
             </>
           )}
@@ -716,6 +737,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             <button className="tactile-btn" onClick={handleOpenDiag} title="Диагностический отчет">
               <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Отчет
             </button>
+            {appVersion && <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} title="Версия приложения">v{appVersion}</span>}
           </div>
         </div>
 

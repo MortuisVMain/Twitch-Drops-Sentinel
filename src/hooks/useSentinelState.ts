@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { followBackendLanguage } from '../i18n';
 import { followBackendTextScale } from '../utils/textScale';
 import { setServerCovers } from '../utils/gameBoxArts';
+import { withServiceToken } from '../utils/serviceAuth.mjs';
 import { ConnectionPhase, FullSentinelState, SentinelSettings, TrophyItem } from '../types';
 
 // The service took over 15 s to answer after launch (measured): 4 times that still counts as a start, not a failure
@@ -161,7 +162,7 @@ export function useSentinelState(
     const connectWs = () => {
       if (!isMounted || typeof WebSocket === 'undefined' || window.location?.protocol === 'file:') return;
       try {
-        ws = new WebSocket('ws://127.0.0.1:28492/ws');
+        ws = new WebSocket(withServiceToken('ws://127.0.0.1:28492/ws'));
         ws.onmessage = (ev) => {
           try {
             const payload = JSON.parse(ev.data);

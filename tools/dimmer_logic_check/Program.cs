@@ -254,5 +254,18 @@ void Tick(bool reverse = false, bool settle = true)
     Check(!App(null), "a null source is foreign");
 }
 
+// The per-launch secret of the local API: 32 random bytes as base64url, never the same twice, safe inside a script
+{
+    string a = LocalApiToken.Create(), b = LocalApiToken.Create();
+    Check(a.Length == 43 && a.All(c => char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_'), "token: 43 chars of base64url, no padding");
+    Check(a != b, "token: differs between two calls");
+    Check(LocalApiToken.HeaderName == "X-Sentinel-Token" && LocalApiToken.EnvName == "SENTINEL_API_TOKEN", "token: names match the service");
+    string script = LocalApiToken.PageScript(a);
+    Check(script.Contains("location.origin === 'https://app.sentinel'") && script.Contains("__SENTINEL_TOKEN") && script.Contains("\"" + a + "\""), "token: script guards the origin and carries the JSON-encoded value");
+    Check(script.Contains("writable: false") && script.Contains("configurable: false"), "token: the page cannot change it");
+    string hostile = LocalApiToken.PageScript("x\"});alert(1);//</script>");
+    Check(!hostile.Contains("x\"}") && !hostile.Contains("</script>") && !hostile.Contains("\"});"), "token: a hostile value stays inside the string");
+}
+
 Console.WriteLine(failures == 0 ? "ALL DIMMER CHECKS PASSED" : $"{failures} DIMMER CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;

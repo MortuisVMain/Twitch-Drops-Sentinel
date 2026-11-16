@@ -141,10 +141,14 @@ export const filterLogs = (logs: SentinelLogEntry[], filter: ConsoleFilter): Sen
   });
 
 export const CONSOLE_COLLAPSED_KEY = 'sentinel_console_collapsed';
+export const CONSOLE_FILTER_KEY = 'sentinel_console_filter';
 
-/** An explicit user choice ('1' collapsed, '0' expanded) always wins; with none (or junk) the console is collapsed while idle. */
-export const resolveConsoleCollapsed = (stored: string | null, isIdle: boolean): boolean =>
-  stored === '1' ? true : stored === '0' ? false : isIdle;
+/** The saved console filter; a missing or unknown value means "all". */
+export const parseConsoleFilter = (stored: string | null | undefined): ConsoleFilter =>
+  stored === 'WATCH' || stored === 'CLAIM' || stored === 'CORE' ? stored : 'ALL';
+
+/** An explicit user choice ('1' collapsed, '0' expanded) always wins; with none (or junk) the console starts collapsed. */
+export const resolveConsoleCollapsed = (stored: string | null): boolean => stored !== '0';
 
 /** What the console holds, mirrored from core/gui_headless.py (LOG_HARD_CAP, LOG_RETENTION_SECONDS): at least 5 hours, a count cap as a safety net. */
 export const CONSOLE_LOG_LIMIT = 5000;
