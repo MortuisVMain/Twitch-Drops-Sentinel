@@ -267,5 +267,93 @@ void Tick(bool reverse = false, bool settle = true)
     Check(!hostile.Contains("x\"}") && !hostile.Contains("</script>") && !hostile.Contains("\"});"), "token: a hostile value stays inside the string");
 }
 
+// The dimmer module switch: the hotkeys follow the setting, the persisted flag keeps them off at the next start
+{
+    var dir = Path.Combine(Path.GetTempPath(), "dimmer_module_" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(dir);
+    string flag = Path.Combine(dir, "dimmer_module.json");
+    (DimmerModule M, FakeHotkeys H, List<string> Log, int[] Lifted) Make(params int[] refuse)
+    {
+        var h = new FakeHotkeys(refuse);
+        var log = new List<string>();
+        var lifted = new int[1];
+        return (new DimmerModule(h, () => lifted[0]++, flag, (msg, ex) => log.Add(msg + (ex == null ? "" : " | " + ex.Message))), h, log, lifted);
+    }
+
+    {
+        var (m, h, log, lifted) = Make();
+        m.Start();
+        Check(m.Enabled && string.Join(",", h.Calls) == "+9001,+9002", $"module: no flag file = on, both hotkeys registered ({string.Join(",", h.Calls)})");
+        Check(h.Keys[9001] == (DimmerModule.ModAlt, DimmerModule.VkBack) && h.Keys[9002] == (DimmerModule.ModAlt | DimmerModule.ModShift, DimmerModule.VkBack), "module: Alt+Backspace and Alt+Shift+Backspace");
+        m.Apply(true); m.Apply(true);
+        Check(h.Calls.Count == 2, "module: applying 'on' again registers nothing twice");
+        m.Apply(false);
+        Check(h.Active.Count == 0 && string.Join(",", h.Calls.Skip(2)) == "-9001,-9002", $"module: off unregisters both ({string.Join(",", h.Calls.Skip(2))})");
+        Check(lifted[0] == 1 && !m.Enabled, "module: off lifts the overlays once");
+        m.Apply(false);
+        Check(lifted[0] == 1 && h.Calls.Count == 4, "module: applying 'off' again does nothing more");
+        Check(File.Exists(flag), "module: the flag is persisted");
+    }
+    {
+        var (m, h, _, lifted) = Make();
+        m.Start();
+        Check(!m.Enabled && h.Calls.Count == 0 && lifted[0] == 0, "module: the next start with the flag off registers no hotkey and lifts nothing");
+        m.Apply(true);
+        Check(m.Enabled && h.Active.SetEquals(new[] { 9001, 9002 }) && lifted[0] == 0, "module: on registers them again");
+        var (m2, h2, _, _) = Make();
+        m2.Start();
+        Check(m2.Enabled && h2.Active.Count == 2, "module: the flag is on again after turning on");
+    }
+    {
+        var (m, h, log, _) = Make(9001);
+        m.Start();
+        Check(h.Active.SetEquals(new[] { 9002 }) && m.FailedHotkeys.SequenceEqual(new[] { 9001 }), "module: a refused hotkey is reported, the other one still works");
+        Check(log.Count == 1 && log[0].Contains("Alt+Backspace"), $"module: the refusal is logged with the key ({string.Join(";", log)})");
+        m.Apply(false);
+        Check(!h.Calls.Contains("-9001") && h.Calls.Contains("-9002"), "module: off releases only what was taken");
+        h.Refuse.Clear();
+        m.Apply(true);
+        Check(h.Active.SetEquals(new[] { 9001, 9002 }) && m.FailedHotkeys.Count == 0, "module: turning on again takes the hotkey that was refused before");
+    }
+    {
+        var h = new FakeHotkeys();
+        var log = new List<string>();
+        var m = new DimmerModule(h, () => throw new InvalidOperationException("overlay stuck"), flag, (msg, ex) => log.Add(msg));
+        m.Start();
+        m.Apply(false);
+        Check(h.Active.Count == 0 && log.Any(l => l.Contains("overlay")), "module: a failing overlay lift is logged and the hotkeys are released anyway");
+    }
+    {
+        File.WriteAllText(flag, "{ not json");
+        var (m, h, log, _) = Make();
+        m.Start();
+        Check(m.Enabled && h.Active.Count == 2 && log.Count == 1, "module: a broken flag file counts as on and is logged");
+        m.Shutdown();
+        Check(h.Active.Count == 0, "module: shutdown releases the hotkeys");
+        File.WriteAllText(flag, "{\"enabled\":false}");
+        var (m3, h3, _, _) = Make();
+        m3.Start(); m3.Shutdown();
+        Check(!m3.Enabled && File.ReadAllText(flag).Contains("false"), "module: shutdown keeps the flag");
+    }
+    Directory.Delete(dir, true);
+}
+
 Console.WriteLine(failures == 0 ? "ALL DIMMER CHECKS PASSED" : $"{failures} DIMMER CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
+
+sealed class FakeHotkeys : IHotkeyRegistrar
+{
+    public readonly List<string> Calls = new();
+    public readonly HashSet<int> Active = new();
+    public readonly HashSet<int> Refuse;
+    public readonly Dictionary<int, (uint, uint)> Keys = new();
+    public FakeHotkeys(params int[] refuse) { Refuse = new HashSet<int>(refuse); }
+    public bool Register(int id, uint modifiers, uint key)
+    {
+        Calls.Add("+" + id);
+        if (Refuse.Contains(id)) return false;
+        Active.Add(id); Keys[id] = (modifiers, key);
+        return true;
+    }
+    public bool Unregister(int id) { Calls.Add("-" + id); return Active.Remove(id); }
+}

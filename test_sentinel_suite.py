@@ -5851,6 +5851,7 @@ def test_safe_defaults_power_off_and_linked_games():
         "    def save_settings(self): pass\n"
         "    async def broadcast_ws(self): pass\n"
         "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
         "fake = Fake()\n"
         "resp = asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None))\n"
         "print(json.dumps({'defaults': [s.SUPERVISOR_DEFAULTS['auto_shutdown_on_complete'], s.SUPERVISOR_DEFAULTS['user_linked_games']],\n"
@@ -5881,6 +5882,7 @@ def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
         "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
         "def post(fake, body):\n"
         "    resp = asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body)))\n"
         "    return resp.status\n"
@@ -5941,6 +5943,7 @@ def test_steam_idle_module_follows_the_tab_setting_once_per_change():
         "    def apply_engine_language(self): pass\n"
         "    async def broadcast_ws(self): pass\n"
         "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
         "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
         "fake, out = Fake(), {}\n"
         "post(fake, {'language': 'ru'}); out['untouched'] = list(fake.steam_idle.calls)\n"
@@ -5962,6 +5965,74 @@ def test_steam_idle_module_follows_the_tab_setting_once_per_change():
     assert got["reset"] == [False, True, False, True], f"a reset to defaults turns it on again: {got['reset']}"
     shutil.rmtree(work, ignore_errors=True)
     print("      steam idle switch: PASS [OK]")
+
+
+def test_dimmer_module_follows_the_tab_setting_once_per_change():
+    print("[tabs] turning the Dimmer tab off stops its timer, lifts blackout and ultra-dark, refuses its commands; on works again...")
+    work = Path(tempfile.mkdtemp(prefix="dimmer_switch_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from tab_visibility import tab_enabled\n"
+        "from dimmer_controller import DimmerController\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    def __init__(self):\n"
+        "        self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "        self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, 'dimmer'))\n"
+        "        self.flips = []\n"
+        "        real = self.dimmer.set_module_enabled\n"
+        "        async def spy(on): self.flips.append(on); await real(on)\n"
+        "        self.dimmer.set_module_enabled = spy\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): await s.SentinelSupervisor._sync_dimmer_module(self, was_on)\n"
+        "async def post(fake, body): return (await s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "async def call(fake, name, body=None):\n"
+        "    r = await getattr(s.SentinelSupervisor, name)(fake, Req(body or {}))\n"
+        "    return r.status, json.loads(r.body)\n"
+        "async def main():\n"
+        "    fake, out = Fake(), {}\n"
+        "    d = fake.dimmer\n"
+        "    await d.set_blackout(True); await d.set_ultra_dark(True, 40); await d.set_timer(30)\n"
+        "    out['armed'] = [d.get_state()['is_blackout'], d.get_state()['ultra_dark_active'], d.get_state()['sleep_timer_minutes']]\n"
+        "    task = d._timer_task\n"
+        "    await post(fake, {'disabled_tabs': ['shelf']}); out['other_tab'] = list(fake.flips)\n"
+        "    await post(fake, {'disabled_tabs': ['dimmer']})\n"
+        "    st = d.get_state(); await asyncio.sleep(0)\n"
+        "    out['off'] = [list(fake.flips), st['is_blackout'], st['ultra_dark_active'], st['sleep_timer_minutes'], task.done(), d._timer_task is None]\n"
+        "    await post(fake, {'disabled_tabs': ['dimmer', 'shelf']}); out['still_off'] = list(fake.flips)\n"
+        "    out['refused'] = [await call(fake, 'handle_dimmer_blackout', {'enabled': True}), await call(fake, 'handle_dimmer_timer', {'minutes': 5}),\n"
+        "        await call(fake, 'handle_dimmer_brightness', {'level': 10}), await call(fake, 'handle_dimmer_ultradark', {'enabled': True})]\n"
+        "    out['after_refusal'] = [d.get_state()['is_blackout'], d._timer_task is None, d.get_state()['ultra_dark_active']]\n"
+        "    out['state_ok'] = (await call(fake, 'handle_dimmer_state'))[0]\n"
+        "    await post(fake, {'disabled_tabs': []}); out['on'] = list(fake.flips)\n"
+        "    out['works_again'] = (await call(fake, 'handle_dimmer_blackout', {'enabled': True}))[0]\n"
+        "    await d.set_blackout(False)\n"
+        "    await post(fake, {'disabled_tabs': ['dimmer']}); await s.SentinelSupervisor.handle_reset_settings(fake, None)\n"
+        "    out['reset'] = list(fake.flips)\n"
+        "    print(json.dumps(out))\n"
+        "asyncio.run(main())\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["armed"] == [True, True, 30], f"setup: {got['armed']}"
+    assert got["other_tab"] == [], f"only the dimmer entry matters: {got['other_tab']}"
+    assert got["off"] == [[False], False, False, 0, True, True], f"off: one call, blackout and ultra-dark lifted, timer cancelled: {got['off']}"
+    assert got["still_off"] == [False], f"an unchanged state is not a transition: {got['still_off']}"
+    assert all(status == 409 and body == {"error": "module_disabled"} for status, body in got["refused"]), got["refused"]
+    assert got["after_refusal"] == [False, True, False], f"refused commands change nothing: {got['after_refusal']}"
+    assert got["state_ok"] == 200, "reading the state stays allowed"
+    assert got["on"] == [False, True] and got["works_again"] == 200, f"on: {got['on']} {got['works_again']}"
+    assert got["reset"] == [False, True, False, True], f"a reset to defaults turns it on again: {got['reset']}"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      dimmer switch: PASS [OK]")
 
 
 def test_loading_states_of_giveaways_and_dimmer():
@@ -7690,6 +7761,7 @@ if __name__ == "__main__":
         test_safe_defaults_power_off_and_linked_games,
         test_disabled_tabs_setting_is_cleaned_translated_and_persisted,
         test_steam_idle_module_follows_the_tab_setting_once_per_change,
+        test_dimmer_module_follows_the_tab_setting_once_per_change,
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,

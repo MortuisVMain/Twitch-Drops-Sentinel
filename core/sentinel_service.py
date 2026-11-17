@@ -372,6 +372,11 @@ SUPERVISOR_DEFAULTS = {
 }
 
 
+def _dimmer_off_response() -> web.Response:
+    """The Dimmer tab is turned off: its commands are refused (reading the state stays allowed)."""
+    return web.json_response({"error": "module_disabled"}, status=409)
+
+
 class SentinelSupervisor:
     def __init__(self):
         self.api_token = take_api_token()  # first, so no child process created below inherits it
@@ -396,7 +401,7 @@ class SentinelSupervisor:
         self.luna_countdown: Optional[int] = None
         self.luna_fired = False
         self.giveaways = GiveawaysOrchestrator()
-        self.dimmer = DimmerController()
+        self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, "dimmer"))
         self.steam_idle = create_steam_idle_controller(
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
             lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
@@ -926,6 +931,16 @@ class SentinelSupervisor:
         except Exception:
             logger.error("Steam IDLE did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
 
+    async def _sync_dimmer_module(self, was_on: bool) -> None:
+        """Tells the dimmer controller when the setting flipped; a failure is logged and never fails the settings update."""
+        now_on = tab_enabled(self.settings, "dimmer")
+        if now_on == was_on:
+            return
+        try:
+            await self.dimmer.set_module_enabled(now_on)
+        except Exception:
+            logger.error("Dimmer did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
+
     async def handle_post_settings(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
@@ -937,8 +952,10 @@ class SentinelSupervisor:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             apply_disabled_tabs(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
+            dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
             await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
@@ -1289,8 +1306,10 @@ class SentinelSupervisor:
                 current.update(copy.deepcopy(SUPERVISOR_DEFAULTS))
 
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
+            dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, to_defaults, self.save_settings)
             await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
@@ -1618,6 +1637,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_brightness(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1642,6 +1663,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_blackout(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1662,6 +1685,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_timer(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1671,6 +1696,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_ultradark(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1681,6 +1708,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_mute(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1690,10 +1719,14 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_save_baseline(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         state = await self.dimmer.save_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_restore_baseline(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         state = await self.dimmer.restore_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 

@@ -45,3 +45,22 @@ test('unknown ids, dashboard, settings and bad values are ignored', () => {
 test('the order does not depend on the order of disabled_tabs', () => {
   assert.deepEqual(visibleTabs({ disabled_tabs: ['dimmer', 'shelf'] }), ['dashboard', 'giveaways', 'steamidle', 'settings']);
 });
+
+const { dimmerModuleMessage } = await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'tabVisibility.mjs')).href);
+
+test('the host hears nothing before the service has answered', () => {
+  assert.equal(dimmerModuleMessage({ disabled_tabs: ['dimmer'] }, false, undefined), null);
+  assert.equal(dimmerModuleMessage({}, false, undefined), null);
+});
+
+test('the first answer is always sent, on or off', () => {
+  assert.deepEqual(dimmerModuleMessage({ disabled_tabs: [] }, true, undefined), { type: 'DIMMER_MODULE', enabled: true });
+  assert.deepEqual(dimmerModuleMessage({ disabled_tabs: ['dimmer'] }, true, undefined), { type: 'DIMMER_MODULE', enabled: false });
+});
+
+test('only a change is sent after that', () => {
+  assert.equal(dimmerModuleMessage({ disabled_tabs: ['shelf'] }, true, true), null, 'another tab does not matter');
+  assert.deepEqual(dimmerModuleMessage({ disabled_tabs: ['dimmer'] }, true, true), { type: 'DIMMER_MODULE', enabled: false });
+  assert.equal(dimmerModuleMessage({ disabled_tabs: ['dimmer', 'shelf'] }, true, false), null);
+  assert.deepEqual(dimmerModuleMessage({ disabled_tabs: [] }, true, false), { type: 'DIMMER_MODULE', enabled: true });
+});

@@ -25,7 +25,7 @@ import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils
 import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
-import { visibleTabs } from './utils/tabVisibility.mjs';
+import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
@@ -358,6 +358,15 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (selectedTab !== activeTab) setSelectedTab(activeTab);
   }, [selectedTab, activeTab]);
+  // The desktop host keeps the Dimmer hotkeys and overlays only while the tab is on: tell it the first answer and every change
+  const dimmerSentRef = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const message = dimmerModuleMessage(sentinelState.settings, sentinelState.connected, dimmerSentRef.current);
+    if (!message) return;
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') wv.postMessage(message);
+    dimmerSentRef.current = message.enabled; // without a host (browser) there is nobody to tell
+  }, [sentinelState.settings, sentinelState.connected]);
   const { logs: consoleLogs, historyFailed: logHistoryFailed } = useConsoleLogs(sentinelState.log_seq, sentinelState.log_session, sentinelState.recent_logs);
 
 
@@ -2095,7 +2104,7 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
 
-      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} />
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} />
 
 
 

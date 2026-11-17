@@ -30,6 +30,8 @@ interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeTab?: NavTab;
+  /** False while the Dimmer tab is turned off in Settings: its hotkeys do nothing, so their rows are hidden. */
+  dimmerEnabled?: boolean;
 }
 
 type HelpCategory = 'dashboard' | 'shelf' | 'giveaways' | 'dimmer' | 'settings' | 'hotkeys';
@@ -187,21 +189,23 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
   }
 };
 
-const HOTKEYS_LIST = [
-  { key: '1, 2, 3, 4, 5', label: 'Переключение вкладок', desc: 'Открывает соответствующую вкладку приложения' },
+type HotkeyRow = { key: string; label: string; desc: string; dimmerOnly?: boolean; descWithoutDimmer?: string };
+
+const HOTKEYS_LIST: HotkeyRow[] = [
+  { key: 'Цифры', label: 'Переключение вкладок', desc: 'Цифра открывает вкладку, если она не выключена в настройках' },
   { key: 'Ctrl + K', label: 'Палитра команд', desc: 'Открывает быстрый переход и поиск по играм' },
   { key: 'Ctrl + M', label: 'Режим PiP', desc: 'Переключает компактный режим окна' },
-  { key: 'Alt + Backspace', label: 'Сброс ручного фокуса', desc: 'Возвращает фарм из выбранной вручную игры к обычной очереди. На вкладке «Диммер» — блэкаут экранов' },
-  { key: 'Alt + Shift + Backspace', label: 'Восстановить яркость', desc: 'Возвращает сохраненную базовую яркость дисплеев' },
+  { key: 'Alt + Backspace', label: 'Сброс ручного фокуса', desc: 'Возвращает фарм из выбранной вручную игры к обычной очереди. На вкладке «Диммер» — блэкаут экранов', descWithoutDimmer: 'Возвращает фарм из выбранной вручную игры к обычной очереди' },
+  { key: 'Alt + Shift + Backspace', label: 'Восстановить яркость', desc: 'Возвращает сохраненную базовую яркость дисплеев', dimmerOnly: true },
   { key: 'F5', label: 'Обновить данные', desc: 'Заново запрашивает кампании у Twitch' },
-  { key: 'Esc', label: 'Закрыть модальное окно', desc: 'Мгновенное закрытие справки, каталога или окна обновления. На вкладке «Диммер» — выход из блэкаута' },
-  { key: 'Колесо мыши над диском', label: 'Общая яркость', desc: 'На вкладке «Диммер»: каждый щелчок колеса меняет общую яркость на 5 %' },
+  { key: 'Esc', label: 'Закрыть модальное окно', desc: 'Мгновенное закрытие справки, каталога или окна обновления. На вкладке «Диммер» — выход из блэкаута', descWithoutDimmer: 'Мгновенное закрытие справки, каталога или окна обновления' },
+  { key: 'Колесо мыши над диском', label: 'Общая яркость', desc: 'На вкладке «Диммер»: каждый щелчок колеса меняет общую яркость на 5 %', dimmerOnly: true },
   { key: 'Клик по иконке трея', label: 'Свернуть / Развернуть', desc: 'Прячет Sentinel в системный трей Windows для тихой работы в фоне' },
   { key: 'Двойной клик по шапке', label: 'Оконный режим', desc: 'Переключение между полноэкранным и стандартным размером окна' },
   { key: 'Колесо мыши', label: 'Лог консоли', desc: 'Скролл ленты реального времени в терминале активности' },
 ];
 
-export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab = 'dashboard' }) => {
+export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab = 'dashboard', dimmerEnabled = true }) => {
   const { playClick } = useTactileAudio();
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory>('dashboard');
   const triggerElementRef = useRef<HTMLElement | null>(null);
@@ -377,14 +381,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {HOTKEYS_LIST.map((hk, idx) => (
+                {HOTKEYS_LIST.filter((hk) => dimmerEnabled || !hk.dimmerOnly).map((hk, idx) => (
                   <div
                     key={idx}
                     className="p-2.5 px-3 rounded-xl bg-[#202725] border border-[#303a35] flex items-center justify-between gap-2 min-w-0"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold text-white leading-snug break-words">{hk.label}</div>
-                      <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 leading-snug break-words">{hk.desc}</div>
+                      <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 leading-snug break-words">{!dimmerEnabled && hk.descWithoutDimmer ? hk.descWithoutDimmer : hk.desc}</div>
                     </div>
                     <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
                       {hk.key}

@@ -12,7 +12,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger("sentinel.dimmer")
 
@@ -23,7 +23,8 @@ BASELINE_FILE = DATA_DIR / "dimmer_baseline.json"
 
 
 class DimmerController:
-    def __init__(self) -> None:
+    def __init__(self, module_enabled: Callable[[], bool] = lambda: True) -> None:
+        self._module_enabled = module_enabled
         self._lock = asyncio.Lock()
         self._master_brightness: int = 75
         self._previous_brightness: int = 75
@@ -114,6 +115,31 @@ class DimmerController:
             STATE_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
             logger.error(f"Error saving dimmer state: {e}")
+
+    def enabled(self) -> bool:
+        """False while the Dimmer tab is turned off: the routes refuse commands and the sleep timer does not fire."""
+        return self._module_enabled()
+
+    async def set_module_enabled(self, enabled: bool) -> None:
+        """Called once per change of the setting behind `module_enabled`. Turning off cancels the sleep timer and, if the
+        screens were left dark (blackout or ultra-dark), lifts both and returns the baseline brightness, as the desktop
+        host does. Turning on needs nothing: the gate reads the setting."""
+        if enabled:
+            logger.info("dimmer module turned on")
+            return
+        logger.info("dimmer module turned off")
+        task, self._timer_task = self._timer_task, None
+        if task and not task.done():
+            task.cancel()
+        async with self._lock:
+            self._sleep_timer_minutes = 0
+            was_dark = self._is_blackout or self._ultra_dark_active
+            self._is_blackout = False
+            self._solo_screen_index = None
+            self._ultra_dark_active = False
+            if was_dark:
+                self._apply_baseline()
+            self._save_state()
 
     def get_state(self) -> dict:
         return {
@@ -208,6 +234,9 @@ class DimmerController:
         try:
             logger.info(f"Dimmer sleep timer countdown started: {minutes} minutes")
             await asyncio.sleep(minutes * 60)
+            if not self.enabled():
+                logger.info("Dimmer sleep timer expired while the Dimmer tab is off: nothing done")
+                return
             logger.info("Dimmer sleep timer expired! Activating Blackout...")
             self._sleep_timer_minutes = 0
             await self.set_blackout(True)
@@ -248,16 +277,19 @@ class DimmerController:
             logger.info("Dimmer baseline brightness saved for all monitors.")
             return self.get_state()
 
+    def _apply_baseline(self) -> None:
+        self._is_dimmed = False
+        for m in self._monitors:
+            base = m.get("baseline_brightness", 75)
+            m["current_brightness"] = base
+        avg = sum(m.get("current_brightness", 75) for m in self._monitors) // max(1, len(self._monitors))
+        self._master_brightness = avg
+        self._previous_brightness = avg
+
     async def restore_baseline(self) -> dict:
         async with self._lock:
             self._is_blackout = False
-            self._is_dimmed = False
-            for m in self._monitors:
-                base = m.get("baseline_brightness", 75)
-                m["current_brightness"] = base
-            avg = sum(m.get("current_brightness", 75) for m in self._monitors) // max(1, len(self._monitors))
-            self._master_brightness = avg
-            self._previous_brightness = avg
+            self._apply_baseline()
             self._save_state()
             logger.info("Dimmer baseline brightness restored for all monitors.")
             return self.get_state()

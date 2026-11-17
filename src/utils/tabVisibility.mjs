@@ -14,3 +14,14 @@ export function visibleTabs(settings) {
     return !(OPTIONAL_TABS.includes(tab) && off.includes(tab));
   });
 }
+
+/**
+ * What to tell the desktop host about the Dimmer switch: the global hotkeys follow it. Nothing before the service
+ * has answered (the host keeps its own saved value until then); the first answer is always sent; then only a change.
+ * lastSent is the last value sent (undefined before the first).
+ */
+export function dimmerModuleMessage(settings, serviceAnswered, lastSent) {
+  if (!serviceAnswered) return null;
+  const enabled = visibleTabs(settings).includes('dimmer');
+  return enabled === lastSent ? null : { type: 'DIMMER_MODULE', enabled };
+}
