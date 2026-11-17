@@ -5865,6 +5865,61 @@ def test_safe_defaults_power_off_and_linked_games():
     print("      safe defaults: PASS [OK]")
 
 
+def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
+    print("[tabs] disabled_tabs keeps known ids only; giveaways stays on giveaways_enabled; the value survives a restart...")
+    work = Path(tempfile.mkdtemp(prefix="disabled_tabs_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "def post(fake, body):\n"
+        "    resp = asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body)))\n"
+        "    return resp.status\n"
+        "out = {'default': s.SUPERVISOR_DEFAULTS['disabled_tabs']}\n"
+        "fake = Fake()\n"
+        "out['fresh'] = fake.settings['disabled_tabs']\n"
+        "out['status_bad'] = post(fake, {'disabled_tabs': ['dimmer', 'nope', 'shelf', 'dimmer', 7, None, 'dashboard', 'settings']})\n"
+        "out['bad'] = [fake.settings['disabled_tabs'], fake.settings['giveaways_enabled']]\n"
+        "post(fake, {'disabled_tabs': 'shelf'})\n"
+        "out['not_list'] = fake.settings['disabled_tabs']\n"
+        "post(fake, {'disabled_tabs': ['steamidle', 'giveaways']})\n"
+        "out['giveaways_in'] = [fake.settings['disabled_tabs'], fake.settings['giveaways_enabled']]\n"
+        "post(fake, {'disabled_tabs': ['dimmer']})\n"
+        "out['giveaways_absent'] = [fake.settings['disabled_tabs'], fake.settings['giveaways_enabled']]\n"
+        "post(fake, {'giveaways_enabled': True})\n"
+        "out['giveaways_back'] = fake.settings['giveaways_enabled']\n"
+        "post(fake, {'language': 'ru'})\n"
+        "out['untouched'] = fake.settings['disabled_tabs']\n"
+        "post(fake, {'disabled_tabs': ['dimmer', 'shelf']})\n"
+        "out['reloaded'] = s.SentinelSupervisor.load_settings(None)['disabled_tabs']\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")  # an old config: no disabled_tabs key
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["default"] == [] and got["fresh"] == [], f"old config reads as everything shown: {got}"
+    assert got["status_bad"] == 200, "bad ids never fail the whole settings update"
+    assert got["bad"] == [["shelf", "dimmer"], True], f"known ids, deduplicated, fixed order: {got['bad']}"
+    assert got["not_list"] == [], f"a non-list stores an empty list: {got['not_list']}"
+    assert got["giveaways_in"] == [["steamidle"], False], f"'giveaways' becomes giveaways_enabled=false: {got['giveaways_in']}"
+    assert got["giveaways_absent"] == [["dimmer"], False], "omitting 'giveaways' must not turn giveaways back on"
+    assert got["giveaways_back"] is True, "only an explicit giveaways_enabled turns it on"
+    assert got["untouched"] == ["dimmer"], "an update without the key leaves it alone"
+    assert got["reloaded"] == ["shelf", "dimmer"], f"saved and read back after a restart: {got['reloaded']}"
+    assert "disabled_tabs" in json.loads(config.read_text(encoding="utf-8-sig")), "written to config.json"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      disabled_tabs: PASS [OK]")
+
+
 def test_loading_states_of_giveaways_and_dimmer():
     print("[loading] Giveaways and Dimmer tell loading, failure and a real empty answer apart...")
     esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
@@ -7589,6 +7644,7 @@ if __name__ == "__main__":
         test_small_controls_have_a_larger_invisible_click_area,
         test_clean_install_copies_the_default_config_template,
         test_safe_defaults_power_off_and_linked_games,
+        test_disabled_tabs_setting_is_cleaned_translated_and_persisted,
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,

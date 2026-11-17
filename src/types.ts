@@ -85,6 +85,7 @@ export interface SentinelSettings {
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
+  disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[]; // optional tabs turned off; Giveaways follows giveaways_enabled
   giveaways_selected_stores?: StoreId[];
   giveaways_headless?: boolean;
   streamer_watchdog_enabled?: boolean;

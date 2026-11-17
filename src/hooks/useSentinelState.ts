@@ -47,6 +47,7 @@ const INITIAL_STATE: FullSentinelState = {
     claim_channel_points: true,
     auto_claim_drops: true,
     giveaways_enabled: true,
+    disabled_tabs: [],
     streamer_watchdog_enabled: true,
     priority_mode: 1,
     priority_games: [],

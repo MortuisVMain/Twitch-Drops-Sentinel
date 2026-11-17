@@ -189,6 +189,7 @@ from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
+from tab_visibility import apply_disabled_tabs
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
@@ -346,6 +347,7 @@ SUPERVISOR_DEFAULTS = {
     "claim_channel_points": True,
     "auto_claim_drops": True,
     "giveaways_enabled": True,
+    "disabled_tabs": [],  # optional tabs the user turned off: shelf, steamidle, dimmer (giveaways follows giveaways_enabled)
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
     "giveaways_browser": "auto",
@@ -419,6 +421,7 @@ class SentinelSupervisor:
                 with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
                     default_settings.update(data)
+                    apply_disabled_tabs(default_settings)
             except Exception as e:
                 logger.warning(f"Could not load config.json: {e}")
 
@@ -921,6 +924,7 @@ class SentinelSupervisor:
                 data["priority_games"] = [g for g in norm_p if not (g in seen or seen.add(g))]
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
+            apply_disabled_tabs(data)
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
             if "language" in data:
                 self.apply_engine_language()
