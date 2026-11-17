@@ -6,6 +6,7 @@ import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, ge
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
+import { tabSwitches, tabTogglePatch, needsOffConfirmation, type TabId } from '../utils/tabVisibility.mjs';
 
 interface SettingsStudioProps {
   settings: SentinelSettings;
@@ -55,6 +56,16 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     lastDanger.current = null;
     if (asked) document.querySelector<HTMLButtonElement>(`[data-danger="${asked}"]`)?.focus();
   }, [pendingDanger]);
+  // Tabs block: turning Steam IDLE off while it works asks first; focus returns to the switch when the question closes
+  const [pendingTab, setPendingTab] = useState<TabId | null>(null);
+  const [checkingTab, setCheckingTab] = useState<TabId | null>(null);
+  const lastTab = useRef<TabId | null>(null);
+  useEffect(() => {
+    if (pendingTab !== null) { lastTab.current = pendingTab; return; }
+    const asked = lastTab.current;
+    lastTab.current = null;
+    if (asked) document.querySelector<HTMLButtonElement>(`[data-tab-switch="${asked}"]`)?.focus();
+  }, [pendingTab]);
   const [showDiagModal, setShowDiagModal] = useState<boolean>(false);
   const diagDialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(showDiagModal, diagDialogRef, () => setShowDiagModal(false));
@@ -428,6 +439,34 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   // The after-queue switch sits in the block with its choice of action, not in the grid
   const powerCard = moduleCards.find((m) => m.key === 'powerCascade');
 
+  const tabCards: { id: TabId; title: string; hint: string }[] = [
+    { id: 'shelf', title: 'Полка игр', hint: 'Скрыть вкладку. Сканер игр продолжит работать для очереди.' },
+    { id: 'giveaways', title: 'Раздачи', hint: 'Выключить раздачи: вкладка и сбор пропадут.' },
+    { id: 'steamidle', title: 'Steam IDLE', hint: 'Выключить: фарм и выдача останавливаются, команды не выполняются.' },
+    { id: 'dimmer', title: 'Диммер', hint: 'Выключить: горячие клавиши Alt+Backspace освобождаются, затемнение снимается.' },
+  ];
+  const tabOn = Object.fromEntries(tabSwitches(settings).map((s) => [s.id, s.on])) as Record<string, boolean>;
+  const toggleTab = async (id: TabId) => {
+    playClick();
+    const wasOn = tabOn[id];
+    let busy: boolean | null = null;
+    if (id === 'steamidle' && wasOn) {
+      setCheckingTab(id);
+      try {
+        const res = await fetch('http://127.0.0.1:28492/api/v1/steam-idle/state');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        busy = (await res.json()).busy === true;
+      } catch (err) {
+        console.error('SettingsStudio: не удалось узнать, занят ли Steam IDLE; спрашиваем подтверждение', err);
+      } finally {
+        setCheckingTab(null);
+      }
+    }
+    if (needsOffConfirmation(id, wasOn, busy)) { setPendingTab(id); return; }
+    onUpdateSettings(tabTogglePatch(settings, id));
+  };
+  const confirmTabOff = (id: TabId) => { playClick(); setPendingTab(null); onUpdateSettings(tabTogglePatch(settings, id)); };
+
 
   return (
     <div id="view-settings" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '100%', gap: '12px' }}>
@@ -662,6 +701,45 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Tabs: which optional tabs are shown (and their modules work) */}
+      <div className="titanium-island" role="group" aria-labelledby="tabsBlockTitle" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="engraved-header">
+          <span className="tag"><span className="led-dot"></span> <span id="tabsBlockTitle">ВКЛАДКИ</span></span>
+        </div>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }}>Выключенная вкладка пропадает из шапки и палитры команд.</div>
+        <div className="modules-10-grid">
+          {tabCards.map((t) => (
+            pendingTab === t.id ? (
+              <div key={t.id} className="module-switch-card module-switch-ask" role="group" aria-label={t.title}>
+                <span className="danger-zone-question">Выключить Steam IDLE? Фарм и выдача остановятся, прерванную выдачу можно будет продолжить.</span>
+                <span className="module-switch-ask-actions">
+                  <button type="button" className="safety-guard-btn armed" onClick={() => confirmTabOff(t.id)}>Выключить</button>
+                  <button type="button" className="tactile-btn" autoFocus onClick={() => { playClick(); setPendingTab(null); }}>Отмена</button>
+                </span>
+              </div>
+            ) : (
+              <button
+                key={t.id}
+                type="button"
+                role="switch"
+                aria-checked={tabOn[t.id]}
+                aria-busy={checkingTab === t.id}
+                data-tab-switch={t.id}
+                className="module-switch-card module-switch-btn"
+                disabled={checkingTab === t.id}
+                onClick={() => { void toggleTab(t.id); }}
+              >
+                <span style={{ minWidth: 0 }}>
+                  <span className="module-switch-title">{t.title}</span>
+                  <span className="module-switch-hint">{t.hint}</span>
+                </span>
+                <span className={`cnc-switch ${tabOn[t.id] ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
+              </button>
+            )
+          ))}
         </div>
       </div>
 

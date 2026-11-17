@@ -2057,13 +2057,13 @@ export const App: React.FC = () => {
                 {totalResults === 0 && (
                   <div className="p-6 text-center text-[var(--text-muted)] space-y-1">
                     <p className="text-xs font-semibold text-white">Ничего не найдено по запросу «{cmdSearch}»</p>
-                    <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или номер вкладки (1–5).</p>
+                    <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или название вкладки.</p>
                   </div>
                 )}
               </div>
 
               <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] shrink-0 select-none">
-                <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
+                <span title="Цифра открывает вкладку, если она не выключена в настройках"><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Цифры</kbd> Вкладки •<kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
               </div>
             </div>
           </div>

@@ -7,3 +7,9 @@ export function dimmerModuleMessage(
   serviceAnswered: boolean,
   lastSent: boolean | undefined,
 ): { type: 'DIMMER_MODULE'; enabled: boolean } | null;
+export function tabSwitches(settings?: { disabled_tabs?: unknown; giveaways_enabled?: boolean } | null): { id: TabId; on: boolean }[];
+export function tabTogglePatch(
+  settings: { disabled_tabs?: unknown; giveaways_enabled?: boolean } | null | undefined,
+  id: string,
+): { giveaways_enabled?: boolean; disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[] };
+export function needsOffConfirmation(id: string, wasOn: boolean, busy: boolean | null | undefined): boolean;
