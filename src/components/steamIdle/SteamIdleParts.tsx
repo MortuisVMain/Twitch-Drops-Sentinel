@@ -6,7 +6,7 @@ import { RefundHeldRow } from './RefundHeldRow';
 import { isCompactList, SteamCardGrid, SteamGameCard } from './SteamGameCard';
 import { durParts } from './steamIdleLogic.mjs';
 import {
-  ENGINE_MISSING_HINT, KNOWN_FARM_STATES, Tone, communityText, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
+  KNOWN_FARM_STATES, Tone, communityText, engineMissingHint, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
   steamClientText, unavailableHelp,
 } from './steamIdleText';
 
@@ -61,7 +61,7 @@ export const Readiness: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
         )}
       </Fact>
       <Fact label="Помощник" text={helper.text} tone={helper.tone} />
-      {engineMissing && <p className="sidle-text sidle-ready-note">{ENGINE_MISSING_HINT}</p>}
+      {engineMissing && <p className="sidle-text sidle-ready-note">{engineMissingHint(!!openGiveawaysReadiness)}</p>}
     </section>
   );
 };

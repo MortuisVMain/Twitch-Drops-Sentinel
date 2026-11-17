@@ -17,6 +17,7 @@ export const STEAM_IDLE: Record<string, string> = {
   'Нужен браузерный движок': 'The browser engine is needed',
   'Steam IDLE читает сайт Steam через браузерный движок раздач. Установите его: вкладка «Раздачи» → «Проверить готовность» → «Браузерный движок».':
     'Steam IDLE reads the Steam site through the giveaways browser engine. Install it: the Giveaways tab → "Check readiness" → "Browser engine".',
+  'Включите вкладку «Раздачи» в Настройках, чтобы установить браузерный движок.': 'Turn on the Giveaways tab in Settings to install the browser engine.',
   'Открыть готовность раздач': 'Open giveaways readiness',
   'Ещё не проверено': 'Not checked yet',
   'Готов': 'Ready',

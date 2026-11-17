@@ -81,13 +81,17 @@ export const previewErrorText = (code: string): string =>
 export const hoursNumber = (hours: number): string => (Math.round(hours * 10) / 10).toLocaleString(uiLocale());
 
 export const ENGINE_MISSING_HINT = 'Steam IDLE читает сайт Steam через браузерный движок раздач. Установите его: вкладка «Раздачи» → «Проверить готовность» → «Браузерный движок».';
+export const ENGINE_MISSING_HINT_GIVEAWAYS_OFF = 'Включите вкладку «Раздачи» в Настройках, чтобы установить браузерный движок.';
 
-export const refusalText = (code: string | null, session = 'signed_out'): string => {
+/** The engine lives behind the Giveaways tab; when that tab is turned off there is nothing to open, so the hint points to Settings. */
+export const engineMissingHint = (giveawaysOn: boolean): string => (giveawaysOn ? ENGINE_MISSING_HINT : ENGINE_MISSING_HINT_GIVEAWAYS_OFF);
+
+export const refusalText = (code: string | null, session = 'signed_out', giveawaysOn = true): string => {
   if (code === 'community_signed_out' && signedOutHint(session) === 'check') return 'Вход на сайт Steam ещё не проверен. Нажмите «Проверить».';
   switch (code) {
     case 'risk_not_acknowledged': return 'Сначала подтвердите, что понимаете риск для аккаунта.';
     case 'unavailable': return 'Steam IDLE недоступен: не хватает компонентов.';
-    case 'engine_missing': return ENGINE_MISSING_HINT;
+    case 'engine_missing': return engineMissingHint(giveawaysOn);
     case 'steam_not_running': return 'Клиент Steam не запущен. Запустите его и повторите.';
     case 'steam_signed_out': return 'В клиенте Steam не выполнен вход. Войдите и повторите.';
     case 'community_signed_out': return 'Нет входа на сайт Steam. Нажмите «Войти в Steam».';
