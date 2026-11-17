@@ -314,6 +314,8 @@ export const App: React.FC = () => {
 
     sentinelState,
 
+    confirmedSettings,
+
     isScanning,
 
     handleTogglePriority,
@@ -358,15 +360,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (selectedTab !== activeTab) setSelectedTab(activeTab);
   }, [selectedTab, activeTab]);
-  // The desktop host keeps the Dimmer hotkeys and overlays only while the tab is on: tell it the first answer and every change
+  // The desktop host keeps the Dimmer hotkeys and overlays only while the tab is on: tell it the first answer and every
+  // change, from the settings the service confirmed (a save that failed never reaches the host)
   const dimmerSentRef = useRef<boolean | undefined>(undefined);
   useEffect(() => {
-    const message = dimmerModuleMessage(sentinelState.settings, sentinelState.connected, dimmerSentRef.current);
+    const message = dimmerModuleMessage(confirmedSettings, sentinelState.connected, dimmerSentRef.current);
     if (!message) return;
     const wv = (window as any).chrome?.webview;
     if (wv && typeof wv.postMessage === 'function') wv.postMessage(message);
     dimmerSentRef.current = message.enabled; // without a host (browser) there is nobody to tell
-  }, [sentinelState.settings, sentinelState.connected]);
+  }, [confirmedSettings, sentinelState.connected]);
   const { logs: consoleLogs, historyFailed: logHistoryFailed } = useConsoleLogs(sentinelState.log_seq, sentinelState.log_session, sentinelState.recent_logs);
 
 

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { snapshotKeys, rollbackSettings } from '../utils/tabVisibility.mjs';
 import { followBackendLanguage } from '../i18n';
 import { followBackendTextScale } from '../utils/textScale';
 import { setServerCovers } from '../utils/gameBoxArts';
@@ -64,6 +65,10 @@ export function useSentinelState(
   playClick: () => void
 ) {
   const [sentinelState, setSentinelState] = useState<FullSentinelState>(INITIAL_STATE);
+  // Settings as the service reported or accepted them (no optimistic edits); what the desktop host is told follows this
+  const [confirmedSettings, setConfirmedSettings] = useState<Partial<SentinelSettings>>({});
+  const latestSettingsRef = useRef(sentinelState.settings);
+  latestSettingsRef.current = sentinelState.settings;
   const [isScanning, setIsScanning] = useState(false);
   // Set once the service is lost, or never answered within the grace period; the polling below decides, no extra timer
   const [serviceLost, setServiceLost] = useState(false);
@@ -82,6 +87,7 @@ export function useSentinelState(
       if (!isMounted || !data || typeof data !== 'object') return;
       hasAnswered = true;
       setServiceLost(false);
+      if (data.settings && typeof data.settings === 'object') setConfirmedSettings((prev) => ({ ...prev, ...data.settings }));
       setSentinelState((prev) => {
         let mergedActiveDrop = data.active_drop;
         if (
@@ -363,8 +369,12 @@ export function useSentinelState(
 
   // The only way settings are saved: merge into the latest state, post just the changed fields
   // (the service merges partial updates), so a stale snapshot can never bring back an old value.
+  // A change the service refused or never received is rolled back (only the changed keys), so the page never shows
+  // a state the service does not have; confirmedSettings only ever holds what the service said or accepted.
   const saveSettingsChange = async (changes: Partial<SentinelSettings>) => {
+    const previous = snapshotKeys(latestSettingsRef.current, changes);
     setSentinelState((prev) => ({ ...prev, settings: { ...prev.settings, ...changes } }));
+    const rollBack = () => setSentinelState((prev) => ({ ...prev, settings: rollbackSettings(prev.settings, previous, changes) }));
 
     try {
       const res = await fetch('http://127.0.0.1:28492/api/settings', {
@@ -375,9 +385,14 @@ export function useSentinelState(
       if (!res.ok) {
         console.error('settings: the service refused the change', res.status, Object.keys(changes));
         showToast('Не удалось сохранить настройку');
+        rollBack();
+        return;
       }
+      setConfirmedSettings((prev) => ({ ...prev, ...changes }));
     } catch (err) {
-      console.warn('settings: the service is unreachable, the change stays local', err);
+      console.error('settings: the service is unreachable, the change is rolled back', Object.keys(changes), err);
+      showToast('Не удалось сохранить настройку');
+      rollBack();
     }
   };
   const handleUpdateSettings = saveSettingsChange;
@@ -606,6 +621,7 @@ export function useSentinelState(
 
   return {
     sentinelState,
+    confirmedSettings,
     setSentinelState,
     connectionPhase,
     isScanning,

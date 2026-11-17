@@ -12,4 +12,11 @@ export function tabTogglePatch(
   settings: { disabled_tabs?: unknown; giveaways_enabled?: boolean } | null | undefined,
   id: string,
 ): { giveaways_enabled?: boolean; disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[] };
+export function tabSetPatch(
+  settings: { disabled_tabs?: unknown; giveaways_enabled?: boolean } | null | undefined,
+  id: string,
+  wantOn: boolean,
+): { giveaways_enabled?: boolean; disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[] };
+export function snapshotKeys<T extends object>(settings: object | null | undefined, changes: T): Partial<Record<keyof T, unknown>>;
+export function rollbackSettings<S extends object>(current: S, previous: Record<string, unknown>, changes: object): S;
 export function needsOffConfirmation(id: string, wasOn: boolean, busy: boolean | null | undefined): boolean;

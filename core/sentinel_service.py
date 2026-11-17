@@ -401,6 +401,8 @@ class SentinelSupervisor:
         self.luna_countdown: Optional[int] = None
         self.luna_fired = False
         self.giveaways = GiveawaysOrchestrator()
+        self._module_sync_tasks: set = set()
+        self._module_sync_lock = asyncio.Lock()
         self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, "dimmer"))
         self.steam_idle = create_steam_idle_controller(
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
@@ -941,6 +943,30 @@ class SentinelSupervisor:
         except Exception:
             logger.error("Dimmer did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
 
+    def _schedule_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+        """Runs the module syncs in the background (stopping Steam IDLE can take ~16 s) so the settings answer is not held.
+        One sync at a time and in order, so a quick off-then-on cannot interleave; the task is kept until it ends."""
+        task = asyncio.create_task(self._run_module_sync(steam_idle_was_on, dimmer_was_on))
+        self._module_sync_tasks.add(task)
+        task.add_done_callback(self._module_sync_finished)
+
+    async def _run_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+        async with self._module_sync_lock:
+            await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
+
+    def _module_sync_finished(self, task: "asyncio.Task[None]") -> None:
+        self._module_sync_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Module sync after a settings change failed", exc_info=task.exception())
+
+    async def _cancel_module_syncs(self) -> None:
+        """Shutdown: cancel the syncs still running and wait for them to end."""
+        pending = list(self._module_sync_tasks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
     async def handle_post_settings(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
@@ -954,8 +980,7 @@ class SentinelSupervisor:
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
-            await self._sync_steam_idle_module(steam_idle_was_on)
-            await self._sync_dimmer_module(dimmer_was_on)
+            self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
@@ -1023,6 +1048,7 @@ class SentinelSupervisor:
         return web.json_response({"status": "restarting"})
 
     async def _delayed_stop(self):
+        await self._cancel_module_syncs()
         # Stop the Node giveaways tree first, otherwise it outlives the service.
         try:
             await asyncio.wait_for(self.giveaways.abort_claim(), timeout=2.5)
@@ -1732,6 +1758,7 @@ class SentinelSupervisor:
 
     async def _on_app_shutdown(self, app):
         logger.info("Cleaning up Giveaways processes on shutdown...")
+        await self._cancel_module_syncs()
         await self.giveaways.abort_claim()
         await self.steam_idle.shutdown()
 

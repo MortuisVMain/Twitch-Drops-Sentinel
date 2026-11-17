@@ -21,14 +21,37 @@ export function tabSwitches(settings) {
   return ['shelf', 'giveaways', 'steamidle', 'dimmer'].map((id) => ({ id, on: shown.includes(id) }));
 }
 
-/** The settings change that flips one switch. Giveaways is giveaways_enabled itself; unknown ids change nothing. */
-export function tabTogglePatch(settings, id) {
-  if (id === 'giveaways') return { giveaways_enabled: settings?.giveaways_enabled === false };
+/** The settings change that makes one tab on or off, computed against the settings given. Unknown ids change nothing. */
+export function tabSetPatch(settings, id, wantOn) {
+  if (id === 'giveaways') return { giveaways_enabled: wantOn };
   if (!OPTIONAL_TABS.includes(id)) return {};
   const off = Array.isArray(settings?.disabled_tabs) ? settings.disabled_tabs : [];
   const next = new Set(OPTIONAL_TABS.filter((t) => off.includes(t)));
-  if (next.has(id)) next.delete(id); else next.add(id);
+  if (wantOn) next.delete(id); else next.add(id);
   return { disabled_tabs: OPTIONAL_TABS.filter((t) => next.has(t)) };
+}
+
+/** The settings change that flips one switch. Giveaways is giveaways_enabled itself; unknown ids change nothing. */
+export function tabTogglePatch(settings, id) {
+  return tabSetPatch(settings, id, !visibleTabs(settings).includes(id));
+}
+
+/** The current values of exactly the keys a change touches (undefined where the key is absent). */
+export function snapshotKeys(settings, changes) {
+  return Object.fromEntries(Object.keys(changes).map((key) => [key, settings?.[key]]));
+}
+
+/**
+ * Undo a change the service refused: put the snapshot values back for the changed keys, but only
+ * where the key still holds the failed value (a newer value from the service must survive).
+ */
+export function rollbackSettings(current, previous, changes) {
+  const out = { ...current };
+  for (const key of Object.keys(changes)) {
+    if (JSON.stringify(out[key]) !== JSON.stringify(changes[key])) continue;
+    if (previous[key] === undefined) delete out[key]; else out[key] = previous[key];
+  }
+  return out;
 }
 
 /** Turning Steam IDLE off asks first unless the service said it is idle (busy === false); a failed check (null) asks too. */

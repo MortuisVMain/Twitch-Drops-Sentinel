@@ -103,3 +103,47 @@ test('only turning Steam IDLE off asks, unless it is known to be idle', () => {
   assert.equal(needsOffConfirmation('steamidle', false, true), false, 'turning on never asks');
   for (const id of ['shelf', 'giveaways', 'dimmer']) assert.equal(needsOffConfirmation(id, true, true), false);
 });
+
+const { tabSetPatch, snapshotKeys, rollbackSettings } = await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'tabVisibility.mjs')).href);
+
+test('tabSetPatch sets the wanted state against the settings it is given, not a flip', () => {
+  assert.deepEqual(tabSetPatch({ disabled_tabs: ['shelf'] }, 'steamidle', false), { disabled_tabs: ['shelf', 'steamidle'] });
+  assert.deepEqual(tabSetPatch({ disabled_tabs: ['shelf', 'steamidle'] }, 'steamidle', false), { disabled_tabs: ['shelf', 'steamidle'] }, 'already off stays off');
+  assert.deepEqual(tabSetPatch({ disabled_tabs: ['shelf', 'steamidle'] }, 'steamidle', true), { disabled_tabs: ['shelf'] });
+  assert.deepEqual(tabSetPatch({}, 'giveaways', false), { giveaways_enabled: false });
+  assert.deepEqual(tabSetPatch({ giveaways_enabled: false }, 'giveaways', false), { giveaways_enabled: false });
+  assert.deepEqual(tabSetPatch({}, 'settings', false), {});
+});
+
+test('a patch built from the latest settings keeps a tab toggled during a slow check', () => {
+  const atClick = { disabled_tabs: [] };
+  const latest = { disabled_tabs: ['dimmer'] }; // the user turned the dimmer off while the Steam IDLE check ran
+  assert.deepEqual(tabSetPatch(latest, 'steamidle', false), { disabled_tabs: ['steamidle', 'dimmer'] });
+  assert.deepEqual(tabSetPatch(atClick, 'steamidle', false), { disabled_tabs: ['steamidle'] }, 'the stale snapshot would lose the dimmer');
+});
+
+test('snapshotKeys remembers the current value of exactly the changed keys', () => {
+  const s = { disabled_tabs: ['shelf'], giveaways_enabled: true, language: 'ru' };
+  assert.deepEqual(snapshotKeys(s, { disabled_tabs: ['shelf', 'dimmer'] }), { disabled_tabs: ['shelf'] });
+  assert.deepEqual(snapshotKeys(s, { a_new_key: 1 }), { a_new_key: undefined });
+});
+
+test('rollbackSettings restores only the changed keys that still hold the failed value', () => {
+  const prev = { disabled_tabs: [], giveaways_enabled: true };
+  const changes = { disabled_tabs: ['dimmer'] };
+  const failed = { disabled_tabs: ['dimmer'], giveaways_enabled: false, language: 'en' };
+  assert.deepEqual(rollbackSettings(failed, prev, changes), { disabled_tabs: [], giveaways_enabled: false, language: 'en' });
+});
+
+test('rollbackSettings leaves a key alone when something newer (the service) already changed it', () => {
+  const prev = { disabled_tabs: [] };
+  const changes = { disabled_tabs: ['dimmer'] };
+  const newer = { disabled_tabs: ['shelf'] };
+  assert.deepEqual(rollbackSettings(newer, prev, changes), { disabled_tabs: ['shelf'] });
+});
+
+test('rollbackSettings removes a key that did not exist before', () => {
+  const out = rollbackSettings({ extra: 1, keep: 2 }, { extra: undefined }, { extra: 1 });
+  assert.equal('extra' in out, false);
+  assert.equal(out.keep, 2);
+});

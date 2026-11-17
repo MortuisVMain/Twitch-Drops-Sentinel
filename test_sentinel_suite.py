@@ -1904,7 +1904,10 @@ def test_shutdown_aborts_running_giveaways_process():
         aborted.append(True)
         return {"status": "aborted"}
 
-    fake = SimpleNamespace(giveaways=SimpleNamespace(abort_claim=abort_claim))
+    async def cancel_module_syncs():
+        pass
+
+    fake = SimpleNamespace(giveaways=SimpleNamespace(abort_claim=abort_claim), _cancel_module_syncs=cancel_module_syncs)
 
     async def scenario():
         try:
@@ -5881,8 +5884,7 @@ def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
-        "    async def _sync_steam_idle_module(self, was_on): pass\n"
-        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "    def _schedule_module_sync(self, steam_idle_was_on, dimmer_was_on): pass\n"
         "def post(fake, body):\n"
         "    resp = asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body)))\n"
         "    return resp.status\n"
@@ -5938,13 +5940,22 @@ def test_steam_idle_module_follows_the_tab_setting_once_per_change():
         "    async def set_module_enabled(self, on): self.calls.append(on)\n"
         "class Fake:\n"
         "    twitch_client = None\n"
-        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None); self.steam_idle = Idle()\n"
+        "    def __init__(self):\n"
+        "        self.settings = s.SentinelSupervisor.load_settings(None); self.steam_idle = Idle()\n"
+        "        self._module_sync_tasks = set(); self._module_sync_lock = asyncio.Lock()\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
         "    async def broadcast_ws(self): pass\n"
+        "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
+        "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
+        "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
         "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
         "    async def _sync_dimmer_module(self, was_on): pass\n"
-        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "async def post_and_wait(fake, body):\n"
+        "    status = (await s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
+        "    return status\n"
+        "def post(fake, body): return asyncio.run(post_and_wait(fake, body))\n"
         "fake, out = Fake(), {}\n"
         "post(fake, {'language': 'ru'}); out['untouched'] = list(fake.steam_idle.calls)\n"
         "post(fake, {'disabled_tabs': ['dimmer']}); out['other_tab'] = list(fake.steam_idle.calls)\n"
@@ -5984,15 +5995,22 @@ def test_dimmer_module_follows_the_tab_setting_once_per_change():
         "        self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "        self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, 'dimmer'))\n"
         "        self.flips = []\n"
+        "        self._module_sync_tasks = set(); self._module_sync_lock = asyncio.Lock()\n"
         "        real = self.dimmer.set_module_enabled\n"
         "        async def spy(on): self.flips.append(on); await real(on)\n"
         "        self.dimmer.set_module_enabled = spy\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
         "    async def broadcast_ws(self): pass\n"
+        "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
+        "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
+        "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
         "    async def _sync_steam_idle_module(self, was_on): pass\n"
         "    async def _sync_dimmer_module(self, was_on): await s.SentinelSupervisor._sync_dimmer_module(self, was_on)\n"
-        "async def post(fake, body): return (await s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "async def post(fake, body):\n"
+        "    status = (await s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
+        "    return status\n"
         "async def call(fake, name, body=None):\n"
         "    r = await getattr(s.SentinelSupervisor, name)(fake, Req(body or {}))\n"
         "    return r.status, json.loads(r.body)\n"
@@ -6033,6 +6051,76 @@ def test_dimmer_module_follows_the_tab_setting_once_per_change():
     assert got["reset"] == [False, True, False, True], f"a reset to defaults turns it on again: {got['reset']}"
     shutil.rmtree(work, ignore_errors=True)
     print("      dimmer switch: PASS [OK]")
+
+
+def test_settings_post_does_not_wait_for_the_module_sync():
+    print("[tabs] the settings answer does not wait for a slow Steam IDLE stop; a failure is logged; shutdown cancels the sync...")
+    work = Path(tempfile.mkdtemp(prefix="module_sync_bg_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio, logging; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Records(logging.Handler):\n"
+        "    def __init__(self): super().__init__(); self.errors = []\n"
+        "    def emit(self, record):\n"
+        "        if record.levelno >= logging.ERROR: self.errors.append(record.getMessage())\n"
+        "records = Records(); s.logger.addHandler(records)\n"
+        "class Idle:\n"
+        "    def __init__(self): self.calls, self.gate, self.fail, self.finished = [], asyncio.Event(), False, []\n"
+        "    async def set_module_enabled(self, on):\n"
+        "        self.calls.append(on)\n"
+        "        if self.fail: raise RuntimeError('stop failed')\n"
+        "        await self.gate.wait()\n"
+        "        self.finished.append(on)\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    def __init__(self):\n"
+        "        self.settings = s.SentinelSupervisor.load_settings(None); self.steam_idle = Idle()\n"
+        "        self._module_sync_tasks = set(); self._module_sync_lock = asyncio.Lock()\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
+        "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
+        "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
+        "    _cancel_module_syncs = s.SentinelSupervisor._cancel_module_syncs\n"
+        "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "async def post(fake, body): return await asyncio.wait_for(s.SentinelSupervisor.handle_post_settings(fake, Req(body)), 2)\n"
+        "async def main():\n"
+        "    fake, out = Fake(), {}\n"
+        "    r = await post(fake, {'disabled_tabs': ['steamidle']})\n"
+        "    out['answered'] = [r.status, fake.settings['disabled_tabs']]\n"
+        "    await asyncio.sleep(0.05)\n"
+        "    out['running'] = [list(fake.steam_idle.calls), list(fake.steam_idle.finished), len(fake._module_sync_tasks)]\n"
+        "    fake.steam_idle.gate.set()\n"
+        "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
+        "    out['done'] = [list(fake.steam_idle.finished), len(fake._module_sync_tasks)]\n"
+        "    fake.steam_idle.gate.clear(); fake.steam_idle.calls.clear()\n"
+        "    await post(fake, {'disabled_tabs': []}); await asyncio.sleep(0.05)\n"
+        "    pending = list(fake._module_sync_tasks)\n"
+        "    await fake._cancel_module_syncs()\n"
+        "    out['cancelled'] = [[t.cancelled() for t in pending], len(fake._module_sync_tasks)]\n"
+        "    fake.steam_idle.fail = True\n"
+        "    await post(fake, {'disabled_tabs': ['steamidle']})\n"
+        "    await asyncio.gather(*list(fake._module_sync_tasks), return_exceptions=True); await asyncio.sleep(0)\n"
+        "    out['failed'] = [len(fake._module_sync_tasks), any('did not follow' in e for e in records.errors)]\n"
+        "    print(json.dumps(out))\n"
+        "asyncio.run(main())\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["answered"] == [200, ["steamidle"]], f"the answer came back while the stop was still running: {got['answered']}"
+    assert got["running"] == [[False], [], 1], f"the sync runs in the background, tracked: {got['running']}"
+    assert got["done"] == [[False], 0], f"it finishes once and forgets itself: {got['done']}"
+    assert got["cancelled"] == [[True], 0], f"shutdown cancels a sync in flight: {got['cancelled']}"
+    assert got["failed"] == [0, True], f"a failing sync is logged and dropped: {got['failed']}"
+    source = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "_cancel_module_syncs()" in source.split("async def _on_app_shutdown", 1)[1].split("async def handle_ws", 1)[0], "the app shutdown cancels the syncs"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      background module sync: PASS [OK]")
 
 
 def test_loading_states_of_giveaways_and_dimmer():
@@ -7762,6 +7850,7 @@ if __name__ == "__main__":
         test_disabled_tabs_setting_is_cleaned_translated_and_persisted,
         test_steam_idle_module_follows_the_tab_setting_once_per_change,
         test_dimmer_module_follows_the_tab_setting_once_per_change,
+        test_settings_post_does_not_wait_for_the_module_sync,
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,

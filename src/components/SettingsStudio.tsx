@@ -6,7 +6,7 @@ import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, ge
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
-import { tabSwitches, tabTogglePatch, needsOffConfirmation, type TabId } from '../utils/tabVisibility.mjs';
+import { tabSwitches, tabSetPatch, needsOffConfirmation, type TabId } from '../utils/tabVisibility.mjs';
 
 interface SettingsStudioProps {
   settings: SentinelSettings;
@@ -446,7 +446,11 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     { id: 'dimmer', title: 'Диммер', hint: 'Выключить: горячие клавиши Alt+Backspace освобождаются, затемнение снимается.' },
   ];
   const tabOn = Object.fromEntries(tabSwitches(settings).map((s) => [s.id, s.on])) as Record<string, boolean>;
+  // The patch is built after the awaits from the newest settings: a tab switched during the check must not be undone
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const toggleTab = async (id: TabId) => {
+    if (checkingTab !== null) return; // a check is running: the switch is aria-disabled, clicks are ignored
     playClick();
     const wasOn = tabOn[id];
     let busy: boolean | null = null;
@@ -463,9 +467,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       }
     }
     if (needsOffConfirmation(id, wasOn, busy)) { setPendingTab(id); return; }
-    onUpdateSettings(tabTogglePatch(settings, id));
+    onUpdateSettings(tabSetPatch(settingsRef.current, id, !wasOn));
   };
-  const confirmTabOff = (id: TabId) => { playClick(); setPendingTab(null); onUpdateSettings(tabTogglePatch(settings, id)); };
+  const confirmTabOff = (id: TabId) => { playClick(); setPendingTab(null); onUpdateSettings(tabSetPatch(settingsRef.current, id, false)); };
 
 
   return (
@@ -729,7 +733,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 aria-busy={checkingTab === t.id}
                 data-tab-switch={t.id}
                 className="module-switch-card module-switch-btn"
-                disabled={checkingTab === t.id}
+                aria-disabled={checkingTab === t.id}
                 onClick={() => { void toggleTab(t.id); }}
               >
                 <span style={{ minWidth: 0 }}>
