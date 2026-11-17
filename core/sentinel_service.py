@@ -189,7 +189,7 @@ from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
-from tab_visibility import apply_disabled_tabs
+from tab_visibility import apply_disabled_tabs, tab_enabled
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
@@ -400,7 +400,8 @@ class SentinelSupervisor:
         self.steam_idle = create_steam_idle_controller(
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
             lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
-            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert")
+            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert",
+            module_enabled=lambda: tab_enabled(self.settings, "steamidle"))
         self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
@@ -915,6 +916,16 @@ class SentinelSupervisor:
             logger.error(f"Error in handle_toggle_game_linked: {e}")
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+    async def _sync_steam_idle_module(self, was_on: bool) -> None:
+        """Tells the Steam IDLE controller when the setting flipped; a failure is logged and never fails the settings update."""
+        now_on = tab_enabled(self.settings, "steamidle")
+        if now_on == was_on:
+            return
+        try:
+            await self.steam_idle.set_module_enabled(now_on)
+        except Exception:
+            logger.error("Steam IDLE did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
+
     async def handle_post_settings(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
@@ -925,7 +936,9 @@ class SentinelSupervisor:
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             apply_disabled_tabs(data)
+            steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            await self._sync_steam_idle_module(steam_idle_was_on)
             if "language" in data:
                 self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
@@ -1275,7 +1288,9 @@ class SentinelSupervisor:
                 current.clear()
                 current.update(copy.deepcopy(SUPERVISOR_DEFAULTS))
 
+            steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             apply_change(self.settings, to_defaults, self.save_settings)
+            await self._sync_steam_idle_module(steam_idle_was_on)
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})

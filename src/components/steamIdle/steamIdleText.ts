@@ -92,6 +92,7 @@ export const refusalText = (code: string | null, session = 'signed_out', giveawa
     case 'risk_not_acknowledged': return 'Сначала подтвердите, что понимаете риск для аккаунта.';
     case 'unavailable': return 'Steam IDLE недоступен: не хватает компонентов.';
     case 'engine_missing': return engineMissingHint(giveawaysOn);
+    case 'module_disabled': return 'Steam IDLE выключен в Настройках.';
     case 'steam_not_running': return 'Клиент Steam не запущен. Запустите его и повторите.';
     case 'steam_signed_out': return 'В клиенте Steam не выполнен вход. Войдите и повторите.';
     case 'community_signed_out': return 'Нет входа на сайт Steam. Нажмите «Войти в Steam».';
@@ -115,6 +116,7 @@ export const refusalApplies = (code: string, s: SteamIdleState): boolean => {
   switch (code) {
     case 'risk_not_acknowledged': return !s.riskAcknowledged;
     case 'unavailable': return !s.available;
+    case 'module_disabled': return s.unavailableReason === 'module_disabled';
     case 'engine_missing': return s.community.session === 'engine_missing';
     case 'steam_not_running': return !s.steam.running;
     case 'steam_signed_out': return !s.steam.signedIn;

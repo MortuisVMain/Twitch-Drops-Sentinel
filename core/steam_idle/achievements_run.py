@@ -51,7 +51,7 @@ class AchievementsRun:
         self._store, self._wall_clock = store, wall_clock
         self._interrupted: dict | None = store.load()  # a run the last session did not finish; never started by itself
         self._record: dict | None = None  # the record of the run in progress, rewritten whenever a game finishes
-        self._closing = False
+        self._closing = self._keep_record = False
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._risk_acknowledged, self._client_state = risk_acknowledged, client_state
         self._read_ach, self._unlock_ach, self._read_library = read_achievements, unlock, read_library
@@ -152,7 +152,7 @@ class AchievementsRun:
         if not isinstance(plan, LibraryPlan) and self._protection.is_builtin(plan.app_id):
             return "protected_app"
         self._tools, self._account, self._expected = tools, client.account_id, expected
-        self._cancel, self._preparing = False, False
+        self._cancel, self._preparing, self._keep_record = False, False, False
         settings = self.settings()
         rules = Rules(settings["minMinutes"], settings["maxMinutes"], settings["skipHidden"])
         self._event_loop = asyncio.get_running_loop()
@@ -188,6 +188,12 @@ class AchievementsRun:
         if self.active():
             self._cancel = True
             self._queue.stop()
+
+    def interrupt(self) -> None:
+        """Stop like a user stop, but keep the record of the run so it is offered as an interrupted run (module off)."""
+        if self.active():
+            self._keep_record = True
+            self.stop()
 
     def pause(self) -> None:
         if self.active():
@@ -321,12 +327,13 @@ class AchievementsRun:
 
     def _end_record(self) -> None:
         """The run is over: its record goes when the queue finished or the user stopped it. A run that halted with an
-        error code keeps the record and offers it as an interrupted run (a resume still checks the account)."""
+        error code, or was interrupted by turning the module off, keeps the record and offers it as an interrupted
+        run (a resume still checks the account)."""
         record, self._record = self._record, None
         if record is None:
             return
         run = self._queue.status()
-        if run["state"] == "done" or run["lastError"] is None:
+        if run["state"] == "done" or (run["lastError"] is None and not self._keep_record):
             self._store.delete()
         else:
             self._interrupted = record

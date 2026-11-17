@@ -154,8 +154,9 @@ class SteamIdleController:
                  read_achievements: Callable[..., list] | None = None, unlock: Callable[..., object] | None = None,
                  uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None,
                  data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time,
-                 first_seen: FirstSeenStore | None = None, engine_installed: Callable[[], bool] = lambda: True):
-        self._get_setting, self._set_setting = get_setting, set_setting
+                 first_seen: FirstSeenStore | None = None, engine_installed: Callable[[], bool] = lambda: True,
+                 module_enabled: Callable[[], bool] = lambda: True):
+        self._get_setting, self._set_setting, self._module_enabled = get_setting, set_setting, module_enabled
         self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
         self._find_tools, self._client_state, self._engine_installed = find_tools, client_state, engine_installed
         self._read_drops_fn, self._read_library_fn, self._read_status_fn = read_drops, read_library, read_status
@@ -197,7 +198,8 @@ class SteamIdleController:
 
     # payload
     def state(self) -> dict:
-        tools = self._find_tools()
+        """`busy` is true while the farm or an achievements run is active: turning the module off would stop it."""
+        tools = self._find_tools() if self._module_enabled() else Tools("module_disabled")  # off: nothing is probed
         client = self._client_state() if tools.unavailable is None else SteamClient(False, 0)
         farm = self._farm.status()
         if self._run_error and farm["state"] in ("stopped", "needs_login"):
@@ -216,6 +218,7 @@ class SteamIdleController:
             "library": self._library_payload(client.account_id),
             "preview": self._preview_payload(client.account_id),
             "achievements": self._achv.payload(),
+            "busy": self._running() or self._achv.active(),
         }
 
     def _library_payload(self, account_id: int) -> dict:
@@ -271,12 +274,15 @@ class SteamIdleController:
         self._preview, self._preview_error = (account_id, games, self._clock()), None
 
     # commands: None = accepted, otherwise a refusal code
-    def acknowledge(self, accepted: bool) -> None:
+    def acknowledge(self, accepted: bool) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
         self._set_setting(RISK_ACK_KEY, bool(accepted))
         if not accepted:
             if self._running():
                 self._farm.stop()
             self._achv.stop()
+        return None
 
     def start(self) -> str | None:
         refusal, tools, client = self._read_gate()  # a second start must never rebind the run
@@ -290,6 +296,8 @@ class SteamIdleController:
 
     def _read_gate(self, achievements_ack: bool = False) -> tuple[str | None, Tools, SteamClient | None]:
         """The gates shared by every on-demand read and the achievements start: (refusal, tools, client)."""
+        if not self._module_enabled():
+            return "module_disabled", Tools("module_disabled"), None
         tools = self._find_tools()
         if tools.unavailable:
             return "unavailable", tools, None
@@ -318,10 +326,15 @@ class SteamIdleController:
         return refusal
 
     # achievements: commands return None = accepted, otherwise a refusal code
-    def acknowledge_achievements(self, accepted: bool) -> None:
+    def acknowledge_achievements(self, accepted: bool) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
         self._achv.acknowledge(accepted)
+        return None
 
     def set_achievements_settings(self, min_minutes: object, max_minutes: object, skip_hidden: object) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
         return self._achv.set_settings(min_minutes, max_minutes, skip_hidden)
 
     def library_scan(self) -> str | None:
@@ -346,14 +359,17 @@ class SteamIdleController:
         return self._achv.start(plan)
 
     def resume_interrupted(self, library_confirmed: bool) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
         return self._achv.resume_interrupted(library_confirmed)
 
     def discard_interrupted(self) -> str | None:
+        """Allowed while the module is off: it only forgets a record, so the user can clear a banner they cannot continue."""
         self._achv.discard_interrupted()
         return None
 
     def stop_achievements(self) -> str | None:
-        return self._forward_achv(self._achv.stop)
+        return self._forward_achv(self._achv.stop, allowed_off=True)
 
     def pause_achievements(self) -> str | None:
         return self._forward_achv(self._achv.pause)
@@ -364,14 +380,16 @@ class SteamIdleController:
     def skip_achievements(self) -> str | None:
         return self._forward_achv(self._achv.skip)
 
-    def _forward_achv(self, command: Callable[[], None]) -> str | None:
+    def _forward_achv(self, command: Callable[[], None], allowed_off: bool = False) -> str | None:
+        if not (allowed_off or self._module_enabled()):
+            return "module_disabled"
         if self._find_tools().unavailable:
             return "unavailable"
         command()
         return None
 
     def stop(self) -> str | None:
-        return self._forward("stop")
+        return self._forward("stop", allowed_off=True)
 
     def pause(self) -> str | None:
         return self._forward("pause")
@@ -384,6 +402,8 @@ class SteamIdleController:
 
     def release_held(self, app_id: int) -> str | None:
         """Farm a game the refund hold keeps back, on the user's word; `not_held` for any other game."""
+        if not self._module_enabled():
+            return "module_disabled"
         if not any(game["appId"] == app_id for game in self._farm.status()["refundHeld"]):
             return "not_held"
         self._first_seen.release(app_id)
@@ -391,6 +411,8 @@ class SteamIdleController:
         return None
 
     def login(self) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
         tools = self._find_tools()
         if tools.unavailable:
             return "unavailable"
@@ -403,6 +425,8 @@ class SteamIdleController:
         return None
 
     def check(self) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
         tools = self._find_tools()
         if tools.unavailable:
             return "unavailable"
@@ -424,6 +448,25 @@ class SteamIdleController:
             self._suspend_sent = flag
             self._farm.set_suspended(flag)
             self._achv.set_suspended(flag)
+
+    async def set_module_enabled(self, enabled: bool) -> None:
+        """Called once per change of the setting behind `module_enabled`. Turning off stops the farm (the game is
+        released by its own step) and the achievements run (its record is kept, so it can be resumed after turning
+        on), waiting for an unlock call in flight, which is never killed. Turning on needs nothing: the gate reads the
+        setting, and the interrupted run is offered again by `state()`."""
+        if enabled:
+            logger.info("steam idle module turned on")
+            return
+        logger.info("steam idle module turned off")
+        if self._running():
+            self._farm.stop()
+        self._achv.interrupt()
+        tasks = [task for task in (self._task, self._achv.task) if task is not None and not task.done()]
+        if not tasks:
+            return
+        _, pending = await asyncio.wait(tasks, timeout=_RELEASE_SECONDS + _UNLOCK_WAIT_SECONDS + 1.0)
+        if pending:
+            logger.error("steam idle did not stop within the budget after the module was turned off")
 
     async def join(self) -> None:
         while tasks := [task for task in self._tasks() if not task.done()]:  # a check may start the auto-scan
@@ -491,7 +534,9 @@ class SteamIdleController:
     def _running(self) -> bool:
         return self._task is not None and not self._task.done()
 
-    def _forward(self, method: str) -> str | None:
+    def _forward(self, method: str, allowed_off: bool = False) -> str | None:
+        if not (allowed_off or self._module_enabled()):
+            return "module_disabled"
         if self._find_tools().unavailable:
             return "unavailable"
         if self._running():
@@ -649,16 +694,18 @@ def _kill_reads() -> None:
 
 
 def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[..., object],
-                      set_setting: Callable[[str, object], None], inert: bool = False) -> SteamIdleController:
+                      set_setting: Callable[[str, object], None], inert: bool = False,
+                      module_enabled: Callable[[], bool] = lambda: True) -> SteamIdleController:
     """Real dependencies, or an inert backend (test mode) that reports unsupported and never touches the system."""
     if inert:
         return SteamIdleController(
+            module_enabled=module_enabled,
             get_setting=get_setting, set_setting=set_setting, find_tools=lambda: Tools("unsupported"),
             client_state=lambda: SteamClient(False, 0), read_drops=_never, read_library=_never, read_status=_never,
             presence_factory=_never, run_login=_never, clock=time.monotonic)
     from giveaways_controller import engine_installed  # the readiness window's own check, imported late: it is heavy
     return SteamIdleController(
-        engine_installed=lambda: engine_installed(engine_root),
+        module_enabled=module_enabled, engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
         first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),

@@ -6,7 +6,7 @@ Giveaways has one source of truth, `giveaways_enabled`: an incoming `giveaways` 
 from __future__ import annotations
 
 import logging
-from typing import Any, MutableMapping
+from typing import Any, Mapping, MutableMapping
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,11 @@ def clean_disabled_tabs(value: Any) -> tuple[list[str], bool]:
     if dropped or len(value) != len(cleaned) + int(giveaways_off):
         logger.warning("disabled_tabs cleaned: %r -> %r (giveaways via giveaways_enabled: %s)", value, cleaned, giveaways_off)
     return cleaned, giveaways_off
+
+
+def tab_enabled(settings: Mapping[str, Any], tab_id: str) -> bool:
+    """False when the stored `disabled_tabs` list holds the tab."""
+    return tab_id not in settings.get("disabled_tabs", ())
 
 
 def apply_disabled_tabs(settings: MutableMapping[str, Any]) -> None:

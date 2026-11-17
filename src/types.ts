@@ -238,8 +238,10 @@ export interface SteamIdlePreview {
 
 export interface SteamIdleState {
   available: boolean;
-  unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | null;
+  unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | 'module_disabled' | null;
   riskAcknowledged: boolean;
+  /** True while the farm or an achievements run is active: turning the tab off would stop it. Absent in an older service. */
+  busy?: boolean;
   steam: { running: boolean; signedIn: boolean };
   community: { session: SteamIdleCommunitySession; checkedAgeSeconds: number | null };
   farm: {

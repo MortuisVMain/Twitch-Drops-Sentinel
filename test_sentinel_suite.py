@@ -5850,6 +5850,7 @@ def test_safe_defaults_power_off_and_linked_games():
         "    def __init__(self): self.settings = {'auto_shutdown_on_complete': True, 'user_linked_games': ['X']}\n"
         "    def save_settings(self): pass\n"
         "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
         "fake = Fake()\n"
         "resp = asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None))\n"
         "print(json.dumps({'defaults': [s.SUPERVISOR_DEFAULTS['auto_shutdown_on_complete'], s.SUPERVISOR_DEFAULTS['user_linked_games']],\n"
@@ -5879,6 +5880,7 @@ def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
         "def post(fake, body):\n"
         "    resp = asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body)))\n"
         "    return resp.status\n"
@@ -5918,6 +5920,48 @@ def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
     assert "disabled_tabs" in json.loads(config.read_text(encoding="utf-8-sig")), "written to config.json"
     shutil.rmtree(work, ignore_errors=True)
     print("      disabled_tabs: PASS [OK]")
+
+
+def test_steam_idle_module_follows_the_tab_setting_once_per_change():
+    print("[tabs] turning the Steam IDLE tab off or on reaches the controller once per change, also on a settings reset...")
+    work = Path(tempfile.mkdtemp(prefix="steam_idle_switch_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Idle:\n"
+        "    def __init__(self): self.calls = []\n"
+        "    async def set_module_enabled(self, on): self.calls.append(on)\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None); self.steam_idle = Idle()\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "fake, out = Fake(), {}\n"
+        "post(fake, {'language': 'ru'}); out['untouched'] = list(fake.steam_idle.calls)\n"
+        "post(fake, {'disabled_tabs': ['dimmer']}); out['other_tab'] = list(fake.steam_idle.calls)\n"
+        "post(fake, {'disabled_tabs': ['steamidle']}); out['off'] = list(fake.steam_idle.calls)\n"
+        "post(fake, {'disabled_tabs': ['steamidle', 'shelf']}); out['still_off'] = list(fake.steam_idle.calls)\n"
+        "post(fake, {'disabled_tabs': 'junk'}); out['junk_is_on'] = list(fake.steam_idle.calls)\n"
+        "post(fake, {'disabled_tabs': ['steamidle']})\n"
+        "asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None)); out['reset'] = list(fake.steam_idle.calls)\n"
+        "print(json.dumps(out))\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["untouched"] == [] and got["other_tab"] == [], f"only the steamidle entry matters: {got}"
+    assert got["off"] == [False], f"turning it off calls the controller once: {got['off']}"
+    assert got["still_off"] == [False], f"an unchanged state is not a transition: {got['still_off']}"
+    assert got["junk_is_on"] == [False, True], f"a cleaned (empty) list turns it back on: {got['junk_is_on']}"
+    assert got["reset"] == [False, True, False, True], f"a reset to defaults turns it on again: {got['reset']}"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      steam idle switch: PASS [OK]")
 
 
 def test_loading_states_of_giveaways_and_dimmer():
@@ -7645,6 +7689,7 @@ if __name__ == "__main__":
         test_clean_install_copies_the_default_config_template,
         test_safe_defaults_power_off_and_linked_games,
         test_disabled_tabs_setting_is_cleaned_translated_and_persisted,
+        test_steam_idle_module_follows_the_tab_setting_once_per_change,
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,

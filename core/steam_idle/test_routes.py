@@ -14,6 +14,11 @@ class StubController:
 
     def acknowledge(self, accepted):
         self.calls.append(("acknowledge", accepted))
+        return self.refusal
+
+    def acknowledge_achievements(self, accepted):
+        self.calls.append(("acknowledge_achievements", accepted))
+        return self.refusal
 
     def release_held(self, app_id):
         self.calls.append(("release_held", app_id))
@@ -52,6 +57,12 @@ class RoutesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply(await self.routes.ack(FakeRequest({"accepted": True}))), (200, {"ok": True}))
         await self.routes.ack(FakeRequest({"accepted": False}))
         self.assertEqual(self.controller.calls, [("acknowledge", True), ("acknowledge", False)])
+
+    async def test_a_refused_ack_answers_409_with_the_code(self):
+        routes = SteamIdleRoutes(StubController("module_disabled"))
+        self.assertEqual(reply(await routes.ack(FakeRequest({"accepted": True}))), (409, {"error": "module_disabled"}))
+        self.assertEqual(reply(await routes.achievements_ack(FakeRequest({"accepted": True}))),
+                         (409, {"error": "module_disabled"}))
 
     async def test_ack_rejects_malformed_bodies_with_400(self):
         bad = [FakeRequest(error=json.JSONDecodeError("x", "", 0)), FakeRequest([]), FakeRequest({}),

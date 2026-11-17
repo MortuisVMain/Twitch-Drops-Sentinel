@@ -94,6 +94,7 @@ export const STEAM_IDLE: Record<string, string> = {
   'Нет входа на сайт Steam. Нажмите «Войти в Steam».': 'Not signed in on the Steam site. Press "Sign in to Steam".',
   'Вход на сайт Steam ещё не проверен. Нажмите «Проверить».': 'The Steam site sign-in has not been checked yet. Press "Check".',
   'Вход на сайте выполнен в другой аккаунт. Войдите в тот же, что и в клиенте Steam.': 'The site is signed in to a different account. Sign in to the same one as in the Steam client.',
+  'Steam IDLE выключен в Настройках.': 'Steam IDLE is turned off in Settings.',
   'Служба занята предыдущей командой. Повторите через пару секунд.': 'The service is busy with the previous command. Try again in a couple of seconds.',
   'Нет связи со службой. Повторите позже.': 'No connection to the service. Try again later.',
   'Команда не выполнена. Повторите позже.': 'The command did not go through. Try again later.',
