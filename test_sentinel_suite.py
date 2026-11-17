@@ -7468,6 +7468,38 @@ def test_steam_idle_package_unit_tests():
     print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
 
 
+def test_installer_script_keeps_its_promises():
+    print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
+    iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
+    assert not iss.startswith("﻿"), "the script is UTF-8 without a BOM"
+    assert "AppId={{18419608-0A2A-4C0A-9B06-78DA6D8F921C}" in iss, "AppId is fixed forever: changing it breaks upgrades"
+    assert re.search(r"(?m)^PrivilegesRequired=lowest$", iss), "per-user install"
+    assert "PrivilegesRequiredOverridesAllowed" not in iss, "no switching to an all-users install"
+    assert r"DefaultDirName={localappdata}\Programs\Twitch Drops Sentinel" in iss
+    assert "UsePreviousAppDir=yes" in iss and "ArchitecturesAllowed=x64compatible" in iss
+    assert r"AppMutex=Global\TwitchDropsSentinel_v3_Mutex" in iss and "#ifndef TEST_BUILD" in iss, "running app is detected unless it is the check build"
+    assert "CloseApplications=yes" in iss
+    program = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    assert r"Global\TwitchDropsSentinel_v3_Mutex" in program, "installer mutex must match the host's single-instance mutex"
+    assert 'Name: "russian"' in iss and 'Name: "english"' in iss
+    for message in re.findall(r"(?m)^(?:russian|english)\.(\w+)=", iss):
+        assert f"russian.{message}=" in iss and f"english.{message}=" in iss, f"custom message {message} must exist in both languages"
+    for data_file in ("config.json", "Trophies.md"):
+        line = [l for l in iss.splitlines() if l.startswith("Source:") and f"\\{data_file}" in l]
+        assert line and "onlyifdoesntexist" in line[0] and "uninsneveruninstall" in line[0], f"{data_file} must install only when absent and never be uninstalled"
+    main_source = [l for l in iss.splitlines() if l.startswith("Source:") and "\\*" in l][0]
+    assert "config.json" in main_source and "Trophies.md" in main_source and ".bat" in main_source, "the main entry skips user data and the launcher"
+    assert not any(l.startswith("Source:") and ".bat" in l and "Excludes" not in l for l in iss.splitlines()), "the launcher .bat is not shipped"
+    assert "KEEPDATA" in iss and "MB_DEFBUTTON2" in iss, "uninstall question defaults to keeping the data and /KEEPDATA overrides it"
+    assert "UninstallAskData" in iss
+    assert "nowait postinstall skipifsilent" in iss, "no launch after a silent install"
+    assert "TwitchDropsSentinel.update" in iss, "a stale pending exe update must not survive an upgrade"
+    assert "RunValue = 'TwitchDropsSentinel'" in iss and "RegDeleteValue" in iss
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'winreg.QueryValueEx(key, "TwitchDropsSentinel")' in service, "autostart value name the installer removes"
+    print("      installer script static checks: PASS [OK]")
+
+
 if __name__ == "__main__":
     print("=" * 65)
     print("  TWITCH DROPS SENTINEL v3.1 — VERIFICATION TEST SUITE")
@@ -7609,6 +7641,7 @@ if __name__ == "__main__":
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_installer_script_keeps_its_promises,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).

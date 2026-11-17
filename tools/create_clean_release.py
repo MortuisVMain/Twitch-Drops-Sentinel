@@ -11,6 +11,7 @@ import sys
 import shutil
 import zipfile
 import hashlib
+import subprocess
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -29,6 +30,45 @@ PATCH_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
 PATCH_OUTPUT_ALT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Patch.zip"
 SHA256_OUTPUT = WORKSPACE / "SHA256SUMS.txt"
 LICENSE_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.md")
+INSTALLER_SCRIPT = WORKSPACE / "installer" / "TwitchDropsSentinel.iss"
+INSTALLER_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Setup_v{__version__}.exe"
+ISCC_CANDIDATES = (
+    r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    r"C:\Program Files\Inno Setup 6\ISCC.exe",
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Inno Setup 6", "ISCC.exe"),  # per-user Inno Setup install
+)
+
+
+def find_iscc():
+    """ISCC.exe from the ISCC environment variable or a standard Inno Setup 6 folder, else None."""
+    for candidate in (os.environ.get("ISCC", ""), *ISCC_CANDIDATES):
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    return None
+
+
+def build_installer():
+    """Compile the per-user installer from the staged release; returns its path, or None when Inno Setup is absent."""
+    iscc = find_iscc()
+    if iscc is None:
+        print("[!] Inno Setup 6 (ISCC.exe) not found: the installer is NOT built. Install it or set the ISCC environment variable;")
+        print("    the ZIP archives are unaffected.")
+        return None
+    # The installer is built from the staged folder the ZIP audit covers; user data must not be in it
+    for data_dir in (RELEASE_DIR / "data", RELEASE_DIR / "giveaways_engine" / "data"):
+        leaked = [f for f in data_dir.rglob("*") if f.is_file()] if data_dir.exists() else []
+        assert not leaked, f"CRITICAL: user data staged for the installer: {leaked[:3]}"
+    print(f"[*] Compiling installer with {iscc}...")
+    if INSTALLER_OUTPUT.exists():
+        INSTALLER_OUTPUT.unlink()
+    subprocess.run(
+        [str(iscc), f"/DAppVersion={__version__}", f"/DSourceDir={RELEASE_DIR}", f"/O{WORKSPACE}", str(INSTALLER_SCRIPT)],
+        check=True,
+    )
+    assert INSTALLER_OUTPUT.is_file(), f"Installer was not produced: {INSTALLER_OUTPUT}"
+    print(f"      [PASS] Installer created: {INSTALLER_OUTPUT.name} ({INSTALLER_OUTPUT.stat().st_size / (1024*1024):.2f} MB)")
+    return INSTALLER_OUTPUT
+
 
 def create_release():
     print("=" * 65)
@@ -245,10 +285,15 @@ def create_release():
 
     print(f"      [PASS] Security Audit Passed: ZERO private tokens, 0 cookies, 0 personal logs, 0 git history.")
 
+    # 13b. Per-user installer (skipped with a notice when Inno Setup is not installed)
+    installer = build_installer()
+
     # 14. Compute and write SHA256 checksums
     print("[*] Computing SHA-256 checksums for release distribution...")
     sha256_lines = []
     release_files = [ZIP_OUTPUT, PATCH_OUTPUT, PATCH_OUTPUT_ALT]
+    if installer is not None:
+        release_files.append(installer)
     for rf in release_files:
         h = hashlib.sha256(rf.read_bytes()).hexdigest()
         sha256_lines.append(f"{h}  {rf.name}")
@@ -262,7 +307,8 @@ def create_release():
     print(f"  1. Full Standalone: {ZIP_OUTPUT.name}")
     print(f"  2. Hot-Patch Update: {PATCH_OUTPUT.name}")
     print(f"  3. Hot-Patch (Alt): {PATCH_OUTPUT_ALT.name}")
-    print(f"  4. Checksums: {SHA256_OUTPUT.name}")
+    print(f"  4. Installer: {installer.name if installer else 'not built (Inno Setup missing)'}")
+    print(f"  5. Checksums: {SHA256_OUTPUT.name}")
     print("=" * 65)
 
 if __name__ == "__main__":

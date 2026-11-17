@@ -54,7 +54,15 @@ function Get-RunValue {
 }
 
 function Invoke-Setup([string]$Exe, [string[]]$ArgList, [string]$What) {
-    $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -Wait -PassThru -WindowStyle Hidden
+    # CreateProcess without the shell: Start-Process (ShellExecute) would stop at the "Open File - Security Warning"
+    # dialog for a setup that carries Mark-of-the-Web, and nobody is there to click it.
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = ($ArgList -join " ")
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $p = [Diagnostics.Process]::Start($psi)
+    if (-not $p.WaitForExit(600000)) { $p.Kill(); Assert-That $false "$What finished within 10 minutes"; return }
     Assert-That ($p.ExitCode -eq 0) "$What exits 0 (got $($p.ExitCode))"
 }
 
@@ -187,7 +195,11 @@ try {
 
     # --- the user's account stays untouched ----------------------------------------
     $shortcutsAfter = @(Get-ShortcutSnapshot)
-    Assert-That (($shortcutsBefore -join "|") -eq ($shortcutsAfter -join "|")) "no shortcut created or removed in Start menu or on the desktop"
+    $changed = @(Compare-Object -ReferenceObject $shortcutsBefore -DifferenceObject $shortcutsAfter -ErrorAction SilentlyContinue)
+    foreach ($c in $changed) { Write-Host "[INFO] shortcut $($c.SideIndicator) $($c.InputObject)" }
+    # other programs may touch their own shortcuts while the check runs; only ours count
+    $ours = @($changed | Where-Object { (Split-Path $_.InputObject -Leaf) -like "*Sentinel*" })
+    Assert-That ($ours.Count -eq 0) "no Sentinel shortcut created or removed in Start menu or on the desktop"
     Assert-That (-not ($shortcutsAfter | Where-Object { (Split-Path $_ -Leaf) -like "Twitch Drops Sentinel*" })) "no 'Twitch Drops Sentinel' shortcut exists"
     Assert-That ((Get-RunValue) -eq $runBefore) "autostart Run value of the user's own copy unchanged"
 }
@@ -200,7 +212,12 @@ finally {
     if ($appId -and (Test-Path $uninstKey)) {
         $u = Join-Path $installA "unins000.exe"
         if (Test-Path -LiteralPath $u) {
-            Start-Process -FilePath $u -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/KEEPDATA=0") -Wait -WindowStyle Hidden
+            $cleanup = New-Object Diagnostics.ProcessStartInfo
+            $cleanup.FileName = $u
+            $cleanup.Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /KEEPDATA=0"
+            $cleanup.UseShellExecute = $false
+            $cleanup.CreateNoWindow = $true
+            [void][Diagnostics.Process]::Start($cleanup).WaitForExit(120000)
         }
         Remove-Item $uninstKey -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "[WARN] cleaned up a leftover uninstall entry"

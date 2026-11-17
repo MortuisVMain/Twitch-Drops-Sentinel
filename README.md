@@ -44,10 +44,16 @@ Sentinel is a desktop app that collects Twitch Drops for you. Pick the games you
 
 ## Install
 
-1. Download `Twitch_Drops_Sentinel_v…_Public_Release.zip` from the [latest release](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest).
-2. Unzip it into any folder you can write to, for example `C:\Games\Sentinel`.
-3. Run `TwitchDropsSentinel.exe`.
-4. Sign in: Sentinel opens [twitch.tv/activate](https://www.twitch.tv/activate) with a one-time code. Confirm it in your browser; your password never goes through the app.
+**Recommended:** download `Twitch_Drops_Sentinel_Setup_v….exe` from the [latest release](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest) and run it. It installs for your account only (no administrator rights), adds a Start menu entry, and on uninstall asks whether to keep your settings and account sign-ins. Reinstalling or updating keeps them.
+
+**Portable:** download `Twitch_Drops_Sentinel_v…_Public_Release.zip` and use it without installing:
+
+1. Unzip it into any folder you can write to, for example `C:\Games\Sentinel`.
+2. Run `TwitchDropsSentinel.exe`.
+
+Then, with either option:
+
+3. Sign in: Sentinel opens [twitch.tv/activate](https://www.twitch.tv/activate) with a one-time code. Confirm it in your browser; your password never goes through the app.
 
 **Requirements:** Windows 10 or 11 (64-bit) and the Microsoft Edge WebView2 Runtime, which Windows 11 already has (Sentinel offers the download if it is missing). Python is bundled. The Giveaways tab additionally needs [Node.js](https://nodejs.org/) 20 or newer; it is not included in the download, and nothing else in the app needs it. The tab's browser engine installs itself on first use.
 

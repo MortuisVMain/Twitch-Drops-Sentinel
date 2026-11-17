@@ -63,9 +63,17 @@ jobs:
         run: |
           python tools/setup_portable_runtime.py
 
+      - name: Ensure Inno Setup 6 (installer compiler)
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after installing Inno Setup' }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Package Release Archives
         run: |
           python tools/create_clean_release.py
+          if (-not (Test-Path Twitch_Drops_Sentinel_Setup_v*.exe)) { throw 'The installer was not built' }
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v3
@@ -73,6 +81,7 @@ jobs:
         with:
           files: |
             Twitch_Drops_Sentinel_*_Public_Release.zip
+            Twitch_Drops_Sentinel_Setup_v*.exe
             Twitch_Drops_Sentinel_Patch_*.zip
           draft: false
           prerelease: false
