@@ -2,6 +2,9 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.6.1] - 2026-11-16
+- Steam IDLE: the card list and the game library now load on real accounts. Games never played and games with no drops left no longer fail the card list, and a library of thousands of games is read in full.
+
 ## [3.6.0] - 2026-11-16
 - Steam IDLE (new tab): idles games for card drops and unlocks missing achievements for one game, chosen ones or the whole library, at a chosen pace. Games with anti-cheat are skipped and refused, recently bought games are not idled while they may still be refunded, and a run cut short by a restart can be continued. Games are shown as cards with their Steam covers, like on the Game Shelf.
 - Security: the local API now requires a secret created at each launch and shared only with the app window, so other programs on the computer can no longer drive it.

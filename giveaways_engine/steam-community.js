@@ -87,15 +87,17 @@ const login = async (context, delay) => {
   return { status: closed ? 'closed' : 'signed_out' };
 };
 
-const fetchHtml = async (page, url) => {
+// A plain request with the profile's cookies: a navigated page can lose the body of a large page (a library of
+// thousands of games is tens of megabytes) before it is read.
+export const fetchHtml = async (page, url) => {
   let response;
   try {
-    response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+    response = await page.context().request.get(url, { timeout: NAV_TIMEOUT_MS });
   } catch (error) {
     throw new DumpError('load_failed', error.message);
   }
-  if (isLoginUrl(page.url())) return null;
-  if (!response || response.status() != 200) throw new DumpError(`http_${response?.status() ?? 'none'}`);
+  if (isLoginUrl(response.url())) return null;
+  if (response.status() != 200) throw new DumpError(`http_${response.status()}`);
   return response.text();
 };
 
