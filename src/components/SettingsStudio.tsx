@@ -359,6 +359,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   const updatePct = updateProgress?.percent ?? (updateInfo && !updateCheckFailure ? 100 : 0);
 
   const moduleOn = moduleStates(settings, { muted: isMuted, autostart: autostartEnabled });
+  const rewardsOn = settings.reward_campaigns_enabled === true;
   const powerModeWord = settings.auto_shutdown_mode === 'shutdown' ? 'выключится' : settings.auto_shutdown_mode === 'lock' ? 'заблокируется' : 'уйдёт в сон';
   const moduleCards: { key: ModuleKey; title: string; hint: string; tooltip?: string; onToggle: () => void }[] = [
     {
@@ -744,6 +745,29 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </button>
             )
           ))}
+        </div>
+      </div>
+
+      {/* Reward campaigns: only shown on the dashboard, so the switch is not one of the ten counted modules */}
+      <div className="titanium-island" role="group" aria-labelledby="extrasBlockTitle" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="engraved-header">
+          <span className="tag"><span className="led-dot"></span> <span id="extrasBlockTitle">ДОПОЛНИТЕЛЬНО</span></span>
+        </div>
+        <div className="modules-10-grid">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={rewardsOn}
+            data-reward-switch="1"
+            className="module-switch-card module-switch-btn"
+            onClick={() => { playClick(); onUpdateSettings({ reward_campaigns_enabled: !rewardsOn }); }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span className="module-switch-title">Кампании наград</span>
+              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Только показ, сбор пока не поддерживается.</span>
+            </span>
+            <span className={`cnc-switch ${rewardsOn ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
+          </button>
         </div>
       </div>
 

@@ -55,6 +55,7 @@ const INITIAL_STATE: FullSentinelState = {
     excluded_games: [],
   },
   trophies: [],
+  reward_campaigns: [],
   installed_games: [],
   all_catalog_games: [],
 };

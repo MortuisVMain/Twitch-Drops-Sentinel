@@ -1689,6 +1689,8 @@ export const App: React.FC = () => {
 
               oauthUri={sentinelState.oauth_uri}
 
+              rewardCampaigns={sentinelState.reward_campaigns}
+
               onToggleAutoShutdown={() =>
 
                 handleUpdateSettings({

@@ -29,6 +29,7 @@ Sentinel is a desktop app that collects Twitch Drops for you. Pick the games you
 - **Automatic claiming.** Rewards are claimed as soon as they are ready and land in your trophy log. Channel points bonus chests are collected on the way.
 - **Game Shelf.** All active campaigns with covers, rewards, deadlines and progress. Installed games from Steam, Epic Games and GOG Galaxy (and your own folders) are detected automatically.
 - **Stays out of your way.** Farming pauses while you play a heavy game or run on battery, and resumes afterwards. When everything is collected, Sentinel can put the PC to sleep or shut it down.
+- **Reward campaigns (opt-in).** A Settings switch, off by default, shows Twitch reward campaigns (quests and brand offers) in a collapsed group on the dashboard, with their deadline, goal and a link to Twitch. Display only: Sentinel does not farm them yet.
 - **Free games.** An optional claimer picks up weekly giveaways on Epic Games, GOG, Steam, Fab, Unity Asset Store, itch.io and Prime Gaming on a schedule.
 - **Screen dimmer.** Dim one or all monitors below the hardware minimum, with a blackout mode for night farming.
 - **Looks the way you like.** 11 themes, 29 backdrops (including 17 photoreal ones that recolor to the theme), English and Russian interface, text size from 70 to 130 %.

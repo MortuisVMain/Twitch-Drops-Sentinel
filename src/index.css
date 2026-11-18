@@ -1279,6 +1279,21 @@
     color: var(--text-secondary); font-size: var(--fs-xs); font-weight: 700; cursor: pointer;
   }
   .queue-finished-toggle:hover, .queue-finished-toggle:focus-visible { background: var(--bg-row-hover); }
+  .reward-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .reward-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; min-width: 0;
+    border-radius: var(--radius-md); background: var(--bg-row); border: 1px solid var(--border-subtle);
+  }
+  .reward-thumb { width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--radius-sm); border: 1px solid var(--border-main); object-fit: cover; background: var(--bg-well); }
+  .reward-initials { display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-xs); font-weight: 800; color: var(--text-secondary); }
+  .reward-body { flex: 1 1 8rem; min-width: 0; }
+  .reward-name { font-size: var(--fs-xs); font-weight: 700; }
+  .reward-meta { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: var(--fs-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+  .reward-link {
+    display: inline-flex; align-items: center; gap: 4px; min-height: 24px; flex-shrink: 0; margin-left: auto;
+    font-size: var(--fs-xs); font-weight: 700; color: var(--led-amber); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .reward-empty { margin-top: 4px; padding: 4px 10px; font-size: var(--fs-xs); color: var(--text-muted); }
   .reorder-rocker {
     display: flex; flex-direction: column; background: var(--bg-well);
     border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); overflow: hidden;

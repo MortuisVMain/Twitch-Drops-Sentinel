@@ -85,6 +85,7 @@ export interface SentinelSettings {
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
+  reward_campaigns_enabled?: boolean; // show Twitch reward campaigns on the dashboard (shown only, never farmed)
   disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[]; // optional tabs turned off; Giveaways follows giveaways_enabled
   giveaways_selected_stores?: StoreId[];
   giveaways_headless?: boolean;
@@ -115,6 +116,23 @@ export interface SentinelLogEntry {
   replaces?: number | null;
 }
 
+/** A Twitch reward campaign (quest or brand offer) as the service trims it; shown only. */
+export interface RewardCampaign {
+  id: string;
+  name: string;
+  brand?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  summary?: string | null;
+  instructions?: string | null;
+  url?: string | null; // https only
+  game?: string | null;
+  image?: string | null; // https only
+  rewards?: { name: string; image?: string | null; earnableUntil?: string | null }[];
+  minutesGoal?: number | null;
+  subsGoal?: number | null;
+}
+
 export interface FullSentinelState {
   version?: string;
   connected: boolean;
@@ -127,6 +145,7 @@ export interface FullSentinelState {
   hardware: HardwareGuard;
   stats: SentinelStats;
   settings: SentinelSettings;
+  reward_campaigns?: RewardCampaign[]; // empty while the setting is off
   installed_games: GameItem[];
   all_catalog_games: GameItem[];
   ignored_games?: string[];

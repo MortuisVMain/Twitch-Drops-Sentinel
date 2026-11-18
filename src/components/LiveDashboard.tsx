@@ -5,10 +5,11 @@ import {
   Search, X, RotateCcw, Flame, CheckCircle2, Tv, AlertTriangle,
   ChevronUp, ChevronDown
 } from 'lucide-react';
-import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem, ConnectionPhase } from '../types';
+import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem, ConnectionPhase, RewardCampaign } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { CartridgeCover } from './GameShelf';
+import { RewardCampaignsGroup } from './RewardCampaignsGroup';
 import { TargetMoreMenu } from './TargetMoreMenu';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
@@ -38,6 +39,7 @@ export interface LiveDashboardProps {
   watchdogStatus?: string | null;
   oauthCode?: string | null;
   oauthUri?: string | null;
+  rewardCampaigns?: RewardCampaign[];
   allGames?: GameItem[];
   trophies?: TrophyItem[];
   onAddToPriority?: (gameName: string) => void;
@@ -110,6 +112,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   watchdogStatus,
   oauthCode,
   oauthUri,
+  rewardCampaigns,
   allGames = [],
   trophies = [],
   onAddToPriority,
@@ -939,6 +942,7 @@ const filteredLogs = useMemo(() => {
                 )}
               </>
             )}
+            {settings.reward_campaigns_enabled === true && <RewardCampaignsGroup campaigns={rewardCampaigns} playClick={playClick} />}
           </div>
         </section>
 

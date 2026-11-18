@@ -20,6 +20,7 @@
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
 // POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
+// ?rewards=1 serves reward_campaigns_enabled: true with three synthetic reward campaigns (one with a game, one sitewide without game and without image, one with a very long name); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does.
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -97,6 +98,18 @@
   var tabsOff = (q.get('tabsoff') || '').split(',');
   state.settings.disabled_tabs = tabsOff.filter(function (t) { return t === 'shelf' || t === 'steamidle' || t === 'dimmer'; });
   if (tabsOff.indexOf('giveaways') >= 0) state.settings.giveaways_enabled = false;
+  var rewardsMode = q.get('rewards');
+  var REWARD_SAMPLES = rewardsMode === 'empty' ? [] : [
+    { id: 'rc1', name: 'Synthetic Launch Celebration', brand: 'Example Brand', startsAt: '2026-11-01T00:00:00Z', endsAt: new Date(Date.now() + 9 * 86400000).toISOString(), summary: 'Watch and get a thing.', instructions: 'Do the steps.',
+      url: 'https://example.test/promo', game: 'Synthetic Game', image: null, rewards: [{ name: 'Synthetic Skin', image: null, earnableUntil: null }], minutesGoal: 30, subsGoal: null },
+    { id: 'rc2', name: 'Sitewide Spring Quest', brand: null, startsAt: null, endsAt: new Date(Date.now() + 20 * 86400000).toISOString(), summary: null, instructions: null,
+      url: null, game: null, image: null, rewards: [], minutesGoal: null, subsGoal: 1 },
+    { id: 'rc3', name: 'A Campaign With An Extremely Long Name That Keeps Going To Check How The Row Wraps And Clips In A Narrow Column Of The Queue', brand: 'An Equally Long Brand Name Incorporated International',
+      startsAt: null, endsAt: new Date(Date.now() + 3 * 86400000).toISOString(), summary: null, instructions: null, url: 'https://example.test/long', game: 'Synthetic Game With A Long Title', image: null, rewards: [], minutesGoal: 120, subsGoal: 2 },
+  ];
+  function syncRewards() { state.reward_campaigns = state.settings.reward_campaigns_enabled === true ? REWARD_SAMPLES : []; }
+  if (rewardsMode === '1' || rewardsMode === 'empty') state.settings.reward_campaigns_enabled = true;
+  syncRewards();
   window.__fixtureSettings = state.settings;
   var dimmer = {
     monitors: [0, 1, 2].map(function (n) {
@@ -426,7 +439,7 @@
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init, url);
-    if (path === '/api/settings' && init && init.method === 'POST') { Object.assign(state.settings, JSON.parse(init.body)); return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } }); }
+    if (path === '/api/settings' && init && init.method === 'POST') { Object.assign(state.settings, JSON.parse(init.body)); syncRewards(); return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } }); }
     if (path === '/api/v1/giveaways/browser' && init && init.method === 'POST') {
       var posted = JSON.parse(init.body);
       window.__browserPosts.push(posted);
