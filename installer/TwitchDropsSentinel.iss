@@ -113,6 +113,7 @@ const
 
 var
   DeleteUserData: Boolean;
+  AskAboutData: Boolean;
 
 { /KEEPDATA=1 keeps, /KEEPDATA=0 deletes; anything else is -1 (not given). }
 function KeepDataSwitch: Integer;
@@ -132,19 +133,17 @@ end;
 function InitializeUninstall: Boolean;
 begin
   Result := True;
+  AskAboutData := False;
   case KeepDataSwitch of
     1: DeleteUserData := False;
     0: DeleteUserData := True;
   else
     begin
-      { no switch: silent runs keep the data, interactive runs ask with "No" as the default }
-      if UninstallSilent then
-        DeleteUserData := False
-      else
-        DeleteUserData := MsgBox(CustomMessage('UninstallAskData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+      { no switch: silent runs keep the data; interactive runs ask after the standard "remove?" confirmation }
+      DeleteUserData := False;
+      AskAboutData := not UninstallSilent;
     end;
   end;
-  Log(Format('Uninstall: delete user data = %d', [Ord(DeleteUserData)]));
 end;
 
 procedure RemoveOwnAutostart;
@@ -232,6 +231,10 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
+    { "No" is the default: keeping the sign-ins is the safe answer }
+    if AskAboutData then
+      DeleteUserData := MsgBox(CustomMessage('UninstallAskData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    Log(Format('Uninstall: delete user data = %d', [Ord(DeleteUserData)]));
     RemoveOwnAutostart;
     RemoveOwnSchedulerTask;
   end
