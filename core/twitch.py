@@ -2025,6 +2025,11 @@ class Twitch:
         # reward campaigns are asked for only while the user has them switched on; the drop campaigns below do not depend on it
         want_rewards = STATE_BRIDGE.reward_campaigns_enabled
         response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], want_rewards))
+        if want_rewards and not isinstance(((response.get("data") or {}).get("currentUser") or {}).get("dropCampaigns"), list):
+            # the opt-in must never cost the drop campaigns: ask again the old way
+            logger.warning("The dashboard request with reward campaigns returned no drop campaigns; repeating it without them")
+            want_rewards = False
+            response = await self.gql_request(GQL_QUERIES["Campaigns"])
         if want_rewards:
             reward_campaigns.publish(STATE_BRIDGE, response)
         available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []
