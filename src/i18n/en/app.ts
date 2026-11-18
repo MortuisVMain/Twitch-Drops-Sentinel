@@ -187,7 +187,7 @@ export const APP: Record<string, string> = {
   'Фокус': 'Focus',
   'В ФОКУС': 'FOCUS',
   'Ничего не найдено по запросу «': 'Nothing found for “',
-  'Попробуйте ввести имя игры или номер вкладки (1–5).': 'Try a game name or a tab number (1–5).',
+  'Попробуйте ввести имя игры или название вкладки.': 'Try a game name or a tab name.',
   'Вкладки •': 'Tabs •',
   'Закрыть': 'Close',
   'Доступно обновление v': 'Update available v',

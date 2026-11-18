@@ -1,4 +1,5 @@
 // Checks the dimmer logic without a monitor, a sound card or real time: waits are completed by hand.
+using System.Text.Json;
 using TwitchDropsSentinel;
 
 int failures = 0;
@@ -267,5 +268,178 @@ void Tick(bool reverse = false, bool settle = true)
     Check(!hostile.Contains("x\"}") && !hostile.Contains("</script>") && !hostile.Contains("\"});"), "token: a hostile value stays inside the string");
 }
 
+// The dimmer module switch: the hotkeys follow the setting, the persisted flag keeps them off at the next start
+{
+    var dir = Path.Combine(Path.GetTempPath(), "dimmer_module_" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(dir);
+    string flag = Path.Combine(dir, "dimmer_module.json");
+    void ResetFlag()
+    {
+        if (File.Exists(flag)) File.Delete(flag);
+        if (Directory.Exists(flag + ".tmp")) Directory.Delete(flag + ".tmp");
+    }
+    void FlagOff() => File.WriteAllText(flag, "{\"enabled\":false}");
+    try
+    {
+    (DimmerModule M, FakeHotkeys H, List<string> Log, int[] Lifted) Make(params int[] refuse)
+    {
+        var h = new FakeHotkeys(refuse);
+        var log = new List<string>();
+        var lifted = new int[1];
+        return (new DimmerModule(h, () => lifted[0]++, flag, (msg, ex) => log.Add(msg + (ex == null ? "" : " | " + ex.Message))), h, log, lifted);
+    }
+
+    {
+        ResetFlag();
+        var (m, h, _, lifted) = Make();
+        m.Start();
+        Check(m.Enabled && string.Join(",", h.Calls) == "+9001,+9002", $"module: no flag file = on, both hotkeys registered ({string.Join(",", h.Calls)})");
+        Check(h.Keys[9001] == (DimmerModule.ModAlt, DimmerModule.VkBack) && h.Keys[9002] == (DimmerModule.ModAlt | DimmerModule.ModShift, DimmerModule.VkBack), "module: Alt+Backspace and Alt+Shift+Backspace");
+        m.Apply(true); m.Apply(true);
+        Check(h.Calls.Count == 2, "module: applying 'on' again registers nothing twice");
+        m.Apply(false);
+        Check(h.Active.Count == 0 && string.Join(",", h.Calls.Skip(2)) == "-9001,-9002", $"module: off unregisters both ({string.Join(",", h.Calls.Skip(2))})");
+        Check(lifted[0] == 1 && !m.Enabled, "module: off lifts the overlays once");
+        m.Apply(false);
+        Check(lifted[0] == 1 && h.Calls.Count == 4, "module: applying 'off' again does nothing more");
+        Check(File.Exists(flag), "module: the flag is persisted");
+    }
+    {
+        ResetFlag(); FlagOff();
+        var (m, h, _, lifted) = Make();
+        m.Start();
+        Check(!m.Enabled && h.Calls.Count == 0 && lifted[0] == 0, "module: the next start with the flag off registers no hotkey and lifts nothing");
+        m.Apply(true);
+        Check(m.Enabled && h.Active.SetEquals(new[] { 9001, 9002 }) && lifted[0] == 0, "module: on registers them again");
+        var (m2, h2, _, _) = Make();
+        m2.Start();
+        Check(m2.Enabled && h2.Active.Count == 2, "module: the flag is on again after turning on");
+    }
+    {
+        ResetFlag();
+        var (m, h, log, _) = Make(9001);
+        m.Start();
+        Check(h.Active.SetEquals(new[] { 9002 }) && m.FailedHotkeys.SequenceEqual(new[] { 9001 }), "module: a refused hotkey is reported, the other one still works");
+        Check(log.Count == 1 && log[0].Contains("Alt+Backspace"), $"module: the refusal is logged with the key ({string.Join(";", log)})");
+        Check(log[0].Contains("could not register Alt+Backspace (error 1409)"), $"module: the log carries the Win32 error code of the failed call ({log[0]})");
+        m.Apply(false);
+        Check(!h.Calls.Contains("-9001") && h.Calls.Contains("-9002"), "module: off releases only what was taken");
+        h.Refuse.Clear();
+        m.Apply(true);
+        Check(h.Active.SetEquals(new[] { 9001, 9002 }) && m.FailedHotkeys.Count == 0, "module: turning on again takes the hotkey that was refused before");
+    }
+    {
+        ResetFlag();
+        var h = new FakeHotkeys();
+        var log = new List<string>();
+        var m = new DimmerModule(h, () => throw new InvalidOperationException("overlay stuck"), flag, (msg, ex) => log.Add(msg));
+        m.Start();
+        m.Apply(false);
+        Check(h.Active.Count == 0 && log.Any(l => l.Contains("overlay")), "module: a failing overlay lift is logged and the hotkeys are released anyway");
+    }
+    {
+        File.WriteAllText(flag, "{ not json");
+        var (m, h, log, _) = Make();
+        m.Start();
+        Check(m.Enabled && h.Active.Count == 2 && log.Count == 1, "module: a broken flag file counts as on and is logged");
+        m.Shutdown();
+        Check(h.Active.Count == 0, "module: shutdown releases the hotkeys");
+        File.WriteAllText(flag, "{\"enabled\":false}");
+        var (m3, h3, _, _) = Make();
+        m3.Start(); m3.Shutdown();
+        Check(!m3.Enabled && File.ReadAllText(flag).Contains("false"), "module: shutdown keeps the flag");
+    }
+    {
+        // 5: a lift that failed (or was cut short) is repeated by the next 'off' while the screens are still dark
+        ResetFlag();
+        var h = new FakeHotkeys(); var log = new List<string>(); int lifts = 0; bool dark = true;
+        var m = new DimmerModule(h, () => { lifts++; if (lifts == 1) throw new InvalidOperationException("monitor bus"); dark = false; }, flag, (msg, ex) => log.Add(msg), () => dark);
+        m.Start(); m.Apply(false);
+        Check(lifts == 1 && dark && log.Count == 1, "module: the first lift failed and the screen is still dark");
+        m.Apply(false);
+        Check(lifts == 2 && !dark, "module: 'off' again lifts again while something is still dark");
+        m.Apply(false);
+        Check(lifts == 2, "module: 'off' again does nothing once the screens are clear");
+        var plain = new DimmerModule(new FakeHotkeys(), () => lifts++, flag, (msg, ex) => { });
+        int before = lifts; plain.Start(); plain.Apply(false);
+        Check(lifts == before, "module: without a dark check an already-off module lifts nothing");
+
+        var order = new List<string>(); var stepLog = new List<string>();
+        DimmerModule.RunSteps((msg, ex) => stepLog.Add(msg + "|" + ex?.Message),
+            ("sleep timer", () => { order.Add("timer"); throw new InvalidOperationException("timer stuck"); }),
+            ("ultra-dark", () => order.Add("ultra")),
+            ("baseline", () => order.Add("baseline")));
+        Check(string.Join(",", order) == "timer,ultra,baseline" && stepLog.Count == 1 && stepLog[0].Contains("sleep timer") && stepLog[0].Contains("timer stuck"),
+              $"lift steps: one failing step is logged and the others still run ({string.Join(",", order)}; {string.Join(";", stepLog)})");
+    }
+    {
+        // 6: one module for the life of the window; a recreated handle re-registers from the in-memory state
+        ResetFlag();
+        var (m, h, _, _) = Make();
+        m.Start(); m.Shutdown();
+        Check(h.Active.Count == 0, "module: shutdown released both hotkeys");
+        m.Apply(true);
+        Check(h.Active.Count == 0 && h.Calls.Count == 4, $"module: 'on' after shutdown does nothing ({string.Join(",", h.Calls)})");
+        m.Rebind();
+        Check(h.Active.SetEquals(new[] { 9001, 9002 }) && h.Calls.Count == 6, $"module: rebinding to a new window registers what is on ({string.Join(",", h.Calls)})");
+        m.Apply(false);
+        FlagOff(); File.WriteAllText(flag, "{\"enabled\":true}");
+        m.Shutdown(); m.Rebind();
+        Check(!m.Enabled && h.Active.Count == 0, "module: a rebind keeps the in-memory value and does not read the file again");
+        m.Apply(true);
+        Check(m.Enabled && h.Active.Count == 2, "module: 'on' works again after a rebind");
+    }
+    {
+        // 7: the flag is written to a temp file and moved over, so a failed write leaves the old value
+        ResetFlag();
+        var (m, h, log, _) = Make();
+        m.Start(); m.Apply(false);
+        Check(File.ReadAllText(flag).Contains("false") && !File.Exists(flag + ".tmp"), "module: the flag is written and no temp file stays");
+        Directory.CreateDirectory(flag + ".tmp"); // the temp path is blocked: the write must fail without touching the flag
+        m.Apply(true);
+        Check(File.ReadAllText(flag).Contains("false") && log.Any(l => l.Contains("saving the module flag failed")),
+              "module: a failed write is logged and the saved flag keeps its old content");
+        Directory.Delete(flag + ".tmp");
+        m.Apply(false); m.Apply(true);
+        Check(File.ReadAllText(flag).Contains("true"), "module: the next write works");
+    }
+    }
+    finally { Directory.Delete(dir, true); }
+}
+
+// The DIMMER_MODULE message and the DIMMER_COMMANDs allowed while the module is off
+{
+    bool Enabled(string json, out bool value) { using var doc = JsonDocument.Parse(json); return DimmerModulePayload.TryReadEnabled(doc.RootElement, out value); }
+    Check(Enabled("{\"enabled\":true}", out var on) && on, "payload: true is read");
+    Check(Enabled("{\"enabled\":false}", out var off) && !off, "payload: false is read");
+    Check(!Enabled("{}", out _) && !Enabled("{\"enabled\":null}", out _) && !Enabled("{\"enabled\":\"true\"}", out _) && !Enabled("{\"enabled\":1}", out _),
+          "payload: a missing, null, string or number value is refused");
+    Check(DimmerCommandPolicy.IsLifting("SET_BLACKOUT", false, 0) && !DimmerCommandPolicy.IsLifting("SET_BLACKOUT", true, 0), "off: blackout off is allowed, blackout on is not");
+    Check(DimmerCommandPolicy.IsLifting("SET_ULTRA_DARK", false, 0) && !DimmerCommandPolicy.IsLifting("SET_ULTRA_DARK", true, 0), "off: ultra-dark off is allowed, on is not");
+    Check(DimmerCommandPolicy.IsLifting("SET_TIMER", false, 0) && !DimmerCommandPolicy.IsLifting("SET_TIMER", false, 5), "off: timer 0 is allowed, a timer is not");
+    Check(DimmerCommandPolicy.IsLifting("RESTORE_BASELINE", false, 0), "off: restoring the baseline is allowed");
+    Check(!DimmerCommandPolicy.IsLifting("SET_BRIGHTNESS", false, 0) && !DimmerCommandPolicy.IsLifting("SAVE_BASELINE", false, 0) && !DimmerCommandPolicy.IsLifting("GET_STATE", false, 0)
+          && !DimmerCommandPolicy.IsLifting("SET_MUTE_ON_BLACKOUT", false, 0) && !DimmerCommandPolicy.IsLifting("SCAN_MONITORS", false, 0) && !DimmerCommandPolicy.IsLifting("", false, 0),
+          "off: the other commands and unknown ones are refused");
+}
+
 Console.WriteLine(failures == 0 ? "ALL DIMMER CHECKS PASSED" : $"{failures} DIMMER CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
+
+sealed class FakeHotkeys : IHotkeyRegistrar
+{
+    public readonly List<string> Calls = new();
+    public readonly HashSet<int> Active = new();
+    public readonly HashSet<int> Refuse;
+    public readonly Dictionary<int, (uint, uint)> Keys = new();
+    public int LastError { get; private set; }
+    public FakeHotkeys(params int[] refuse) { Refuse = new HashSet<int>(refuse); }
+    public bool Register(int id, uint modifiers, uint key)
+    {
+        Calls.Add("+" + id);
+        if (Refuse.Contains(id)) { LastError = 1409; return false; }
+        Active.Add(id); Keys[id] = (modifiers, key);
+        return true;
+    }
+    public bool Unregister(int id) { Calls.Add("-" + id); return Active.Remove(id); }
+}

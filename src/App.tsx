@@ -25,6 +25,7 @@ import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils
 import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
+import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
@@ -196,7 +197,7 @@ const CMD_SELECTED_STYLE: React.CSSProperties = { background: 'rgba(255, 255, 25
 
 export const App: React.FC = () => {
 
-  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const [selectedTab, setSelectedTab] = useState<NavTab>('dashboard');
 
   const [giveawaysReadinessRequested, setGiveawaysReadinessRequested] = useState(false);
 
@@ -313,6 +314,8 @@ export const App: React.FC = () => {
 
     sentinelState,
 
+    confirmedSettings,
+
     isScanning,
 
     handleTogglePriority,
@@ -350,6 +353,23 @@ export const App: React.FC = () => {
     connectionPhase,
 
   } = useSentinelState(showToast, playRewardChime, playClick);
+  // A tab the user turned off in Settings is never shown, whatever was selected; the state then falls back to the Dashboard
+  const shownTabs = visibleTabs(sentinelState.settings);
+  const shownTabsKey = shownTabs.join(',');
+  const activeTab: NavTab = shownTabs.includes(selectedTab) ? selectedTab : 'dashboard';
+  useEffect(() => {
+    if (selectedTab !== activeTab) setSelectedTab(activeTab);
+  }, [selectedTab, activeTab]);
+  // The desktop host keeps the Dimmer hotkeys and overlays only while the tab is on: tell it the first answer and every
+  // change, from the settings the service confirmed (a save that failed never reaches the host)
+  const dimmerSentRef = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const message = dimmerModuleMessage(confirmedSettings, sentinelState.connected, dimmerSentRef.current);
+    if (!message) return;
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') wv.postMessage(message);
+    dimmerSentRef.current = message.enabled; // without a host (browser) there is nobody to tell
+  }, [confirmedSettings, sentinelState.connected]);
   const { logs: consoleLogs, historyFailed: logHistoryFailed } = useConsoleLogs(sentinelState.log_seq, sentinelState.log_session, sentinelState.recent_logs);
 
 
@@ -815,15 +835,15 @@ export const App: React.FC = () => {
 
         handleTabChange('dashboard');
 
-      } else if (e.key === '2') {
+      } else if (e.key === '2' && shownTabs.includes('shelf')) {
 
         handleTabChange('shelf');
 
-      } else if (e.key === '3') {
+      } else if (e.key === '3' && shownTabs.includes('giveaways')) {
 
         handleTabChange('giveaways');
 
-      } else if (e.key === '4') {
+      } else if (e.key === '4' && shownTabs.includes('dimmer')) {
 
         handleTabChange('dimmer');
 
@@ -853,7 +873,7 @@ export const App: React.FC = () => {
 
     return () => window.removeEventListener('keydown', handleKeyDown);
 
-  }, [handleManualRefresh, handleCancelForceFarm, isPipMode, sentinelState.forced_game]);
+  }, [handleManualRefresh, handleCancelForceFarm, isPipMode, sentinelState.forced_game, shownTabsKey]);
 
 
 
@@ -961,7 +981,7 @@ export const App: React.FC = () => {
 
     playClick();
 
-    setActiveTab(tab);
+    setSelectedTab(tab);
 
     setGiveawaysReadinessRequested(false);
 
@@ -1120,6 +1140,7 @@ export const App: React.FC = () => {
 
           </button>
 
+{shownTabs.includes('shelf') && (
           <button 
 
             className={`tab-btn ${activeTab === 'shelf' ? 'active' : ''}`} 
@@ -1134,7 +1155,9 @@ export const App: React.FC = () => {
             {connectionPhase !== 'starting' && <span className="badge-num" title="Игр, установленных на этом ПК">{sentinelState.installed_games.length}</span>}
 
           </button>
+)}
 
+{shownTabs.includes('giveaways') && (
           <button 
 
             className={`tab-btn ${activeTab === 'giveaways' ? 'active' : ''}`} 
@@ -1147,7 +1170,9 @@ export const App: React.FC = () => {
             <span className="tab-ico"><Gift className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Раздачи</span>
 
           </button>
+)}
 
+{shownTabs.includes('steamidle') && (
           <button
 
             className={`tab-btn ${activeTab === 'steamidle' ? 'active' : ''}`}
@@ -1160,7 +1185,9 @@ export const App: React.FC = () => {
             <span className="tab-ico"><Hourglass className="ui-icon" aria-hidden="true" focusable="false" /></span><span className="tab-label">Steam IDLE</span>
 
           </button>
+)}
 
+{shownTabs.includes('dimmer') && (
           <button 
 
             className={`tab-btn ${activeTab === 'dimmer' ? 'active' : ''}`} 
@@ -1174,6 +1201,7 @@ export const App: React.FC = () => {
 
 
           </button>
+)}
 
           <button 
 
@@ -1792,7 +1820,7 @@ export const App: React.FC = () => {
 
 
 
-          {activeTab === 'steamidle' && <SteamIdleView onOpenGiveawaysReadiness={() => { handleTabChange('giveaways'); setGiveawaysReadinessRequested(true); }} />}
+          {activeTab === 'steamidle' && <SteamIdleView onOpenGiveawaysReadiness={shownTabs.includes('giveaways') ? () => { handleTabChange('giveaways'); setGiveawaysReadinessRequested(true); } : undefined} />}
 
 
 
@@ -1859,7 +1887,7 @@ export const App: React.FC = () => {
           { id: 'giveaways', key: '3', icon: Gift, title: 'Раздачи', action: () => handleTabChange('giveaways') },
           { id: 'dimmer', key: '4', icon: Monitor, title: 'Диммер', action: () => handleTabChange('dimmer') },
           { id: 'settings', key: '5', icon: Settings, title: 'Настройки', action: () => handleTabChange('settings') },
-        ].filter(item => !query || item.title.toLowerCase().includes(query) || item.key === query);
+        ].filter(item => (shownTabs as string[]).includes(item.id) && (!query || item.title.toLowerCase().includes(query) || item.key === query));
 
         const quickActions = [
           { id: 'switch-streamer', icon: RefreshCw, title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
@@ -2032,13 +2060,13 @@ export const App: React.FC = () => {
                 {totalResults === 0 && (
                   <div className="p-6 text-center text-[var(--text-muted)] space-y-1">
                     <p className="text-xs font-semibold text-white">Ничего не найдено по запросу «{cmdSearch}»</p>
-                    <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или номер вкладки (1–5).</p>
+                    <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или название вкладки.</p>
                   </div>
                 )}
               </div>
 
               <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] shrink-0 select-none">
-                <span><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">1–5</kbd> Вкладки • <kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
+                <span title="Цифра открывает вкладку, если она не выключена в настройках"><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Цифры</kbd> Вкладки •<kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
               </div>
             </div>
           </div>
@@ -2079,7 +2107,7 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
 
-      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} />
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} />
 
 
 

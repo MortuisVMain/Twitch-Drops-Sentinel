@@ -9,6 +9,7 @@ import { useSteamIdle } from './steamIdle/useSteamIdle';
 
 /** The Steam IDLE tab: readiness, a Cards / Achievements switch (the latter only when the service has achievements),
  * then the section chosen. Cards: the risk gate until it is accepted, then the farm and its queue. */
+// onOpenGiveawaysReadiness is missing exactly when the Giveaways tab is turned off
 export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void }> = ({ onOpenGiveawaysReadiness }) => {
   const { load, busy, refusal, send, retry } = useSteamIdle();
   const s = load.data;
@@ -40,7 +41,7 @@ export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void }> 
           {ach && <SectionSwitch value={section} onChange={(v) => { gateSeen.current = false; setSection(v); }} />}
           {refusal && (
             <section className="titanium-island sidle-error" role="alert">
-              <p className="sidle-refusal"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {refusalText(refusal, s.community.session)}</p>
+              <p className="sidle-refusal"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {refusalText(refusal, s.community.session, !!onOpenGiveawaysReadiness)}</p>
             </section>
           )}
           {ach && section === 'achievements' ? <AchievementsSection s={s} ach={ach} busy={busy} send={send} />

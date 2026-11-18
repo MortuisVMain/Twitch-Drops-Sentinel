@@ -18,6 +18,8 @@
 // ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch).
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
+// ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
+// POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -92,6 +94,10 @@
     state.active_drop = null;
     state.watching_channel = null;
   }
+  var tabsOff = (q.get('tabsoff') || '').split(',');
+  state.settings.disabled_tabs = tabsOff.filter(function (t) { return t === 'shelf' || t === 'steamidle' || t === 'dimmer'; });
+  if (tabsOff.indexOf('giveaways') >= 0) state.settings.giveaways_enabled = false;
+  window.__fixtureSettings = state.settings;
   var dimmer = {
     monitors: [0, 1, 2].map(function (n) {
       return { id: 'm' + n, name: 'Dell UltraSharp U3224KB 32-inch 6K Display #' + n, device_name: '\\\\.\\DISPLAY' + (n + 1), is_primary: n === 0,
@@ -409,6 +415,7 @@
       return new Promise(function (res) { setTimeout(function () { res(siReply(200, { appId: wanted, achievements: siAchList(wanted, siBig) })); }, 400); });
     }
     var body = JSON.parse(JSON.stringify(si));
+    body.busy = q.get('steamidlebusy') ? q.get('steamidlebusy') === '1' : ['farming', 'paused', 'suspended'].indexOf(si.farm.state) >= 0;
     if (siMode === 'nolibrary') delete body.library;
     if (siMode === 'slow' && siCalls === 1) return new Promise(function (res) { setTimeout(function () { res(siReply(200, body)); }, SLOW_MS); });
     return siReply(200, body);
@@ -419,6 +426,7 @@
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init, url);
+    if (path === '/api/settings' && init && init.method === 'POST') { Object.assign(state.settings, JSON.parse(init.body)); return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } }); }
     if (path === '/api/v1/giveaways/browser' && init && init.method === 'POST') {
       var posted = JSON.parse(init.body);
       window.__browserPosts.push(posted);

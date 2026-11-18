@@ -28,7 +28,7 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNumOrNull = (v: unknown): boolean => v === null || isNum(v);
 const hasGame = (g: unknown): g is Rec => isRec(g) && isNum(g.appId) && typeof g.name === 'string';
-const REASONS = ['helper_missing', 'node_missing', 'unsupported'];
+const REASONS = ['helper_missing', 'node_missing', 'unsupported', 'module_disabled'];
 const PREVIEW_STATUSES = ['none', 'scanning', 'ready', 'failed'];
 const isPreview = (p: unknown): boolean => isRec(p) && typeof p.status === 'string' && PREVIEW_STATUSES.includes(p.status)
   && isNumOrNull(p.ageSeconds) && (p.error === null || typeof p.error === 'string') && isNum(p.totalDropsRemaining)

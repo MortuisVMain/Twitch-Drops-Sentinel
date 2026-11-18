@@ -57,8 +57,7 @@ class SteamIdleRoutes:
         accepted = body.get("accepted") if isinstance(body, dict) else None
         if type(accepted) is not bool:
             return web.json_response({"error": "bad_request"}, status=400)
-        self._c.acknowledge(accepted)
-        return web.json_response({"ok": True})
+        return self._reply(self._c.acknowledge(accepted))
 
     async def login(self, request: web.Request) -> web.Response:
         return self._reply(self._c.login(), 202)
@@ -103,8 +102,7 @@ class SteamIdleRoutes:
         accepted = body.get("accepted") if isinstance(body, dict) and set(body) == {"accepted"} else None
         if type(accepted) is not bool:
             return web.json_response(_INVALID, status=400)
-        self._c.acknowledge_achievements(accepted)
-        return web.json_response({"ok": True})
+        return self._reply(self._c.acknowledge_achievements(accepted))
 
     async def achievements_settings(self, request: web.Request) -> web.Response:
         body = await self._body(request)

@@ -1211,6 +1211,8 @@ namespace TwitchDropsSentinel
 
             _isShuttingDown = true;
 
+            _dimmerModule?.Shutdown();
+
             _brightnessDebouncer.CancelAll();
             _hardwareCts.Cancel();
             try { _blackoutMute.Exit(() => AudioEndpointController.SetMute(false)); } catch (Exception ex) { LogDesktopError("возврат звука при закрытии", ex); }
@@ -1374,14 +1376,28 @@ namespace TwitchDropsSentinel
 
 
 
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            _dimmerModule?.Shutdown(); // the hotkeys belong to this handle: release them while it is still valid
+            base.OnHandleDestroyed(e);
+        }
+
         protected override void OnHandleCreated(EventArgs e)
 
         {
 
             base.OnHandleCreated(e);
 
-            try { RegisterHotKey(this.Handle, HOTKEY_ID_BLACKOUT, MOD_ALT, VK_BACK); } catch { }
-            try { RegisterHotKey(this.Handle, HOTKEY_ID_RESTORE, MOD_ALT | MOD_SHIFT, VK_BACK); } catch { }
+            _hotkeyWindow.Handle = this.Handle;
+            if (_dimmerModule == null)
+            {
+                _dimmerModule = new DimmerModule(_hotkeyWindow, LiftDimmer,
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "dimmer_module.json"),
+                    (msg, ex) => LogDesktopError(msg, ex ?? new InvalidOperationException("hotkey not registered")),
+                    () => _isBlackout || _isUltraDark);
+                _dimmerModule.Start();
+            }
+            else _dimmerModule.Rebind(); // a recreated handle lost its hotkeys with the old window: same module, new handle
             LoadBaselineBrightness();
 
             LoadAppIcon();
@@ -1845,8 +1861,7 @@ namespace TwitchDropsSentinel
 
                         try { _webView?.Dispose(); } catch { }
 
-                        try { UnregisterHotKey(this.Handle, HOTKEY_ID_BLACKOUT); } catch { }
-                        try { UnregisterHotKey(this.Handle, HOTKEY_ID_RESTORE); } catch { }
+                        _dimmerModule?.Shutdown();
 
                 if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); _trayIcon = null; }
 
@@ -1863,11 +1878,31 @@ namespace TwitchDropsSentinel
 
                 }
 
+                else if (type == "DIMMER_MODULE")
+                {
+                    if (DimmerModulePayload.TryReadEnabled(root, out bool moduleEnabled))
+                    {
+                        _dimmerModule?.Apply(moduleEnabled);
+                    }
+                    else
+                    {
+                        LogDesktopError("DIMMER_MODULE ignored", new InvalidOperationException("'enabled' must be true or false"));
+                    }
+                }
+
                 else if (type == "DIMMER_COMMAND")
 
                 {
 
                     string action = root.TryGetProperty("action", out var actProp) ? actProp.GetString() ?? "" : "";
+
+                    if (_dimmerModule is { Enabled: false })
+                    {
+                        // the Dimmer tab is off: only the commands that lift the dimmer still go through
+                        bool wantsOn = root.TryGetProperty("enabled", out var offEn) && offEn.ValueKind == JsonValueKind.True;
+                        int wantsMinutes = root.TryGetProperty("minutes", out var offMin) && offMin.ValueKind == JsonValueKind.Number ? offMin.GetInt32() : 0;
+                        if (!DimmerCommandPolicy.IsLifting(action, wantsOn, wantsMinutes)) return;
+                    }
 
                     if (action == "GET_STATE")
 
@@ -2645,6 +2680,7 @@ else
 
             if (m.Msg == WM_HOTKEY)
             {
+                if (_dimmerModule is { Enabled: false }) return; // a hotkey already queued when the tab was turned off
                 int hotkeyId = (int)m.WParam;
                 if (hotkeyId == HOTKEY_ID_BLACKOUT)
                 {
@@ -3948,6 +3984,38 @@ else
             }
             catch (Exception ex) { LogDesktopError("сохранение baseline яркости", ex); }
             NotifyWebviewDimmerState();
+        }
+
+        /// <summary>The dimmer tab was turned off: stop the sleep timer and, only if a blackout or ultra-dark was active, lift the overlays and return the saved brightness. Each step runs even if another failed.</summary>
+        private void LiftDimmer()
+        {
+            bool dark = _isBlackout || _isUltraDark;
+            var steps = new List<(string, Action)> { ("sleep timer", () => SetSleepTimer(0)) };
+            if (dark)
+            {
+                steps.Add(("ultra-dark", () => SetUltraDark(false)));
+                steps.Add(("blackout", () => SetBlackout(false)));
+                steps.Add(("baseline brightness", RestoreBaselineBrightness));
+            }
+            DimmerModule.RunSteps((msg, ex) => LogDesktopError(msg, ex ?? new InvalidOperationException("dimmer lift")), steps.ToArray());
+        }
+
+        private DimmerModule? _dimmerModule;
+        private readonly Win32Hotkeys _hotkeyWindow = new();
+
+        private sealed class Win32Hotkeys : IHotkeyRegistrar
+        {
+            private int _lastError;
+            /// <summary>The window the hotkeys belong to; set again whenever the form gets a new handle.</summary>
+            public IntPtr Handle { get; set; }
+            public int LastError => _lastError;
+            public bool Register(int id, uint modifiers, uint key)
+            {
+                bool ok = RegisterHotKey(Handle, id, modifiers, key);
+                _lastError = ok ? 0 : System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                return ok;
+            }
+            public bool Unregister(int id) => UnregisterHotKey(Handle, id);
         }
 
         public void RestoreBaselineBrightness()

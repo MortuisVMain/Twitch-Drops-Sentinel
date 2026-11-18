@@ -85,6 +85,7 @@ export interface SentinelSettings {
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
+  disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[]; // optional tabs turned off; Giveaways follows giveaways_enabled
   giveaways_selected_stores?: StoreId[];
   giveaways_headless?: boolean;
   streamer_watchdog_enabled?: boolean;
@@ -237,8 +238,10 @@ export interface SteamIdlePreview {
 
 export interface SteamIdleState {
   available: boolean;
-  unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | null;
+  unavailableReason: 'helper_missing' | 'node_missing' | 'unsupported' | 'module_disabled' | null;
   riskAcknowledged: boolean;
+  /** True while the farm or an achievements run is active: turning the tab off would stop it. Absent in an older service. */
+  busy?: boolean;
   steam: { running: boolean; signedIn: boolean };
   community: { session: SteamIdleCommunitySession; checkedAgeSeconds: number | null };
   farm: {

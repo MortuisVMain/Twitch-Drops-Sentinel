@@ -70,17 +70,16 @@
     return found;
   };
 
-  var SCREENS = ['dashboard', 'shelf', 'giveaways', 'dimmer', 'settings'];
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-  // Visits every main tab, then the help modal; returns {screen: violations[]}. One call = one cell of the lang x scale x size matrix.
+  // Visits every tab that is shown in the header (turned-off tabs are not there), keyed by the button title, then the help modal; returns {screen: violations[]}. One call = one cell of the lang x scale x size matrix.
   window.checkOverflowAllScreens = async function () {
     var out = {};
     var tabs = document.querySelectorAll('.deck-tabs .tab-btn');
-    for (var i = 0; i < SCREENS.length && i < tabs.length; i++) {
+    for (var i = 0; i < tabs.length; i++) {
       tabs[i].click();
       await sleep(600);
-      out[SCREENS[i]] = window.checkOverflow();
+      out[tabs[i].title || String(i)] = window.checkOverflow();
     }
     var help = document.querySelector('.help-btn');
     if (help) {

@@ -115,6 +115,18 @@ test('a missing browser engine has its own readiness text, refusal text and hint
   assert.equal(text.ENGINE_MISSING_HINT, ENGINE_HINT);
 });
 
+const ENGINE_HINT_NO_GIVEAWAYS = 'Включите вкладку «Раздачи» в Настройках, чтобы установить браузерный движок.';
+
+test('with the Giveaways tab turned off the engine hint points to Settings, not to the hidden tab', async () => {
+  const text = await bundleOf('steamIdleText.ts');
+  assert.equal(text.ENGINE_MISSING_HINT_GIVEAWAYS_OFF, ENGINE_HINT_NO_GIVEAWAYS);
+  assert.equal(text.engineMissingHint(false), ENGINE_HINT_NO_GIVEAWAYS);
+  assert.equal(text.engineMissingHint(true), ENGINE_HINT);
+  assert.equal(text.refusalText('engine_missing', 'engine_missing', false), ENGINE_HINT_NO_GIVEAWAYS);
+  assert.equal(text.refusalText('engine_missing', 'engine_missing', true), ENGINE_HINT);
+  assert.equal(text.refusalText('busy', 'unknown', false), text.refusalText('busy', 'unknown', true));
+});
+
 test('the engine refusal goes stale once the session is no longer engine_missing', async () => {
   const { refusalApplies } = await bundleOf('steamIdleText.ts');
   assert.equal(refusalApplies('engine_missing', { community: { session: 'engine_missing' } }), true);

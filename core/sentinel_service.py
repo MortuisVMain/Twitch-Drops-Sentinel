@@ -189,6 +189,7 @@ from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
+from tab_visibility import apply_disabled_tabs, tab_enabled
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
@@ -346,6 +347,7 @@ SUPERVISOR_DEFAULTS = {
     "claim_channel_points": True,
     "auto_claim_drops": True,
     "giveaways_enabled": True,
+    "disabled_tabs": [],  # optional tabs the user turned off: shelf, steamidle, dimmer (giveaways follows giveaways_enabled)
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
     "giveaways_browser": "auto",
@@ -368,6 +370,11 @@ SUPERVISOR_DEFAULTS = {
     "ui_relief_mode": "hex-magma",
     "ui_relief_opacity": 85,
 }
+
+
+def _dimmer_off_response() -> web.Response:
+    """The Dimmer tab is turned off: its commands are refused (reading the state stays allowed)."""
+    return web.json_response({"error": "module_disabled"}, status=409)
 
 
 class SentinelSupervisor:
@@ -394,11 +401,14 @@ class SentinelSupervisor:
         self.luna_countdown: Optional[int] = None
         self.luna_fired = False
         self.giveaways = GiveawaysOrchestrator()
-        self.dimmer = DimmerController()
+        self._module_sync_tasks: set = set()
+        self._module_sync_lock = asyncio.Lock()
+        self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, "dimmer"))
         self.steam_idle = create_steam_idle_controller(
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
             lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
-            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert")
+            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert",
+            module_enabled=lambda: tab_enabled(self.settings, "steamidle"))
         self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
@@ -419,6 +429,7 @@ class SentinelSupervisor:
                 with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
                     default_settings.update(data)
+                    apply_disabled_tabs(default_settings)
             except Exception as e:
                 logger.warning(f"Could not load config.json: {e}")
 
@@ -912,6 +923,50 @@ class SentinelSupervisor:
             logger.error(f"Error in handle_toggle_game_linked: {e}")
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+    async def _sync_steam_idle_module(self, was_on: bool) -> None:
+        """Tells the Steam IDLE controller when the setting flipped; a failure is logged and never fails the settings update."""
+        now_on = tab_enabled(self.settings, "steamidle")
+        if now_on == was_on:
+            return
+        try:
+            await self.steam_idle.set_module_enabled(now_on)
+        except Exception:
+            logger.error("Steam IDLE did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
+
+    async def _sync_dimmer_module(self, was_on: bool) -> None:
+        """Tells the dimmer controller when the setting flipped; a failure is logged and never fails the settings update."""
+        now_on = tab_enabled(self.settings, "dimmer")
+        if now_on == was_on:
+            return
+        try:
+            await self.dimmer.set_module_enabled(now_on)
+        except Exception:
+            logger.error("Dimmer did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
+
+    def _schedule_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+        """Runs the module syncs in the background (stopping Steam IDLE can take ~16 s) so the settings answer is not held.
+        One sync at a time and in order, so a quick off-then-on cannot interleave; the task is kept until it ends."""
+        task = asyncio.create_task(self._run_module_sync(steam_idle_was_on, dimmer_was_on))
+        self._module_sync_tasks.add(task)
+        task.add_done_callback(self._module_sync_finished)
+
+    async def _run_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+        async with self._module_sync_lock:
+            await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
+
+    def _module_sync_finished(self, task: "asyncio.Task[None]") -> None:
+        self._module_sync_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Module sync after a settings change failed", exc_info=task.exception())
+
+    async def _cancel_module_syncs(self) -> None:
+        """Shutdown: cancel the syncs still running and wait for them to end."""
+        pending = list(self._module_sync_tasks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
     async def handle_post_settings(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
@@ -921,7 +976,11 @@ class SentinelSupervisor:
                 data["priority_games"] = [g for g in norm_p if not (g in seen or seen.add(g))]
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
+            apply_disabled_tabs(data)
+            steam_idle_was_on = tab_enabled(self.settings, "steamidle")
+            dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
@@ -989,6 +1048,7 @@ class SentinelSupervisor:
         return web.json_response({"status": "restarting"})
 
     async def _delayed_stop(self):
+        await self._cancel_module_syncs()
         # Stop the Node giveaways tree first, otherwise it outlives the service.
         try:
             await asyncio.wait_for(self.giveaways.abort_claim(), timeout=2.5)
@@ -1271,7 +1331,11 @@ class SentinelSupervisor:
                 current.clear()
                 current.update(copy.deepcopy(SUPERVISOR_DEFAULTS))
 
+            steam_idle_was_on = tab_enabled(self.settings, "steamidle")
+            dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, to_defaults, self.save_settings)
+            await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
@@ -1599,6 +1663,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_brightness(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1623,6 +1689,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_blackout(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1643,6 +1711,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_timer(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1652,6 +1722,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_ultradark(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1662,6 +1734,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_mute(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1671,15 +1745,20 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_save_baseline(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         state = await self.dimmer.save_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_restore_baseline(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         state = await self.dimmer.restore_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def _on_app_shutdown(self, app):
         logger.info("Cleaning up Giveaways processes on shutdown...")
+        await self._cancel_module_syncs()
         await self.giveaways.abort_claim()
         await self.steam_idle.shutdown()
 
