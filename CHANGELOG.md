@@ -2,6 +2,10 @@
 
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
+## [3.7.0] - 2026-11-18
+- Installer: a per-user Windows installer (no administrator rights) with a Start menu entry, an uninstaller that asks whether to keep settings and sign-ins, and upgrades that keep them. The portable zip is still published.
+- Settings: a Tabs block turns the Game Shelf, Giveaways, Steam IDLE and Dimmer off. A turned-off tab leaves the header, the command palette and the digit shortcuts; Steam IDLE stops and refuses commands, and the Dimmer releases Alt+Backspace.
+
 ## [3.6.1] - 2026-11-16
 - Steam IDLE: the card list and the game library now load on real accounts. Games never played and games with no drops left no longer fail the card list, and a library of thousands of games is read in full.
 
