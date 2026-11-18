@@ -44,10 +44,16 @@ Sentinel — программа для Windows, которая собирает 
 
 ## Установка
 
-1. Скачайте `Twitch_Drops_Sentinel_v…_Public_Release.zip` из [последнего релиза](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest).
-2. Распакуйте в любую папку, куда можно записывать, например `C:\Games\Sentinel`.
-3. Запустите `TwitchDropsSentinel.exe`.
-4. Войдите: Sentinel откроет [twitch.tv/activate](https://www.twitch.tv/activate) с одноразовым кодом. Подтвердите его в браузере, пароль через программу не проходит.
+**Рекомендуется:** скачайте `Twitch_Drops_Sentinel_Setup_v….exe` из [последнего релиза](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest) и запустите. Он ставится только для вашей учётной записи (права администратора не нужны), добавляет пункт в меню «Пуск», а при удалении спрашивает, оставить ли настройки и вход в аккаунты. При переустановке и обновлении они сохраняются.
+
+**Без установки:** скачайте `Twitch_Drops_Sentinel_v…_Public_Release.zip` и работайте из папки:
+
+1. Распакуйте в любую папку, куда можно записывать, например `C:\Games\Sentinel`.
+2. Запустите `TwitchDropsSentinel.exe`.
+
+Дальше для обоих вариантов:
+
+3. Войдите: Sentinel откроет [twitch.tv/activate](https://www.twitch.tv/activate) с одноразовым кодом. Подтвердите его в браузере, пароль через программу не проходит.
 
 **Требования:** Windows 10 или 11 (64-бит) и Microsoft Edge WebView2 Runtime, который в Windows 11 уже есть (если его нет, Sentinel предложит скачать). Python встроен. Вкладке «Раздачи» дополнительно нужен [Node.js](https://nodejs.org/) 20 или новее: он не входит в поставку, остальному приложению он не нужен. Браузерный движок для вкладки установится сам при первом запуске.
 

@@ -24,3 +24,11 @@ Release notes: English first, Russian below in a collapsed block:
 ```
 
 README screenshots come from the UI harness with demo data: `node tools/build_ui_harness.mjs <dir>`, serve it, open `index.html?lang=en&demo=1`.
+
+## Installer
+
+`create_clean_release.py` also compiles `installer/TwitchDropsSentinel.iss` (Inno Setup 6.3 or newer) into `Twitch_Drops_Sentinel_Setup_v<version>.exe` in the workspace root and lists it in `SHA256SUMS.txt`. It finds `ISCC.exe` through the `ISCC` environment variable or the standard Inno Setup 6 folders; without Inno it prints a notice and builds only the ZIPs. CI makes sure Inno is present (`choco install innosetup` when missing) and uploads the setup exe next to the ZIPs.
+
+Rules for the script: never change `AppId` (it ties upgrades and uninstall together); per-user only; user data (`config.json`, `Trophies.md`, `data\`, `giveaways_engine\data\`, sign-ins) is never overwritten and is deleted on uninstall only when the user answers yes (silent: `/KEEPDATA=1` keeps, `/KEEPDATA=0` deletes, default keeps). The launcher .bat is not installed. The app's own `TwitchDropsSentinel` autostart value and its giveaways scheduler task are removed on uninstall only when they point into the install folder.
+
+Checks before publishing: `python test_sentinel_suite.py` (its installer gate reads the script statically) and `powershell -File tools/check_installer.ps1` after `create_clean_release.py`. The script compiles a `TEST_BUILD` setup (no single-instance mutex), installs it silently into a scratch folder with `/CURRENTUSER /NOICONS`, reinstalls over it, uninstalls with keep and with delete, asserts that data survives and that no shortcut or uninstall entry is left, and never launches the app. By hand, before a release that changes the installer: the Russian and English wizard pages, the uninstall question, and the "close the app" prompt while Sentinel is running.
