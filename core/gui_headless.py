@@ -49,6 +49,9 @@ class SentinelStateBridge:
         self.forced_game: Optional[str] = None
         self.oauth_code: Optional[str] = None
         self.oauth_uri: Optional[str] = None
+        # Reward campaigns (shown, never farmed): the switch as the engine reads it, and the last parsed answer
+        self.reward_campaigns_enabled: bool = False
+        self.reward_campaigns: list[dict] = []
         self.recent_logs: list[dict] = []
         # Entries are numbered (seq) so a client asks only for what is newer; a new service run is a new session, because
         # its numbers start again and a client holding the old ones must start over.

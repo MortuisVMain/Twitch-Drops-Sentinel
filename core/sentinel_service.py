@@ -190,6 +190,7 @@ from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
 from tab_visibility import apply_disabled_tabs, tab_enabled
+import reward_campaigns
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
@@ -347,6 +348,7 @@ SUPERVISOR_DEFAULTS = {
     "claim_channel_points": True,
     "auto_claim_drops": True,
     "giveaways_enabled": True,
+    "reward_campaigns_enabled": False,  # show Twitch reward campaigns on the dashboard (shown only, never farmed)
     "disabled_tabs": [],  # optional tabs the user turned off: shelf, steamidle, dimmer (giveaways follows giveaways_enabled)
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
@@ -385,6 +387,7 @@ class SentinelSupervisor:
         self.twitch_client: Optional[Twitch] = None
         self.scanner = GameScanner()
         self.settings: dict = self.load_settings()
+        reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
         set_native_toasts(self.settings.get("native_toasts", True))
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
@@ -428,6 +431,7 @@ class SentinelSupervisor:
                 # utf-8-sig: Notepad and PowerShell save a BOM, which plain utf-8 refuses to parse
                 with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
+                    reward_campaigns.drop_invalid_setting(data)
                     default_settings.update(data)
                     apply_disabled_tabs(default_settings)
             except Exception as e:
@@ -866,6 +870,7 @@ class SentinelSupervisor:
                 "total_farm_hours": uptime_hours,
             },
             "settings": self.settings,
+            "reward_campaigns": reward_campaigns.state_list(STATE_BRIDGE, self.settings),
             "trophies": trophies,
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
@@ -977,9 +982,11 @@ class SentinelSupervisor:
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             apply_disabled_tabs(data)
+            reward_campaigns.drop_invalid_setting(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
             self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()
@@ -1334,6 +1341,7 @@ class SentinelSupervisor:
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, to_defaults, self.save_settings)
+            reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
             await self._sync_steam_idle_module(steam_idle_was_on)
             await self._sync_dimmer_module(dimmer_was_on)
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")

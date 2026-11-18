@@ -21,7 +21,8 @@ if "partitioned" not in http.cookies.Morsel._reserved:
     http.cookies.Morsel._reserved["partitioned"] = "Partitioned"
 
 from translate import _
-from gui_headless import HeadlessGUIManager as GUIManager
+import reward_campaigns
+from gui_headless import HeadlessGUIManager as GUIManager, STATE_BRIDGE
 from channel import Channel
 from websocket import WebsocketPool
 from inventory import DropsCampaign
@@ -2021,7 +2022,11 @@ class Twitch:
         }
         inventory_data: dict[str, JsonType] = {c["id"]: c for c in ongoing_campaigns}
         # fetch general available campaigns data (campaigns)
-        response = await self.gql_request(GQL_QUERIES["Campaigns"])
+        # reward campaigns are asked for only while the user has them switched on; the drop campaigns below do not depend on it
+        want_rewards = STATE_BRIDGE.reward_campaigns_enabled
+        response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], want_rewards))
+        if want_rewards:
+            reward_campaigns.publish(STATE_BRIDGE, response)
         available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []
         applicable_statuses = ("ACTIVE", "UPCOMING")
         available_campaigns: dict[str, JsonType] = {

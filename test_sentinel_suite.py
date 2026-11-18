@@ -5926,6 +5926,106 @@ def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
     print("      disabled_tabs: PASS [OK]")
 
 
+def test_reward_campaigns_setting_state_and_request():
+    print("[rewards] reward_campaigns_enabled: default off, bool only, saved, clears the list when off, reaches /api/state...")
+    work = Path(tempfile.mkdtemp(prefix="reward_campaigns_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from types import SimpleNamespace\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    hardware_state = {}\n"
+        "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    def _schedule_module_sync(self, a, b): pass\n"
+        "    def load_trophies(self): return []\n"
+        "    def get_app_version(self): return 'test'\n"
+        "    def shelf_game_names(self, trophies): return []\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "def state(fake): return asyncio.run(s.SentinelSupervisor.get_full_state(fake))\n"
+        "B = s.STATE_BRIDGE\n"
+        "out = {'default': s.SUPERVISOR_DEFAULTS['reward_campaigns_enabled']}\n"
+        "fake = Fake()\n"
+        "out['fresh'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled]\n"
+        "B.reward_campaigns = [{'id': 'stale'}]\n"
+        "out['off_state'] = state(fake)['reward_campaigns']\n"
+        "out['bad_status'] = post(fake, {'reward_campaigns_enabled': 'yes'})\n"
+        "out['bad'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled]\n"
+        "post(fake, {'reward_campaigns_enabled': True})\n"
+        "out['on'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled]\n"
+        "B.reward_campaigns = [{'id': 'a'}, {'id': 'b'}]\n"
+        "out['on_state'] = [c['id'] for c in state(fake)['reward_campaigns']]\n"
+        "out['reloaded'] = s.SentinelSupervisor.load_settings(None)['reward_campaigns_enabled']\n"
+        "post(fake, {'reward_campaigns_enabled': 1})\n"
+        "out['int_ignored'] = fake.settings['reward_campaigns_enabled']\n"
+        "post(fake, {'language': 'ru'})\n"
+        "out['untouched'] = [fake.settings['reward_campaigns_enabled'], len(B.reward_campaigns)]\n"
+        "post(fake, {'reward_campaigns_enabled': False})\n"
+        "out['off'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled, B.reward_campaigns, state(fake)['reward_campaigns']]\n"
+        "post(fake, {'reward_campaigns_enabled': True}); B.reward_campaigns = [{'id': 'c'}]\n"
+        "asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None))\n"
+        "out['reset'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled, B.reward_campaigns]\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")  # an old config: no such key
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert res.returncode == 0, res.stderr[-2500:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["default"] is False and got["fresh"] == [False, False], f"an old config reads as off: {got}"
+    assert got["off_state"] == [], f"nothing is served while the setting is off, even a stale list: {got['off_state']}"
+    assert got["bad_status"] == 200 and got["bad"] == [False, False], f"a non-bool is ignored, the update still succeeds: {got['bad']}"
+    assert got["on"] == [True, True], f"the switch reaches the engine's shared state: {got['on']}"
+    assert got["on_state"] == ["a", "b"], f"/api/state carries reward_campaigns: {got['on_state']}"
+    assert got["reloaded"] is True, "saved to config.json and read back"
+    assert got["int_ignored"] is True, "1 is not a bool: the stored value stays"
+    assert got["untouched"] == [True, 2], "an update without the key leaves it and the list alone"
+    assert got["off"] == [False, False, [], []], f"turning it off clears the list at once: {got['off']}"
+    assert got["reset"] == [False, False, []], f"a settings reset turns it off: {got['reset']}"
+    config.write_text(json.dumps({"reward_campaigns_enabled": "yes"}), encoding="utf-8")
+    res = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, 'core'); import sentinel_service as s; print(s.SentinelSupervisor.load_settings(None)['reward_campaigns_enabled'])"],
+                         cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0 and res.stdout.strip().splitlines()[-1] == "False", f"a non-bool in config.json reads as off: {res.stdout[-300:]} {res.stderr[-300:]}"
+    twitch_src = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], ' in twitch_src, "the dashboard request takes the variable per call"
+    assert 'self.gql_request(GQL_QUERIES["Inventory"])' in twitch_src, "the inventory request is untouched"
+    constants_src = (WORKSPACE / "core" / "constants.py").read_text(encoding="utf-8")
+    assert constants_src.count('"fetchRewardCampaigns": False') == 2, "the shared constants keep asking for no reward campaigns"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reward campaigns setting and state: PASS [OK]")
+
+
+def test_reward_campaigns_unit_tests():
+    print("[rewards] core/test_reward_campaigns.py: parser, request variable and setting helpers against the sandbox copy of core...")
+    import io
+    import unittest
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    try:
+        suite = unittest.defaultTestLoader.discover(str(core_dir), pattern="test_reward_campaigns.py", top_level_dir=str(core_dir))
+        assert suite.countTestCases() > 0, "no reward campaign tests were discovered"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        if added_path:
+            sys.path.remove(str(core_dir))
+        sys.modules.pop("reward_campaigns", None)
+        sys.modules.pop("test_reward_campaigns", None)
+    assert result.wasSuccessful(), f"reward campaign unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      reward campaign unit tests ({result.testsRun} run): PASS [OK]")
+
+
 def test_steam_idle_module_follows_the_tab_setting_once_per_change():
     print("[tabs] turning the Steam IDLE tab off or on reaches the controller once per change, also on a settings reset...")
     work = Path(tempfile.mkdtemp(prefix="steam_idle_switch_", dir=SANDBOX))
@@ -7903,6 +8003,8 @@ if __name__ == "__main__":
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_reward_campaigns_unit_tests,
+        test_reward_campaigns_setting_state_and_request,
         test_installer_script_keeps_its_promises,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
