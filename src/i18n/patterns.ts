@@ -166,4 +166,6 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Следующий запуск: (.+)$/, 'Next run: $1'],
   [/^Ошибка: (.+)$/, 'Error: $1'],
   [/^Лог: (.+)$/, 'Log: $1'],
+  // tab tooltips carry their hotkey digit: 'Полка игр (2)'
+  [/^([^()]*[А-Яа-яЁё][^()]*) \((\d)\)$/, '$1 ($2)'],
 ];

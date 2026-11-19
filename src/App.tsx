@@ -26,6 +26,7 @@ import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
 import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
+import { tabDigit, tabForDigit, digitRange, titleWithDigit } from './utils/tabHotkeys.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
@@ -793,7 +794,7 @@ export const App: React.FC = () => {
 
 
 
-  // Global Keyboard Shortcuts (1-5 for tabs, Ctrl+K for Palette, Ctrl+M for PIP)
+  // Global Keyboard Shortcuts (digits for the visible tabs, Ctrl+K for Palette, Ctrl+M for PIP)
 
   useEffect(() => {
 
@@ -813,6 +814,8 @@ export const App: React.FC = () => {
 
       if (e.key !== 'Escape' && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
 
+      const digitTab = tabForDigit(shownTabs, e.key); // 1..N follow the visible tabs in header order
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
 
         e.preventDefault();
@@ -831,25 +834,9 @@ export const App: React.FC = () => {
 
         handleTogglePipMode();
 
-      } else if (e.key === '1') {
+      } else if (digitTab) {
 
-        handleTabChange('dashboard');
-
-      } else if (e.key === '2' && shownTabs.includes('shelf')) {
-
-        handleTabChange('shelf');
-
-      } else if (e.key === '3' && shownTabs.includes('giveaways')) {
-
-        handleTabChange('giveaways');
-
-      } else if (e.key === '4' && shownTabs.includes('dimmer')) {
-
-        handleTabChange('dimmer');
-
-      } else if (e.key === '5') {
-
-        handleTabChange('settings');
+        handleTabChange(digitTab);
 
       } else if (e.key === 'F5') {
 
@@ -1130,7 +1117,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('dashboard')}
-            title="Дашборд"
+            title={titleWithDigit('Дашборд', tabDigit(shownTabs, 'dashboard'))}
 
           >
 
@@ -1146,7 +1133,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'shelf' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('shelf')}
-            title="Полка игр"
+            title={titleWithDigit('Полка игр', tabDigit(shownTabs, 'shelf'))}
 
           >
 
@@ -1163,7 +1150,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'giveaways' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('giveaways')}
-            title="Бесплатные раздачи"
+            title={titleWithDigit('Бесплатные раздачи', tabDigit(shownTabs, 'giveaways'))}
 
           >
 
@@ -1178,7 +1165,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'steamidle' ? 'active' : ''}`}
 
             onClick={() => handleTabChange('steamidle')}
-            title="Steam IDLE: фарм карточек"
+            title={titleWithDigit('Steam IDLE: фарм карточек', tabDigit(shownTabs, 'steamidle'))}
 
           >
 
@@ -1193,7 +1180,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'dimmer' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('dimmer')}
-            title="Диммер мониторов: DDC/CI"
+            title={titleWithDigit('Диммер мониторов: DDC/CI', tabDigit(shownTabs, 'dimmer'))}
 
           >
 
@@ -1208,7 +1195,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('settings')}
-            title="Настройки: 10 систем Sentinel"
+            title={titleWithDigit('Настройки: 10 систем Sentinel', tabDigit(shownTabs, 'settings'))}
 
           >
 
@@ -1882,12 +1869,15 @@ export const App: React.FC = () => {
         const query = cmdSearch.toLowerCase().trim();
 
         const navActions = [
-          { id: 'dashboard', key: '1', icon: LayoutDashboard, title: 'Дашборд', action: () => handleTabChange('dashboard') },
-          { id: 'shelf', key: '2', icon: Gamepad2, title: 'Полка игр', action: () => handleTabChange('shelf') },
-          { id: 'giveaways', key: '3', icon: Gift, title: 'Раздачи', action: () => handleTabChange('giveaways') },
-          { id: 'dimmer', key: '4', icon: Monitor, title: 'Диммер', action: () => handleTabChange('dimmer') },
-          { id: 'settings', key: '5', icon: Settings, title: 'Настройки', action: () => handleTabChange('settings') },
-        ].filter(item => (shownTabs as string[]).includes(item.id) && (!query || item.title.toLowerCase().includes(query) || item.key === query));
+          { id: 'dashboard', icon: LayoutDashboard, title: 'Дашборд', action: () => handleTabChange('dashboard') },
+          { id: 'shelf', icon: Gamepad2, title: 'Полка игр', action: () => handleTabChange('shelf') },
+          { id: 'giveaways', icon: Gift, title: 'Раздачи', action: () => handleTabChange('giveaways') },
+          { id: 'steamidle', icon: Hourglass, title: 'Steam IDLE', action: () => handleTabChange('steamidle') },
+          { id: 'dimmer', icon: Monitor, title: 'Диммер', action: () => handleTabChange('dimmer') },
+          { id: 'settings', icon: Settings, title: 'Настройки', action: () => handleTabChange('settings') },
+        ].filter(item => (shownTabs as string[]).includes(item.id))
+          .map(item => ({ ...item, key: tabDigit(shownTabs, item.id) ?? '' }))
+          .filter(item => !query || item.title.toLowerCase().includes(query) || item.key === query);
 
         const quickActions = [
           { id: 'switch-streamer', icon: RefreshCw, title: 'Сменить стримера', action: () => handleSwitchStreamer(false) },
@@ -2107,7 +2097,7 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
 
-      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} />
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} digitRange={digitRange(shownTabs)} />
 
 
 

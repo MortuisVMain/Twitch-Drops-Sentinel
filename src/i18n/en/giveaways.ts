@@ -153,6 +153,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Открывает соответствующую вкладку приложения': 'Opens the matching tab of the app',
   'Цифры': 'Digits',
   'Цифра открывает вкладку, если она не выключена в настройках': 'A digit opens its tab if the tab is not turned off in Settings',
+  'Цифра открывает вкладку по порядку слева направо; выключенные вкладки пропускаются': 'A digit opens the tabs in order from left to right; tabs turned off are skipped',
   'Возвращает фарм из выбранной вручную игры к обычной очереди': 'Returns the farm from a manually chosen game to the normal queue',
   'Мгновенное закрытие справки, каталога или окна обновления': 'Instantly closes help, the catalog or the update window',
   'Палитра команд': 'Command palette',
