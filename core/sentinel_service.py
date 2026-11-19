@@ -326,6 +326,19 @@ SLUG_TO_GAME_NAME = {
     "aion2": "AION 2",
 }
 
+def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
+    """Appends the new farmable reward campaigns to the end of priority_games (when the switch is on) and saves; returns the
+    campaign ids appended, None when there was nothing to add. A campaign appended once is never appended again."""
+    new_priority, added = reward_campaigns.auto_queue_plan(STATE_BRIDGE, service.settings)
+    if not added:
+        return None
+    apply_change(service.settings, lambda current: current.update({"priority_games": new_priority}), service.save_settings)
+    reward_watch.REWARD_WATCH.ledger.mark_queued(added)
+    logger.info("Reward auto-queue: %d campaign(s) added to the end of the queue: %s", len(added), ", ".join(added))
+    STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] В очередь добавлено кампаний наград: {len(added)}")
+    return added
+
+
 def normalize_priority_entry(name: str) -> str:
     """A queue entry: a game name is normalised, a `reward:<campaignId>` key is kept as it is (normalising would destroy it)."""
     stripped = name.strip() if isinstance(name, str) else name
@@ -356,6 +369,8 @@ SUPERVISOR_DEFAULTS = {
     "auto_claim_drops": True,
     "giveaways_enabled": True,
     "reward_campaigns_enabled": False,  # show Twitch reward campaigns on the dashboard and farm their watch time (subs are never bought)
+    "reward_daily_slot": True,  # a queued reward campaign takes the daily slot before drops until today's goal is reached
+    "reward_auto_queue": False,  # append new farmable reward campaigns (watch goal + category) to the end of the queue
     "hidden_reward_campaigns": [],  # reward campaign ids the user hid: kept in the state with hidden=true, never farmed
     "reward_campaign_categories": {},  # reward campaign id -> category name chosen by the user (empty name removes it)
     "disabled_tabs": [],  # optional tabs the user turned off: shelf, steamidle, dimmer (giveaways follows giveaways_enabled)
@@ -397,6 +412,7 @@ class SentinelSupervisor:
         self.scanner = GameScanner()
         self.settings: dict = self.load_settings()
         reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
+        STATE_BRIDGE.reward_auto_queue_hook = lambda: apply_reward_auto_queue(self)
         set_native_toasts(self.settings.get("native_toasts", True))
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
@@ -997,6 +1013,7 @@ class SentinelSupervisor:
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
             reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
+            apply_reward_auto_queue(self)
             self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()

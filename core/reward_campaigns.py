@@ -16,6 +16,8 @@ logger = logging.getLogger("TwitchDrops.RewardCampaigns")
 
 SETTING_KEY = "reward_campaigns_enabled"
 HIDDEN_KEY = "hidden_reward_campaigns"
+DAILY_SLOT_KEY = "reward_daily_slot"  # true (default): a queued campaign takes the daily slot before drops
+AUTO_QUEUE_KEY = "reward_auto_queue"  # false (default): new farmable campaigns are appended to the queue by themselves
 CATEGORIES_KEY = "reward_campaign_categories"
 RESPONSE_KEY = "rewardCampaignsAvailableToUser"
 CAMPAIGN_LIMIT = 50
@@ -40,9 +42,10 @@ def dashboard_query(base: Any, enabled: bool) -> Any:
 def drop_invalid_setting(data: dict) -> None:
     """Cleans the reward settings of incoming data: a non-bool switch, a hidden list that is not a list of strings or a
     category map that is not str -> str is removed (the stored value stays as it was); valid lists are trimmed and capped."""
-    if SETTING_KEY in data and not isinstance(data[SETTING_KEY], bool):
-        logger.warning("%s ignored: expected true or false, got %r", SETTING_KEY, data[SETTING_KEY])
-        del data[SETTING_KEY]
+    for key in (SETTING_KEY, DAILY_SLOT_KEY, AUTO_QUEUE_KEY):
+        if key in data and not isinstance(data[key], bool):
+            logger.warning("%s ignored: expected true or false, got %r", key, data[key])
+            del data[key]
     for key, sanitize, shape in ((HIDDEN_KEY, reward_watch.sanitize_hidden, "a list of campaign ids"),
                                  (CATEGORIES_KEY, reward_watch.sanitize_categories, "a map of campaign id to category name")):
         if key not in data:
@@ -60,6 +63,8 @@ def apply_setting(bridge: Any, settings: dict, engine: Any = None) -> None:
     is told so it can stop watching a campaign that was switched off or hidden."""
     enabled = settings.get(SETTING_KEY) is True
     bridge.reward_campaigns_enabled = enabled
+    bridge.reward_daily_slot = settings.get(DAILY_SLOT_KEY, True) is True
+    bridge.reward_auto_queue = settings.get(AUTO_QUEUE_KEY) is True
     bridge.reward_hidden = reward_watch.sanitize_hidden(settings.get(HIDDEN_KEY)) or []
     bridge.reward_categories = reward_watch.sanitize_categories(settings.get(CATEGORIES_KEY)) or {}
     if not enabled:
@@ -89,6 +94,19 @@ def force_problem(bridge: Any, settings: dict, campaign_id: str) -> Optional[str
         return "Кампании нет в списке."
     reason = reward_watch.ineligible_reason(found, datetime.now(timezone.utc))
     return f"Нельзя запустить: {reason}." if reason else None
+
+
+def auto_queue_plan(bridge: Any, settings: dict) -> tuple[Optional[list[str]], list[str]]:
+    """(the new priority_games, the campaign ids appended) when the auto-queue has something to add, else (None, []).
+    Only farmable campaigns (a watch goal and a category) that are visible, running, not earned, not queued and never
+    appended before; they go to the END of the queue. Subscriptions are never part of it."""
+    if settings.get(SETTING_KEY) is not True or settings.get(AUTO_QUEUE_KEY) is not True:
+        return None, []
+    priority = [p for p in settings.get("priority_games") or [] if isinstance(p, str)]
+    added = reward_watch.auto_queue_additions(state_list(bridge, settings), priority, reward_watch.REWARD_WATCH.ledger.queued)
+    if not added:
+        return None, []
+    return priority + [reward_watch.reward_key(cid) for cid in added], added
 
 
 def queue_pending(bridge: Any, settings: dict) -> bool:

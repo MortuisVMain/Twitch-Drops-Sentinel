@@ -459,8 +459,12 @@ class ChooseTests(unittest.TestCase):
 
 
 class EarnedTests(unittest.TestCase):
-    CAMPS = [campaign(id="11111111-aaaa-bbbb-cccc-000000000001", name="GTAVI Launch Celebration", rewards=[{"name": "GTA Sub Emote Chest"}, {"name": "Chest"}]),
-             campaign(id="22222222-aaaa-bbbb-cccc-000000000002", name="Pokemon Evolutions", rewards=[{"name": "Pikachu Emote"}, {"name": "Emote"}, {"name": "Badge"}])]
+    CAMPS = [campaign(id="11111111-aaaa-bbbb-cccc-000000000001", name="GTAVI Launch Celebration",
+                      groups=[{"goalKind": "watch", "minutes": 60, "subs": 0, "rewards": [{"name": "Daily Chest Item"}]},
+                              {"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": [{"name": "GTA Sub Emote Chest"}, {"name": "Chest"}]}]),
+             campaign(id="22222222-aaaa-bbbb-cccc-000000000002", name="Pokemon Evolutions",
+                      groups=[{"goalKind": "watch", "minutes": 60, "subs": 0, "rewards": [{"name": "Pikachu Daily Badge"}]},
+                              {"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": [{"name": "Pikachu Grand Prize"}, {"name": "Emote"}, {"name": "Badge"}]}])]
     C1, C2 = CAMPS[0]["id"], CAMPS[1]["id"]
     EARNED = "quests_viewer_reward_campaign_earned_emote"
 
@@ -481,14 +485,16 @@ class EarnedTests(unittest.TestCase):
         self.assertIsNone(rw.match_earned({"type": self.EARNED, "id": self.C1}, self.CAMPS))
 
     def test_names_need_word_boundaries_length_and_a_non_generic_word(self):
-        self.assertEqual(rw.match_earned({"type": self.EARNED, "body": "You earned the Pikachu Emote!"}, self.CAMPS), self.C2)
-        self.assertEqual(rw.match_earned({"type": self.EARNED, "title": "gtavi launch celebration"}, self.CAMPS), self.C1)
+        self.assertEqual(rw.match_earned({"type": self.EARNED, "body": "You earned the Pikachu Grand Prize!"}, self.CAMPS), self.C2)
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "title": "gtavi launch celebration"}, self.CAMPS), "a campaign name is not a reward")
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "You earned a Pikachu Daily Badge"}, self.CAMPS), "a daily reward is not the final one")
         for generic in ("Badge", "You got an Emote", "A new Chest for you", "emote chest badge"):
             self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": generic}, self.CAMPS), generic)
-        self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "SuperPikachu EmoteX"}, self.CAMPS), "no match inside a longer word")
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "SuperPikachu Grand PrizeX"}, self.CAMPS), "no match inside a longer word")
 
     def test_a_name_shared_by_two_campaigns_is_not_a_match(self):
-        twins = [campaign(id="a", name="One", rewards=[{"name": "Shared Reward Name"}]), campaign(id="b", name="Two", rewards=[{"name": "Shared Reward Name"}])]
+        final = [{"goalKind": "watch", "minutes": 60, "subs": 0, "rewards": []}, {"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": [{"name": "Shared Reward Name"}]}]
+        twins = [campaign(id="a", name="One", groups=final), campaign(id="b", name="Two", groups=final)]
         self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "Shared Reward Name"}, twins))
 
     def test_no_match_and_odd_input(self):
@@ -636,8 +642,12 @@ class FakeEngine:
     _schedule_category_resolution = twitch.Twitch._schedule_category_resolution
     _resolve_categories = twitch.Twitch._resolve_categories
     _validate_category = twitch.Twitch._validate_category
+    _reward_skip_for_a_while = twitch.Twitch._reward_skip_for_a_while
+    _notify_daily_goal = twitch.Twitch._notify_daily_goal
+    _run_auto_queue_hook = twitch.Twitch._run_auto_queue_hook
 
     def __init__(self):
+        self._reward_backoff = {}
         self.forced_game = None
         self.reward_target = None
         self._reward_last_tick = None
@@ -675,8 +685,14 @@ class EngineTests(TempDir):
     def setUp(self):
         super().setUp()
         self.saved = (rw.REWARD_WATCH, STATE_BRIDGE.reward_campaigns_enabled, STATE_BRIDGE.reward_campaigns,
-                      STATE_BRIDGE.forced_game, getattr(STATE_BRIDGE, "reward_hidden", []), getattr(STATE_BRIDGE, "reward_categories", {}))
+                      STATE_BRIDGE.forced_game, getattr(STATE_BRIDGE, "reward_hidden", []), getattr(STATE_BRIDGE, "reward_categories", {}),
+                      getattr(STATE_BRIDGE, "reward_daily_slot", True))
         rw.REWARD_WATCH = rw.RewardWatch(self.dir)
+        import notifications
+        muted = notifications.NOTIFIER
+        notifications.NOTIFIER = notifications.ToastGate(lambda t, m: None, lambda: True, None)
+        self.addCleanup(setattr, notifications, "NOTIFIER", muted)
+        STATE_BRIDGE.reward_daily_slot = False  # these tests describe the order without the daily slot: drops first
         STATE_BRIDGE.reward_campaigns_enabled = True
         STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories = [], {}
         STATE_BRIDGE.forced_game = None
@@ -689,7 +705,7 @@ class EngineTests(TempDir):
 
     def restore(self):
         (rw.REWARD_WATCH, STATE_BRIDGE.reward_campaigns_enabled, STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.forced_game,
-         STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories) = self.saved
+         STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories, STATE_BRIDGE.reward_daily_slot) = self.saved
         STATE_BRIDGE.reward_watching = None
 
     # selection
@@ -843,7 +859,8 @@ class EngineTests(TempDir):
 
     # earned notifications
     def test_an_earned_notification_marks_the_campaign_until_its_end_and_logs_only_allowed_fields(self):
-        STATE_BRIDGE.reward_campaigns[0]["rewards"] = [{"name": "Unique Pikachu Chest"}]
+        STATE_BRIDGE.reward_campaigns[0]["groups"] = [{"goalKind": "watch", "minutes": 60, "subs": 0, "rewards": []},
+                                                      {"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": [{"name": "Unique Pikachu Chest"}]}]
         STATE_BRIDGE.reward_campaigns[0]["endsAt"] = "2026-12-01T00:00:00Z"
         with self.assertLogs("TwitchDrops", level="INFO") as logs:
             self.engine._note_reward_earned({"type": "quests_viewer_reward_campaign_earned_emote", "id": "n1", "body": "You got Unique Pikachu Chest",
@@ -862,7 +879,8 @@ class EngineTests(TempDir):
         self.assertFalse(rw.REWARD_WATCH.ledger.earned)
 
     def test_a_quest_notification_that_is_not_earned_only_logs(self):
-        STATE_BRIDGE.reward_campaigns[0]["rewards"] = [{"name": "Unique Pikachu Chest"}]
+        STATE_BRIDGE.reward_campaigns[0]["groups"] = [{"goalKind": "watch", "minutes": 60, "subs": 0, "rewards": []},
+                                                      {"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": [{"name": "Unique Pikachu Chest"}]}]
         with self.assertLogs("TwitchDrops", level="INFO"):
             self.engine._note_reward_earned({"type": "quests_viewer_reward_campaign_started", "campaignId": "a", "body": "Unique Pikachu Chest"})
         self.assertFalse(rw.REWARD_WATCH.ledger.earned)

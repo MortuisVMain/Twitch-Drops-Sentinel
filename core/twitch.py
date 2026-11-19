@@ -463,6 +463,7 @@ class Twitch:
         self._reward_last_tick: Optional[float] = None
         self._reward_logged_minutes: Optional[int] = None
         self._reward_failed_beats: int = 0
+        self._reward_backoff: dict[str, float] = {}  # campaign id -> time until which the daily slot skips it
         self._reward_last_success: Optional[float] = None
         self._category_task: Optional[asyncio.Task] = None
         self.inventory: list[DropsCampaign] = []
@@ -1049,6 +1050,8 @@ class Twitch:
                     self._state_change.clear()
                 else:
                     # not watching anything and there isn't anything to watch either
+                    if self.reward_target is not None and self._reward_skip_for_a_while():
+                        continue  # a reward campaign without streams: skipped for a while, drops go meanwhile
                     forced_target = self._forced_drop_game()
                     if forced_target:
                         self.print(f"Ожидание стримеров для принудительного фокуса: {forced_target}")
@@ -1501,7 +1504,11 @@ class Twitch:
                 self._clear_forced_reward()
             return
         viewed = reward_watch.REWARD_WATCH.view(STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
-        picked, reason = reward_watch.choose(viewed, forced_id=forced_reward_id, priority=priority, drops_available=bool(self.wanted_games))
+        now_ts = time()
+        self._reward_backoff = {cid: until for cid, until in self._reward_backoff.items() if until > now_ts}
+        picked, reason = reward_watch.choose(
+            viewed, forced_id=forced_reward_id, priority=priority, drops_available=bool(self.wanted_games),
+            daily_slot=STATE_BRIDGE.reward_daily_slot, skip=set(self._reward_backoff))
         if forced_reward_id and picked is None:
             logger.info("[НАГРАДА] Принудительный фокус на кампании '%s' сброшен: %s. Возврат в авто-режим.", forced_reward_id, reason)
             STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] Принудительный фокус на кампании сброшен: {reason}. Возврат в авто-режим.")
@@ -1556,9 +1563,10 @@ class Twitch:
             if self._reward_last_success is not None and now - self._reward_last_success >= REWARD_STALL_SECONDS:
                 logger.warning("[НАГРАДА] Кампания «%s»: нет успешных отправок %s мин. Сбрасываем и пересматриваем выбор.",
                                target["name"], round((now - self._reward_last_success) / 60))
-                self._set_reward_target(None)
-                self.stop_watching()
-                self.change_state(State.GAMES_UPDATE)
+                if not self._reward_skip_for_a_while("нет успешных отправок"):
+                    self._set_reward_target(None)
+                    self.stop_watching()
+                    self.change_state(State.GAMES_UPDATE)
                 return False
             if self._reward_failed_beats >= REWARD_FAILED_BEATS:
                 logger.warning("[НАГРАДА] Канал %s не принимает просмотр (%s неудач подряд): кулдаун 15 мин, ищем другой.",
@@ -1580,9 +1588,8 @@ class Twitch:
         return False
 
     def _reward_goal_reached(self, target: dict, minutes: int) -> None:
-        logger.info("[НАГРАДА] Дневная цель кампании «%s» выполнена: %s/%s мин. До завтра (UTC) не смотрим.", target["name"], minutes, target["dailyGoal"])
-        STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] Дневная цель кампании «{target['name']}» выполнена: {minutes}/{target['dailyGoal']} мин.")
         reward_watch.REWARD_WATCH.ledger.save()
+        self._notify_daily_goal(target, minutes)
         if reward_watch.reward_id(getattr(self, "forced_game", None)) == target["id"]:
             logger.info("[НАГРАДА] Принудительный фокус выполнен. Возврат в авто-режим.")
             self._clear_forced_reward()
@@ -1598,12 +1605,18 @@ class Twitch:
                     reward_watch.notification_fields(notification))
         if not reward_watch.is_earned_type(ntype):
             return
-        matched = reward_watch.match_earned(notification, STATE_BRIDGE.reward_campaigns)
-        if matched is None:
+        matched = reward_watch.match_earned(notification, reward_watch.REWARD_WATCH.view(
+            STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories))
+        if matched is not None:
+            campaign = next((c for c in STATE_BRIDGE.reward_campaigns if c.get("id") == matched), {})
+            reward_watch.REWARD_WATCH.ledger.mark_earned(matched, until=reward_watch.parse_moment(campaign.get("endsAt")))
+            logger.info("[НАГРАДА] Награда кампании %s получена: больше её не смотрим.", matched)
             return
-        campaign = next((c for c in STATE_BRIDGE.reward_campaigns if c.get("id") == matched), {})
-        reward_watch.REWARD_WATCH.ledger.mark_earned(matched, until=reward_watch.parse_moment(campaign.get("endsAt")))
-        logger.info("[НАГРАДА] Награда кампании %s получена: больше её не смотрим.", matched)
+        target = self.reward_target
+        if target is not None:
+            # a daily reward (a badge a day) of the campaign being watched: today's item, the campaign goes on
+            reward_watch.REWARD_WATCH.ledger.mark_daily_reward(target["id"])
+            logger.info("[НАГРАДА] Значок за сегодня получен: «%s».", target["name"])
 
     async def _validate_category(self, name: str) -> Optional[dict]:
         """Asks Twitch for the game with this name (the directory lookup). None only for a clean answer that says there is
@@ -1645,8 +1658,48 @@ class Twitch:
         except Exception as exc:
             logger.warning("[НАГРАДА] Поиск категорий не удался: %s", exc, exc_info=True)
             return
+        if found:
+            self._run_auto_queue_hook()
         if found and self._state is State.IDLE:
             self.change_state(State.GAMES_UPDATE)
+
+    def _notify_daily_goal(self, target: dict, minutes: int) -> None:
+        """The daily goal is reached: the console line and the app's usual toast (once per campaign and UTC day, honouring
+        the Windows notifications switch)."""
+        done = max(1, reward_watch.REWARD_WATCH.ledger.days_done(target["id"], target["dailyGoal"]))
+        text = reward_watch.daily_goal_text(target["name"], done, reward_watch.campaign_days(target.get("summary")))
+        logger.info("[НАГРАДА] %s (%s/%s мин). До завтра (UTC) не смотрим.", text, minutes, target["dailyGoal"])
+        STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] {text}")
+        try:
+            import notifications
+            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            notifications.NOTIFIER.notify("reward_daily_goal", f"{target['id']}:{day}", "Twitch Drops Sentinel", text)
+        except Exception as exc:
+            logger.warning("[НАГРАДА] Уведомление о дневной цели не отправлено: %s", exc, exc_info=True)
+
+    def _reward_skip_for_a_while(self, reason: str = "нет стримов") -> bool:
+        """The campaign cannot be watched now (no live stream in its category, stalled): the daily slot skips it for 15
+        minutes, drops go meanwhile. A forced campaign is never skipped (False)."""
+        target = self.reward_target
+        if target is None or reward_watch.reward_id(getattr(self, "forced_game", None)) == target["id"]:
+            return False
+        self._reward_backoff[target["id"]] = time() + reward_watch.BACKOFF_SECONDS
+        logger.info("[НАГРАДА] В категории «%s» %s, вернёмся через 15 мин", target["category"]["name"], reason)
+        STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] В категории «{target['category']['name']}» {reason}, вернёмся через 15 мин")
+        self._set_reward_target(None)
+        self.stop_watching()
+        self.change_state(State.GAMES_UPDATE)
+        return True
+
+    def _run_auto_queue_hook(self) -> None:
+        """Lets the service append new farmable reward campaigns to the queue (when that switch is on)."""
+        hook = getattr(STATE_BRIDGE, "reward_auto_queue_hook", None)
+        if hook is None:
+            return
+        try:
+            hook()
+        except Exception as exc:
+            logger.warning("[НАГРАДА] Автодобавление в очередь не удалось: %s", exc, exc_info=True)
 
     async def _reward_channels_fetch(self) -> None:
         """Live channels of the reward campaign's category (any stream: the drops tag is not needed), the watched one first."""
@@ -2306,6 +2359,7 @@ class Twitch:
                 rewards_response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True))
                 reward_campaigns.publish(STATE_BRIDGE, rewards_response)
                 self._schedule_category_resolution()  # in the background: drops never wait for it
+                self._run_auto_queue_hook()
             except Exception as exc:  # reward campaigns are display-only: they must never cost the drop campaigns
                 logger.warning("Reward campaigns request failed: %s", exc, exc_info=True)
         available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []

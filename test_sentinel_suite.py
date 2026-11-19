@@ -6105,6 +6105,82 @@ def test_reward_campaigns_queue_force_hide_and_categories_api():
     print("      reward campaigns queue, force, hide and categories: PASS [OK]")
 
 
+def test_reward_campaigns_daily_slot_and_auto_queue_settings():
+    print("[rewards] reward_daily_slot (default on) and reward_auto_queue (default off): bool only, mirrored to the engine, the auto-queue appends once and respects removals...")
+    work = Path(tempfile.mkdtemp(prefix="reward_slot_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from types import SimpleNamespace\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    hardware_state = {}\n"
+        "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    def _schedule_module_sync(self, a, b): pass\n"
+        "    def load_trophies(self): return []\n"
+        "    def get_app_version(self): return 'test'\n"
+        "    def shelf_game_names(self, trophies): return []\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "def state(fake): return asyncio.run(s.SentinelSupervisor.get_full_state(fake))\n"
+        "B = s.STATE_BRIDGE\n"
+        "grp = lambda kind, m, n: [{'goalKind': kind, 'minutes': m, 'subs': n, 'rewards': []}]\n"
+        "out = {'defaults': [s.SUPERVISOR_DEFAULTS['reward_daily_slot'], s.SUPERVISOR_DEFAULTS['reward_auto_queue']]}\n"
+        "fake = Fake()\n"
+        "out['fresh'] = [fake.settings['reward_daily_slot'], fake.settings['reward_auto_queue'], B.reward_daily_slot, B.reward_auto_queue]\n"
+        "post(fake, {'reward_daily_slot': False, 'reward_auto_queue': True})\n"
+        "out['set'] = [fake.settings['reward_daily_slot'], fake.settings['reward_auto_queue'], B.reward_daily_slot, B.reward_auto_queue]\n"
+        "out['bad_status'] = post(fake, {'reward_daily_slot': 'no', 'reward_auto_queue': 1})\n"
+        "out['bad'] = [fake.settings['reward_daily_slot'], fake.settings['reward_auto_queue']]\n"
+        "post(fake, {'reward_auto_queue': False, 'reward_daily_slot': True})\n"
+        "B.reward_campaigns = [{'id': 'a', 'name': 'A', 'game': 'G', 'minutesGoal': 60, 'groups': grp('watch', 60, 0)},\n"
+        "                      {'id': 'b', 'name': 'B', 'game': 'G', 'minutesGoal': 60, 'groups': grp('watch', 60, 0)},\n"
+        "                      {'id': 's', 'name': 'S', 'game': 'G', 'groups': grp('subs', 0, 1)},\n"
+        "                      {'id': 'n', 'name': 'No category', 'game': None, 'minutesGoal': 60, 'groups': grp('watch', 60, 0)}]\n"
+        "post(fake, {'reward_campaigns_enabled': True, 'priority_games': ['Rust']})\n"
+        "out['off_changes_nothing'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "post(fake, {'reward_auto_queue': True})\n"
+        "out['appended'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "out['order'] = fake.settings['priority_games'].index('reward:a') < fake.settings['priority_games'].index('reward:b')\n"
+        "out['persisted'] = [g for g in s.SentinelSupervisor.load_settings(None)['priority_games'] if g.startswith('reward:')]\n"
+        "post(fake, {'priority_games': [g for g in fake.settings['priority_games'] if g != 'reward:a']})\n"
+        "out['removed_stays_removed'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "B.reward_campaigns.append({'id': 'c', 'name': 'C', 'game': 'G', 'minutesGoal': 30, 'groups': grp('watch', 30, 0)})\n"
+        "s.apply_reward_auto_queue(fake)\n"
+        "out['new_one_added'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "out['quiet_second_time'] = s.apply_reward_auto_queue(fake)\n"
+        "st = state(fake)['reward_campaigns'][0]\n"
+        "out['state_fields'] = {k: st[k] for k in ('dailyRewardToday', 'daysDone', 'daysTotal', 'doneToday')}\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert res.returncode == 0, res.stderr[-2500:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["defaults"] == [True, False], f"defaults: {got['defaults']}"
+    assert got["fresh"] == [True, False, True, False], f"an old config: slot on, auto-queue off: {got['fresh']}"
+    assert got["set"] == [False, True, False, True], f"both switches reach the engine's shared state: {got['set']}"
+    assert got["bad_status"] == 200 and got["bad"] == [False, True], f"non-bool values are ignored: {got['bad']}"
+    assert got["off_changes_nothing"] == [], f"the auto-queue does nothing while it is off: {got['off_changes_nothing']}"
+    assert got["appended"] == ["reward:a", "reward:b"], f"farmable campaigns only (no subs-only, no category): {got['appended']}"
+    assert got["persisted"] == got["appended"], f"saved to config.json: {got['persisted']}"
+    assert got["removed_stays_removed"] == ["reward:b"], f"a campaign the user removed is not added again: {got['removed_stays_removed']}"
+    assert got["new_one_added"] == ["reward:b", "reward:c"], f"a new campaign goes to the end: {got['new_one_added']}"
+    assert got["quiet_second_time"] in (False, None), "nothing to add the second time"
+    assert set(got["state_fields"]) == {"dailyRewardToday", "daysDone", "daysTotal", "doneToday"}, got["state_fields"]
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reward campaigns daily slot and auto-queue settings: PASS [OK]")
+
+
 def test_reward_campaigns_unit_tests():
     print("[rewards] core/test_reward*.py: parser, request variable, setting helpers, category watching and its engine glue against the sandbox copy of core...")
     import io
@@ -6121,7 +6197,7 @@ def test_reward_campaigns_unit_tests():
     finally:
         if added_path:
             sys.path.remove(str(core_dir))
-        for name in ("reward_campaigns", "reward_watch", "test_reward_campaigns", "test_reward_watch"):
+        for name in ("reward_campaigns", "reward_watch", "test_reward_campaigns", "test_reward_watch", "test_reward_slot"):
             sys.modules.pop(name, None)
     assert result.wasSuccessful(), f"reward campaign unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
     print(f"      reward campaign unit tests ({result.testsRun} run): PASS [OK]")
@@ -8107,6 +8183,7 @@ if __name__ == "__main__":
         test_reward_campaigns_unit_tests,
         test_reward_campaigns_setting_state_and_request,
         test_reward_campaigns_queue_force_hide_and_categories_api,
+        test_reward_campaigns_daily_slot_and_auto_queue_settings,
         test_installer_script_keeps_its_promises,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
