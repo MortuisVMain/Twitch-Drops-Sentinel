@@ -3,7 +3,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
-import { GameItem, TrophyItem } from '../types';
+import { GameItem, RewardCampaign, TrophyItem } from '../types';
+import { RewardCampaignsGroup } from './RewardCampaignsGroup';
 import { CartridgeCover } from './CartridgeCover';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
@@ -29,6 +30,7 @@ interface GameShelfProps {
   onShowToast?: (msg: string) => void;
   onManualRefresh?: () => void;
   lastSyncAt?: number | null;
+  rewardCampaigns?: RewardCampaign[]; // passed only while the reward campaigns setting is on
 }
 
 export { CartridgeCover };
@@ -61,6 +63,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   onReorderPriority,
   onManualRefresh,
   lastSyncAt = null,
+  rewardCampaigns,
   onOpenVaultFile,
   onShowToast,
   onToggleUserLinked,
@@ -663,6 +666,13 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Reward campaigns have no game, so they get their own line above the games (only while the setting is on and Twitch sent some) */}
+      {activeFilter === 'all' && rewardCampaigns && rewardCampaigns.length > 0 && (
+        <div className="titanium-island" style={{ padding: '6px 14px' }}>
+          <RewardCampaignsGroup campaigns={rewardCampaigns} playClick={playClick} />
+        </div>
+      )}
 
       {/* Trophies: one line on the campaigns tab (expandable, remembered), always open on "Собрано" */}
       {(activeFilter === 'all' || activeFilter === 'claimed') && (

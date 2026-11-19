@@ -1785,6 +1785,7 @@ export const App: React.FC = () => {
               onManualRefresh={handleManualRefresh}
 
               lastSyncAt={lastSyncAt}
+              rewardCampaigns={sentinelState.settings.reward_campaigns_enabled === true ? sentinelState.reward_campaigns : undefined}
 
               onShowToast={showToast}
 
