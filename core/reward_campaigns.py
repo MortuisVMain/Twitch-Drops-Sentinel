@@ -91,6 +91,18 @@ def force_problem(bridge: Any, settings: dict, campaign_id: str) -> Optional[str
     return f"Нельзя запустить: {reason}." if reason else None
 
 
+def queue_pending(bridge: Any, settings: dict) -> bool:
+    """True while a queued `reward:<id>` campaign can still be farmed (farmable, not hidden, not ended, not earned, not
+    done today): the auto shutdown must not count the queue as finished then."""
+    if settings.get(SETTING_KEY) is not True:
+        return False
+    queued = {reward_watch.reward_id(p) for p in settings.get("priority_games") or [] if reward_watch.is_reward_key(p)}
+    if not queued:
+        return False
+    now = datetime.now(timezone.utc)
+    return any(c.get("id") in queued and reward_watch.ineligible_reason(c, now) is None for c in state_list(bridge, settings))
+
+
 def publish(bridge: Any, dashboard_json: Any, now: Optional[datetime] = None) -> None:
     """Parses a dashboard answer into the shared state, unless the setting was turned off while the request ran."""
     if not bridge.reward_campaigns_enabled:

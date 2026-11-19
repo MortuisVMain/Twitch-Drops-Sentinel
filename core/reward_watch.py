@@ -5,10 +5,13 @@ Nothing here ever buys, subscribes or gifts: subscription goals are display-only
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
+import math
 import re
+import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +29,7 @@ ID_LIMIT = 200
 CATEGORY_NAME_LIMIT = 100
 CANDIDATE_LIMIT = 6
 LEDGER_KEEP_DAYS = 40
+NEGATIVE_RETRY_SECONDS = 6 * 3600
 EARNED_LIMIT = 200
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -143,15 +147,35 @@ def _utc_day(now: datetime) -> str:
     return now.astimezone(timezone.utc).strftime("%Y-%m-%d")
 
 
+def parse_moment(value: Any) -> Optional[datetime]:
+    """An ISO moment (with or without Z) as an aware datetime, None when unreadable."""
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
 def _read_json(path: Path, what: str) -> dict:
+    """The JSON object in the file; a file that cannot be read as one is kept aside as `<name>.corrupt-<time>` (never
+    overwritten by the fresh start) and an empty dict is returned."""
     if not path.exists():
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(data, dict):
+            raise ValueError("the top level is not an object")
     except (OSError, ValueError) as exc:
-        logger.error("Cannot read %s (%s): starting empty", what, path, exc_info=True)
+        aside = path.with_name(f"{path.name}.corrupt-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+        try:
+            path.replace(aside)
+            logger.error("Cannot read %s (%s): %s. Kept as %s, starting empty", what, path, exc, aside.name, exc_info=True)
+        except OSError:
+            logger.error("Cannot read %s (%s): %s. Starting empty (it could not be set aside)", what, path, exc, exc_info=True)
         return {}
-    return data if isinstance(data, dict) else {}
+    return data
 
 
 def _write_json(path: Path, data: dict, what: str) -> None:
@@ -162,24 +186,49 @@ def _write_json(path: Path, data: dict, what: str) -> None:
         logger.error("Cannot save %s to %s: %s", what, path, exc, exc_info=True)
 
 
+def _seconds(value: Any) -> Optional[float]:
+    """A stored number of seconds: finite and not negative, otherwise None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
+
+
 class WatchLedger:
-    """Seconds watched per campaign per UTC day (counted as whole minutes) (40 days kept) and the campaigns known to be earned."""
+    """Seconds watched per campaign per UTC day (counted as whole minutes, 40 days kept) and the campaigns known to be
+    earned (until the campaign ends, or 40 days when its end is unknown)."""
 
     def __init__(self, path: Path):
         self.path = path
         raw = _read_json(path, "reward watch ledger")
         days = raw.get("days") if isinstance(raw.get("days"), dict) else {}
-        self.days: dict[str, dict[str, float]] = {
-            d: {k: float(v) for k, v in m.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
-            for d, m in days.items() if isinstance(m, dict)}
+        self.days: dict[str, dict[str, float]] = {}
+        for day, per_campaign in days.items():
+            if isinstance(per_campaign, dict):
+                self.days[day] = {k: v for k, v in ((k, _seconds(v)) for k, v in per_campaign.items()) if v is not None}
         earned = raw.get("earned") if isinstance(raw.get("earned"), dict) else {}
-        self.earned: dict[str, str] = {k: str(v) for k, v in earned.items()}
+        self.earned: dict[str, dict] = {}
+        for key, value in earned.items():
+            if isinstance(value, dict) and isinstance(value.get("at"), str):
+                self.earned[key] = {"at": value["at"], "until": value.get("until") if isinstance(value.get("until"), str) else None}
+            elif isinstance(value, str):
+                self.earned[key] = {"at": value, "until": None}  # the first format: only the moment
         self._prune(datetime.now(timezone.utc))
 
     def _prune(self, now: datetime) -> None:
-        oldest = (now.astimezone(timezone.utc) - timedelta(days=LEDGER_KEEP_DAYS)).strftime("%Y-%m-%d")
+        now = now.astimezone(timezone.utc)
+        oldest = (now - timedelta(days=LEDGER_KEEP_DAYS)).strftime("%Y-%m-%d")
         for day in [d for d in self.days if d < oldest]:
             del self.days[day]
+        for key in [k for k in self.earned if self._earned_over(self.earned[k], now)]:
+            del self.earned[key]
+
+    @staticmethod
+    def _earned_over(entry: dict, now: datetime) -> bool:
+        until = parse_moment(entry.get("until"))
+        if until is not None:
+            return until <= now
+        at = parse_moment(entry.get("at"))
+        return at is None or at <= now - timedelta(days=LEDGER_KEEP_DAYS)
 
     def minutes_today(self, campaign_id: str, now: Optional[datetime] = None) -> int:
         now = now or datetime.now(timezone.utc)
@@ -188,6 +237,7 @@ class WatchLedger:
     def add_seconds(self, campaign_id: str, seconds: float, now: Optional[datetime] = None) -> int:
         """Adds watched time; returns the whole minutes of today. The file is written when a whole minute passes."""
         now = now or datetime.now(timezone.utc)
+        seconds = seconds if isinstance(seconds, (int, float)) and math.isfinite(seconds) else 0.0
         today = self.days.setdefault(_utc_day(now), {})
         before = int(today.get(campaign_id, 0.0) // 60)
         today[campaign_id] = today.get(campaign_id, 0.0) + max(0.0, seconds)
@@ -197,14 +247,16 @@ class WatchLedger:
             self.save()
         return after
 
-    def mark_earned(self, campaign_id: str, now: Optional[datetime] = None) -> None:
-        self.earned[campaign_id] = (now or datetime.now(timezone.utc)).isoformat()
+    def mark_earned(self, campaign_id: str, now: Optional[datetime] = None, until: Optional[datetime] = None) -> None:
+        now = now or datetime.now(timezone.utc)
+        self.earned[campaign_id] = {"at": now.isoformat(), "until": until.isoformat() if until else None}
         while len(self.earned) > EARNED_LIMIT:
             del self.earned[next(iter(self.earned))]
         self.save()
 
-    def is_earned(self, campaign_id: str) -> bool:
-        return campaign_id in self.earned
+    def is_earned(self, campaign_id: str, now: Optional[datetime] = None) -> bool:
+        entry = self.earned.get(campaign_id)
+        return entry is not None and not self._earned_over(entry, (now or datetime.now(timezone.utc)).astimezone(timezone.utc))
 
     def save(self) -> None:
         _write_json(self.path, {"days": self.days, "earned": self.earned}, "reward watch ledger")
@@ -212,7 +264,8 @@ class WatchLedger:
 
 class CategoryResolver:
     """Guessed categories per campaign id, validated with Twitch and remembered in a small file.
-    An unresolvable campaign is remembered too (until its texts change), so a restart does not ask again."""
+    "No category" is remembered too (6 hours, or until the campaign's texts change), so a restart does not ask again;
+    entries of campaigns not seen for 40 days are dropped."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -230,37 +283,66 @@ class CategoryResolver:
             return entry["category"]
         return None
 
-    def _known(self, campaign: dict) -> bool:
+    def _known(self, campaign: dict, now: float) -> bool:
         entry = self.entries.get(campaign.get("id"))
-        return bool(entry and entry.get("sig") == self.signature(campaign))
+        if not entry or entry.get("sig") != self.signature(campaign):
+            return False
+        if isinstance(entry.get("category"), dict):
+            return True
+        at = entry.get("at")
+        return isinstance(at, (int, float)) and now - at < NEGATIVE_RETRY_SECONDS
 
-    async def resolve(self, campaigns: Iterable[dict], overrides: dict, validator: Validator) -> None:
-        """Validates a guess for every watch campaign that has no game, no user category and no remembered answer."""
-        changed = False
+    def _prune(self, now: float) -> bool:
+        stale = [k for k, e in self.entries.items() if now - (e.get("seen") if isinstance(e.get("seen"), (int, float)) else e.get("at") if isinstance(e.get("at"), (int, float)) else 0) > LEDGER_KEEP_DAYS * 86400]
+        for key in stale:
+            del self.entries[key]
+        return bool(stale)
+
+    async def resolve(self, campaigns: Iterable[dict], overrides: dict, validator: Validator, *, max_lookups: int = 3,
+                      lookup_timeout: float = 8.0, now: Optional[float] = None) -> int:
+        """Validates a guess for every watch campaign that has no game, no user category and no answer worth keeping.
+        At most `max_lookups` Twitch lookups, one at a time, each with its own timeout and no retry; a campaign left
+        without a decision (budget, timeout, error) is asked again next time. Returns the categories found."""
+        now = time.time() if now is None else now
+        campaigns = list(campaigns)
         for campaign in campaigns:
-            if campaign.get("game") or overrides.get(campaign.get("id")) or not _watch_minutes(campaign) or self._known(campaign):
+            if campaign.get("id") in self.entries:
+                self.entries[campaign["id"]]["seen"] = now
+        changed, found_count, lookups = self._prune(now), 0, 0
+        for campaign in campaigns:
+            if campaign.get("game") or overrides.get(campaign.get("id")) or not _watch_minutes(campaign) or self._known(campaign, now):
                 continue
-            category, transient = None, False
+            category, undecided = None, False
             for candidate in guess_candidates(campaign.get("name"), campaign.get("summary"), campaign.get("instructions")):
+                if lookups >= max_lookups:
+                    undecided = True
+                    break
+                lookups += 1
                 try:
-                    found = await validator(candidate)
+                    found = await asyncio.wait_for(validator(candidate), lookup_timeout)
                 except Exception as exc:
-                    logger.warning("Category lookup for %r failed, will retry later: %s", candidate, exc, exc_info=True)
-                    transient = True
+                    logger.warning("Category lookup for %r failed (%s), will retry later", candidate, exc or type(exc).__name__, exc_info=True)
+                    undecided = True
                     break
                 if found and found.get("slug") and _same_title(found.get("name") or candidate, candidate):
                     category = {"name": found.get("name") or candidate, "slug": found["slug"], "source": "guess"}
                     break
-            if transient:
+            if undecided:
+                if lookups >= max_lookups:
+                    break
                 continue
-            self.entries[campaign["id"]] = {"sig": self.signature(campaign), "category": category}
+            self.entries[campaign["id"]] = {"sig": self.signature(campaign), "category": category, "at": now, "seen": now}
             changed = True
             if category is None:
-                logger.info("Reward campaign %r: no category could be found, it cannot be farmed", campaign.get("name"))
+                logger.info("Reward campaign %r: no category could be found, it cannot be farmed (asked again in 6 hours)", campaign.get("name"))
             else:
+                found_count += 1
                 logger.info("Reward campaign %r: category guessed as %r", campaign.get("name"), category["name"])
+            _write_json(self.path, self.entries, "reward category cache")
+            changed = False
         if changed:
             _write_json(self.path, self.entries, "reward category cache")
+        return found_count
 
 
 def _same_title(found: str, wanted: str) -> bool:
@@ -313,7 +395,7 @@ def view(campaigns: Iterable[dict], hidden: Iterable[str], categories: dict, res
             "watchedToday": watched,
             "dailyGoal": goal,
             "doneToday": bool(goal) and watched >= goal,
-            "earned": ledger.is_earned(cid),
+            "earned": ledger.is_earned(cid, now),
             "hidden": cid in hidden,
         })
     return out
@@ -355,31 +437,63 @@ def choose(viewed: list[dict], *, forced_id: Optional[str], priority: Iterable[s
     return None, None
 
 
-_SECRET_KEY = re.compile(r"token|secret|auth|password|cookie|session|key", re.I)
-_USEFUL_KEY = re.compile(r"id|name|title|body|text|campaign|reward", re.I)
+LOG_KEYS = {"type", "id", "campaignid", "campaign_id", "questid", "quest_id", "rewardcampaignid", "reward_campaign_id", "title", "name", "body"}
+ID_KEYS = {"campaignid", "campaign_id", "questid", "quest_id", "rewardcampaignid", "reward_campaign_id"}
+TEXT_KEYS = {"title", "name", "body"}
+LOG_VALUE_LIMIT = 120
+_URL_LIKE = re.compile(r"https?:|www\.|://", re.I)
+# Words a reward or campaign name must not consist of alone: they appear in many campaigns
+GENERIC_WORDS = {"badge", "badges", "emote", "emotes", "chest", "chests", "reward", "rewards", "drop", "drops", "twitch", "bling",
+                 "celebration", "campaign", "launch", "event", "quest", "quests", "gift", "pack", "bundle", "skin", "skins"}
+MIN_NAME_LENGTH = 6
 
 
-def notification_fields(notification: Any) -> dict[str, str]:
-    """The id/name-like top-level text fields of a notification, safe to log (anything token-like is skipped)."""
+def is_earned_type(value: Any) -> bool:
+    """True for a notification type that says a reward was earned (the emote one, or any quest type with "earned")."""
+    return isinstance(value, str) and (value == "quests_viewer_reward_campaign_earned_emote" or ("quest" in value and "earned" in value))
+
+
+def notification_fields(notification: Any, limit: int = LOG_VALUE_LIMIT) -> dict[str, str]:
+    """The allowlisted top-level text fields of a notification (type, id, campaign/quest ids, title, name, body), cut to
+    `limit` characters; a value that looks like a URL is never included."""
     if not isinstance(notification, dict):
         return {}
-    return {k: v[:200] for k, v in notification.items()
-            if isinstance(k, str) and isinstance(v, str) and _USEFUL_KEY.search(k) and not _SECRET_KEY.search(k)}
+    return {k: v[:limit] for k, v in notification.items()
+            if isinstance(k, str) and k.lower() in LOG_KEYS and isinstance(v, str) and not _URL_LIKE.search(v)}
+
+
+def _matchable(name: Any) -> bool:
+    if not isinstance(name, str) or len(name.strip()) < MIN_NAME_LENGTH:
+        return False
+    return not all(word in GENERIC_WORDS for word in re.findall(r"\w+", name.lower()))
 
 
 def match_earned(notification: Any, campaigns: Iterable[dict]) -> Optional[str]:
-    """The id of the campaign an "earned" notification belongs to (its id, name or a reward name appears in the
-    notification's text fields), or None."""
-    texts = [v.lower() for v in notification_fields(notification).values()]
-    if not texts:
+    """The id of the campaign an "earned" notification belongs to, or None. The campaign id (in an id field or inside the
+    text) is tried first; then a campaign or reward name (6+ characters, not made of generic words only) as a whole
+    phrase; a name that fits two campaigns matches none."""
+    fields = notification_fields(notification, limit=500)
+    if not fields:
         return None
+    campaigns = [c for c in campaigns if isinstance(c, dict) and isinstance(c.get("id"), str)]
+    id_values = [v.strip().lower() for k, v in fields.items() if k.lower() in ID_KEYS]
+    texts = [v.lower() for k, v in fields.items() if k.lower() in TEXT_KEYS]
     for campaign in campaigns:
-        cid = campaign.get("id")
+        cid = campaign["id"].lower()
+        if cid in id_values or (len(cid) >= 8 and any(cid in t for t in texts)):
+            return campaign["id"]
+    hits = set()
+    for campaign in campaigns:
         names = [campaign.get("name")] + [r.get("name") for r in campaign.get("rewards") or [] if isinstance(r, dict)]
-        wanted = [n.lower() for n in names if isinstance(n, str) and len(n) >= 3]
-        if any((isinstance(cid, str) and cid.lower() in t) or any(w in t for w in wanted) for t in texts):
-            return cid
-    return None
+        for name in filter(_matchable, names):
+            if any(re.search(rf"(?<!\w){re.escape(name.strip().lower())}(?!\w)", t) for t in texts):
+                hits.add(campaign["id"])
+    return hits.pop() if len(hits) == 1 else None
+
+
+def game_entries(priority: Iterable[Any]) -> list[str]:
+    """The queue entries that are games (without the `reward:<id>` ones)."""
+    return [p for p in priority if isinstance(p, str) and not is_reward_key(p)]
 
 
 def status_line(channel: str, category: str, campaign: str, minutes: int, goal: int) -> str:

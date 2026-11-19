@@ -14,8 +14,10 @@ class Step(NamedTuple):
     fired: bool = False  # already fired for this finish: stays set until the setting goes off or the target is no longer done
 
 
-def priority_drops_done(inventory: Iterable[Any], priority_games: List[str]) -> bool:
-    """True when there are drops of priority games and all of them are claimed."""
+def priority_drops_done(inventory: Iterable[Any], priority_games: List[str], rewards_pending: bool = False) -> bool:
+    """True when there are drops of priority games and all of them are claimed (and no queued reward campaign is left to farm)."""
+    if rewards_pending:
+        return False
     wanted = {name.lower() for name in priority_games}
     found = False
     for campaign in inventory:

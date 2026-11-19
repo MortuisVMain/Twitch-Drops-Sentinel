@@ -1888,7 +1888,7 @@ class SentinelSupervisor:
         while self.is_running:
             try:
                 enabled = bool(self.settings.get("auto_shutdown_on_complete", False))
-                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []))
+                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []), reward_campaigns.queue_pending(STATE_BRIDGE, self.settings))
                 was_counting = self.luna_countdown is not None
                 step = next_countdown(self.luna_countdown, enabled, done, self.luna_fired)
                 self.luna_countdown = step.countdown

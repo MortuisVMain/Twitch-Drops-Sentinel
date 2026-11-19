@@ -78,6 +78,11 @@ from dpapi import load_cookie_jar, save_cookie_jar
 _clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
+REWARD_FAILED_BEATS = 3  # failed beats in a row before the channel is put on cooldown
+REWARD_STALL_SECONDS = 900.0  # no good beat for this long: the reward campaign is dropped and the choice re-evaluated
+CATEGORY_LOOKUPS_PER_CYCLE = 3
+CATEGORY_LOOKUP_TIMEOUT = 8.0  # seconds for one lookup, no retries
+CATEGORY_CYCLE_BUDGET = 20.0  # seconds for a whole cycle of lookups
 gql_logger = logging.getLogger("TwitchDrops.gql")
 
 
@@ -457,6 +462,9 @@ class Twitch:
         self.reward_target: Optional[dict] = None
         self._reward_last_tick: Optional[float] = None
         self._reward_logged_minutes: Optional[int] = None
+        self._reward_failed_beats: int = 0
+        self._reward_last_success: Optional[float] = None
+        self._category_task: Optional[asyncio.Task] = None
         self.inventory: list[DropsCampaign] = []
         self._drops: dict[str, TimedDrop] = {}
         self._campaigns: dict[str, DropsCampaign] = {}
@@ -526,6 +534,10 @@ class Twitch:
     async def shutdown(self) -> None:
         start_time = time()
         self.stop_watching()
+        self._clear_reward_watching()
+        if self._category_task is not None:
+            self._category_task.cancel()
+            self._category_task = None
         if self._watching_task is not None:
             self._watching_task.cancel()
             self._watching_task = None
@@ -793,10 +805,11 @@ class Twitch:
                         else:
                             self.wanted_games = [Game({"id": "", "displayName": forced_game_target})]
                 self._choose_reward_target(forced_reward_id, priority)
-                if priority and self.reward_target is None:
+                game_priority = reward_watch.game_entries(priority)
+                if game_priority and self.reward_target is None:
                     has_priority_in_wanted = any(_fuzzy_priority(g.name) != MAX_INT for g in self.wanted_games)
                     if not has_priority_in_wanted:
-                        queue_size = len(priority)
+                        queue_size = len(game_priority)
                         if priority_only:
                             logger.info(_("sentinel", "queue_no_campaigns_strict").format(count=queue_size))
                             self.gui.status.update(_("sentinel", "queue_waiting_status").format(count=queue_size))
@@ -1109,6 +1122,7 @@ class Twitch:
         while True:
             try:
                 if getattr(self, "sentinel_paused", False):
+                    self._clear_reward_watching()
                     await asyncio.sleep(4)
                     last_loop_timestamp = time()
                     continue
@@ -1453,18 +1467,35 @@ class Twitch:
         STATE_BRIDGE.forced_game = None
 
     def _set_reward_target(self, target: Optional[dict]) -> None:
+        """Makes `target` the reward campaign being watched. The same id keeps the beat bookkeeping (a re-selection must not
+        restart the clock or repeat log lines); a different one starts it afresh."""
         if (target or {}).get("id") != (self.reward_target or {}).get("id"):
             self._reward_last_tick = None
             self._reward_logged_minutes = None
+            self._reward_failed_beats = 0
+            self._reward_last_success = time() if target else None
         self.reward_target = target
         STATE_BRIDGE.reward_watching = {"id": target["id"], "name": target["name"]} if target else None
 
+    def _clear_reward_watching(self) -> None:
+        """Shutdown or pause: the page must not show a campaign as being watched, and the next beat starts a new clock."""
+        STATE_BRIDGE.reward_watching = None
+        self._reward_last_tick = None
+
     def _choose_reward_target(self, forced_reward_id: Optional[str], priority: list[str]) -> None:
-        """Picks the reward campaign to watch (see reward_watch.choose: drops win, forced and queue). Called once the
-        drops campaigns are chosen; a reward pick replaces `wanted_games` with its category."""
+        """Picks the reward campaign to watch; any error is logged and means "no reward campaign", never a stalled engine."""
+        try:
+            self._pick_reward_target(forced_reward_id, priority)
+        except Exception as exc:
+            logger.error("[НАГРАДА] Выбор кампании награды не удался (%s): награды пропущены", exc, exc_info=True)
+            self._set_reward_target(None)
+
+    def _pick_reward_target(self, forced_reward_id: Optional[str], priority: list[str]) -> None:
+        """See reward_watch.choose: drops win, forced and queue. Called once the drops campaigns are chosen; a reward
+        pick replaces `wanted_games` with its category."""
         previous = self.reward_target
-        self._set_reward_target(None)
         if not STATE_BRIDGE.reward_campaigns_enabled:
+            self._set_reward_target(None)
             if forced_reward_id:
                 logger.info("[НАГРАДА] Награды отключены в настройках: принудительный фокус на кампании сброшен.")
                 self._clear_forced_reward()
@@ -1476,6 +1507,7 @@ class Twitch:
             STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] Принудительный фокус на кампании сброшен: {reason}. Возврат в авто-режим.")
             self._clear_forced_reward()
         if picked is None:
+            self._set_reward_target(None)
             return
         category = picked["category"]
         self.wanted_games = [Game({"id": 0, "displayName": category["name"], "slug": category["slug"]})]
@@ -1499,19 +1531,43 @@ class Twitch:
 
     async def _reward_tick(self, channel: Channel) -> bool:
         """One watch beat for the reward campaign (the same send_watch the drops use). Counts the real time since the
-        last beat toward today's minutes; True when the daily goal is reached."""
+        last good beat toward today's minutes; True when the daily goal is reached. Three failed beats in a row put the
+        channel on cooldown and switch; 15 minutes without a good beat drop the campaign for a re-evaluation."""
         target = self.reward_target
         interval = WATCH_INTERVAL.total_seconds()
         succeeded = await channel.send_watch()
+        if self.reward_target is not target:
+            return False  # switched, hidden or finished while the beat was in flight: it counts for nothing
         now = time()
-        last, self._reward_last_tick = self._reward_last_tick, now
+        STATE_BRIDGE.reward_watching = {"id": target["id"], "name": target["name"]}
         ledger = reward_watch.REWARD_WATCH.ledger
-        if succeeded and last is not None and 0 < now - last <= 2 * interval:
-            minutes = ledger.add_seconds(target["id"], now - last)
+        if succeeded:
+            self._reward_failed_beats = 0
+            self._reward_last_success = now
+            last, self._reward_last_tick = self._reward_last_tick, now
+            if last is not None and 0 < now - last <= 2 * interval:
+                minutes = ledger.add_seconds(target["id"], now - last)
+            else:
+                minutes = ledger.minutes_today(target["id"])
         else:
             minutes = ledger.minutes_today(target["id"])
-            if not succeeded:
-                logger.log(CALL, f"Watch requested failed for channel: {channel.name}")
+            self._reward_failed_beats += 1
+            logger.log(CALL, f"Watch requested failed for channel: {channel.name}")
+            if self._reward_last_success is not None and now - self._reward_last_success >= REWARD_STALL_SECONDS:
+                logger.warning("[НАГРАДА] Кампания «%s»: нет успешных отправок %s мин. Сбрасываем и пересматриваем выбор.",
+                               target["name"], round((now - self._reward_last_success) / 60))
+                self._set_reward_target(None)
+                self.stop_watching()
+                self.change_state(State.GAMES_UPDATE)
+                return False
+            if self._reward_failed_beats >= REWARD_FAILED_BEATS:
+                logger.warning("[НАГРАДА] Канал %s не принимает просмотр (%s неудач подряд): кулдаун 15 мин, ищем другой.",
+                               channel.name, self._reward_failed_beats)
+                self.streamer_cooldowns[channel.id] = now + 900.0
+                self._reward_failed_beats = 0
+                self.stop_watching()
+                self.change_state(State.CHANNEL_SWITCH)
+                return False
         goal = target["dailyGoal"]
         line = reward_watch.status_line(channel.name, target["category"]["name"], target["name"], minutes, goal)
         self.gui.status.update(line)
@@ -1535,22 +1591,62 @@ class Twitch:
         self.change_state(State.GAMES_UPDATE)
 
     def _note_reward_earned(self, notification: JsonType) -> None:
-        """A quest notification arrived: log what it carries (never tokens) and mark the campaign it belongs to as earned."""
-        logger.info("Reward notification %s: keys=%s fields=%s", notification.get("type"), sorted(notification),
+        """A quest notification arrived: log its allowlisted fields. Only a type that means "earned" marks the campaign it
+        belongs to (until the campaign ends); anything else is only logged."""
+        ntype = notification.get("type")
+        logger.info("Reward notification %s: keys=%s fields=%s", ntype, sorted(str(k) for k in notification),
                     reward_watch.notification_fields(notification))
+        if not reward_watch.is_earned_type(ntype):
+            return
         matched = reward_watch.match_earned(notification, STATE_BRIDGE.reward_campaigns)
         if matched is None:
             return
-        reward_watch.REWARD_WATCH.ledger.mark_earned(matched)
+        campaign = next((c for c in STATE_BRIDGE.reward_campaigns if c.get("id") == matched), {})
+        reward_watch.REWARD_WATCH.ledger.mark_earned(matched, until=reward_watch.parse_moment(campaign.get("endsAt")))
         logger.info("[НАГРАДА] Награда кампании %s получена: больше её не смотрим.", matched)
 
     async def _validate_category(self, name: str) -> Optional[dict]:
-        """Asks Twitch for the game with this name (the same lookup the directory uses); None when there is none."""
+        """Asks Twitch for the game with this name (the directory lookup). None only for a clean answer that says there is
+        no such game; an error, an empty or an odd answer raises, so it is never taken for "no category"."""
         response = await self.gql_request(GQL_QUERIES["SlugRedirect"].with_variables({"name": name}))
-        game = (response.get("data") or {}).get("game") or {}
-        if not game.get("slug"):
+        data = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(data, dict) or response.get("errors") or "game" not in data:
+            raise ValueError(f"unexpected answer to the game lookup for {name!r}")
+        game = data["game"]
+        if game is None:
             return None
+        if not isinstance(game, dict) or not game.get("slug"):
+            raise ValueError(f"the game lookup for {name!r} returned a game without a slug")
         return {"name": game.get("displayName") or game.get("name") or name, "slug": game["slug"]}
+
+    def _schedule_category_resolution(self) -> None:
+        """Starts the category lookups in the background (one cycle at a time); the drops path never waits for them."""
+        if not STATE_BRIDGE.reward_campaigns_enabled:
+            return
+        task = getattr(self, "_category_task", None)
+        if task is not None and not task.done():
+            return
+        self._category_task = asyncio.create_task(self._resolve_categories())
+
+    async def _resolve_categories(self) -> None:
+        """One bounded cycle of category lookups (see CATEGORY_* limits). Results reach the state as they are found; an idle
+        engine re-evaluates when one turns up so a queued campaign can start."""
+        try:
+            found = await asyncio.wait_for(
+                reward_watch.REWARD_WATCH.resolver.resolve(
+                    STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_categories, self._validate_category,
+                    max_lookups=CATEGORY_LOOKUPS_PER_CYCLE, lookup_timeout=CATEGORY_LOOKUP_TIMEOUT),
+                CATEGORY_CYCLE_BUDGET)
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            logger.warning("[НАГРАДА] Поиск категорий не уложился в %s с: продолжим в следующий раз", CATEGORY_CYCLE_BUDGET)
+            return
+        except Exception as exc:
+            logger.warning("[НАГРАДА] Поиск категорий не удался: %s", exc, exc_info=True)
+            return
+        if found and self._state is State.IDLE:
+            self.change_state(State.GAMES_UPDATE)
 
     async def _reward_channels_fetch(self) -> None:
         """Live channels of the reward campaign's category (any stream: the drops tag is not needed), the watched one first."""
@@ -2209,8 +2305,7 @@ class Twitch:
             try:
                 rewards_response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True))
                 reward_campaigns.publish(STATE_BRIDGE, rewards_response)
-                await reward_watch.REWARD_WATCH.resolver.resolve(
-                    STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_categories, self._validate_category)
+                self._schedule_category_resolution()  # in the background: drops never wait for it
             except Exception as exc:  # reward campaigns are display-only: they must never cost the drop campaigns
                 logger.warning("Reward campaigns request failed: %s", exc, exc_info=True)
         available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []

@@ -158,6 +158,35 @@ class LedgerTests(TempDir):
         self.assertTrue(rw.WatchLedger(self.dir / "l.json").is_earned("c1"))
         self.assertFalse(ledger.is_earned("other"))
 
+    def test_earned_expires_with_the_campaign_and_is_pruned(self):
+        ledger = rw.WatchLedger(self.dir / "l.json")
+        ledger.mark_earned("c1", NOW, until=NOW + timedelta(days=2))
+        ledger.mark_earned("c2", NOW)
+        self.assertTrue(ledger.is_earned("c1", NOW + timedelta(days=1)))
+        self.assertFalse(ledger.is_earned("c1", NOW + timedelta(days=2, seconds=1)), "earned stops at the campaign end")
+        self.assertTrue(ledger.is_earned("c2", NOW + timedelta(days=39)))
+        self.assertFalse(ledger.is_earned("c2", NOW + timedelta(days=41)), "no end known: kept as long as the ledger days")
+        ledger.add_seconds("x", 1, NOW + timedelta(days=45))
+        self.assertEqual(ledger.earned, {})
+
+    def test_old_earned_strings_still_load(self):
+        (self.dir / "l.json").write_text(json.dumps({"days": {}, "earned": {"c1": NOW.isoformat()}}), encoding="utf-8")
+        self.assertTrue(rw.WatchLedger(self.dir / "l.json").is_earned("c1", NOW + timedelta(days=1)))
+
+    def test_non_finite_numbers_are_ignored(self):
+        (self.dir / "l.json").write_text('{"days": {"2026-11-19": {"a": NaN, "b": Infinity, "c": -5, "d": 120}}, "earned": {}}', encoding="utf-8")
+        ledger = rw.WatchLedger(self.dir / "l.json")
+        self.assertEqual([ledger.minutes_today(k, NOW) for k in "abcd"], [0, 0, 0, 2])
+
+    def test_a_corrupt_file_is_kept_aside_not_overwritten(self):
+        (self.dir / "l.json").write_text("{not json", encoding="utf-8")
+        with self.assertLogs("TwitchDrops.RewardWatch", level="ERROR"):
+            rw.WatchLedger(self.dir / "l.json")
+        kept = list(self.dir.glob("l.json.corrupt-*"))
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0].read_text(encoding="utf-8"), "{not json")
+        self.assertFalse((self.dir / "l.json").exists())
+
     def test_the_file_is_utf8_json_without_bom(self):
         ledger = rw.WatchLedger(self.dir / "l.json")
         ledger.add_seconds("c1", 60, NOW)
@@ -260,6 +289,63 @@ class ResolverTests(TempDir):
         camps = [campaign(id="g", game="Some Game"), campaign(id="u"), campaign(id="s", minutesGoal=None, groups=[{"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": []}])]
         run(self.resolver().resolve(camps, {"u": "My Category"}, fake_validator({}, calls)))
         self.assertEqual(calls, [])
+
+
+class ResolverBudgetTests(TempDir):
+    def resolver(self):
+        return rw.CategoryResolver(self.dir / "cats.json")
+
+    def test_at_most_three_lookups_per_cycle_and_nothing_cached_for_the_rest(self):
+        calls: list = []
+        camps = [campaign(id=f"c{i}", name=f"Game{i} Campaign", summary=None) for i in range(5)]
+        resolver = self.resolver()
+        run(resolver.resolve(camps, {}, fake_validator({}, calls), max_lookups=3, now=1000.0))
+        self.assertEqual(len(calls), 3)
+        run(resolver.resolve(camps, {}, fake_validator({}, calls), max_lookups=3, now=1001.0))
+        self.assertEqual(len(calls), 5, "the next cycle takes the remaining ones, the answered ones are not asked again")
+
+    def test_a_slow_lookup_times_out_and_is_retried_not_cached(self):
+        async def slow(name):
+            await asyncio.sleep(5)
+        resolver, camp = self.resolver(), campaign()
+        with self.assertLogs("TwitchDrops.RewardWatch", level="WARNING"):
+            run(resolver.resolve([camp], {}, slow, lookup_timeout=0.05, now=1000.0))
+        calls: list = []
+        run(resolver.resolve([camp], {}, fake_validator({}, calls), now=1001.0))
+        self.assertTrue(calls, "asked again right away: a timeout is not an answer")
+
+    def test_resolve_reports_how_many_categories_were_found(self):
+        known = {"Grand Theft Auto VI": {"name": "Grand Theft Auto VI", "slug": "g"}}
+        self.assertEqual(run(self.resolver().resolve([campaign()], {}, fake_validator(known), now=1.0)), 1)
+        self.assertEqual(run(self.resolver().resolve([campaign(id="z", name="Nothing", summary=None)], {}, fake_validator({}), now=1.0)), 0)
+
+    def test_a_negative_answer_is_retried_after_six_hours(self):
+        calls: list = []
+        resolver, camp = self.resolver(), campaign()
+        run(resolver.resolve([camp], {}, fake_validator({}, calls), now=1000.0))
+        n = len(calls)
+        run(resolver.resolve([camp], {}, fake_validator({}, calls), now=1000.0 + 5 * 3600))
+        self.assertEqual(len(calls), n)
+        known = {"Grand Theft Auto VI": {"name": "Grand Theft Auto VI", "slug": "g"}}
+        run(resolver.resolve([camp], {}, fake_validator(known, calls), now=1000.0 + 6 * 3600 + 1))
+        self.assertGreater(len(calls), n)
+        self.assertEqual(resolver.cached(camp)["slug"], "g")
+
+    def test_a_positive_answer_does_not_expire(self):
+        known = {"Grand Theft Auto VI": {"name": "Grand Theft Auto VI", "slug": "g"}}
+        resolver, camp = self.resolver(), campaign()
+        run(resolver.resolve([camp], {}, fake_validator(known), now=1000.0))
+        calls: list = []
+        run(resolver.resolve([camp], {}, fake_validator(known, calls), now=1000.0 + 30 * 86400))
+        self.assertEqual(calls, [])
+
+    def test_entries_of_campaigns_not_seen_for_forty_days_are_dropped(self):
+        known = {"Grand Theft Auto VI": {"name": "Grand Theft Auto VI", "slug": "g"}}
+        resolver = self.resolver()
+        run(resolver.resolve([campaign(id="old")], {}, fake_validator(known), now=1000.0))
+        run(resolver.resolve([campaign(id="new")], {}, fake_validator(known), now=1000.0 + 41 * 86400))
+        self.assertEqual(sorted(resolver.entries), ["new"])
+        self.assertEqual(sorted(json.loads((self.dir / "cats.json").read_text(encoding="utf-8"))), ["new"])
 
 
 def view_one(resolver, ledger, camp, hidden=(), categories=None, now=NOW):
@@ -373,28 +459,54 @@ class ChooseTests(unittest.TestCase):
 
 
 class EarnedTests(unittest.TestCase):
-    CAMPS = [campaign(id="c1", name="GTAVI Launch Celebration", rewards=[{"name": "GTA Sub Emote Chest"}]),
-             campaign(id="c2", name="Pokemon Evolutions", rewards=[{"name": "Pikachu Emote"}])]
+    CAMPS = [campaign(id="11111111-aaaa-bbbb-cccc-000000000001", name="GTAVI Launch Celebration", rewards=[{"name": "GTA Sub Emote Chest"}, {"name": "Chest"}]),
+             campaign(id="22222222-aaaa-bbbb-cccc-000000000002", name="Pokemon Evolutions", rewards=[{"name": "Pikachu Emote"}, {"name": "Emote"}, {"name": "Badge"}])]
+    C1, C2 = CAMPS[0]["id"], CAMPS[1]["id"]
+    EARNED = "quests_viewer_reward_campaign_earned_emote"
 
-    def test_campaign_id_in_a_field(self):
-        self.assertEqual(rw.match_earned({"type": "t", "id": "n1", "body": "x", "url": "https://twitch.tv/quests/c2"}, self.CAMPS), None)
-        self.assertEqual(rw.match_earned({"type": "t", "campaignID": "c2"}, self.CAMPS), "c2")
+    def test_which_types_mean_earned(self):
+        for good in (self.EARNED, "quests_viewer_reward_campaign_earned_badge", "quest_reward_earned"):
+            self.assertTrue(rw.is_earned_type(good), good)
+        for bad in ("quests_viewer_reward_campaign_started", "user_drop_reward_reminder_notification", "quests_viewer_progress", "earned_but_not_a_q", None, 5, ""):
+            self.assertFalse(rw.is_earned_type(bad), bad)
 
-    def test_reward_name_in_the_text(self):
-        self.assertEqual(rw.match_earned({"type": "quests_viewer_reward_campaign_earned_emote", "body": "You earned the Pikachu Emote!"}, self.CAMPS), "c2")
+    def test_campaign_id_in_an_id_field_wins(self):
+        self.assertEqual(rw.match_earned({"type": self.EARNED, "campaignID": self.C2, "body": "GTAVI Launch Celebration"}, self.CAMPS), self.C2)
+        self.assertEqual(rw.match_earned({"type": self.EARNED, "campaign_id": self.C1.upper()}, self.CAMPS), self.C1)
 
-    def test_campaign_name_in_the_title(self):
-        self.assertEqual(rw.match_earned({"title": "gtavi launch celebration"}, self.CAMPS), "c1")
+    def test_campaign_id_inside_the_text(self):
+        self.assertEqual(rw.match_earned({"type": self.EARNED, "body": f"quest {self.C2} done"}, self.CAMPS), self.C2)
+
+    def test_the_notification_id_alone_is_not_a_campaign_id(self):
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "id": self.C1}, self.CAMPS))
+
+    def test_names_need_word_boundaries_length_and_a_non_generic_word(self):
+        self.assertEqual(rw.match_earned({"type": self.EARNED, "body": "You earned the Pikachu Emote!"}, self.CAMPS), self.C2)
+        self.assertEqual(rw.match_earned({"type": self.EARNED, "title": "gtavi launch celebration"}, self.CAMPS), self.C1)
+        for generic in ("Badge", "You got an Emote", "A new Chest for you", "emote chest badge"):
+            self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": generic}, self.CAMPS), generic)
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "SuperPikachu EmoteX"}, self.CAMPS), "no match inside a longer word")
+
+    def test_a_name_shared_by_two_campaigns_is_not_a_match(self):
+        twins = [campaign(id="a", name="One", rewards=[{"name": "Shared Reward Name"}]), campaign(id="b", name="Two", rewards=[{"name": "Shared Reward Name"}])]
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "Shared Reward Name"}, twins))
 
     def test_no_match_and_odd_input(self):
-        self.assertIsNone(rw.match_earned({"body": "something else"}, self.CAMPS))
+        self.assertIsNone(rw.match_earned({"type": self.EARNED, "body": "something else"}, self.CAMPS))
         for odd in (None, 5, "x", [], {}):
             self.assertIsNone(rw.match_earned(odd, self.CAMPS))
 
-    def test_logged_fields_never_include_tokens(self):
-        got = rw.notification_fields({"id": "1", "type": "t", "body": "b", "accessToken": "SECRET", "auth_id": "SECRET2", "n": 5})
-        self.assertEqual(sorted(got), ["body", "id"])
+    def test_logged_fields_are_an_allowlist_without_urls(self):
+        got = rw.notification_fields({"id": "1", "type": "t", "body": "b" * 300, "title": "see https://x.test/a?token=SECRET", "name": "ok",
+                                      "campaignId": "c", "accessToken": "SECRET", "auth_id": "SECRET2", "url": "https://x.test", "icon": "x", "n": 5,
+                                      "link": "www.example.test/x", "text": "free text"})
+        self.assertEqual(sorted(got), ["body", "campaignId", "id", "name", "type"])
+        self.assertEqual(len(got["body"]), 120)
         self.assertNotIn("SECRET", json.dumps(got))
+        self.assertNotIn("x.test", json.dumps(got))
+
+    def test_game_entries_leave_out_reward_keys(self):
+        self.assertEqual(rw.game_entries(["Rust", "reward:a", "Path of Exile 2", None]), ["Rust", "Path of Exile 2"])
 
 
 class StatusTests(unittest.TestCase):
@@ -519,12 +631,22 @@ class FakeEngine:
     should_switch = twitch.Twitch.should_switch
     _note_reward_earned = twitch.Twitch._note_reward_earned
     stop_watching = twitch.Twitch.stop_watching
+    _pick_reward_target = twitch.Twitch._pick_reward_target
+    _clear_reward_watching = twitch.Twitch._clear_reward_watching
+    _schedule_category_resolution = twitch.Twitch._schedule_category_resolution
+    _resolve_categories = twitch.Twitch._resolve_categories
+    _validate_category = twitch.Twitch._validate_category
 
     def __init__(self):
         self.forced_game = None
         self.reward_target = None
         self._reward_last_tick = None
         self._reward_logged_minutes = None
+        self._reward_failed_beats = 0
+        self._reward_last_success = None
+        self._category_task = None
+        self._state = twitch.State.IDLE
+        self.answer = {"data": {"game": None}}
         self.wanted_games = []
         self.inventory = []
         self.streamer_cooldowns = {}
@@ -542,6 +664,11 @@ class FakeEngine:
 
     def is_channel_ignored(self, channel):
         return False
+
+    async def gql_request(self, ops):
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
 
 
 class EngineTests(TempDir):
@@ -715,18 +842,183 @@ class EngineTests(TempDir):
         self.assertEqual(rw.choose(viewed_tomorrow, forced_id=None, priority=["reward:a"], drops_available=False, now=later)[0]["id"], "a")
 
     # earned notifications
-    def test_an_earned_notification_marks_the_campaign_and_logs_fields_not_secrets(self):
+    def test_an_earned_notification_marks_the_campaign_until_its_end_and_logs_only_allowed_fields(self):
+        STATE_BRIDGE.reward_campaigns[0]["rewards"] = [{"name": "Unique Pikachu Chest"}]
+        STATE_BRIDGE.reward_campaigns[0]["endsAt"] = "2026-12-01T00:00:00Z"
         with self.assertLogs("TwitchDrops", level="INFO") as logs:
-            self.engine._note_reward_earned({"type": "quests_viewer_reward_campaign_earned_emote", "id": "n1", "body": "You got GTA DVD Chest", "token": "SECRET"})
+            self.engine._note_reward_earned({"type": "quests_viewer_reward_campaign_earned_emote", "id": "n1", "body": "You got Unique Pikachu Chest",
+                                             "token": "SECRET", "url": "https://x.test/SECRET"})
         text = "\n".join(logs.output)
         self.assertNotIn("SECRET", text)
         self.assertIn("body", text)
-        self.assertTrue(rw.REWARD_WATCH.ledger.is_earned("a") or rw.REWARD_WATCH.ledger.is_earned("b"))
+        ledger = rw.REWARD_WATCH.ledger
+        self.assertTrue(ledger.is_earned("a", datetime(2026, 11, 30, tzinfo=timezone.utc)))
+        self.assertFalse(ledger.is_earned("a", datetime(2026, 12, 2, tzinfo=timezone.utc)))
+        self.assertFalse(ledger.is_earned("b"))
 
     def test_an_unmatched_notification_only_logs(self):
         with self.assertLogs("TwitchDrops", level="INFO"):
             self.engine._note_reward_earned({"type": "quests_viewer_reward_campaign_earned_emote", "id": "n1", "body": "nothing known"})
         self.assertFalse(rw.REWARD_WATCH.ledger.earned)
+
+    def test_a_quest_notification_that_is_not_earned_only_logs(self):
+        STATE_BRIDGE.reward_campaigns[0]["rewards"] = [{"name": "Unique Pikachu Chest"}]
+        with self.assertLogs("TwitchDrops", level="INFO"):
+            self.engine._note_reward_earned({"type": "quests_viewer_reward_campaign_started", "campaignId": "a", "body": "Unique Pikachu Chest"})
+        self.assertFalse(rw.REWARD_WATCH.ledger.earned)
+
+    # failed beats, stall, same-target reselection, tick edges
+    def test_three_failed_beats_cool_the_channel_down_and_switch(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        stopped = []
+        self.engine.stop_watching = lambda: stopped.append(1)
+        bad = FakeChannel(cid=5, sends=False)
+        self.tick(bad, 1000.0)
+        self.tick(bad, 1020.0)
+        self.assertEqual((stopped, self.engine.states), ([], []))
+        self.tick(bad, 1040.0)
+        self.assertEqual(stopped, [1])
+        self.assertIn(twitch.State.CHANNEL_SWITCH, self.engine.states)
+        self.assertGreater(self.engine.streamer_cooldowns[5], 1040.0 + 800)
+        self.assertEqual(self.engine._reward_failed_beats, 0)
+
+    def test_a_good_beat_resets_the_failure_count(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.tick(FakeChannel(sends=False), 1000.0)
+        self.tick(FakeChannel(sends=False), 1020.0)
+        self.tick(FakeChannel(), 1040.0)
+        self.tick(FakeChannel(sends=False), 1060.0)
+        self.tick(FakeChannel(sends=False), 1080.0)
+        self.assertNotIn(twitch.State.CHANNEL_SWITCH, self.engine.states)
+
+    def test_no_good_beat_for_fifteen_minutes_drops_the_reward_target(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        stopped = []
+        self.engine.stop_watching = lambda: stopped.append(1)
+        self.engine._reward_last_success = 1000.0
+        self.tick(FakeChannel(sends=False), 1000.0 + 901)
+        self.assertEqual((self.engine.reward_target, stopped), (None, [1]))
+        self.assertIn(twitch.State.GAMES_UPDATE, self.engine.states)
+        self.assertIsNone(STATE_BRIDGE.reward_watching)
+
+    def test_the_same_pick_keeps_the_tick_bookkeeping(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.tick(FakeChannel(), 1000.0)
+        self.engine._reward_logged_minutes = 7
+        first_started = self.engine._reward_last_success
+        self.engine.wanted_games = []  # the engine rebuilds the drops list before every choice
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertEqual((self.engine._reward_last_tick, self.engine._reward_logged_minutes, self.engine._reward_last_success), (1000.0, 7, first_started))
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target(None, ["reward:b"])
+        self.assertEqual((self.engine._reward_last_tick, self.engine._reward_logged_minutes), (None, None))
+
+    def test_a_beat_that_finishes_after_the_target_changed_counts_nothing(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        engine = self.engine
+
+        class Switching(FakeChannel):
+            async def send_watch(self):
+                engine.reward_target = None
+                return True
+
+        self.tick(FakeChannel(), 1000.0)
+        self.assertFalse(self.tick(Switching(), 1020.0))
+        self.assertEqual(rw.REWARD_WATCH.ledger.days, {})
+        self.assertEqual(self.engine._reward_last_tick, 1000.0)
+
+    def test_the_last_tick_moves_only_on_a_good_beat(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.tick(FakeChannel(), 1000.0)
+        self.tick(FakeChannel(sends=False), 1020.0)
+        self.assertEqual(self.engine._reward_last_tick, 1000.0)
+
+    def test_a_picker_error_is_logged_and_means_no_reward(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertIsNotNone(self.engine.reward_target)
+        saved = rw.choose
+        rw.choose = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            with self.assertLogs("TwitchDrops", level="ERROR") as logs:
+                self.engine._choose_reward_target(None, ["reward:a"])
+        finally:
+            rw.choose = saved
+        self.assertIsNone(self.engine.reward_target)
+        self.assertTrue(logs.records[0].exc_info)
+
+    def test_shutdown_and_pause_clear_what_the_page_sees(self):
+        import inspect
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertIsNotNone(STATE_BRIDGE.reward_watching)
+        self.engine._clear_reward_watching()
+        self.assertIsNone(STATE_BRIDGE.reward_watching)
+        self.assertIsNone(self.engine._reward_last_tick)
+        self.assertIn("_clear_reward_watching", inspect.getsource(twitch.Twitch.shutdown))
+        self.assertIn("_clear_reward_watching", inspect.getsource(twitch.Twitch._watch_loop))
+
+    def test_the_queue_message_counts_games_only(self):
+        import inspect
+        self.assertIn("reward_watch.game_entries(priority)", inspect.getsource(twitch.Twitch._run))
+
+    # category lookup: validated strictly, resolved in the background
+    def test_validation_distinguishes_no_such_game_from_a_bad_answer(self):
+        self.engine.answer = {"data": {"game": {"slug": "grand-theft-auto-vi", "displayName": "Grand Theft Auto VI"}}}
+        self.assertEqual(run(self.engine._validate_category("x")), {"name": "Grand Theft Auto VI", "slug": "grand-theft-auto-vi"})
+        self.engine.answer = {"data": {"game": None}}
+        self.assertIsNone(run(self.engine._validate_category("x")), "a clean answer: there is no such game")
+        for bad in ({}, {"data": None}, {"data": {}}, {"errors": [{"message": "x"}], "data": {"game": None}}, {"data": {"game": {}}},
+                    {"data": {"game": "text"}}, "oops", None, RuntimeError("net")):
+            self.engine.answer = bad
+            with self.subTest(bad=bad), self.assertRaises(Exception):
+                run(self.engine._validate_category("x"))
+
+    def test_resolution_runs_in_the_background_one_at_a_time(self):
+        gate = {}
+
+        async def scenario():
+            started = asyncio.Event()
+            release = asyncio.Event()
+
+            async def slow(name):
+                started.set()
+                await release.wait()
+                return {"name": name, "slug": "s"}
+            self.engine._validate_category = slow
+            STATE_BRIDGE.reward_campaigns = [campaign(id="z", name="Nothing", summary="watching Zed Game streamers")]
+            self.engine._schedule_category_resolution()
+            first = self.engine._category_task
+            self.engine._schedule_category_resolution()
+            gate["same_task"] = self.engine._category_task is first
+            await asyncio.wait_for(started.wait(), 2)
+            gate["scheduling_returned_before_the_lookup_finished"] = not first.done()
+            release.set()
+            await first
+            gate["found"] = rw.REWARD_WATCH.resolver.cached(STATE_BRIDGE.reward_campaigns[0])
+            gate["woke"] = list(self.engine.states)
+        run(scenario())
+        self.assertTrue(gate["same_task"] and gate["scheduling_returned_before_the_lookup_finished"])
+        self.assertEqual(gate["found"]["name"], "Zed Game")
+        self.assertIn(twitch.State.GAMES_UPDATE, gate["woke"], "an idle engine re-evaluates when a category turns up")
+
+    def test_the_budget_stops_a_stuck_cycle_and_nothing_is_raised(self):
+        async def scenario():
+            async def stuck(name):
+                await asyncio.sleep(60)
+            self.engine._validate_category = stuck
+            STATE_BRIDGE.reward_campaigns = [campaign(id="z", name="Nothing", summary="watching Zed Game streamers")]
+            saved = twitch.CATEGORY_CYCLE_BUDGET, twitch.CATEGORY_LOOKUP_TIMEOUT
+            twitch.CATEGORY_CYCLE_BUDGET, twitch.CATEGORY_LOOKUP_TIMEOUT = 0.1, 5.0
+            try:
+                with self.assertLogs("TwitchDrops", level="WARNING"):
+                    await self.engine._resolve_categories()
+            finally:
+                twitch.CATEGORY_CYCLE_BUDGET, twitch.CATEGORY_LOOKUP_TIMEOUT = saved
+        run(scenario())
+
+    def test_nothing_is_scheduled_while_the_setting_is_off(self):
+        STATE_BRIDGE.reward_campaigns_enabled = False
+        self.engine._schedule_category_resolution()
+        self.assertIsNone(self.engine._category_task)
 
 
 class PriorityConsumersTests(unittest.TestCase):
@@ -736,6 +1028,32 @@ class PriorityConsumersTests(unittest.TestCase):
         self.assertFalse(smart_game_match("Grand Theft Auto VI", "reward:abc-def"))
         from auto_shutdown import priority_drops_done
         self.assertFalse(priority_drops_done([], ["reward:abc"]))
+
+    def test_auto_shutdown_waits_for_queued_rewards_that_can_still_be_farmed(self):
+        from auto_shutdown import priority_drops_done
+        drop = SimpleNamespace(is_claimed=True, campaign=SimpleNamespace(game=SimpleNamespace(name="Rust")))
+        inventory = [SimpleNamespace(timed_drops={"d": drop})]
+        self.assertTrue(priority_drops_done(inventory, ["Rust"]))
+        self.assertFalse(priority_drops_done(inventory, ["Rust"], rewards_pending=True))
+
+    def test_queue_pending_means_queued_farmable_and_not_done_today(self):
+        saved = rw.REWARD_WATCH
+        with tempfile.TemporaryDirectory() as tmp:
+            rw.REWARD_WATCH = rw.RewardWatch(Path(tmp))
+            try:
+                camps = [campaign(id="a", game="G"), campaign(id="b", game="G"), campaign(id="s", game="G", minutesGoal=None, groups=[{"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": []}])]
+                bridge = SimpleNamespace(reward_campaigns=camps)
+                on = {"reward_campaigns_enabled": True}
+                self.assertTrue(rc.queue_pending(bridge, {**on, "priority_games": ["Rust", "reward:a"]}))
+                self.assertFalse(rc.queue_pending(bridge, {**on, "priority_games": ["Rust"]}), "not queued")
+                self.assertFalse(rc.queue_pending(bridge, {**on, "priority_games": ["reward:s"]}), "subs-only is not farmable")
+                self.assertFalse(rc.queue_pending(bridge, {"priority_games": ["reward:a"]}), "setting off")
+                self.assertFalse(rc.queue_pending(bridge, {**on, "priority_games": ["reward:a"], "hidden_reward_campaigns": ["a"]}))
+                rw.REWARD_WATCH.ledger.add_seconds("a", 3600)
+                self.assertFalse(rc.queue_pending(bridge, {**on, "priority_games": ["reward:a"]}), "done today")
+                self.assertTrue(rc.queue_pending(bridge, {**on, "priority_games": ["reward:a", "reward:b"]}))
+            finally:
+                rw.REWARD_WATCH = saved
 
     def test_the_shelf_and_cover_lists_skip_reward_entries(self):
         import cover_keeper
