@@ -7,6 +7,7 @@ Every field is optional and nothing here raises on odd data.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -67,6 +68,9 @@ def apply_setting(bridge: Any, settings: dict, engine: Any = None) -> None:
     bridge.reward_auto_queue = settings.get(AUTO_QUEUE_KEY) is True
     bridge.reward_hidden = reward_watch.sanitize_hidden(settings.get(HIDDEN_KEY)) or []
     bridge.reward_categories = reward_watch.sanitize_categories(settings.get(CATEGORIES_KEY)) or {}
+    queued = [reward_watch.reward_id(p) for p in settings.get("priority_games") or [] if reward_watch.is_reward_key(p)]
+    if queued:
+        reward_watch.REWARD_WATCH.ledger.mark_queued(queued)  # every entry ever queued: the auto-queue never re-adds a removed one
     if not enabled:
         bridge.reward_campaigns = []
         bridge.reward_watching = None
@@ -109,6 +113,18 @@ def auto_queue_plan(bridge: Any, settings: dict) -> tuple[Optional[list[str]], l
     return priority + [reward_watch.reward_key(cid) for cid in added], added
 
 
+def slot_status(bridge: Any, settings: dict) -> tuple[int, int]:
+    """(minutes the daily slot took today, today's slot budget in minutes): what /api/state shows as slot_minutes_today and
+    slot_budget_today. (0, 0) while the reward campaigns are off; the budget is 0 while the slot is off."""
+    if settings.get(SETTING_KEY) is not True:
+        return 0, 0
+    minutes = reward_watch.REWARD_WATCH.ledger.slot_minutes_today()
+    if settings.get(DAILY_SLOT_KEY, True) is not True:
+        return minutes, 0
+    priority = [p for p in settings.get("priority_games") or [] if isinstance(p, str)]
+    return minutes, reward_watch.slot_budget(state_list(bridge, settings), priority)
+
+
 def queue_pending(bridge: Any, settings: dict) -> bool:
     """True while a queued `reward:<id>` campaign can still be farmed (farmable, not hidden, not ended, not earned, not
     done today): the auto shutdown must not count the queue as finished then."""
@@ -118,7 +134,9 @@ def queue_pending(bridge: Any, settings: dict) -> bool:
     if not queued:
         return False
     now = datetime.now(timezone.utc)
-    return any(c.get("id") in queued and reward_watch.ineligible_reason(c, now) is None for c in state_list(bridge, settings))
+    waiting = {cid for cid, until in (getattr(bridge, "reward_backoff", None) or {}).items() if until > time.time()}
+    return any(c.get("id") in queued and c.get("id") not in waiting and reward_watch.ineligible_reason(c, now) is None
+               for c in state_list(bridge, settings))
 
 
 def publish(bridge: Any, dashboard_json: Any, now: Optional[datetime] = None) -> None:

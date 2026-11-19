@@ -30,6 +30,8 @@ CATEGORY_NAME_LIMIT = 100
 CANDIDATE_LIMIT = 6
 LEDGER_KEEP_DAYS = 40
 NEGATIVE_RETRY_SECONDS = 6 * 3600
+QUEUED_LIMIT = 500  # queue entries ever seen are remembered (so the auto-queue never re-adds a removed one)
+SLOT_CAP_MINUTES = 60  # the daily slot never takes more than an hour in total
 BACKOFF_SECONDS = 900.0  # a campaign without streams (or that stalled) waits this long before the slot tries it again
 EARNED_LIMIT = 200
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -210,8 +212,10 @@ class WatchLedger:
         daily = raw.get("daily_rewards") if isinstance(raw.get("daily_rewards"), dict) else {}
         self.daily_rewards: dict[str, dict[str, bool]] = {
             d: {k: True for k, v in m.items() if v is True} for d, m in daily.items() if isinstance(m, dict)}
+        slot = raw.get("slot_seconds") if isinstance(raw.get("slot_seconds"), dict) else {}
+        self.slot_seconds: dict[str, float] = {d: v for d, v in ((d, _seconds(v)) for d, v in slot.items()) if v is not None}
         queued = raw.get("queued_ids")
-        self.queued: list[str] = [q for q in queued if isinstance(q, str)][-EARNED_LIMIT:] if isinstance(queued, list) else []
+        self.queued: list[str] = [q for q in queued if isinstance(q, str)][-QUEUED_LIMIT:] if isinstance(queued, list) else []
         self.earned: dict[str, dict] = {}
         for key, value in earned.items():
             if isinstance(value, dict) and isinstance(value.get("at"), str):
@@ -227,6 +231,8 @@ class WatchLedger:
             del self.days[day]
         for day in [d for d in self.daily_rewards if d < oldest]:
             del self.daily_rewards[day]
+        for day in [d for d in self.slot_seconds if d < oldest]:
+            del self.slot_seconds[day]
         for key in [k for k in self.earned if self._earned_over(self.earned[k], now)]:
             del self.earned[key]
 
@@ -276,20 +282,38 @@ class WatchLedger:
         """In how many (kept) UTC days the watch goal of the campaign was reached."""
         return sum(1 for per_campaign in self.days.values() if goal and int(per_campaign.get(campaign_id, 0.0) // 60) >= goal)
 
-    def mark_queued(self, campaign_ids: Iterable[str]) -> None:
-        """Remembers campaigns the auto-queue appended, so one the user removes again is not added a second time."""
-        for cid in campaign_ids:
-            if cid not in self.queued:
-                self.queued.append(cid)
-        del self.queued[:-EARNED_LIMIT]
+    def add_slot_seconds(self, seconds: float, now: Optional[datetime] = None) -> None:
+        """Time watched today in the daily slot (before drops), all campaigns together; counts toward the day's slot budget."""
+        now = now or datetime.now(timezone.utc)
+        seconds = seconds if isinstance(seconds, (int, float)) and math.isfinite(seconds) else 0.0
+        day = _utc_day(now)
+        before = int(self.slot_seconds.get(day, 0.0) // 60)
+        self.slot_seconds[day] = self.slot_seconds.get(day, 0.0) + max(0.0, seconds)
+        self._prune(now)
+        if int(self.slot_seconds[day] // 60) != before:
+            self.save()
+
+    def slot_minutes_today(self, now: Optional[datetime] = None) -> int:
+        return int(self.slot_seconds.get(_utc_day(now or datetime.now(timezone.utc)), 0.0) // 60)
+
+    def mark_queued(self, campaign_ids: Iterable[str]) -> bool:
+        """Remembers every reward campaign that was ever in the queue (appended by the auto-queue or by the user), so one the
+        user removes is not added a second time. True (and written) only when something was new."""
+        new = [cid for cid in dict.fromkeys(campaign_ids) if cid not in self.queued]
+        if not new:
+            return False
+        self.queued.extend(new)
+        del self.queued[:-QUEUED_LIMIT]
         self.save()
+        return True
 
     def is_earned(self, campaign_id: str, now: Optional[datetime] = None) -> bool:
         entry = self.earned.get(campaign_id)
         return entry is not None and not self._earned_over(entry, (now or datetime.now(timezone.utc)).astimezone(timezone.utc))
 
     def save(self) -> None:
-        _write_json(self.path, {"days": self.days, "earned": self.earned, "daily_rewards": self.daily_rewards, "queued_ids": self.queued}, "reward watch ledger")
+        _write_json(self.path, {"days": self.days, "earned": self.earned, "daily_rewards": self.daily_rewards,
+                                  "slot_seconds": self.slot_seconds, "queued_ids": self.queued}, "reward watch ledger")
 
 
 class CategoryResolver:
@@ -380,19 +404,36 @@ def _same_title(found: str, wanted: str) -> bool:
 
 
 _NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
-_DAYS_RE = re.compile(r"\b(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")\s+(?:different\s+|separate\s+|consecutive\s+)?days\b", re.I)
+_NUMBER = r"(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")"
+_DIFFERENT_DAYS = re.compile(rf"\b{_NUMBER}\s+(?:different|separate|distinct)\s+days\b", re.I)
+_WATCH_ON_DAYS = re.compile(rf"\b(?:on|for)\s+{_NUMBER}\s+(?:consecutive\s+)?days\b", re.I)
+
+
+def _day_count(word: str) -> Optional[int]:
+    days = _NUMBER_WORDS.get(word.lower()) or (int(word) if word.isdigit() else 0)
+    return days if 2 <= days <= 31 else None
 
 
 def campaign_days(summary: Any) -> Optional[int]:
-    """How many days a multi-day campaign runs ("on six different days", "6 days"), None when the text does not say."""
+    """How many days a multi-day campaign runs, only from a phrase about watching on days: "on six different days" /
+    "N different days", or "on/for N days" in a sentence that talks about watching. "within 7 days of launch" or "available
+    for 30 days" say nothing about it. None when the text does not say."""
     if not isinstance(summary, str):
         return None
-    for match in _DAYS_RE.finditer(summary):
-        word = match.group(1).lower()
-        days = _NUMBER_WORDS.get(word) or int(word)
-        if 2 <= days <= 31:
-            return days
+    for sentence in re.split(r"(?<=[.!?])\s+|\n", summary):
+        for pattern, needs_watch in ((_DIFFERENT_DAYS, False), (_WATCH_ON_DAYS, True)):
+            if needs_watch and not re.search(r"\b(?:watch|watching|view|viewing)\b", sentence, re.I):
+                continue
+            for match in pattern.finditer(sentence):
+                days = _day_count(match.group(1))
+                if days:
+                    return days
     return None
+
+
+def _days_exhausted(campaign: dict) -> bool:
+    total, done = campaign.get("daysTotal"), campaign.get("daysDone")
+    return isinstance(total, int) and isinstance(done, int) and not isinstance(total, bool) and total > 0 and done >= total
 
 
 def _watch_minutes(campaign: dict) -> Optional[int]:
@@ -460,13 +501,16 @@ def ineligible_reason(campaign: dict, now: datetime) -> Optional[str]:
         return "для неё нет времени просмотра или категории"
     if campaign.get("earned"):
         return "награда уже получена"
+    if _days_exhausted(campaign):
+        return "все дни выполнены"
     if campaign.get("doneToday"):
         return "дневная цель выполнена"
     return None
 
 
 def choose(viewed: list[dict], *, forced_id: Optional[str], priority: Iterable[str], drops_available: bool,
-           now: Optional[datetime] = None, daily_slot: bool = False, skip: Iterable[str] = ()) -> tuple[Optional[dict], Optional[str]]:
+           now: Optional[datetime] = None, daily_slot: bool = False, skip: Iterable[str] = (), forced_game: bool = False,
+           slot_exhausted: bool = False) -> tuple[Optional[dict], Optional[str]]:
     """The campaign to watch, and the reason a forced one was refused. A forced campaign always wins (the skip list does not
     apply to it). Otherwise the queue (`reward:<id>` entries of priority_games) decides the order: with the daily slot an
     eligible queued campaign goes before the drops until today's goal is done (then drops resume); without it nothing is
@@ -479,7 +523,9 @@ def choose(viewed: list[dict], *, forced_id: Optional[str], priority: Iterable[s
             return None, "кампании нет в списке"
         reason = ineligible_reason(campaign, now)
         return (None, reason) if reason else (campaign, None)
-    if drops_available and not daily_slot:
+    if forced_game:
+        return None, None  # the user forced a game: no reward slot and no queue pick over it
+    if drops_available and not (daily_slot and not slot_exhausted):
         return None, None
     skip = set(skip)
     for entry in priority:
@@ -498,7 +544,8 @@ def auto_queue_additions(viewed: list[dict], priority: Iterable[str], already: I
     for campaign in viewed:
         if campaign.get("id") in queued:
             continue
-        if campaign.get("farmable") and not campaign.get("hidden") and not campaign.get("earned") and not _ended(campaign, now):
+        if (campaign.get("farmable") and not campaign.get("hidden") and not campaign.get("earned") and not _ended(campaign, now)
+                and not _days_exhausted(campaign)):
             out.append(campaign["id"])
     return out
 
@@ -534,6 +581,17 @@ def _matchable(name: Any) -> bool:
     return not all(word in GENERIC_WORDS for word in re.findall(r"\w+", name.lower()))
 
 
+def slot_budget(viewed: list[dict], priority: Iterable[str], now: Optional[datetime] = None) -> int:
+    """Minutes the daily slot may take in total today: the largest daily goal among the queued campaigns that can still be
+    farmed (a campaign done today still counts, so the budget stays the same through the day), at most an hour. 0 without any."""
+    now = now or datetime.now(timezone.utc)
+    queued = {reward_id(p) for p in priority if is_reward_key(p)}
+    goals = [c["dailyGoal"] for c in viewed
+             if c.get("id") in queued and c.get("farmable") and not c.get("hidden") and not c.get("earned") and not _ended(c, now)
+             and not _days_exhausted(c) and isinstance(c.get("dailyGoal"), int) and c["dailyGoal"] > 0]
+    return min(max(goals), SLOT_CAP_MINUTES) if goals else 0
+
+
 def final_reward_names(campaign: dict) -> list[str]:
     """Names of the rewards of the campaign's final group: the last of several groups. A single group of a multi-day campaign
     (its rewards are probably the daily ones) has no identifiable final reward; a one-day campaign's only group is final."""
@@ -545,26 +603,41 @@ def final_reward_names(campaign: dict) -> list[str]:
     return [r["name"] for r in groups[-1].get("rewards") or [] if isinstance(r, dict) and isinstance(r.get("name"), str)]
 
 
-def match_earned(notification: Any, campaigns: Iterable[dict]) -> Optional[str]:
-    """The id of the campaign an "earned" notification closes, or None. Only an explicit campaign id (in an id field or
-    inside the text) or the name of a reward of the campaign's FINAL group (6+ characters, not made of generic words, as a
-    whole phrase, naming exactly one campaign) closes it: a daily badge or a campaign name never does."""
+def _mentions(notification: Any, campaigns: Iterable[dict]) -> tuple[Optional[str], set[str]]:
+    """(the first campaign whose id the notification states, the campaigns whose final reward it names)."""
     fields = notification_fields(notification, limit=500)
     if not fields:
-        return None
+        return None, set()
     campaigns = [c for c in campaigns if isinstance(c, dict) and isinstance(c.get("id"), str)]
     id_values = [v.strip().lower() for k, v in fields.items() if k.lower() in ID_KEYS]
     texts = [v.lower() for k, v in fields.items() if k.lower() in TEXT_KEYS]
     for campaign in campaigns:
         cid = campaign["id"].lower()
         if cid in id_values or (len(cid) >= 8 and any(cid in t for t in texts)):
-            return campaign["id"]
+            return campaign["id"], set()
     hits = set()
     for campaign in campaigns:
         for name in filter(_matchable, final_reward_names(campaign)):
             if any(re.search(rf"(?<!\w){re.escape(name.strip().lower())}(?!\w)", t) for t in texts):
                 hits.add(campaign["id"])
-    return hits.pop() if len(hits) == 1 else None
+    return None, hits
+
+
+def match_earned(notification: Any, campaigns: Iterable[dict]) -> Optional[str]:
+    """The id of the campaign an "earned" notification closes, or None. Only an explicit campaign id (in an id field or
+    inside the text) or the name of a reward of the campaign's FINAL group (6+ characters, not made of generic words, as a
+    whole phrase, naming exactly one campaign) closes it: a daily badge or a campaign name never does."""
+    by_id, hits = _mentions(notification, campaigns)
+    if by_id is not None:
+        return by_id
+    return next(iter(hits)) if len(hits) == 1 else None
+
+
+def mentions_other_campaign(notification: Any, target_id: str, campaigns: Iterable[dict]) -> bool:
+    """True when the notification states the id of another known campaign or names a final reward of another one (even when
+    several share the name): then it is not the watched campaign's daily reward."""
+    by_id, hits = _mentions(notification, [c for c in campaigns if isinstance(c, dict) and c.get("id") != target_id])
+    return by_id is not None or bool(hits)
 
 
 def game_entries(priority: Iterable[Any]) -> list[str]:

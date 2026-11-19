@@ -873,6 +873,7 @@ class SentinelSupervisor:
                 g["box_art"] = cover
 
         installed_games = [g for g in catalog_games if g.get("is_installed")]
+        slot_minutes, slot_budget = reward_campaigns.slot_status(STATE_BRIDGE, self.settings)
 
         return {
             "version": self.get_app_version(),
@@ -897,6 +898,8 @@ class SentinelSupervisor:
             "settings": self.settings,
             "reward_campaigns": reward_campaigns.state_list(STATE_BRIDGE, self.settings),
             "reward_watching": getattr(STATE_BRIDGE, "reward_watching", None) if self.settings.get("reward_campaigns_enabled") is True else None,
+            "slot_minutes_today": slot_minutes,
+            "slot_budget_today": slot_budget,
             "trophies": trophies,
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
@@ -1013,7 +1016,10 @@ class SentinelSupervisor:
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
             reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
-            apply_reward_auto_queue(self)
+            try:
+                apply_reward_auto_queue(self)
+            except Exception as exc:  # the settings are saved already: a failing auto-queue must not turn the POST into an error
+                logger.error("Reward auto-queue failed after saving the settings: %s", exc, exc_info=True)
             self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()

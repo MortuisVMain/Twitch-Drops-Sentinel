@@ -6159,6 +6159,13 @@ def test_reward_campaigns_daily_slot_and_auto_queue_settings():
         "out['quiet_second_time'] = s.apply_reward_auto_queue(fake)\n"
         "st = state(fake)['reward_campaigns'][0]\n"
         "out['state_fields'] = {k: st[k] for k in ('dailyRewardToday', 'daysDone', 'daysTotal', 'doneToday')}\n"
+        "full = state(fake)\n"
+        "out['slot_state'] = [full['slot_minutes_today'], full['slot_budget_today']]\n"
+        "real = s.apply_reward_auto_queue\n"
+        "def boom(service): raise RuntimeError('disk full')\n"
+        "s.apply_reward_auto_queue = boom\n"
+        "out['boom_status'] = post(fake, {'language': 'ru'})\n"
+        "s.apply_reward_auto_queue = real\n"
         "print(json.dumps(out))\n"
     )
     config = work / "config.json"
@@ -6177,6 +6184,8 @@ def test_reward_campaigns_daily_slot_and_auto_queue_settings():
     assert got["new_one_added"] == ["reward:b", "reward:c"], f"a new campaign goes to the end: {got['new_one_added']}"
     assert got["quiet_second_time"] in (False, None), "nothing to add the second time"
     assert set(got["state_fields"]) == {"dailyRewardToday", "daysDone", "daysTotal", "doneToday"}, got["state_fields"]
+    assert got["slot_state"] == [0, 60], f"the page sees the slot minutes and today's budget (largest queued goal, at most 60): {got['slot_state']}"
+    assert got["boom_status"] == 200, f"a failing auto-queue must not turn a saved settings POST into an error: {got['boom_status']}"
     shutil.rmtree(work, ignore_errors=True)
     print("      reward campaigns daily slot and auto-queue settings: PASS [OK]")
 

@@ -464,6 +464,8 @@ class Twitch:
         self._reward_logged_minutes: Optional[int] = None
         self._reward_failed_beats: int = 0
         self._reward_backoff: dict[str, float] = {}  # campaign id -> time until which the daily slot skips it
+        self._reward_slot_pick: bool = False  # the watched campaign was picked by the daily slot (drops were wanted)
+        self._slot_limit_logged_day: Optional[str] = None
         self._reward_last_success: Optional[float] = None
         self._category_task: Optional[asyncio.Task] = None
         self.inventory: list[DropsCampaign] = []
@@ -1494,11 +1496,13 @@ class Twitch:
             self._set_reward_target(None)
 
     def _pick_reward_target(self, forced_reward_id: Optional[str], priority: list[str]) -> None:
-        """See reward_watch.choose: drops win, forced and queue. Called once the drops campaigns are chosen; a reward
-        pick replaces `wanted_games` with its category."""
+        """See reward_watch.choose: a forced reward, then (never over a forced game) the daily slot within its day budget, then
+        the queue when nothing else is wanted. Called once the drops campaigns are chosen; a reward pick replaces
+        `wanted_games` with its category."""
         previous = self.reward_target
         if not STATE_BRIDGE.reward_campaigns_enabled:
             self._set_reward_target(None)
+            self._reward_slot_pick = False
             if forced_reward_id:
                 logger.info("[НАГРАДА] Награды отключены в настройках: принудительный фокус на кампании сброшен.")
                 self._clear_forced_reward()
@@ -1506,16 +1510,26 @@ class Twitch:
         viewed = reward_watch.REWARD_WATCH.view(STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
         now_ts = time()
         self._reward_backoff = {cid: until for cid, until in self._reward_backoff.items() if until > now_ts}
+        STATE_BRIDGE.reward_backoff = dict(self._reward_backoff)
+        drops_wanted = bool(self.wanted_games)
+        forced_game = self._forced_drop_game() is not None
+        slot_on = bool(STATE_BRIDGE.reward_daily_slot)
+        slot_minutes, budget = self._slot_budget_and_minutes(priority)
+        exhausted = slot_on and budget > 0 and slot_minutes >= budget
+        if exhausted and drops_wanted and not forced_game and not forced_reward_id:
+            self._log_slot_limit_once()
         picked, reason = reward_watch.choose(
-            viewed, forced_id=forced_reward_id, priority=priority, drops_available=bool(self.wanted_games),
-            daily_slot=STATE_BRIDGE.reward_daily_slot, skip=set(self._reward_backoff))
+            viewed, forced_id=forced_reward_id, priority=priority, drops_available=drops_wanted, forced_game=forced_game,
+            daily_slot=slot_on, slot_exhausted=exhausted, skip=set(self._reward_backoff))
         if forced_reward_id and picked is None:
             logger.info("[НАГРАДА] Принудительный фокус на кампании '%s' сброшен: %s. Возврат в авто-режим.", forced_reward_id, reason)
             STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] Принудительный фокус на кампании сброшен: {reason}. Возврат в авто-режим.")
             self._clear_forced_reward()
         if picked is None:
             self._set_reward_target(None)
+            self._reward_slot_pick = False
             return
+        self._reward_slot_pick = drops_wanted and not forced_reward_id
         category = picked["category"]
         self.wanted_games = [Game({"id": 0, "displayName": category["name"], "slug": category["slug"]})]
         self._set_reward_target(picked)
@@ -1523,18 +1537,59 @@ class Twitch:
             logger.info("[НАГРАДА] Выбрана кампания «%s»: смотрим категорию «%s» (%s/%s мин сегодня)",
                         picked["name"], category["name"], picked["watchedToday"], picked["dailyGoal"])
 
+    def _slot_budget_and_minutes(self, priority: list[str]) -> tuple[int, int]:
+        """(slot minutes watched today, today's slot budget) - see reward_watch.slot_budget."""
+        viewed = reward_watch.REWARD_WATCH.view(STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
+        return reward_watch.REWARD_WATCH.ledger.slot_minutes_today(), reward_watch.slot_budget(viewed, priority)
+
+    def _log_slot_limit_once(self) -> None:
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._slot_limit_logged_day == day:
+            return
+        self._slot_limit_logged_day = day
+        logger.info("[НАГРАДА] Дневной лимит слота исчерпан, остальные награды — когда нет дропов")
+        STATE_BRIDGE.add_log("INFO", "[НАГРАДА] Дневной лимит слота исчерпан, остальные награды — когда нет дропов")
+
+    def _reward_ineligible_reason(self) -> Optional[str]:
+        """Why the watched campaign must not be watched any more (hidden, ended, earned, all days done...), None when it may go on."""
+        target = self.reward_target
+        viewed = reward_watch.REWARD_WATCH.view(STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
+        current = next((c for c in viewed if c.get("id") == target["id"]), None)
+        if current is None:
+            return "кампании больше нет в списке"
+        return reward_watch.ineligible_reason(current, datetime.now(timezone.utc))
+
+    def _reward_stop_target(self, reason: str) -> bool:
+        """Stops watching the reward campaign and re-evaluates (drops or the next campaign). Always False (for a tick's return)."""
+        target = self.reward_target
+        if target is None:
+            return False
+        logger.info("[НАГРАДА] Кампания «%s»: %s. Останавливаем просмотр.", target["name"], reason)
+        self._set_reward_target(None)
+        self._reward_slot_pick = False
+        self.stop_watching()
+        self.change_state(State.GAMES_UPDATE)
+        return False
+
     def reward_settings_changed(self) -> None:
-        """The reward settings changed: stop at once when the watched campaign was switched off or hidden."""
+        """The reward settings changed: stop at once when the watched campaign was switched off or hidden, when it is a slot
+        pick and the slot was turned off, or when it is no longer in the queue (a forced one does not need the queue)."""
         enabled = STATE_BRIDGE.reward_campaigns_enabled
         hidden = set(STATE_BRIDGE.reward_hidden)
         forced_id = reward_watch.reward_id(getattr(self, "forced_game", None))
         if forced_id and (not enabled or forced_id in hidden):
             self._clear_forced_reward()
-        if self.reward_target is not None and (not enabled or self.reward_target["id"] in hidden):
-            logger.info("[НАГРАДА] Кампания «%s» отключена или скрыта: останавливаем просмотр.", self.reward_target["name"])
-            self._set_reward_target(None)
-            self.stop_watching()
-            self.change_state(State.GAMES_UPDATE)
+        target = self.reward_target
+        if target is None:
+            return
+        queue = getattr(self.settings, "priority", None)
+        if not enabled or target["id"] in hidden:
+            self._reward_stop_target("отключена или скрыта")
+        elif target["id"] != forced_id:
+            if self._reward_slot_pick and not STATE_BRIDGE.reward_daily_slot:
+                self._reward_stop_target("дневной слот отключён в настройках")
+            elif queue is not None and reward_watch.reward_key(target["id"]) not in list(queue):
+                self._reward_stop_target("её убрали из очереди")
 
     async def _reward_tick(self, channel: Channel) -> bool:
         """One watch beat for the reward campaign (the same send_watch the drops use). Counts the real time since the
@@ -1545,6 +1600,11 @@ class Twitch:
         succeeded = await channel.send_watch()
         if self.reward_target is not target:
             return False  # switched, hidden or finished while the beat was in flight: it counts for nothing
+        if self._reward_slot_pick and not STATE_BRIDGE.reward_daily_slot:
+            return self._reward_stop_target("дневной слот отключён в настройках")
+        reason = self._reward_ineligible_reason()
+        if reason:
+            return self._reward_stop_target(reason)
         now = time()
         STATE_BRIDGE.reward_watching = {"id": target["id"], "name": target["name"]}
         ledger = reward_watch.REWARD_WATCH.ledger
@@ -1554,6 +1614,8 @@ class Twitch:
             last, self._reward_last_tick = self._reward_last_tick, now
             if last is not None and 0 < now - last <= 2 * interval:
                 minutes = ledger.add_seconds(target["id"], now - last)
+                if self._reward_slot_pick:
+                    ledger.add_slot_seconds(now - last)
             else:
                 minutes = ledger.minutes_today(target["id"])
         else:
@@ -1585,6 +1647,11 @@ class Twitch:
         if minutes >= goal:
             self._reward_goal_reached(target, minutes)
             return True
+        if self._reward_slot_pick:
+            slot_minutes, budget = self._slot_budget_and_minutes(list(getattr(self.settings, "priority", None) or []))
+            if budget and slot_minutes >= budget:
+                self._log_slot_limit_once()
+                self._reward_stop_target("дневной лимит слота исчерпан")
         return False
 
     def _reward_goal_reached(self, target: dict, minutes: int) -> None:
@@ -1594,6 +1661,7 @@ class Twitch:
             logger.info("[НАГРАДА] Принудительный фокус выполнен. Возврат в авто-режим.")
             self._clear_forced_reward()
         self._set_reward_target(None)
+        self._reward_slot_pick = False
         self.stop_watching()
         self.change_state(State.GAMES_UPDATE)
 
@@ -1605,18 +1673,26 @@ class Twitch:
                     reward_watch.notification_fields(notification))
         if not reward_watch.is_earned_type(ntype):
             return
-        matched = reward_watch.match_earned(notification, reward_watch.REWARD_WATCH.view(
-            STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories))
+        viewed = reward_watch.REWARD_WATCH.view(STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
+        matched = reward_watch.match_earned(notification, viewed)
         if matched is not None:
             campaign = next((c for c in STATE_BRIDGE.reward_campaigns if c.get("id") == matched), {})
             reward_watch.REWARD_WATCH.ledger.mark_earned(matched, until=reward_watch.parse_moment(campaign.get("endsAt")))
             logger.info("[НАГРАДА] Награда кампании %s получена: больше её не смотрим.", matched)
+            if self.reward_target is not None:
+                reason = self._reward_ineligible_reason()
+                if reason:
+                    self._reward_stop_target(reason)
             return
         target = self.reward_target
-        if target is not None:
-            # a daily reward (a badge a day) of the campaign being watched: today's item, the campaign goes on
-            reward_watch.REWARD_WATCH.ledger.mark_daily_reward(target["id"])
-            logger.info("[НАГРАДА] Значок за сегодня получен: «%s».", target["name"])
+        if target is None:
+            return
+        if reward_watch.mentions_other_campaign(notification, target["id"], viewed):
+            logger.info("[НАГРАДА] Уведомление называет другую кампанию: значок за сегодня «%s» не засчитан.", target["name"])
+            return
+        # a daily reward (a badge a day) of the campaign being watched: today's item, the campaign goes on
+        reward_watch.REWARD_WATCH.ledger.mark_daily_reward(target["id"])
+        logger.info("[НАГРАДА] Значок за сегодня получен: «%s».", target["name"])
 
     async def _validate_category(self, name: str) -> Optional[dict]:
         """Asks Twitch for the game with this name (the directory lookup). None only for a clean answer that says there is
@@ -1684,9 +1760,11 @@ class Twitch:
         if target is None or reward_watch.reward_id(getattr(self, "forced_game", None)) == target["id"]:
             return False
         self._reward_backoff[target["id"]] = time() + reward_watch.BACKOFF_SECONDS
+        STATE_BRIDGE.reward_backoff = dict(self._reward_backoff)
         logger.info("[НАГРАДА] В категории «%s» %s, вернёмся через 15 мин", target["category"]["name"], reason)
         STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] В категории «{target['category']['name']}» {reason}, вернёмся через 15 мин")
         self._set_reward_target(None)
+        self._reward_slot_pick = False
         self.stop_watching()
         self.change_state(State.GAMES_UPDATE)
         return True

@@ -54,6 +54,7 @@ class SentinelStateBridge:
         self.reward_campaigns: list[dict] = []
         self.reward_hidden: list[str] = []  # campaign ids the user hid (never farmed)
         self.reward_categories: dict[str, str] = {}  # campaign id -> category name chosen by the user
+        self.reward_backoff: dict[str, float] = {}  # campaign id -> time until which the daily slot skips it (set by the engine)
         self.reward_daily_slot: bool = True  # a queued campaign takes the daily slot before drops
         self.reward_auto_queue: bool = False  # new farmable campaigns are appended to the queue
         self.reward_auto_queue_hook: Optional[Any] = None  # set by the service: called when campaigns or categories changed

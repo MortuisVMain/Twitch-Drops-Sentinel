@@ -48,7 +48,10 @@ class DaysTests(unittest.TestCase):
         self.assertEqual(rw.campaign_days(SUMMARY), 6)
         self.assertEqual(rw.campaign_days("Watch for 1 hour on 6 days to earn it"), 6)
         self.assertEqual(rw.campaign_days("on seven separate days"), 7)
-        for none in (None, "", "Watch for an hour", "watch each day", "on 1 day only", "for 400 days", 5):
+        self.assertEqual(rw.campaign_days("Watch streamers for 3 days to earn it"), 3)
+        for none in (None, "", "Watch for an hour", "watch each day", "on 1 day only", "for 400 days", 5,
+                     "Watch streamers; the offer is valid within 14 days of launch", "The campaign is available for 30 days.",
+                     "Offer ends within 7 days. Watch an hour today"):
             self.assertIsNone(rw.campaign_days(none), none)
 
 
@@ -79,11 +82,79 @@ class ChooseSlotTests(unittest.TestCase):
         self.assertIsNone(self.pick(camps, priority=["reward:a"], daily_slot=True, skip={"a"})[0])
         self.assertEqual(self.pick(camps, forced_id="a", skip={"a"})[0], "a")
 
+    def test_a_forced_game_leaves_no_slot_at_all(self):
+        v = base.viewed(id="a")
+        self.assertEqual(self.pick([v], priority=["reward:a"], daily_slot=True, forced_game=True), (None, None))
+        self.assertEqual(self.pick([v], priority=["reward:a"], daily_slot=True, forced_game=True, drops_available=False), (None, None))
+        self.assertEqual(self.pick([v], forced_id="a", forced_game=True)[0], "a", "a forced reward is its own request")
+
+    def test_a_spent_slot_budget_leaves_only_the_queue_fallback(self):
+        v = base.viewed(id="a")
+        self.assertIsNone(self.pick([v], priority=["reward:a"], daily_slot=True, slot_exhausted=True)[0])
+        self.assertEqual(self.pick([v], priority=["reward:a"], daily_slot=True, slot_exhausted=True, drops_available=False)[0], "a")
+
     def test_without_drops_the_queue_works_as_before(self):
         self.assertEqual(self.pick([base.viewed(id="a")], priority=["reward:a"], drops_available=False, daily_slot=False)[0], "a")
 
 
+class DaysExhaustedTests(unittest.TestCase):
+    def test_all_days_done_makes_a_campaign_ineligible(self):
+        c = base.viewed(id="a", daysDone=6, daysTotal=6)
+        self.assertIn("все дни выполнены", rw.ineligible_reason(c, NOW))
+        self.assertIsNone(rw.ineligible_reason(base.viewed(id="a", daysDone=5, daysTotal=6), NOW))
+        self.assertIsNone(rw.ineligible_reason(base.viewed(id="a", daysDone=9, daysTotal=None), NOW), "no known total: no limit")
+        self.assertEqual(rw.choose([c], forced_id=None, priority=["reward:a"], drops_available=False, now=NOW)[0], None)
+        got, reason = rw.choose([c], forced_id="a", priority=[], drops_available=False, now=NOW)
+        self.assertEqual(got, None)
+        self.assertIn("все дни выполнены", reason)
+
+    def test_the_auto_queue_still_lists_it_as_queueable_only_while_days_remain(self):
+        camps = [base.viewed(id="a", daysDone=6, daysTotal=6), base.viewed(id="b", daysDone=2, daysTotal=6)]
+        self.assertEqual(rw.auto_queue_additions(camps, [], [], NOW), ["b"])
+
+
+class SlotBudgetTests(unittest.TestCase):
+    def test_the_budget_is_the_largest_goal_of_queued_campaigns_capped_at_an_hour(self):
+        camps = [base.viewed(id="a", dailyGoal=30), base.viewed(id="b", dailyGoal=45), base.viewed(id="c", dailyGoal=120), base.viewed(id="d", dailyGoal=50)]
+        self.assertEqual(rw.slot_budget(camps, ["reward:a", "reward:b"], NOW), 45)
+        self.assertEqual(rw.slot_budget(camps, ["reward:a", "reward:c"], NOW), 60, "capped")
+        self.assertEqual(rw.slot_budget(camps, ["Rust"], NOW), 0)
+        self.assertEqual(rw.slot_budget([], ["reward:a"], NOW), 0)
+
+    def test_a_done_campaign_still_counts_so_the_budget_is_stable_through_the_day(self):
+        camps = [base.viewed(id="a", dailyGoal=60, doneToday=True), base.viewed(id="b", dailyGoal=30)]
+        self.assertEqual(rw.slot_budget(camps, ["reward:a", "reward:b"], NOW), 60)
+
+    def test_hidden_earned_ended_unfarmable_and_finished_campaigns_do_not_count(self):
+        camps = [base.viewed(id="a", dailyGoal=60, hidden=True), base.viewed(id="b", dailyGoal=60, earned=True),
+                 base.viewed(id="c", dailyGoal=60, endsAt="2026-11-19T11:00:00Z"), base.viewed(id="d", dailyGoal=60, farmable=False),
+                 base.viewed(id="e", dailyGoal=60, daysDone=6, daysTotal=6), base.viewed(id="f", dailyGoal=20)]
+        self.assertEqual(rw.slot_budget(camps, [f"reward:{x}" for x in "abcdef"], NOW), 20)
+
+
 class LedgerSlotTests(base.TempDir):
+    def test_slot_minutes_are_per_day_and_persist(self):
+        ledger = rw.WatchLedger(self.dir / "l.json")
+        ledger.add_slot_seconds(1800, NOW)
+        ledger.add_slot_seconds(900, NOW)
+        self.assertEqual(ledger.slot_minutes_today(NOW), 45)
+        self.assertEqual(ledger.slot_minutes_today(NOW + timedelta(days=1)), 0)
+        self.assertEqual(rw.WatchLedger(self.dir / "l.json").slot_minutes_today(NOW), 45)
+
+    def test_old_slot_days_are_pruned_and_odd_values_ignored(self):
+        ledger = rw.WatchLedger(self.dir / "l.json")
+        ledger.add_slot_seconds(600, NOW - timedelta(days=45))
+        ledger.add_slot_seconds(float("nan"), NOW)
+        ledger.add_seconds("x", 1, NOW)
+        self.assertEqual(list(ledger.slot_seconds), [NOW.strftime("%Y-%m-%d")])
+        self.assertEqual(ledger.slot_minutes_today(NOW), 0)
+
+    def test_every_queue_entry_ever_seen_is_remembered(self):
+        ledger = rw.WatchLedger(self.dir / "l.json")
+        self.assertTrue(ledger.mark_queued(["a", "b"]))
+        self.assertFalse(ledger.mark_queued(["a"]), "nothing new: no write")
+        self.assertEqual(rw.WatchLedger(self.dir / "l.json").queued, ["a", "b"])
+
     def test_daily_reward_is_per_day_and_campaign_and_survives_a_restart(self):
         ledger = rw.WatchLedger(self.dir / "l.json")
         ledger.mark_daily_reward("a", NOW)
@@ -115,7 +186,7 @@ class LedgerSlotTests(base.TempDir):
         ledger.mark_queued(["a", "b", "a"])
         self.assertEqual(rw.WatchLedger(self.dir / "l.json").queued, ["a", "b"])
         ledger.mark_queued([f"x{i}" for i in range(500)])
-        self.assertLessEqual(len(ledger.queued), rw.EARNED_LIMIT)
+        self.assertLessEqual(len(ledger.queued), rw.QUEUED_LIMIT)
         self.assertEqual(ledger.queued[-1], "x499")
 
 
@@ -326,6 +397,183 @@ class SlotEngineTests(base.TempDir):
         self.assertEqual(len(sent), 1)
 
 
+    # forced games, mid-watch ineligibility, the slot budget, plausible daily badges
+    def test_a_forced_game_keeps_the_reward_slot_out(self):
+        rust = Game({"id": 1, "displayName": "Rust"})
+        self.engine.forced_game = STATE_BRIDGE.forced_game = "Rust"
+        self.engine.wanted_games = [rust]
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertIsNone(self.engine.reward_target)
+        self.assertEqual(self.engine.wanted_games, [rust], "the forced isolation is not overwritten")
+
+    def test_a_forced_game_with_no_drops_at_all_gets_no_reward_either(self):
+        self.engine.forced_game = "Rust"
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertIsNone(self.engine.reward_target)
+
+    def tick(self, channel, at):
+        saved = twitch.time
+        twitch.time = lambda: at
+        try:
+            return run(self.engine._reward_tick(channel))
+        finally:
+            twitch.time = saved
+
+    def stopped(self):
+        calls = []
+        self.engine.stop_watching = lambda: calls.append(1)
+        return calls
+
+    def test_a_campaign_that_turned_ineligible_mid_watch_stops_at_the_next_beat(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        calls = self.stopped()
+        rw.REWARD_WATCH.ledger.mark_earned("a")
+        self.tick(FakeChannel(), 1000.0)
+        self.assertEqual((self.engine.reward_target, calls), (None, [1]))
+        self.assertIn(twitch.State.GAMES_UPDATE, self.engine.states)
+
+    def test_hidden_ended_and_finished_days_stop_too(self):
+        for label, change in (("hidden", lambda: setattr(STATE_BRIDGE, "reward_hidden", ["a"])),
+                              ("ended", lambda: STATE_BRIDGE.reward_campaigns[0].update(endsAt="2026-11-19T00:00:01Z")),
+                              ("days", lambda: [rw.REWARD_WATCH.ledger.add_seconds("a", 3600, datetime.now(timezone.utc) - timedelta(days=d)) for d in range(1, 7)])):
+            with self.subTest(label):
+                STATE_BRIDGE.reward_hidden = []
+                STATE_BRIDGE.reward_campaigns[0].pop("endsAt", None)
+                self.engine.states.clear()
+                self.engine.wanted_games = []
+                self.engine._choose_reward_target(None, ["reward:a"])
+                self.assertIsNotNone(self.engine.reward_target, label)
+                calls = self.stopped()
+                change()
+                self.tick(FakeChannel(), 1000.0)
+                self.assertEqual((self.engine.reward_target, calls), (None, [1]), label)
+                rw.REWARD_WATCH.ledger.days.clear()
+
+    def test_turning_the_slot_off_stops_a_slot_pick_but_not_a_forced_or_queue_only_one(self):
+        self.engine._choose_reward_target(None, ["reward:a"])  # drops wanted: a slot pick
+        self.assertTrue(self.engine._reward_slot_pick)
+        calls = self.stopped()
+        STATE_BRIDGE.reward_daily_slot = False
+        self.engine.settings.priority = ["reward:a"]
+        self.engine.reward_settings_changed()
+        self.assertEqual((self.engine.reward_target, calls), (None, [1]))
+        # queue-only pick (nothing else wanted): not a slot pick
+        STATE_BRIDGE.reward_daily_slot = True
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertFalse(self.engine._reward_slot_pick)
+        STATE_BRIDGE.reward_daily_slot = False
+        self.engine.reward_settings_changed()
+        self.assertIsNotNone(self.engine.reward_target)
+        # forced
+        self.engine.forced_game = STATE_BRIDGE.forced_game = "reward:a"
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target("a", [])
+        self.engine.reward_settings_changed()
+        self.assertIsNotNone(self.engine.reward_target)
+
+    def test_a_tick_notices_the_slot_switch_too(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        calls = self.stopped()
+        STATE_BRIDGE.reward_daily_slot = False
+        self.tick(FakeChannel(), 1000.0)
+        self.assertEqual((self.engine.reward_target, calls), (None, [1]))
+
+    def test_removing_the_watched_campaign_from_the_queue_stops_it_unless_forced(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        calls = self.stopped()
+        self.engine.settings.priority = ["Rust", "reward:a"]
+        self.engine.reward_settings_changed()
+        self.assertEqual(calls, [], "still queued")
+        self.engine.settings.priority = ["Rust"]
+        self.engine.reward_settings_changed()
+        self.assertEqual((self.engine.reward_target, calls), (None, [1]))
+        self.engine.forced_game = STATE_BRIDGE.forced_game = "reward:a"
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target("a", [])
+        self.engine.reward_settings_changed()
+        self.assertIsNotNone(self.engine.reward_target, "forced: the queue does not matter")
+
+    def test_an_earned_notification_for_the_watched_campaign_stops_it_at_once(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        calls = self.stopped()
+        with self.assertLogs("TwitchDrops", level="INFO"):
+            self.engine._note_reward_earned({**LIVE_DAILY, "campaignId": "a"})
+        self.assertEqual((self.engine.reward_target, calls), (None, [1]))
+        self.assertTrue(rw.REWARD_WATCH.ledger.is_earned("a"))
+
+    # the budget
+    def test_the_slot_budget_stops_further_slot_picks_and_says_so_once(self):
+        self.engine.settings.priority = ["reward:a", "reward:b"]
+        rw.REWARD_WATCH.ledger.add_slot_seconds(3600)
+        with self.assertLogs("TwitchDrops", level="INFO") as logs:
+            self.engine._choose_reward_target(None, ["reward:a", "reward:b"])
+        self.assertIsNone(self.engine.reward_target)
+        self.assertIn("[НАГРАДА] Дневной лимит слота исчерпан, остальные награды — когда нет дропов", "\n".join(logs.output))
+        self.engine.wanted_games = [Game({"id": 1, "displayName": "Rust"})]
+        with self.assertNoLogs("TwitchDrops", level="INFO"):
+            self.engine._choose_reward_target(None, ["reward:a", "reward:b"])
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target(None, ["reward:a", "reward:b"])
+        self.assertEqual(self.engine.reward_target["id"], "a", "the queue-only fallback is still allowed")
+        self.assertFalse(self.engine._reward_slot_pick)
+
+    def test_slot_beats_count_toward_the_budget_but_queue_only_beats_do_not(self):
+        self.engine.settings.priority = ["reward:a"]
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.tick(FakeChannel(), 1000.0)
+        self.tick(FakeChannel(), 1020.0)
+        self.assertEqual(rw.REWARD_WATCH.ledger.slot_seconds[next(iter(rw.REWARD_WATCH.ledger.slot_seconds))], 20.0)
+        rw.REWARD_WATCH.ledger.slot_seconds.clear()
+        self.engine._set_reward_target(None)
+        self.engine.wanted_games = []
+        self.engine._choose_reward_target(None, ["reward:a"])
+        self.assertFalse(self.engine._reward_slot_pick)
+        self.tick(FakeChannel(), 2000.0)
+        self.tick(FakeChannel(), 2020.0)
+        self.assertEqual(rw.REWARD_WATCH.ledger.slot_seconds, {})
+
+    def test_a_slot_pick_stops_when_the_day_budget_is_reached_mid_watch(self):
+        self.engine.settings.priority = ["reward:a"]
+        self.engine._choose_reward_target(None, ["reward:a"])
+        calls = self.stopped()
+        rw.REWARD_WATCH.ledger.add_slot_seconds(3590)
+        self.tick(FakeChannel(), 1000.0)
+        with self.assertLogs("TwitchDrops", level="INFO") as logs:
+            self.tick(FakeChannel(), 1020.0)
+        self.assertEqual((self.engine.reward_target, calls), (None, [1]))
+        self.assertIn("Дневной лимит слота исчерпан", "\n".join(logs.output))
+
+    def test_the_slot_status_for_the_page(self):
+        bridge = SimpleNamespace(reward_campaigns=STATE_BRIDGE.reward_campaigns)
+        settings = {"reward_campaigns_enabled": True, "priority_games": ["reward:a", "reward:b"]}
+        rw.REWARD_WATCH.ledger.add_slot_seconds(1800)
+        self.assertEqual(rc.slot_status(bridge, settings), (30, 60))
+        self.assertEqual(rc.slot_status(bridge, {**settings, "reward_daily_slot": False}), (30, 0), "slot off: no budget")
+        self.assertEqual(rc.slot_status(bridge, {"priority_games": ["reward:a"]}), (0, 0), "rewards off")
+
+    # plausible daily badges
+    def test_a_badge_that_names_another_campaign_is_not_this_ones(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        with self.assertLogs("TwitchDrops", level="INFO"):
+            self.engine._note_reward_earned({**LIVE_DAILY, "campaignId": "b"})
+        self.assertFalse(rw.REWARD_WATCH.ledger.daily_reward_today("a"))
+        self.assertTrue(rw.REWARD_WATCH.ledger.is_earned("b"), "an explicit id still closes that other campaign")
+        final = [GROUPS[0], {"goalKind": "subs", "minutes": 0, "subs": 1, "rewards": [{"name": "Shared Prize Name"}]}]
+        STATE_BRIDGE.reward_campaigns += [camp(id="c", name="Gamma", groups=final), camp(id="d", name="Delta", groups=final)]
+        with self.assertLogs("TwitchDrops", level="INFO"):
+            self.engine._note_reward_earned({**LIVE_DAILY, "body": "You earned Shared Prize Name"})
+        self.assertFalse(rw.REWARD_WATCH.ledger.daily_reward_today("a"), "another campaign's final reward, even when two share the name")
+        self.assertFalse(rw.REWARD_WATCH.ledger.earned.get("c") or rw.REWARD_WATCH.ledger.earned.get("d"), "ambiguous: neither is closed")
+
+    def test_a_badge_that_names_nothing_still_counts_for_the_watched_one(self):
+        self.engine._choose_reward_target(None, ["reward:a"])
+        with self.assertLogs("TwitchDrops", level="INFO"):
+            self.engine._note_reward_earned(LIVE_DAILY)
+        self.assertTrue(rw.REWARD_WATCH.ledger.daily_reward_today("a"))
+
+
 class SlotSettingsTests(unittest.TestCase):
     def test_the_new_switches_are_bools_only(self):
         for key in ("reward_daily_slot", "reward_auto_queue"):
@@ -344,6 +592,65 @@ class SlotSettingsTests(unittest.TestCase):
         self.assertEqual((bridge.reward_daily_slot, bridge.reward_auto_queue), (True, False))
         rc.apply_setting(bridge, {"reward_daily_slot": False, "reward_auto_queue": True})
         self.assertEqual((bridge.reward_daily_slot, bridge.reward_auto_queue), (False, True))
+
+
+class QueueMemoryTests(base.TempDir):
+    def setUp(self):
+        super().setUp()
+        self.saved = rw.REWARD_WATCH
+        rw.REWARD_WATCH = rw.RewardWatch(self.dir)
+        self.addCleanup(setattr, rw, "REWARD_WATCH", self.saved)
+
+    def test_apply_setting_remembers_every_reward_entry_of_the_queue(self):
+        bridge = SimpleNamespace(reward_campaigns_enabled=False, reward_campaigns=[])
+        rc.apply_setting(bridge, {"priority_games": ["Rust", "reward:a", "reward:b"]})
+        self.assertEqual(rw.REWARD_WATCH.ledger.queued, ["a", "b"])
+        rc.apply_setting(bridge, {"priority_games": ["Rust"]})
+        self.assertEqual(rw.REWARD_WATCH.ledger.queued, ["a", "b"], "removing it does not forget it")
+
+    def test_nothing_is_written_for_a_queue_without_reward_entries(self):
+        rc.apply_setting(SimpleNamespace(reward_campaigns_enabled=False, reward_campaigns=[]), {"priority_games": ["Rust"]})
+        self.assertFalse((self.dir / "reward_watch.json").exists())
+
+    def test_a_manually_queued_then_removed_campaign_is_not_auto_added(self):
+        c = camp(id="a")
+        rw.REWARD_WATCH.resolver.entries["a"] = {"sig": rw.CategoryResolver.signature(c), "at": 1e12, "seen": 1e12,
+                                                 "category": {"name": "Cat", "slug": "cat", "source": "guess"}}
+        bridge = SimpleNamespace(reward_campaigns_enabled=True, reward_campaigns=[c])
+        on = {"reward_campaigns_enabled": True, "reward_auto_queue": True}
+        rc.apply_setting(bridge, {**on, "priority_games": ["reward:a"]})
+        rc.apply_setting(bridge, {**on, "priority_games": []})
+        self.assertEqual(rc.auto_queue_plan(bridge, {**on, "priority_games": []}), (None, []))
+
+    def test_queue_pending_ignores_a_campaign_in_backoff(self):
+        c = camp(id="a", game="G")
+        bridge = SimpleNamespace(reward_campaigns=[c], reward_backoff={})
+        settings = {"reward_campaigns_enabled": True, "priority_games": ["reward:a"]}
+        self.assertTrue(rc.queue_pending(bridge, settings))
+        import time as _t
+        bridge.reward_backoff = {"a": _t.time() + 600}
+        self.assertFalse(rc.queue_pending(bridge, settings), "waiting 15 minutes: the auto shutdown must not wait for it")
+        bridge.reward_backoff = {"a": _t.time() - 1}
+        self.assertTrue(rc.queue_pending(bridge, settings), "backoff over")
+
+    def test_a_skip_is_mirrored_for_the_service(self):
+        engine = SlotEngine()
+        STATE_BRIDGE.reward_backoff = {}
+        engine._reward_backoff = {"x": 1e12}
+        saved = (STATE_BRIDGE.reward_campaigns_enabled, STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
+        try:
+            STATE_BRIDGE.reward_campaigns_enabled, STATE_BRIDGE.reward_campaigns = True, [camp(id="a")]
+            STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories = [], {}
+            rw.REWARD_WATCH.resolver.entries["a"] = {"sig": rw.CategoryResolver.signature(STATE_BRIDGE.reward_campaigns[0]), "at": 1e12, "seen": 1e12,
+                                                     "category": {"name": "Cat", "slug": "cat", "source": "guess"}}
+            engine._choose_reward_target(None, ["reward:a"])
+            engine.stop_watching = lambda: None
+            engine._reward_skip_for_a_while()
+            self.assertIn("a", STATE_BRIDGE.reward_backoff)
+        finally:
+            (STATE_BRIDGE.reward_campaigns_enabled, STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories) = saved
+            STATE_BRIDGE.reward_backoff = {}
+            STATE_BRIDGE.reward_watching = None
 
 
 class AutoQueuePlanTests(base.TempDir):

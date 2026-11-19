@@ -645,9 +645,15 @@ class FakeEngine:
     _reward_skip_for_a_while = twitch.Twitch._reward_skip_for_a_while
     _notify_daily_goal = twitch.Twitch._notify_daily_goal
     _run_auto_queue_hook = twitch.Twitch._run_auto_queue_hook
+    _reward_stop_target = twitch.Twitch._reward_stop_target
+    _reward_ineligible_reason = twitch.Twitch._reward_ineligible_reason
+    _slot_budget_and_minutes = twitch.Twitch._slot_budget_and_minutes
+    _log_slot_limit_once = twitch.Twitch._log_slot_limit_once
 
     def __init__(self):
         self._reward_backoff = {}
+        self._reward_slot_pick = False
+        self._slot_limit_logged_day = None
         self.forced_game = None
         self.reward_target = None
         self._reward_last_tick = None
@@ -661,7 +667,7 @@ class FakeEngine:
         self.inventory = []
         self.streamer_cooldowns = {}
         self.game_cooldowns = {}
-        self.settings = SimpleNamespace(ignored_channels=[])
+        self.settings = SimpleNamespace(ignored_channels=[], priority=["reward:a", "reward:b"])
         self.states = []
         self._active_mining_drop = None
         self.gui = SimpleNamespace(clear_drop=lambda: None, channels=SimpleNamespace(clear_watching=lambda: None),

@@ -178,6 +178,8 @@ export interface FullSentinelState {
   settings: SentinelSettings;
   reward_campaigns?: RewardCampaign[]; // empty while the setting is off
   reward_watching?: { id: string; name: string } | null; // the reward campaign being watched right now
+  slot_minutes_today?: number; // minutes the daily reward slot took today (UTC), before drops
+  slot_budget_today?: number; // minutes it may take today: the largest queued daily goal, at most 60; 0 while the slot is off
   installed_games: GameItem[];
   all_catalog_games: GameItem[];
   ignored_games?: string[];
