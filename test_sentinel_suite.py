@@ -7025,6 +7025,93 @@ def test_claim_status_decides_what_is_announced_and_journaled():
     print("      Claim status, one journal row per claim instance: PASS [OK]")
 
 
+def test_claimed_drop_is_not_claimed_again_after_inventory_sync():
+    print("[claims] A drop Twitch confirmed as claimed stays claimed when the next inventory still reports isClaimed=false...")
+    import asyncio
+    core_dir = SANDBOX / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    import notifications
+    import inventory
+    from inventory import DropsCampaign
+    from settings import Settings
+    from twitch import Twitch
+
+    class Args:
+        tray = False
+        log = False
+        dump = False
+        logging_level = 20
+        debug_ws = 0
+        debug_gql = 0
+
+    t = Twitch(Settings(Args()))
+    t.print = lambda *_a, **_k: None
+
+    # Shaped like Inventory.dropCampaignsInProgress of a linked-account campaign: after an accepted claim
+    # Twitch keeps returning the drop with full minutes, a dropInstanceID and isClaimed=false.
+    def inventory_payload(camp_id, drop_id, required):
+        return {
+            "id": camp_id, "name": "Season drops", "status": "ACTIVE", "self": {"isAccountConnected": True},
+            "accountLinkURL": "https://example.invalid/link",
+            "game": {"id": 7, "displayName": "Synthetic Shooter"},
+            "startAt": "2026-11-10T02:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+            "timeBasedDrops": [{
+                "id": drop_id, "name": "Weapon EXP Token x2", "requiredMinutesWatched": required,
+                "startAt": "2026-11-10T02:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+                "benefitEdges": [{"benefit": {"id": drop_id + "_b", "name": "Weapon EXP Token x2",
+                                              "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}],
+                "self": {"currentMinutesWatched": required, "dropInstanceID": f"u#{camp_id}#{drop_id}", "isClaimed": False},
+            }],
+        }
+
+    def sync(camp_id, drop_id, required=60):
+        claimed_benefits = {drop_id + "_b": inventory.timestamp("2026-11-19T08:49:27Z")}
+        return DropsCampaign(t, inventory_payload(camp_id, drop_id, required), claimed_benefits).timed_drops[drop_id]
+
+    calls = []
+
+    def stub(d, status):
+        async def fake():
+            calls.append(d.id)
+            return status
+        d._claim = fake
+
+    trophies = Path(inventory.__file__).resolve().parent.parent / "Trophies.md"
+    assert Path(trophies).resolve().is_relative_to(Path(SANDBOX).resolve()), f"must be the sandbox copy, not the live journal: {trophies}"
+    original = trophies.read_bytes() if trophies.exists() else None
+    saved_notify = notifications.NOTIFIER.notify
+    notifications.NOTIFIER.notify = lambda *a, **k: True
+    try:
+        for camp_id, drop_id, required, status in (
+            ("rc_new", "rc_drop_new", 60, "claimed"),           # Twitch accepted the claim now
+            ("rc_old", "rc_drop_old", 0, "already_claimed"),    # a sub-only drop Twitch already had as claimed
+        ):
+            first = sync(camp_id, drop_id, required)
+            assert first.can_claim, "the first sync offers the finished drop for claiming"
+            stub(first, status)
+            assert asyncio.run(first.claim()) is True and first.is_claimed
+
+            # the next inventory sync rebuilds the drop from the same Twitch answer
+            again = sync(camp_id, drop_id, required)
+            assert again.is_claimed, f"{drop_id}: a claim Twitch confirmed must survive the inventory rebuild"
+            assert not again.can_claim, f"{drop_id}: the engine must not claim the same drop every inventory cycle"
+        assert calls == ["rc_drop_new", "rc_drop_old"], calls
+
+        # a failed claim is retried on the next sync
+        failed = sync("rc_fail", "rc_drop_fail")
+        stub(failed, None)
+        assert asyncio.run(failed.claim()) is False
+        assert sync("rc_fail", "rc_drop_fail").can_claim, "a failed claim must stay claimable"
+    finally:
+        notifications.NOTIFIER.notify = saved_notify
+        if original is None:
+            trophies.unlink(missing_ok=True)
+        else:
+            trophies.write_bytes(original)
+    print("      Confirmed claims survive inventory sync: PASS [OK]")
+
+
 def test_console_log_buffer_keeps_an_hour_and_folds_counters():
     print("[logs] The log buffer folds counter runs, keeps older lines and the report tail is long enough...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -7897,6 +7984,7 @@ if __name__ == "__main__":
         test_channel_point_chest_uses_the_real_login_state,
         test_diagnostic_report_shows_the_real_drop_and_a_readable_journal,
         test_claim_status_decides_what_is_announced_and_journaled,
+        test_claimed_drop_is_not_claimed_again_after_inventory_sync,
         test_console_log_buffer_keeps_an_hour_and_folds_counters,
         test_console_journal_keeps_five_hours_and_serves_only_new_lines,
         test_service_log_file_rotates_and_stays_utf8,
