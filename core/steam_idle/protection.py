@@ -10,6 +10,7 @@ clock and the sleep are injected, so tests never touch the network.
 import asyncio
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -76,6 +77,7 @@ Fetch = Callable[[str], Awaitable[tuple[int, str]]]  # url -> (HTTP status, body
 USER_DENYLIST_KEY = "steam_idle_user_denylist"  # the user's own anti-cheat games, merged with BUILTIN by the controller
 MAX_USER_DENYLIST = 500
 _UINT32_MAX = 0xFFFFFFFF
+_PLAIN_ID = re.compile(r"[1-9][0-9]{0,9}")
 
 
 def clean_user_denylist(raw: object) -> list[int]:
@@ -89,17 +91,18 @@ def clean_user_denylist(raw: object) -> list[int]:
     unique: dict[int, None] = {}  # an insertion-ordered set
     bad = 0
     for item in raw:
+        if type(item) is str and _PLAIN_ID.fullmatch(item):
+            item = int(item)  # a hand-edited file: keeping the game is the safe reading
         if type(item) is not int or not 1 <= item <= _UINT32_MAX:
             bad += 1
         else:
             unique.setdefault(item)
     ids = list(unique)
-    if bad:
-        logger.warning("%s: %d invalid entries ignored", USER_DENYLIST_KEY, bad)
-    if len(ids) > MAX_USER_DENYLIST:
-        logger.warning("%s holds more than %d games: the rest is ignored", USER_DENYLIST_KEY, MAX_USER_DENYLIST)
-        ids = ids[:MAX_USER_DENYLIST]
-    return ids
+    over = max(len(ids) - MAX_USER_DENYLIST, 0)
+    if bad or over:  # one warning with counts only; the valid entries are kept either way
+        logger.warning("%s: %d invalid entries and %d entries over the cap of %d ignored", USER_DENYLIST_KEY, bad, over,
+                       MAX_USER_DENYLIST)
+    return ids[:MAX_USER_DENYLIST]
 
 
 def is_builtin(app_id: int) -> bool:

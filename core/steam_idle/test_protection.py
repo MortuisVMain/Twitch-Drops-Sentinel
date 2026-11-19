@@ -71,19 +71,20 @@ class UserDenylistCleanTests(unittest.TestCase):
 
     def test_bad_entries_are_dropped_with_one_warning(self):
         with self.assertLogs("steam_idle.protection", level="WARNING") as logged:
-            result = protection.clean_user_denylist([True, "7", 0, -1, 2 ** 32, 1.5, None, 8, 8])
-        self.assertEqual(result, [8])
+            result = protection.clean_user_denylist(["abc", True, 0, -1, 2 ** 32, 1.5, None, "7", 8, 8])
+        self.assertEqual(result, [7, 8])  # a plain digit string from a hand-edited file is still an app id: fail closed
         self.assertEqual(len(logged.records), 1)
-        self.assertIn("7", logged.records[0].getMessage())  # the count of ignored entries
+        self.assertIn("7 invalid", logged.records[0].getMessage())  # the count of ignored entries
 
     def test_a_value_that_is_not_a_list_is_ignored_with_a_warning(self):
         with self.assertLogs("steam_idle.protection", level="WARNING"):
             self.assertEqual(protection.clean_user_denylist("5"), [])
 
     def test_the_list_is_capped_at_500(self):
-        with self.assertLogs("steam_idle.protection", level="WARNING"):
-            result = protection.clean_user_denylist(list(range(1, 601)))
+        with self.assertLogs("steam_idle.protection", level="WARNING") as logged:
+            result = protection.clean_user_denylist([*range(1, 601), "x"])  # invalid and over the cap: still one warning
         self.assertEqual(result, list(range(1, 501)))
+        self.assertEqual(len(logged.records), 1)
         self.assertEqual(protection.MAX_USER_DENYLIST, 500)
 
 
