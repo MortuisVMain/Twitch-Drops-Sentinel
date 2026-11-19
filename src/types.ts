@@ -85,7 +85,9 @@ export interface SentinelSettings {
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
-  reward_campaigns_enabled?: boolean; // show Twitch reward campaigns on the dashboard (shown only, never farmed)
+  reward_campaigns_enabled?: boolean; // show Twitch reward campaigns and farm their watch time (subscriptions are never bought)
+  hidden_reward_campaigns?: string[]; // campaign ids the user hid: still in the state with hidden=true, never farmed (post the whole list)
+  reward_campaign_categories?: Record<string, string>; // campaign id -> category name chosen by the user (post the whole map; an empty name removes an entry)
   disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[]; // optional tabs turned off; Giveaways follows giveaways_enabled
   giveaways_selected_stores?: StoreId[];
   giveaways_headless?: boolean;
@@ -116,7 +118,22 @@ export interface SentinelLogEntry {
   replaces?: number | null;
 }
 
-/** A Twitch reward campaign (quest or brand offer) as the service trims it; shown only. */
+/** One reward group of a reward campaign: what has to be done (watch minutes or subscriptions) and what it gives. Subscriptions are display-only. */
+export interface RewardGroup {
+  goalKind: 'watch' | 'subs' | 'other';
+  minutes: number; // 0 when the group has no watch goal
+  subs: number; // 0 when the group has no subscription goal
+  rewards: { name: string; image?: string | null; earnableUntil?: string | null }[];
+}
+
+/** The category a reward campaign is watched in: source game (Twitch names it), user (chosen in settings) or guess (found in the texts and checked with Twitch). */
+export interface RewardCategory {
+  name: string;
+  slug: string;
+  source: 'game' | 'guess' | 'user';
+}
+
+/** A Twitch reward campaign (quest or brand offer) as the service trims it; its watch time is farmed in `category`. */
 export interface RewardCampaign {
   id: string;
   name: string;
@@ -131,6 +148,15 @@ export interface RewardCampaign {
   rewards?: { name: string; image?: string | null; earnableUntil?: string | null }[];
   minutesGoal?: number | null;
   subsGoal?: number | null;
+  groups?: RewardGroup[];
+  sitewide?: boolean; // not tied to one game
+  category?: RewardCategory | null; // null: no category could be found, so it cannot be farmed (the user can set one)
+  farmable?: boolean; // a watch group with minutes AND a category
+  watchedToday?: number; // whole minutes watched today (UTC day), counted by the app
+  dailyGoal?: number | null; // minutes of the watch group, null without one
+  doneToday?: boolean; // dailyGoal reached today: it is eligible again from the next UTC day
+  earned?: boolean; // Twitch said the reward was earned
+  hidden?: boolean; // the user hid it: shown by the page only on request, never farmed
 }
 
 export interface FullSentinelState {
@@ -146,6 +172,7 @@ export interface FullSentinelState {
   stats: SentinelStats;
   settings: SentinelSettings;
   reward_campaigns?: RewardCampaign[]; // empty while the setting is off
+  reward_watching?: { id: string; name: string } | null; // the reward campaign being watched right now
   installed_games: GameItem[];
   all_catalog_games: GameItem[];
   ignored_games?: string[];

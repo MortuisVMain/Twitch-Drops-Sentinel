@@ -52,6 +52,9 @@ class SentinelStateBridge:
         # Reward campaigns (shown, never farmed): the switch as the engine reads it, and the last parsed answer
         self.reward_campaigns_enabled: bool = False
         self.reward_campaigns: list[dict] = []
+        self.reward_hidden: list[str] = []  # campaign ids the user hid (never farmed)
+        self.reward_categories: dict[str, str] = {}  # campaign id -> category name chosen by the user
+        self.reward_watching: Optional[dict] = None  # {"id", "name"} of the reward campaign being watched now
         self.recent_logs: list[dict] = []
         # Entries are numbered (seq) so a client asks only for what is newer; a new service run is a new session, because
         # its numbers start again and a client holding the old ones must start over.

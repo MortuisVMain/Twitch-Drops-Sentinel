@@ -77,6 +77,10 @@ class ParseTests(unittest.TestCase):
                          "earnableUntil": "2026-12-30T00:00:00Z"}],
             "minutesGoal": 30,
             "subsGoal": 1,
+            "sitewide": False,
+            "groups": [{"goalKind": "watch", "minutes": 30, "subs": 1,
+                        "rewards": [{"name": "Synthetic Skin", "image": "https://cdn.example.test/skin.png",
+                                     "earnableUntil": "2026-12-30T00:00:00Z"}]}],
         }])
 
     def test_minimal_entry_fills_every_field(self):
@@ -84,7 +88,7 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(got, [{
             "id": "x", "name": "Only a name", "brand": None, "startsAt": None, "endsAt": None, "summary": None,
             "instructions": None, "url": None, "game": None, "image": None, "rewards": [],
-            "minutesGoal": None, "subsGoal": None,
+            "minutesGoal": None, "subsGoal": None, "sitewide": False, "groups": [],
         }])
 
     def test_entries_without_id_or_name_are_skipped(self):

@@ -6005,8 +6005,108 @@ def test_reward_campaigns_setting_state_and_request():
     print("      reward campaigns setting and state: PASS [OK]")
 
 
+def test_reward_campaigns_queue_force_hide_and_categories_api():
+    print("[rewards] reward:<id> in the queue survives, Farm now and hide are validated, category overrides are cleaned, turning it off reaches the engine...")
+    work = Path(tempfile.mkdtemp(prefix="reward_queue_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from types import SimpleNamespace\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Engine:\n"
+        "    def __init__(self): self.changes = 0\n"
+        "    def reward_settings_changed(self): self.changes += 1\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    hardware_state = {}\n"
+        "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    def _schedule_module_sync(self, a, b): pass\n"
+        "    def load_trophies(self): return []\n"
+        "    def get_app_version(self): return 'test'\n"
+        "    def shelf_game_names(self, trophies): return s.shelf_names(self.settings, trophies, [])\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "def force(fake, game):\n"
+        "    r = asyncio.run(s.SentinelSupervisor.handle_force_farm(fake, Req({'game': game})))\n"
+        "    return r.status\n"
+        "def state(fake): return asyncio.run(s.SentinelSupervisor.get_full_state(fake))\n"
+        "B = s.STATE_BRIDGE\n"
+        "out = {'defaults': [s.SUPERVISOR_DEFAULTS['hidden_reward_campaigns'], s.SUPERVISOR_DEFAULTS['reward_campaign_categories']]}\n"
+        "fake = Fake()\n"
+        "post(fake, {'reward_campaigns_enabled': True})\n"
+        "post(fake, {'priority_games': ['Rust', 'reward:abc', 'reward:abc', 'reward:XyZ-1', '  reward:padded  ']})\n"
+        "out['queue'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "out['queue_reloaded'] = [g for g in s.SentinelSupervisor.load_settings(None)['priority_games'] if g.startswith('reward:')]\n"
+        "out['shelf'] = [n for n in s.shelf_names(fake.settings, [], []) if 'reward' in n.lower()]\n"
+        "post(fake, {'hidden_reward_campaigns': [' a ', 'a', 'b']})\n"
+        "out['hidden'] = [fake.settings['hidden_reward_campaigns'], B.reward_hidden]\n"
+        "out['bad_hidden_status'] = post(fake, {'hidden_reward_campaigns': 'x'})\n"
+        "out['bad_hidden'] = fake.settings['hidden_reward_campaigns']\n"
+        "post(fake, {'reward_campaign_categories': {'c1': '  Just Chatting ', 'c2': ''}})\n"
+        "out['cats'] = [fake.settings['reward_campaign_categories'], B.reward_categories]\n"
+        "post(fake, {'reward_campaign_categories': ['x']})\n"
+        "out['bad_cats'] = fake.settings['reward_campaign_categories']\n"
+        "post(fake, {'reward_campaign_categories': {}})\n"
+        "out['cats_cleared'] = fake.settings['reward_campaign_categories']\n"
+        "post(fake, {'hidden_reward_campaigns': ['b']})\n"
+        "B.reward_campaigns = [{'id': 'a', 'name': 'A', 'game': 'Some Game', 'minutesGoal': 60, 'groups': [{'goalKind': 'watch', 'minutes': 60, 'subs': 0, 'rewards': []}]},\n"
+        "                      {'id': 'b', 'name': 'B', 'game': 'Some Game', 'minutesGoal': 60, 'groups': [{'goalKind': 'watch', 'minutes': 60, 'subs': 0, 'rewards': []}]},\n"
+        "                      {'id': 's', 'name': 'Subs', 'game': 'Some Game', 'groups': [{'goalKind': 'subs', 'minutes': 0, 'subs': 1, 'rewards': []}]}]\n"
+        "st = state(fake)\n"
+        "out['state'] = {c['id']: [c['farmable'], c['hidden'], c['category']['source'] if c['category'] else None, c['dailyGoal'], c['watchedToday'], c['doneToday'], c['earned']] for c in st['reward_campaigns']}\n"
+        "out['force_ok'] = force(fake, 'reward:a')\n"
+        "out['forced'] = B.forced_game\n"
+        "out['force_hidden'] = force(fake, 'reward:b')\n"
+        "out['force_unknown'] = force(fake, 'reward:nope')\n"
+        "out['force_subs'] = force(fake, 'reward:s')\n"
+        "out['force_game'] = force(fake, 'Rust')\n"
+        "B.forced_game = None\n"
+        "engine = Engine(); fake.twitch_client = engine\n"
+        "post(fake, {'reward_campaigns_enabled': False})\n"
+        "fake.twitch_client = None\n"
+        "out['force_off'] = force(fake, 'reward:a')\n"
+        "out['engine_told'] = engine.changes\n"
+        "out['watching_off'] = state(fake)['reward_watching']\n"
+        "post(fake, {'reward_campaigns_enabled': True})\n"
+        "B.reward_watching = {'id': 'a', 'name': 'A'}\n"
+        "out['watching_on'] = state(fake)['reward_watching']\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert res.returncode == 0, res.stderr[-2500:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["defaults"] == [[], {}], f"defaults: {got['defaults']}"
+    assert got["queue"] == ["reward:abc", "reward:XyZ-1", "reward:padded"], f"reward keys keep their case and are deduplicated: {got['queue']}"
+    assert got["queue_reloaded"] == got["queue"], f"reward keys survive a save and a reload: {got['queue_reloaded']}"
+    assert got["shelf"] == [], f"reward keys are not shelf games: {got['shelf']}"
+    assert got["hidden"] == [["a", "b"], ["a", "b"]], f"hidden list trimmed, deduplicated and mirrored to the engine: {got['hidden']}"
+    assert got["bad_hidden_status"] == 200 and got["bad_hidden"] == ["a", "b"], f"a bad hidden list is ignored: {got['bad_hidden']}"
+    assert got["cats"] == [{"c1": "Just Chatting"}, {"c1": "Just Chatting"}], f"empty names remove an override: {got['cats']}"
+    assert got["bad_cats"] == {"c1": "Just Chatting"} and got["cats_cleared"] == {}, f"{got['bad_cats']} {got['cats_cleared']}"
+    assert got["state"]["a"] == [True, False, "game", 60, 0, False, False], f"/api/state fields of a farmable campaign: {got['state']['a']}"
+    assert got["state"]["b"][:2] == [True, True], f"a hidden campaign stays in the state with hidden=true: {got['state']['b']}"
+    assert got["state"]["s"][:2] == [False, False] and got["state"]["s"][3] is None, f"a subs-only campaign is not farmable: {got['state']['s']}"
+    assert got["force_ok"] == 200 and got["forced"] == "reward:a", f"Farm now accepts reward:<id>: {got['force_ok']} {got['forced']}"
+    assert (got["force_hidden"], got["force_unknown"], got["force_subs"]) == (400, 400, 400), "hidden, unknown and subs-only campaigns are refused"
+    assert got["force_game"] == 200, "a plain game still works"
+    assert got["force_off"] == 400, "Farm now on a reward campaign is refused while the setting is off"
+    assert got["engine_told"] >= 1, "turning the setting off tells the engine"
+    assert got["watching_off"] is None and got["watching_on"] == {"id": "a", "name": "A"}, f"reward_watching in /api/state: {got['watching_off']} {got['watching_on']}"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reward campaigns queue, force, hide and categories: PASS [OK]")
+
+
 def test_reward_campaigns_unit_tests():
-    print("[rewards] core/test_reward_campaigns.py: parser, request variable and setting helpers against the sandbox copy of core...")
+    print("[rewards] core/test_reward*.py: parser, request variable, setting helpers, category watching and its engine glue against the sandbox copy of core...")
     import io
     import unittest
     core_dir = SANDBOX / "core"
@@ -6014,15 +6114,15 @@ def test_reward_campaigns_unit_tests():
     if added_path:
         sys.path.insert(0, str(core_dir))
     try:
-        suite = unittest.defaultTestLoader.discover(str(core_dir), pattern="test_reward_campaigns.py", top_level_dir=str(core_dir))
+        suite = unittest.defaultTestLoader.discover(str(core_dir), pattern="test_reward*.py", top_level_dir=str(core_dir))
         assert suite.countTestCases() > 0, "no reward campaign tests were discovered"
         stream = io.StringIO()
         result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
     finally:
         if added_path:
             sys.path.remove(str(core_dir))
-        sys.modules.pop("reward_campaigns", None)
-        sys.modules.pop("test_reward_campaigns", None)
+        for name in ("reward_campaigns", "reward_watch", "test_reward_campaigns", "test_reward_watch"):
+            sys.modules.pop(name, None)
     assert result.wasSuccessful(), f"reward campaign unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
     print(f"      reward campaign unit tests ({result.testsRun} run): PASS [OK]")
 
@@ -8006,6 +8106,7 @@ if __name__ == "__main__":
         test_steam_idle_package_unit_tests,
         test_reward_campaigns_unit_tests,
         test_reward_campaigns_setting_state_and_request,
+        test_reward_campaigns_queue_force_hide_and_categories_api,
         test_installer_script_keeps_its_promises,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped

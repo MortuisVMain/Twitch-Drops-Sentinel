@@ -1,7 +1,8 @@
-"""Reward campaigns (quests and brand offers on the Twitch Drops page): the opt-in setting, the request variable and a
-defensive parser. Shown only, never farmed.
+"""Reward campaigns (quests and brand offers on the Twitch Drops page): the opt-in setting, the request variable, a
+defensive parser and the state the page reads. Their watch time is farmed by watching a category (reward_watch.py);
+subscriptions and gift subs are display-only, always.
 
-The response shape is not verified against a live answer: every field is optional and nothing here raises on odd data.
+Every field is optional and nothing here raises on odd data.
 """
 from __future__ import annotations
 
@@ -9,9 +10,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import reward_watch
+
 logger = logging.getLogger("TwitchDrops.RewardCampaigns")
 
 SETTING_KEY = "reward_campaigns_enabled"
+HIDDEN_KEY = "hidden_reward_campaigns"
+CATEGORIES_KEY = "reward_campaign_categories"
 RESPONSE_KEY = "rewardCampaignsAvailableToUser"
 CAMPAIGN_LIMIT = 50
 REWARDS_PER_CAMPAIGN_LIMIT = 20
@@ -33,25 +38,57 @@ def dashboard_query(base: Any, enabled: bool) -> Any:
 
 
 def drop_invalid_setting(data: dict) -> None:
-    """Removes a non-bool `reward_campaigns_enabled` from incoming settings (the stored value stays as it was)."""
+    """Cleans the reward settings of incoming data: a non-bool switch, a hidden list that is not a list of strings or a
+    category map that is not str -> str is removed (the stored value stays as it was); valid lists are trimmed and capped."""
     if SETTING_KEY in data and not isinstance(data[SETTING_KEY], bool):
         logger.warning("%s ignored: expected true or false, got %r", SETTING_KEY, data[SETTING_KEY])
         del data[SETTING_KEY]
+    for key, sanitize, shape in ((HIDDEN_KEY, reward_watch.sanitize_hidden, "a list of campaign ids"),
+                                 (CATEGORIES_KEY, reward_watch.sanitize_categories, "a map of campaign id to category name")):
+        if key not in data:
+            continue
+        cleaned = sanitize(data[key])
+        if cleaned is None:
+            logger.warning("%s ignored: expected %s, got %r", key, shape, data[key])
+            del data[key]
+        else:
+            data[key] = cleaned
 
 
-def apply_setting(bridge: Any, settings: dict) -> None:
-    """Makes the shared state follow the setting; turning it off clears the list at once."""
+def apply_setting(bridge: Any, settings: dict, engine: Any = None) -> None:
+    """Makes the shared state follow the settings; turning the switch off clears the list at once. The engine (when given)
+    is told so it can stop watching a campaign that was switched off or hidden."""
     enabled = settings.get(SETTING_KEY) is True
     bridge.reward_campaigns_enabled = enabled
+    bridge.reward_hidden = reward_watch.sanitize_hidden(settings.get(HIDDEN_KEY)) or []
+    bridge.reward_categories = reward_watch.sanitize_categories(settings.get(CATEGORIES_KEY)) or {}
     if not enabled:
         bridge.reward_campaigns = []
+        bridge.reward_watching = None
+    notify = getattr(engine, "reward_settings_changed", None)
+    if notify is not None:
+        notify()
 
 
 def state_list(bridge: Any, settings: dict) -> list[dict]:
-    """What /api/state carries as `reward_campaigns`: empty while the setting is off."""
+    """What /api/state carries as `reward_campaigns`: empty while the setting is off, otherwise the parsed campaigns with
+    category, farmable, watchedToday, dailyGoal, doneToday, earned and hidden."""
     if settings.get(SETTING_KEY) is not True:
         return []
-    return list(bridge.reward_campaigns)[:CAMPAIGN_LIMIT]
+    return reward_watch.REWARD_WATCH.view(list(bridge.reward_campaigns)[:CAMPAIGN_LIMIT],
+                                          reward_watch.sanitize_hidden(settings.get(HIDDEN_KEY)) or [],
+                                          reward_watch.sanitize_categories(settings.get(CATEGORIES_KEY)) or {})
+
+
+def force_problem(bridge: Any, settings: dict, campaign_id: str) -> Optional[str]:
+    """Why "Farm now" must refuse this reward campaign (a sentence for the user), or None when it may go ahead."""
+    if settings.get(SETTING_KEY) is not True:
+        return "Награды отключены в настройках."
+    found = next((c for c in state_list(bridge, settings) if c.get("id") == campaign_id), None)
+    if found is None:
+        return "Кампании нет в списке."
+    reason = reward_watch.ineligible_reason(found, datetime.now(timezone.utc))
+    return f"Нельзя запустить: {reason}." if reason else None
 
 
 def publish(bridge: Any, dashboard_json: Any, now: Optional[datetime] = None) -> None:
@@ -111,6 +148,33 @@ def _reward(raw: Any) -> Optional[dict]:
     }
 
 
+def _group(raw: Any) -> Optional[dict]:
+    """One reward group: what has to be done (watch minutes or subs) and what it gives."""
+    if not isinstance(raw, dict):
+        return None
+    return _group_of(raw.get("unlockRequirements"), raw.get("rewards"))
+
+
+def _group_of(unlock: Any, rewards: Any) -> dict:
+    unlock = unlock if isinstance(unlock, dict) else {}
+    minutes, subs = _goal(unlock.get("minuteWatchedGoal")) or 0, _goal(unlock.get("subsGoal")) or 0
+    return {
+        "goalKind": "watch" if minutes else ("subs" if subs else "other"),
+        "minutes": minutes,
+        "subs": subs,
+        "rewards": [r for r in map(_reward, rewards if isinstance(rewards, list) else []) if r][:REWARDS_PER_CAMPAIGN_LIMIT],
+    }
+
+
+def _groups(raw: dict, unlocks: list) -> list[dict]:
+    """The reward groups as Twitch sends them; without any, one group made from the top-level goal and rewards."""
+    if isinstance(raw.get("rewardGroups"), list):
+        groups = [g for g in map(_group, raw["rewardGroups"]) if g]
+        if groups:
+            return groups
+    return [_group_of(unlocks[0], raw.get("rewards"))] if unlocks else []
+
+
 def _campaign(raw: Any, now: datetime) -> Optional[dict]:
     if not isinstance(raw, dict):
         logger.debug("reward campaign skipped: not an object (%s)", type(raw).__name__)
@@ -148,6 +212,8 @@ def _campaign(raw: Any, now: datetime) -> Optional[dict]:
         "rewards": parsed_rewards[:REWARDS_PER_CAMPAIGN_LIMIT],
         "minutesGoal": minutes,
         "subsGoal": subs,
+        "sitewide": raw.get("isSitewide") is True,
+        "groups": _groups(raw, unlocks),
     }
 
 

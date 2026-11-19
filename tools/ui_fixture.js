@@ -20,7 +20,7 @@
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
 // POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
-// ?rewards=1 serves reward_campaigns_enabled: true with three synthetic reward campaigns (one with a game, one sitewide without game and without image, one with a very long name); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does.
+// ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does.
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -101,11 +101,33 @@
   var rewardsMode = q.get('rewards');
   var REWARD_SAMPLES = rewardsMode === 'empty' ? [] : [
     { id: 'rc1', name: 'Synthetic Launch Celebration', brand: 'Example Brand', startsAt: '2026-11-01T00:00:00Z', endsAt: new Date(Date.now() + 9 * 86400000).toISOString(), summary: 'Watch and get a thing.', instructions: 'Do the steps.',
-      url: 'https://example.test/promo', game: 'Synthetic Game', image: null, rewards: [{ name: 'Synthetic Skin', image: null, earnableUntil: null }], minutesGoal: 30, subsGoal: null },
+      url: 'https://example.test/promo', game: 'Synthetic Game', image: null, rewards: [{ name: 'Synthetic Skin', image: null, earnableUntil: null }], minutesGoal: 30, subsGoal: null,
+      sitewide: false, groups: [{ goalKind: 'watch', minutes: 30, subs: 0, rewards: [{ name: 'Synthetic Skin', image: null, earnableUntil: null }] }],
+      category: { name: 'Synthetic Game', slug: 'synthetic-game', source: 'game' }, farmable: true, watchedToday: 12, dailyGoal: 30, doneToday: false, earned: false, hidden: false },
     { id: 'rc2', name: 'Sitewide Spring Quest', brand: null, startsAt: null, endsAt: new Date(Date.now() + 20 * 86400000).toISOString(), summary: null, instructions: null,
-      url: null, game: null, image: null, rewards: [], minutesGoal: null, subsGoal: 1 },
+      url: null, game: null, image: null, rewards: [], minutesGoal: null, subsGoal: 1,
+      sitewide: true, groups: [{ goalKind: 'subs', minutes: 0, subs: 1, rewards: [{ name: 'Sub Emote Chest', image: null, earnableUntil: null }] }],
+      category: null, farmable: false, watchedToday: 0, dailyGoal: null, doneToday: false, earned: false, hidden: false },
     { id: 'rc3', name: 'A Campaign With An Extremely Long Name That Keeps Going To Check How The Row Wraps And Clips In A Narrow Column Of The Queue', brand: 'An Equally Long Brand Name Incorporated International',
-      startsAt: null, endsAt: new Date(Date.now() + 3 * 86400000).toISOString(), summary: null, instructions: null, url: 'https://example.test/long', game: 'Synthetic Game With A Long Title', image: null, rewards: [], minutesGoal: 120, subsGoal: 2 },
+      startsAt: null, endsAt: new Date(Date.now() + 3 * 86400000).toISOString(), summary: null, instructions: null, url: 'https://example.test/long', game: 'Synthetic Game With A Long Title', image: null, rewards: [], minutesGoal: 120, subsGoal: 2,
+      sitewide: false, groups: [{ goalKind: 'watch', minutes: 120, subs: 0, rewards: [] }, { goalKind: 'subs', minutes: 0, subs: 2, rewards: [] }],
+      category: { name: 'Synthetic Game With A Long Title', slug: 'synthetic-game-with-a-long-title', source: 'user' }, farmable: true, watchedToday: 120, dailyGoal: 120, doneToday: true, earned: false, hidden: false },
+    // farmable: sitewide, no game, the category was guessed from its texts (GTAVI -> Grand Theft Auto VI) and checked with Twitch
+    { id: 'rc4', name: 'GTAVI Launch Celebration', brand: null, startsAt: '2026-11-18T00:00:00Z', endsAt: new Date(Date.now() + 11 * 86400000).toISOString(),
+      summary: 'Unlock six Bling Badge viewership badges by watching GTAVI streamers for one hour each day on six different days. Subscribe three times to streamers in the GTAVI Category.', instructions: null,
+      url: 'https://example.test/gta', game: null, image: null, rewards: [{ name: 'GTA DVD Chest', image: null, earnableUntil: null }, { name: 'GTA Sub Emote Chest', image: null, earnableUntil: null }], minutesGoal: 60, subsGoal: 1,
+      sitewide: true, groups: [{ goalKind: 'watch', minutes: 60, subs: 0, rewards: [{ name: 'GTA DVD Chest', image: null, earnableUntil: null }] }, { goalKind: 'subs', minutes: 0, subs: 1, rewards: [{ name: 'GTA Sub Emote Chest', image: null, earnableUntil: null }] }],
+      category: { name: 'Grand Theft Auto VI', slug: 'grand-theft-auto-vi', source: 'guess' }, farmable: true, watchedToday: 23, dailyGoal: 60, doneToday: false, earned: false, hidden: false },
+    // a watch goal but no category could be found: not farmable until the user sets one
+    { id: 'rc5', name: 'Pokemon Night Out', brand: null, startsAt: null, endsAt: new Date(Date.now() + 6 * 86400000).toISOString(), summary: 'Watch streamers for an hour.', instructions: null,
+      url: null, game: null, image: null, rewards: [{ name: 'Pikachu Emote', image: null, earnableUntil: null }], minutesGoal: 60, subsGoal: null,
+      sitewide: true, groups: [{ goalKind: 'watch', minutes: 60, subs: 0, rewards: [{ name: 'Pikachu Emote', image: null, earnableUntil: null }] }],
+      category: null, farmable: false, watchedToday: 0, dailyGoal: 60, doneToday: false, earned: false, hidden: false },
+    // hidden by the user: in the list with hidden: true, the page filters it
+    { id: 'rc6', name: 'Hidden Brand Offer', brand: 'Example Brand', startsAt: null, endsAt: new Date(Date.now() + 14 * 86400000).toISOString(), summary: null, instructions: null,
+      url: null, game: 'Synthetic Game', image: null, rewards: [{ name: 'Hidden Reward', image: null, earnableUntil: null }], minutesGoal: 45, subsGoal: null,
+      sitewide: false, groups: [{ goalKind: 'watch', minutes: 45, subs: 0, rewards: [{ name: 'Hidden Reward', image: null, earnableUntil: null }] }],
+      category: { name: 'Synthetic Game', slug: 'synthetic-game', source: 'game' }, farmable: true, watchedToday: 0, dailyGoal: 45, doneToday: false, earned: false, hidden: true },
   ];
   function syncRewards() { state.reward_campaigns = state.settings.reward_campaigns_enabled === true ? REWARD_SAMPLES : []; }
   if (rewardsMode === '1' || rewardsMode === 'empty') state.settings.reward_campaigns_enabled = true;
