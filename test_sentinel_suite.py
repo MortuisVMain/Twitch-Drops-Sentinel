@@ -5996,9 +5996,9 @@ def test_reward_campaigns_setting_state_and_request():
                          cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert res.returncode == 0 and res.stdout.strip().splitlines()[-1] == "False", f"a non-bool in config.json reads as off: {res.stdout[-300:]} {res.stderr[-300:]}"
     twitch_src = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
-    assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], ' in twitch_src, "the dashboard request takes the variable per call"
+    assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True)' in twitch_src, "reward campaigns come from their own request"
     assert 'self.gql_request(GQL_QUERIES["Inventory"])' in twitch_src, "the inventory request is untouched"
-    assert 'response = await self.gql_request(GQL_QUERIES["Campaigns"])' in twitch_src, "a rejected reward request falls back to the plain dashboard request"
+    assert 'response = await self.gql_request(GQL_QUERIES["Campaigns"])' in twitch_src, "drop campaigns keep the plain dashboard request (true returns no dropCampaigns)"
     constants_src = (WORKSPACE / "core" / "constants.py").read_text(encoding="utf-8")
     assert constants_src.count('"fetchRewardCampaigns": False') == 2, "the shared constants keep asking for no reward campaigns"
     shutil.rmtree(work, ignore_errors=True)

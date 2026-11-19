@@ -138,6 +138,16 @@ class ParseTests(unittest.TestCase):
                 got = parse(full_entry(unlockRequirement={"subsGoal": value, "minuteWatchedGoal": value}))
                 self.assertEqual((got[0]["minutesGoal"], got[0]["subsGoal"]), (None, None))
 
+    def test_goals_and_rewards_come_from_reward_groups_as_twitch_sends_them(self):
+        groups = [
+            {"unlockRequirements": {"subsGoal": 0, "minuteWatchedGoal": 60}, "rewards": [{"id": "g1", "name": "Watch chest"}]},
+            {"unlockRequirements": {"subsGoal": 1, "minuteWatchedGoal": 0}, "rewards": [{"id": "g2", "name": "Sub chest"}]},
+            "junk",
+        ]
+        got = parse(full_entry(unlockRequirement=None, unlockRequirements=None, rewards=[], rewardGroups=groups))[0]
+        self.assertEqual((got["minutesGoal"], got["subsGoal"]), (60, 1))
+        self.assertEqual([r["name"] for r in got["rewards"]], ["Watch chest", "Sub chest"])
+
     def test_bad_rewards_are_skipped_and_the_list_is_capped(self):
         rewards = [None, "x", {"id": "no name"}, {"name": "Good"}] + [{"name": f"R{i}"} for i in range(40)]
         got = parse(full_entry(rewards=rewards))[0]["rewards"]

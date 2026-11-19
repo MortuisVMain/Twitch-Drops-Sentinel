@@ -59,6 +59,7 @@ def publish(bridge: Any, dashboard_json: Any, now: Optional[datetime] = None) ->
     if not bridge.reward_campaigns_enabled:
         return
     bridge.reward_campaigns = parse_reward_campaigns(dashboard_json, now=now)
+    logger.info("Reward campaigns: %d to show", len(bridge.reward_campaigns))
 
 
 def _text(value: Any, limit: int = TEXT_LIMIT) -> Optional[str]:
@@ -123,9 +124,16 @@ def _campaign(raw: Any, now: datetime) -> Optional[dict]:
         logger.debug("reward campaign %s skipped: ended at %s", campaign_id, raw.get("endsAt"))
         return None
     game = raw.get("game")
-    unlock = raw.get("unlockRequirement")
-    rewards = raw.get("rewards")
-    parsed_rewards = [r for r in map(_reward, rewards) if r] if isinstance(rewards, list) else []
+    # Twitch puts the goals and rewards in rewardGroups[].unlockRequirements/rewards; the top-level fields are kept as a fallback
+    groups = [g for g in raw.get("rewardGroups") or [] if isinstance(g, dict)] if isinstance(raw.get("rewardGroups"), list) else []
+    unlocks = [u for u in [raw.get("unlockRequirement"), raw.get("unlockRequirements")] + [g.get("unlockRequirements") for g in groups] if isinstance(u, dict)]
+    minutes = next((m for m in (_goal(u.get("minuteWatchedGoal")) for u in unlocks) if m), None)
+    subs = next((s for s in (_goal(u.get("subsGoal")) for u in unlocks) if s), None)
+    rewards = [r for g in groups if isinstance(g.get("rewards"), list) for r in g["rewards"]]
+    if isinstance(raw.get("rewards"), list):
+        seen = {r.get("id") for r in rewards if isinstance(r, dict)}
+        rewards += [r for r in raw["rewards"] if not (isinstance(r, dict) and r.get("id") in seen and r.get("id"))]
+    parsed_rewards = [r for r in map(_reward, rewards) if r]
     return {
         "id": campaign_id,
         "name": name,
@@ -138,8 +146,8 @@ def _campaign(raw: Any, now: datetime) -> Optional[dict]:
         "game": _text(game.get("displayName"), NAME_LIMIT) if isinstance(game, dict) else None,
         "image": _image(raw.get("image")),
         "rewards": parsed_rewards[:REWARDS_PER_CAMPAIGN_LIMIT],
-        "minutesGoal": _goal(unlock.get("minuteWatchedGoal")) if isinstance(unlock, dict) else None,
-        "subsGoal": _goal(unlock.get("subsGoal")) if isinstance(unlock, dict) else None,
+        "minutesGoal": minutes,
+        "subsGoal": subs,
     }
 
 

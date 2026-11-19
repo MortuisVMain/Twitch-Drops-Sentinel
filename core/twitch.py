@@ -2022,16 +2022,14 @@ class Twitch:
         }
         inventory_data: dict[str, JsonType] = {c["id"]: c for c in ongoing_campaigns}
         # fetch general available campaigns data (campaigns)
-        # reward campaigns are asked for only while the user has them switched on; the drop campaigns below do not depend on it
-        want_rewards = STATE_BRIDGE.reward_campaigns_enabled
-        response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], want_rewards))
-        if want_rewards and not isinstance(((response.get("data") or {}).get("currentUser") or {}).get("dropCampaigns"), list):
-            # the opt-in must never cost the drop campaigns: ask again the old way
-            logger.warning("The dashboard request with reward campaigns returned no drop campaigns; repeating it without them")
-            want_rewards = False
-            response = await self.gql_request(GQL_QUERIES["Campaigns"])
-        if want_rewards:
-            reward_campaigns.publish(STATE_BRIDGE, response)
+        response = await self.gql_request(GQL_QUERIES["Campaigns"])
+        # with fetchRewardCampaigns=true Twitch answers with reward campaigns only (no dropCampaigns), so they are a separate request
+        if STATE_BRIDGE.reward_campaigns_enabled:
+            try:
+                rewards_response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True))
+                reward_campaigns.publish(STATE_BRIDGE, rewards_response)
+            except Exception as exc:  # reward campaigns are display-only: they must never cost the drop campaigns
+                logger.warning("Reward campaigns request failed: %s", exc, exc_info=True)
         available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []
         applicable_statuses = ("ACTIVE", "UPCOMING")
         available_campaigns: dict[str, JsonType] = {
