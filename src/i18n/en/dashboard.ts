@@ -163,4 +163,9 @@ export const DASHBOARD: Record<string, string> = {
   'из': 'of',
   'игр': 'games',
   'Фокус переключает бота на выбранную игру вне очереди': 'Focus switches the bot to the chosen game outside the queue',
+  'Автосбор включён · Смотрим кампанию наград': 'Auto-farming on · Watching a reward campaign',
+  'Дропов игр сейчас нет: время просмотра идёт в зачёт кампании наград.': 'No game drops right now: watch time counts toward the reward campaign.',
+  'В очереди только кампании наград: ждём, пока их можно смотреть.': 'Only reward campaigns are queued: waiting until they can be watched.',
+  'Смотрим без загрузки видео': 'Watching without loading video',
+  'Квесты и предложения брендов со страницы Twitch Drops. Очередь, фарм, скрытие и категория настраиваются на полке.': 'Quests and brand offers from the Twitch Drops page. Queue, farming, hiding and category are set on the shelf.',
 };

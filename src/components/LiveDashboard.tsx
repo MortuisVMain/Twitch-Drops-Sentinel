@@ -10,6 +10,8 @@ import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { CartridgeCover } from './GameShelf';
 import { RewardCampaignsGroup } from './RewardCampaignsGroup';
+import { RewardQueueRow } from './RewardQueueRow';
+import { gameQueueEntries, hiddenRewardIds, isRewardQueueEntry, queueItems, rewardProgressPercent, rewardQueueStatus, rewardTargetLine, rewardTodayText, usableRewardCampaigns, visibleRewardCampaigns } from '../utils/rewardCampaigns.mjs';
 import { TargetMoreMenu } from './TargetMoreMenu';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
@@ -40,6 +42,7 @@ export interface LiveDashboardProps {
   oauthCode?: string | null;
   oauthUri?: string | null;
   rewardCampaigns?: RewardCampaign[];
+  rewardWatching?: { id: string; name: string } | null; // the reward campaign the engine is watching right now
   allGames?: GameItem[];
   trophies?: TrophyItem[];
   onAddToPriority?: (gameName: string) => void;
@@ -113,6 +116,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   oauthCode,
   oauthUri,
   rewardCampaigns,
+  rewardWatching = null,
   allGames = [],
   trophies = [],
   onAddToPriority,
@@ -280,6 +284,17 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
 
   // COMPACT QUEUED CAMPAIGNS (Shows only user's priority games or active campaigns, NOT all 138 installed games!)
   const priorityList = settings.priority_games || [];
+  // reward campaigns are queued as reward:<id>; the game-only views below must never see those entries
+  const gamePriority = useMemo(() => gameQueueEntries(priorityList), [priorityList]);
+  const hiddenRewards = useMemo(() => hiddenRewardIds(settings.hidden_reward_campaigns, rewardCampaigns), [settings.hidden_reward_campaigns, rewardCampaigns]);
+  const watchingCampaign = useMemo(
+    () => (rewardWatching ? usableRewardCampaigns(rewardCampaigns).find((c) => c.id === rewardWatching.id) ?? null : null),
+    [rewardWatching, rewardCampaigns]
+  );
+  const forcedLabel = useMemo(() => {
+    if (!forcedGame || !isRewardQueueEntry(forcedGame)) return forcedGame;
+    return queueItems([forcedGame], rewardCampaigns, null)[0]?.name ?? forcedGame;
+  }, [forcedGame, rewardCampaigns]);
   const topPriorityCount = activeTwitchDropsGames.filter((game) =>
     priorityList.some((name) => safeLower(name) === safeLower(game.name))
   ).length;
@@ -304,11 +319,25 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
       req?: number;
       has_drops: boolean;
       priorityIndex: number;
+      entry: string; // the priority_games entry (the game name, or reward:<id>)
+      reward?: { campaign: RewardCampaign | null }; // set for a reward campaign row
     }> = [];
 
     // 1. If priority list exists, resolve each priority game
     if (priorityList.length > 0) {
-      priorityList.forEach((gameName, idx) => {
+      queueItems(priorityList, rewardCampaigns, hiddenRewards).forEach((queued) => {
+        const gameName = queued.name;
+        const idx = queued.index;
+        if (queued.kind === 'reward') {
+          // the campaign being watched is the current target, not a row
+          if (queued.campaign && rewardWatching?.id === queued.campaign.id) return;
+          const status = rewardQueueStatus(queued.campaign);
+          list.push({
+            name: gameName, drop: status.label, state: { kind: status.kind, remaining: status.kind === 'running' ? 1 : 0, linkUrl: null, reason: status.label },
+            pct: rewardProgressPercent(queued.campaign), has_drops: false, priorityIndex: idx, entry: queued.entry, reward: { campaign: queued.campaign },
+          });
+          return;
+        }
         // Exclude currently farming game from lower queue so it is not duplicated
         if (activeGame && safeLower(gameName) === safeLower(activeGame)) return;
 
@@ -327,6 +356,7 @@ const state = getCampaignState(match, trophies, smartGameMatch);
           pct: pct,
           has_drops: match?.has_drops ?? false,
           priorityIndex: idx,
+          entry: gameName,
         });
       });
     }
@@ -349,12 +379,13 @@ const state = getCampaignState(match, trophies, smartGameMatch);
           pct: g.progress_percent || 0,
           has_drops: true,
           priorityIndex: -1,
+          entry: g.name,
         });
       }
     }
 
     return list;
-  }, [priorityList, allGames, activeGame, trophies]);
+  }, [priorityList, allGames, activeGame, trophies, rewardCampaigns, hiddenRewards, rewardWatching]);
 
   const sortedQueuedCampaigns = queueCampaigns;
   const allQueuedCampaignsLabel = `Все (${sortedQueuedCampaigns.length})`;
@@ -510,14 +541,14 @@ const filteredLogs = useMemo(() => {
   const idleInfo = useMemo(
     () =>
       computeIdleInfo({
-        priorityList,
+        priorityList: gamePriority,
         allGames,
         trophies,
         strictMode: settings.priority_mode === 0,
         now: Date.now(),
         smartMatch: smartGameMatch,
       }),
-    [priorityList, allGames, trophies, settings.priority_mode]
+    [gamePriority, allGames, trophies, settings.priority_mode]
   );
 
   const scrollToOverride = () => {
@@ -585,9 +616,22 @@ const filteredLogs = useMemo(() => {
     }
   };
   // the game that is farming right now is not a row: it is counted as available
-  const queueStats = queueCounts(queueCampaigns, Boolean(activeGame));
+  const queueStats = queueCounts(queueCampaigns, Boolean(activeGame || rewardWatching));
 
-  const renderQueueRow = (item: (typeof queueCampaigns)[number]) => (
+  const renderQueueRow = (item: (typeof queueCampaigns)[number]) => item.reward ? (
+    <RewardQueueRow
+      key={item.entry}
+      entry={item.entry}
+      name={item.name}
+      campaign={item.reward.campaign}
+      priorityIndex={item.priorityIndex}
+      queueLength={priorityList.length}
+      onForce={onForceFarm}
+      onReorder={onReorderPriority}
+      onRemove={(entry) => onUpdateSettings?.({ priority_games: priorityList.filter((e) => e !== entry) })}
+      playClick={playClick}
+    />
+  ) : (
                 <div
                   key={item.name}
                   className="queue-row"
@@ -814,7 +858,7 @@ const filteredLogs = useMemo(() => {
 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {forcedGame ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '6px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', fontWeight: 700 }}>
-                  <span><Zap className="ui-icon" aria-hidden="true" focusable="false" /> ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedGame}</span>
+                  <span><Zap className="ui-icon" aria-hidden="true" focusable="false" /> ПРИНУДИТЕЛЬНЫЙ ФОКУС: {forcedLabel}</span>
                   <button onClick={onCancelForceFarm} style={{ background: 'none', border: 'none', color: 'var(--led-mint)', textDecoration: 'underline', cursor: 'pointer', fontSize: 'var(--fs-xs)', minHeight: '24px' }}>
                     Сбросить фокус / В авто
                   </button>
@@ -942,7 +986,7 @@ const filteredLogs = useMemo(() => {
                 )}
               </>
             )}
-            {settings.reward_campaigns_enabled === true && <RewardCampaignsGroup campaigns={rewardCampaigns} playClick={playClick} />}
+            {settings.reward_campaigns_enabled === true && <RewardCampaignsGroup campaigns={visibleRewardCampaigns(rewardCampaigns, hiddenRewards)} watchingId={rewardWatching?.id ?? null} playClick={playClick} />}
           </div>
         </section>
 
@@ -962,14 +1006,19 @@ const filteredLogs = useMemo(() => {
 
             {isIdle ? (
               <div className="idle-hero">
-                <h2 className="idle-hero-title" id="heroDropTitle">{starting ? 'Загружаем данные…' : 'Ожидание кампаний'}</h2>
+                <h2 className="idle-hero-title" id="heroDropTitle">{starting ? 'Загружаем данные…' : rewardWatching ? rewardTargetLine(watchingCampaign ?? rewardWatching) : 'Ожидание кампаний'}</h2>
                 {connected && (
                   <div className="idle-hero-extra tabular" style={hardware.is_paused ? { color: 'var(--led-amber)' } : undefined}>
-                    {hardware.is_paused ? 'Автосбор приостановлен' : 'Автосбор включён · Сейчас ожидает'}
+                    {hardware.is_paused ? 'Автосбор приостановлен' : rewardWatching ? 'Автосбор включён · Смотрим кампанию наград' : 'Автосбор включён · Сейчас ожидает'}
                   </div>
                 )}
-                <div className="idle-hero-reason">{starting ? 'Данные появятся, когда служба ответит.' : idleInfo.reason}</div>
-                {!starting && idleInfo.extra && <div className="idle-hero-extra tabular">{idleInfo.extra}</div>}
+                <div className="idle-hero-reason">{starting ? 'Данные появятся, когда служба ответит.' : rewardWatching ? 'Дропов игр сейчас нет: время просмотра идёт в зачёт кампании наград.' : gamePriority.length === 0 && queueCampaigns.some((q) => q.reward) ? 'В очереди только кампании наград: ждём, пока их можно смотреть.' : idleInfo.reason}</div>
+                {!starting && rewardWatching && (
+                  <div className="idle-hero-extra tabular">
+                    {[watchingCampaign ? rewardTodayText(watchingCampaign) : '', activeStreamer ? `@${activeStreamer}` : ''].filter(Boolean).join(' · ') || 'Смотрим без загрузки видео'}
+                  </div>
+                )}
+                {!starting && !rewardWatching && idleInfo.extra && <div className="idle-hero-extra tabular">{idleInfo.extra}</div>}
                 {!starting && idleInfo.unlinked.slice(0, 3).map((u) => (
                   <button
                     key={u.name}
@@ -1504,7 +1553,7 @@ const filteredLogs = useMemo(() => {
                 <div className="flex items-center gap-2 text-xs">
                   <span className="led-dot amber animate-pulse" />
                   <span className="text-[var(--text-secondary)]">
-                    Сейчас принудительно фармится: <strong className="text-amber-400">{forcedGame}</strong>
+                    Сейчас принудительно фармится: <strong className="text-amber-400">{forcedLabel}</strong>
                   </span>
                 </div>
                 <button

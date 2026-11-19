@@ -20,7 +20,7 @@
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
 // POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
-// ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does.
+// ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does. With it, hidden_reward_campaigns is ['rc6'] and reward_campaign_categories {}; POST /api/settings with those keys, priority_games ('reward:<id>' entries) and POST /api/farm/force|cancel-force behave like the service (force of rc2 (no category), rc3 (done today) answers 400 with a Russian message; rc1/rc4 are accepted and set forced_game and reward_watching); window.__fixturePosts lists every one of these POSTs. For the dashboard's watching branch use ?pip=idle (no active drop).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -129,8 +129,26 @@
       sitewide: false, groups: [{ goalKind: 'watch', minutes: 45, subs: 0, rewards: [{ name: 'Hidden Reward', image: null, earnableUntil: null }] }],
       category: { name: 'Synthetic Game', slug: 'synthetic-game', source: 'game' }, farmable: true, watchedToday: 0, dailyGoal: 45, doneToday: false, earned: false, hidden: true },
   ];
-  function syncRewards() { state.reward_campaigns = state.settings.reward_campaigns_enabled === true ? REWARD_SAMPLES : []; }
-  if (rewardsMode === '1' || rewardsMode === 'empty') state.settings.reward_campaigns_enabled = true;
+  // like the service: hidden follows hidden_reward_campaigns, a category set by the user wins, farmable = a watch goal AND a category
+  function syncRewards() {
+    if (state.settings.reward_campaigns_enabled !== true) { state.reward_campaigns = []; return; }
+    var hidden = state.settings.hidden_reward_campaigns || [], cats = state.settings.reward_campaign_categories || {};
+    state.reward_campaigns = REWARD_SAMPLES.map(function (c) {
+      var copy = Object.assign({}, c), name = cats[c.id];
+      if (name) copy.category = { name: name, slug: String(name).toLowerCase().replace(/\s+/g, '-'), source: 'user' };
+      copy.hidden = hidden.indexOf(c.id) >= 0;
+      copy.farmable = copy.category !== null && (copy.groups || []).some(function (g) { return g.goalKind === 'watch' && g.minutes > 0; });
+      return copy;
+    });
+  }
+  if (rewardsMode === '1' || rewardsMode === 'empty') {
+    state.settings.reward_campaigns_enabled = true;
+    state.settings.hidden_reward_campaigns = ['rc6'];
+    state.settings.reward_campaign_categories = {};
+  }
+  state.forced_game = null;
+  state.reward_watching = null;
+  window.__fixturePosts = [];
   syncRewards();
   window.__fixtureSettings = state.settings;
   var dimmer = {
@@ -461,7 +479,20 @@
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init, url);
-    if (path === '/api/settings' && init && init.method === 'POST') { Object.assign(state.settings, JSON.parse(init.body)); syncRewards(); return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } }); }
+    // Farm now: a reward target is refused with a Russian message like the service does (not farmable, done today, earned)
+    if ((path === '/api/farm/force' || path === '/api/farm/cancel-force') && init && init.method === 'POST') {
+      var farmBody = init.body ? JSON.parse(init.body) : {};
+      window.__fixturePosts.push({ path: path, body: farmBody });
+      if (path === '/api/farm/cancel-force') { state.forced_game = null; state.reward_watching = null; return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } }); }
+      var target = String(farmBody.game || ''), isReward = target.indexOf('reward:') === 0;
+      var rc = isReward ? state.reward_campaigns.filter(function (c) { return c.id === target.slice(7); })[0] : null;
+      var refusal = !isReward ? '' : !rc ? 'Кампания наград не найдена.' : rc.earned ? 'Награда уже получена.' : rc.doneToday ? 'Цель на сегодня выполнена, продолжим завтра.' : !rc.farmable ? 'Для кампании нет категории с просмотром: задайте её вручную.' : '';
+      if (refusal) return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ status: 'error', message: refusal }); }, text: function () { return Promise.resolve(JSON.stringify({ message: refusal })); } });
+      state.forced_game = target;
+      state.reward_watching = rc ? { id: rc.id, name: rc.name } : null;
+      return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } });
+    }
+    if (path === '/api/settings' && init && init.method === 'POST') { window.__fixturePosts.push({ path: path, body: JSON.parse(init.body) }); Object.assign(state.settings, JSON.parse(init.body)); syncRewards(); return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ status: 'ok' }); }, text: function () { return Promise.resolve('{}'); } }); }
     if (path === '/api/v1/giveaways/browser' && init && init.method === 'POST') {
       var posted = JSON.parse(init.body);
       window.__browserPosts.push(posted);

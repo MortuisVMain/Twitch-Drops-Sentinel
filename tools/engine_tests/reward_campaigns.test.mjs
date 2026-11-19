@@ -5,7 +5,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { REWARDS_PAGE_URL, REWARDS_OPEN_KEY, rewardLink, rewardGoalText, rewardUntilText, rewardInitials, usableRewardCampaigns } =
+const {
+  REWARDS_PAGE_URL, REWARDS_OPEN_KEY, rewardLink, rewardGoalText, rewardUntilText, rewardInitials, usableRewardCampaigns,
+  rewardQueueKey, isRewardQueueEntry, gameQueueEntries, queueItems, toggleQueueEntry, rewardFarmAction, rewardGroupLines,
+  rewardCategoryLine, rewardTodayText, rewardTargetLine, rewardProgressPercent, sanitizeCategory, withHiddenId, withCategory,
+  hiddenRewardIds, visibleRewardCampaigns, rewardMatchesQuery, rewardQueueStatus,
+} =
   await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'rewardCampaigns.mjs')).href);
 
 test('the link is the campaign url when it is https, otherwise the Twitch campaigns page', () => {
@@ -50,4 +55,124 @@ test('only well-formed campaigns reach the page, at most fifty', () => {
 
 test('the open/closed choice of the group is remembered under its own key', () => {
   assert.equal(REWARDS_OPEN_KEY, 'sentinel_reward_campaigns_open');
+});
+
+const watch = (over = {}) => ({
+  id: 'rc1', name: 'Launch', category: { name: 'Synthetic Game', slug: 's', source: 'game' }, farmable: true, watchedToday: 12, dailyGoal: 30,
+  doneToday: false, earned: false, hidden: false, endsAt: null,
+  groups: [{ goalKind: 'watch', minutes: 30, subs: 0, rewards: [{ name: 'Skin' }] }], ...over,
+});
+
+test('queue entries: reward:<id> is a reward, anything else is a game', () => {
+  assert.equal(rewardQueueKey('rc1'), 'reward:rc1');
+  assert.equal(isRewardQueueEntry('reward:rc1'), true);
+  for (const e of ['Rust', 'reward', 'Reward:rc1', '', null, undefined, 5]) assert.equal(isRewardQueueEntry(e), false, String(e));
+  assert.deepEqual(gameQueueEntries(['Rust', 'reward:rc1', 'Dota 2']), ['Rust', 'Dota 2']);
+  assert.deepEqual(gameQueueEntries(undefined), []);
+});
+
+test('queue items keep the queue position, name rewards by campaign and flag ended ones, hidden ones are dropped', () => {
+  const items = queueItems(['Rust', 'reward:rc1', 'reward:gone', 'reward:rc6'], [watch(), watch({ id: 'rc6', name: 'Secret' })], new Set(['rc6']));
+  assert.deepEqual(items.map((i) => [i.index, i.kind, i.name, i.gone]), [
+    [0, 'game', 'Rust', false], [1, 'reward', 'Launch', false], [2, 'reward', 'Кампания наград закончилась', true],
+  ]);
+  assert.equal(items[1].campaign.id, 'rc1');
+  assert.equal(items[2].campaign, null);
+  assert.equal(items.some((i) => String(i.name).startsWith('reward:')), false);
+  assert.deepEqual(queueItems(null, null, null), []);
+});
+
+test('toggling a queue entry adds it at the end or removes it, never touching the other entries', () => {
+  assert.deepEqual(toggleQueueEntry(['Rust'], 'reward:rc1'), { list: ['Rust', 'reward:rc1'], queued: true });
+  assert.deepEqual(toggleQueueEntry(['reward:rc1', 'Rust'], 'reward:rc1'), { list: ['Rust'], queued: false });
+  assert.deepEqual(toggleQueueEntry(undefined, 'reward:rc1'), { list: ['reward:rc1'], queued: true });
+});
+
+test('Farm now: stop when forced, otherwise blocked with the reason or start', () => {
+  assert.deepEqual(rewardFarmAction(watch(), null), { mode: 'start', reason: '' });
+  assert.deepEqual(rewardFarmAction(watch(), 'reward:rc1'), { mode: 'stop', reason: '' });
+  assert.deepEqual(rewardFarmAction(watch({ doneToday: true }), 'reward:rc1'), { mode: 'stop', reason: '' });
+  assert.deepEqual(rewardFarmAction(watch({ earned: true }), null), { mode: 'blocked', reason: 'Награда уже получена' });
+  assert.deepEqual(rewardFarmAction(watch({ doneToday: true, farmable: true }), null), { mode: 'blocked', reason: 'Цель на сегодня выполнена' });
+  assert.deepEqual(rewardFarmAction(watch({ category: null, farmable: false }), null), { mode: 'blocked', reason: 'Нет категории для просмотра' });
+  const subs = watch({ category: null, farmable: false, dailyGoal: null, groups: [{ goalKind: 'subs', minutes: 0, subs: 1, rewards: [] }] });
+  assert.deepEqual(rewardFarmAction(subs, null), { mode: 'blocked', reason: 'Только подписка — Sentinel платное не делает' });
+  assert.equal(rewardFarmAction(watch({ farmable: false }), null).mode, 'blocked');
+});
+
+test('goal lines: watch with today progress, subs muted and manual, rewards listed under each goal', () => {
+  const c = watch({ groups: [
+    { goalKind: 'watch', minutes: 60, subs: 0, rewards: [{ name: 'GTA DVD Chest' }] },
+    { goalKind: 'subs', minutes: 0, subs: 1, rewards: [{ name: 'Emote Chest' }, { name: '' }, {}] },
+  ], watchedToday: 23, dailyGoal: 60 });
+  assert.deepEqual(rewardGroupLines(c), [
+    { kind: 'watch', text: 'Смотреть 60 мин в день · сегодня 23/60', muted: false, rewards: ['GTA DVD Chest'] },
+    { kind: 'subs', text: 'Подписок: 1 — только вручную', muted: true, rewards: ['Emote Chest'] },
+  ]);
+  assert.equal(rewardGroupLines(watch({ doneToday: true, watchedToday: 70, dailyGoal: 30 }))[0].text, 'Смотреть 30 мин в день · сегодня 30/30 · выполнено на сегодня');
+  assert.equal(rewardGroupLines(watch({ groups: [{ goalKind: 'other', minutes: 0, subs: 0, rewards: [] }] }))[0].text, 'Другое условие — только вручную');
+  assert.deepEqual(rewardGroupLines(watch({ groups: undefined, minutesGoal: 20, subsGoal: 2, rewards: [{ name: 'X' }] })), [
+    { kind: 'watch', text: 'Смотреть 20 мин в день · сегодня 12/20', muted: false, rewards: ['X'] },
+    { kind: 'subs', text: 'Подписок: 2 — только вручную', muted: true, rewards: [] },
+  ]);
+});
+
+test('category line says where the category came from, or that none was found', () => {
+  const cat = (source) => ({ category: { name: 'Grand Theft Auto VI', slug: 'g', source } });
+  assert.equal(rewardCategoryLine(cat('guess')), 'Категория: Grand Theft Auto VI · угадана');
+  assert.equal(rewardCategoryLine(cat('user')), 'Категория: Grand Theft Auto VI · вручную');
+  assert.equal(rewardCategoryLine(cat('game')), 'Категория: Grand Theft Auto VI · из Twitch');
+  assert.equal(rewardCategoryLine({ category: null }), 'Категория не найдена');
+  assert.equal(rewardCategoryLine({}), 'Категория не найдена');
+});
+
+test('today text, target line and progress percent', () => {
+  assert.equal(rewardTodayText(watch({ watchedToday: 23, dailyGoal: 60 })), 'сегодня 23/60');
+  assert.equal(rewardTodayText(watch({ watchedToday: 99, dailyGoal: 60 })), 'сегодня 60/60');
+  assert.equal(rewardTodayText(watch({ dailyGoal: null })), '');
+  assert.equal(rewardTargetLine(watch({ category: { name: 'GTA', slug: 'g', source: 'guess' } })), 'Кампания наград: Launch · GTA');
+  assert.equal(rewardTargetLine(watch({ category: null })), 'Кампания наград: Launch');
+  assert.equal(rewardTargetLine({ id: 'x', name: '' }), 'Кампания наград');
+  assert.equal(rewardProgressPercent(watch({ watchedToday: 15, dailyGoal: 30 })), 50);
+  assert.equal(rewardProgressPercent(watch({ watchedToday: 90, dailyGoal: 30 })), 100);
+  assert.equal(rewardProgressPercent(watch({ dailyGoal: null })), 0);
+  assert.equal(rewardProgressPercent(watch({ earned: true, dailyGoal: null })), 100);
+});
+
+test('category input is trimmed and cut at 100 characters; the map loses the key when it is empty', () => {
+  assert.equal(sanitizeCategory('  Just Chatting  '), 'Just Chatting');
+  assert.equal(sanitizeCategory('x'.repeat(130)).length, 100);
+  assert.equal(sanitizeCategory('   '), '');
+  assert.equal(sanitizeCategory(null), '');
+  assert.deepEqual(withCategory({ a: 'A' }, 'b', ' B '), { a: 'A', b: 'B' });
+  assert.deepEqual(withCategory({ a: 'A', b: 'B' }, 'b', ''), { a: 'A' });
+  assert.deepEqual(withCategory(undefined, 'b', 'B'), { b: 'B' });
+});
+
+test('hiding adds the id once, showing removes it; the hidden set follows the setting, else the campaign flags', () => {
+  assert.deepEqual(withHiddenId(['a'], 'b', true), ['a', 'b']);
+  assert.deepEqual(withHiddenId(['a', 'b'], 'b', true), ['a', 'b']);
+  assert.deepEqual(withHiddenId(['a', 'b'], 'b', false), ['a']);
+  assert.deepEqual(withHiddenId(undefined, 'b', true), ['b']);
+  const list = [watch(), watch({ id: 'rc2', hidden: true })];
+  assert.deepEqual([...hiddenRewardIds(['rc1'], list)], ['rc1']);
+  assert.deepEqual([...hiddenRewardIds([], list)], []);
+  assert.deepEqual([...hiddenRewardIds(undefined, list)], ['rc2']);
+  assert.deepEqual(visibleRewardCampaigns(list, new Set(['rc1'])).map((c) => c.id), ['rc2']);
+  assert.deepEqual(visibleRewardCampaigns([null, { id: 'z' }, ...list], new Set()).map((c) => c.id), ['rc1', 'rc2']);
+});
+
+test('the shelf search finds a campaign by its name, brand, category or reward', () => {
+  const c = watch({ name: 'Launch Party', brand: 'Acme', category: { name: 'Grand Theft Auto VI', slug: 'g', source: 'guess' } });
+  for (const q of ['launch', 'ACME', 'theft', 'skin']) assert.equal(rewardMatchesQuery(c, q), true, q);
+  assert.equal(rewardMatchesQuery(c, 'zzz'), false);
+  assert.equal(rewardMatchesQuery(c, ''), true);
+});
+
+test('a queue row for a reward: running with today progress, done when earned or finished today, none with the reason otherwise', () => {
+  assert.deepEqual(rewardQueueStatus(watch({ watchedToday: 23, dailyGoal: 60 })), { kind: 'running', label: 'сегодня 23/60' });
+  assert.deepEqual(rewardQueueStatus(watch({ earned: true })), { kind: 'done', label: 'награда получена' });
+  assert.deepEqual(rewardQueueStatus(watch({ doneToday: true })), { kind: 'done', label: 'цель на сегодня выполнена' });
+  assert.deepEqual(rewardQueueStatus(watch({ farmable: false, category: null })), { kind: 'none', label: 'Нет категории для просмотра' });
+  assert.deepEqual(rewardQueueStatus(null), { kind: 'none', label: 'Кампания наград закончилась' });
 });

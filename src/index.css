@@ -1294,6 +1294,47 @@
     font-size: var(--fs-xs); font-weight: 700; color: var(--led-amber); text-decoration: underline; text-underline-offset: 3px;
   }
   .reward-empty { margin-top: 4px; padding: 4px 10px; font-size: var(--fs-xs); color: var(--text-muted); }
+  /* Reward campaign cards: the game card shell (cartridge-card / campaign-row) with its own chip colour */
+  .reward-chip { background: var(--led-cyan); }
+  .reward-chip-inline { position: static; flex-shrink: 0; }
+  .campaign-row .reward-title .reward-chip { margin-right: 6px; }
+  .reward-card-cover {
+    position: relative; width: 100%; aspect-ratio: 3 / 4; max-height: 260px; border-radius: 10px; overflow: hidden;
+    background: var(--bg-well); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+  .reward-cover { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .reward-cover-initials {
+    display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-family: var(--font-ui);
+    font-size: var(--fs-xl); font-weight: 900; letter-spacing: 0.04em; color: var(--text-secondary); background: var(--bg-well);
+  }
+  .campaign-row .reward-cover-initials { font-size: var(--fs-sm); }
+  .reward-title { font-size: var(--fs-sm); font-weight: 800; overflow-wrap: anywhere; }
+  .reward-card .reward-meta, .reward-card-row .reward-meta { margin-top: 1px; }
+  .reward-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+  .reward-badge {
+    display: inline-block; padding: 0 6px; border: 1px solid currentColor; border-radius: var(--radius-sm);
+    font-size: var(--fs-xs); font-weight: 800; line-height: 1.5;
+  }
+  .reward-badge.now { color: var(--led-mint); }
+  .reward-badge.earned { color: var(--led-amber); }
+  .reward-goals { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-xs); color: var(--text-secondary); }
+  .reward-goal.muted { color: var(--text-muted); }
+  .reward-goal-rewards { color: var(--text-muted); overflow-wrap: anywhere; }
+  .reward-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+  .reward-actions .reward-link { margin-left: 0; }
+  .reward-actions > * { max-width: 100%; }
+  .reward-actions .tactile-btn { white-space: normal; text-align: center; height: auto; }
+  .reward-card, .reward-card > * { min-width: 0; }
+  .reward-reorder { display: flex; gap: 3px; }
+  .reward-cat-editor { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; grid-column: 1 / -1; }
+  .reward-cat-editor input {
+    flex: 1 1 8rem; min-width: 0; min-height: 28px; padding: 4px 10px; border-radius: 7px; font-size: var(--fs-xs);
+    background: var(--bg-well); border: 1px solid var(--border-subtle); color: var(--text-primary);
+  }
+  .tactile-btn[aria-disabled='true'] { color: var(--text-muted); cursor: not-allowed; }
+  .tactile-btn[aria-disabled='true']:hover { border-color: var(--border-main); background: var(--bg-btn); }
+  .campaign-row.reward-card-row { grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; }
+  .reward-card-row .reward-actions { justify-content: flex-end; max-width: 26rem; }
   .reorder-rocker {
     display: flex; flex-direction: column; background: var(--bg-well);
     border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); overflow: hidden;

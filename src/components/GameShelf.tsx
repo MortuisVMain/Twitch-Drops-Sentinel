@@ -3,8 +3,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
-import { GameItem, RewardCampaign, TrophyItem } from '../types';
-import { RewardCampaignsGroup } from './RewardCampaignsGroup';
+import { GameItem, RewardCampaign, SentinelSettings, TrophyItem } from '../types';
+import { RewardCampaignCard, RewardGoneCard } from './RewardCampaignCard';
+import { RewardHiddenList } from './RewardHiddenList';
+import { useRewardActions } from '../hooks/useRewardActions';
+import { hiddenRewardIds, queueItems, rewardMatchesQuery, rewardQueueKey, usableRewardCampaigns, visibleRewardCampaigns } from '../utils/rewardCampaigns.mjs';
 import { CartridgeCover } from './CartridgeCover';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 
@@ -31,9 +34,23 @@ interface GameShelfProps {
   onManualRefresh?: () => void;
   lastSyncAt?: number | null;
   rewardCampaigns?: RewardCampaign[]; // passed only while the reward campaigns setting is on
+  hiddenRewardList?: string[]; // settings.hidden_reward_campaigns
+  rewardCategories?: Record<string, string>; // settings.reward_campaign_categories
+  rewardWatchingId?: string | null; // the campaign the engine is watching right now
+  onUpdateSettings: (changes: Partial<SentinelSettings>) => Promise<void> | void;
 }
 
 export { CartridgeCover };
+
+/** One cell of the shelf grid: a game, or a reward campaign (campaign null: a queued one that no longer exists). */
+interface ShelfItem {
+  key: string;
+  order: number; // position in the queue, -1 when not queued
+  game?: GameItem;
+  campaign?: RewardCampaign | null;
+  queueIndex?: number;
+  entry?: string;
+}
 
 const isTitleMatch = (a: string, b: string): boolean => {
   if (!a || !b) return false;
@@ -64,6 +81,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   onManualRefresh,
   lastSyncAt = null,
   rewardCampaigns,
+  hiddenRewardList,
+  rewardCategories = {},
+  rewardWatchingId = null,
+  onUpdateSettings,
   onOpenVaultFile,
   onShowToast,
   onToggleUserLinked,
@@ -394,12 +415,42 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     return activeFilter === 'all' ? sortCampaigns(list, sortMode, seenAtOpen) : list;
   }, [games, trophies, priorityList, excludedList, excludedSet, allRemovedLower, activeFilter, searchQuery, claimedTrophiesByGame, sortMode, seenAtOpen]);
 
+  // Reward campaigns sit in the same grid as the games: first on "Активные кампании", in queue order on "В моей очереди"
+  const hiddenIds = useMemo(() => hiddenRewardIds(hiddenRewardList, rewardCampaigns), [hiddenRewardList, rewardCampaigns]);
+  const rewardActions = useRewardActions({
+    priorityList, hiddenList: hiddenRewardList ?? [], categories: rewardCategories, forcedGame, onUpdateSettings,
+    onForceFarm, onCancelForceFarm, onReorderPriority, onShowToast,
+  });
+  const visibleRewards = useMemo(() => visibleRewardCampaigns(rewardCampaigns, hiddenIds), [rewardCampaigns, hiddenIds]);
+  const hiddenRewards = useMemo(() => usableRewardCampaigns(rewardCampaigns).filter((c) => hiddenIds.has(c.id)), [rewardCampaigns, hiddenIds]);
+  const queuedRewards = useMemo(
+    () => queueItems(priorityList, rewardCampaigns, hiddenIds).filter((item) => item.kind === 'reward'),
+    [priorityList, rewardCampaigns, hiddenIds]
+  );
+  const queueCount = useMemo(() => queueItems(priorityList, rewardCampaigns, hiddenIds).length, [priorityList, rewardCampaigns, hiddenIds]);
+  const shelfItems = useMemo<ShelfItem[]>(() => {
+    const gameItems: ShelfItem[] = filteredGames.map((game) => ({ key: game.name, order: priorityList.indexOf(game.name), game }));
+    if (activeFilter === 'all') {
+      const rewards = visibleRewards
+        .filter((campaign) => rewardMatchesQuery(campaign, searchQuery))
+        .map((campaign): ShelfItem => ({ key: `reward:${campaign.id}`, order: -1, campaign, queueIndex: priorityList.indexOf(rewardQueueKey(campaign.id)) }));
+      return [...rewards, ...gameItems];
+    }
+    if (activeFilter === 'priority') {
+      const rewards = queuedRewards
+        .filter((item) => !item.campaign || rewardMatchesQuery(item.campaign, searchQuery))
+        .map((item): ShelfItem => ({ key: item.entry, order: item.index, campaign: item.campaign, queueIndex: item.index, entry: item.entry }));
+      return [...gameItems, ...rewards].sort((a, b) => (a.order === -1 ? 9999 : a.order) - (b.order === -1 ? 9999 : b.order));
+    }
+    return gameItems;
+  }, [filteredGames, activeFilter, visibleRewards, queuedRewards, priorityList, searchQuery]);
+
   const installedCount = useMemo(() => games.filter(g => g.is_installed).length, [games]);
   const visibleRunning = useMemo(
     () => games.filter((g) => isCampaignRunning(g) && !excludedSet.has(g.name) && !excludedList.includes(g.name) && !allRemovedLower.has(g.name.toLowerCase())),
     [games, excludedSet, excludedList, allRemovedLower]
   );
-  const dropsCount = visibleRunning.length;
+  const dropsCount = visibleRunning.length + visibleRewards.length;
   // remember what has been shown, so the next visit can mark newcomers
   useEffect(() => {
     if (visibleRunning.length === 0) return;
@@ -432,6 +483,26 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   }, [allRemovedLower]);
 
   const displayTrophies = useMemo(() => trophies.slice(0, 9), [trophies]);
+
+  const renderReward = (item: ShelfItem, layout: 'tile' | 'row') => {
+    if (!item.campaign) {
+      return <RewardGoneCard key={item.key} layout={layout} playClick={playClick} onRemove={() => rewardActions.removeEntry(item.entry ?? '')} />;
+    }
+    return (
+      <RewardCampaignCard
+        key={item.key}
+        campaign={item.campaign}
+        layout={layout}
+        queueIndex={item.queueIndex ?? -1}
+        queueLength={priorityList.length}
+        forcedGame={forcedGame}
+        watching={rewardWatchingId === item.campaign.id}
+        userCategory={rewardCategories[item.campaign.id] ?? (item.campaign.category?.source === 'user' ? item.campaign.category.name : '')}
+        actions={rewardActions}
+        playClick={playClick}
+      />
+    );
+  };
 
   const renderListRow = (game: GameItem) => {
     const isForced = forcedGame === game.name;
@@ -538,7 +609,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('priority'); }}
           >
-            <Star className="ui-icon" aria-hidden="true" focusable="false" /> В моей очереди ({priorityList.length})
+            <Star className="ui-icon" aria-hidden="true" focusable="false" /> В моей очереди ({queueCount})
           </button>
           <button 
             className={`tactile-btn ${activeFilter === 'claimed' ? 'active-amber' : ''}`}
@@ -667,13 +738,6 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         </div>
       </div>
 
-      {/* Reward campaigns have no game, so they get their own line above the games (only while the setting is on and Twitch sent some) */}
-      {activeFilter === 'all' && rewardCampaigns && rewardCampaigns.length > 0 && (
-        <div className="titanium-island" style={{ padding: '6px 14px' }}>
-          <RewardCampaignsGroup campaigns={rewardCampaigns} playClick={playClick} />
-        </div>
-      )}
-
       {/* Trophies: one line on the campaigns tab (expandable, remembered), always open on "Собрано" */}
       {(activeFilter === 'all' || activeFilter === 'claimed') && (
         <div id="holoTrophyVault" className="titanium-island" style={vaultOpen ? undefined : { padding: '6px 14px' }}>
@@ -732,8 +796,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
       )}
 
       {/* Cartridges Grid (.cartridges-grid) 1-to-1 with SPEC */}
-      <div className={viewMode === 'list' && filteredGames.length > 0 ? 'campaign-list' : 'cartridges-grid'}>
-        {filteredGames.length === 0 ? (
+      <div className={viewMode === 'list' && shelfItems.length > 0 ? 'campaign-list' : 'cartridges-grid'}>
+        {shelfItems.length === 0 ? (
           <div 
             className="titanium-island" 
             style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}
@@ -754,9 +818,11 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             </div>
           </div>
         ) : viewMode === 'list' ? (
-          filteredGames.map(renderListRow)
+          shelfItems.map((item) => (item.game ? renderListRow(item.game) : renderReward(item, 'row')))
         ) : (
-          filteredGames.map((game) => {
+          shelfItems.map((item) => {
+            if (!item.game) return renderReward(item, 'tile');
+            const game = item.game;
             const isForced = forcedGame === game.name;
             const priorityIndex = priorityList.indexOf(game.name);
             const isInPriority = priorityIndex !== -1;
@@ -1084,6 +1150,8 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           })
         )}
       </div>
+
+      {activeFilter === 'all' && <RewardHiddenList campaigns={hiddenRewards} onRestore={rewardActions.restore} playClick={playClick} />}
     </div>
   );
 };
