@@ -198,6 +198,28 @@ export const rewardMatchesQuery = (campaign, query) => {
   return [campaign?.name, campaign?.brand, campaign?.category?.name, ...rewards].some((text) => lower(text).includes(q));
 };
 
+/** "день 3 из 6": the day of a multi-day campaign (the day in progress, or today's once its goal is done). "день 3" when the
+ *  service cannot tell how many days there are, '' without a daily goal or before anything was watched. */
+export const rewardDayText = (campaign) => {
+  if (!num(campaign?.dailyGoal)) return '';
+  const done = num(campaign?.daysDone);
+  if (done === 0 && num(campaign?.watchedToday) === 0 && campaign?.doneToday !== true) return '';
+  const day = campaign?.doneToday === true ? Math.max(done, 1) : done + 1;
+  const total = num(campaign?.daysTotal);
+  return total ? `день ${day} из ${total}` : `день ${day}`;
+};
+
+/** "Значок за сегодня получен" once the service has seen today's daily reward, otherwise ''. */
+export const rewardDailyRewardText = (campaign) => (campaign?.dailyRewardToday === true ? 'Значок за сегодня получен' : '');
+
+/** The two reward switches of Settings: the daily slot is on unless the setting is false, the auto-queue only when true;
+ *  both are disabled while the reward campaigns themselves are off. */
+export const rewardSwitches = (settings) => ({
+  disabled: settings?.reward_campaigns_enabled !== true,
+  slot: settings?.reward_daily_slot !== false,
+  autoQueue: settings?.reward_auto_queue === true,
+});
+
 /** The state of a reward's row in the dashboard queue (kinds as the game rows use them) and its short caption. */
 export const rewardQueueStatus = (campaign) => {
   if (!campaign) return { kind: 'none', label: REWARD_GONE_TEXT };

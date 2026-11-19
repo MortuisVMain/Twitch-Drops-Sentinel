@@ -86,6 +86,8 @@ export interface SentinelSettings {
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
   reward_campaigns_enabled?: boolean; // show Twitch reward campaigns and farm their watch time (subscriptions are never bought)
+  reward_daily_slot?: boolean; // default true: a queued reward campaign takes the daily slot before drops until today's goal is reached
+  reward_auto_queue?: boolean; // default false: new farmable reward campaigns are appended to the end of the queue
   hidden_reward_campaigns?: string[]; // campaign ids the user hid: still in the state with hidden=true, never farmed (post the whole list)
   reward_campaign_categories?: Record<string, string>; // campaign id -> category name chosen by the user (post the whole map; an empty name removes an entry)
   disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[]; // optional tabs turned off; Giveaways follows giveaways_enabled
@@ -156,6 +158,9 @@ export interface RewardCampaign {
   dailyGoal?: number | null; // minutes of the watch group, null without one
   doneToday?: boolean; // dailyGoal reached today: it is eligible again from the next UTC day
   earned?: boolean; // Twitch said the reward was earned
+  dailyRewardToday?: boolean; // today's daily reward (a badge a day) was received
+  daysDone?: number; // UTC days on which the watch goal was reached
+  daysTotal?: number | null; // days the campaign runs when its summary says so ("six different days")
   hidden?: boolean; // the user hid it: shown by the page only on request, never farmed
 }
 

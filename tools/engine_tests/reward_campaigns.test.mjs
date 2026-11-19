@@ -9,7 +9,7 @@ const {
   REWARDS_PAGE_URL, REWARDS_OPEN_KEY, rewardLink, rewardGoalText, rewardUntilText, rewardInitials, usableRewardCampaigns,
   rewardQueueKey, isRewardQueueEntry, gameQueueEntries, queueItems, toggleQueueEntry, rewardFarmAction, rewardGroupLines,
   rewardCategoryLine, rewardTodayText, rewardTargetLine, rewardProgressPercent, sanitizeCategory, withHiddenId, withCategory,
-  hiddenRewardIds, visibleRewardCampaigns, rewardMatchesQuery, rewardQueueStatus,
+  hiddenRewardIds, visibleRewardCampaigns, rewardMatchesQuery, rewardQueueStatus, rewardDayText, rewardDailyRewardText, rewardSwitches,
 } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'rewardCampaigns.mjs')).href);
 
@@ -175,4 +175,31 @@ test('a queue row for a reward: running with today progress, done when earned or
   assert.deepEqual(rewardQueueStatus(watch({ doneToday: true })), { kind: 'done', label: 'цель на сегодня выполнена' });
   assert.deepEqual(rewardQueueStatus(watch({ farmable: false, category: null })), { kind: 'none', label: 'Нет категории для просмотра' });
   assert.deepEqual(rewardQueueStatus(null), { kind: 'none', label: 'Кампания наград закончилась' });
+});
+
+test('a multi-day campaign shows its day number: the day in progress, or the last finished one once today is done', () => {
+  const day = (over) => watch({ dailyGoal: 60, watchedToday: 5, daysDone: 2, daysTotal: 6, doneToday: false, ...over });
+  assert.equal(rewardDayText(day({})), 'день 3 из 6');
+  assert.equal(rewardDayText(day({ doneToday: true, watchedToday: 60 })), 'день 2 из 6', 'daysDone already counts a day whose goal is reached');
+  assert.equal(rewardDayText(day({ daysTotal: null })), 'день 3');
+  assert.equal(rewardDayText(day({ daysTotal: undefined })), 'день 3');
+  assert.equal(rewardDayText(day({ daysDone: 0, watchedToday: 0 })), '', 'nothing watched yet: no day to show');
+  assert.equal(rewardDayText(day({ daysDone: 0, watchedToday: 7 })), 'день 1 из 6');
+  assert.equal(rewardDayText(day({ dailyGoal: null })), '');
+  assert.equal(rewardDayText(null), '');
+  assert.equal(rewardDayText(day({ daysDone: 'x', daysTotal: 'y' })), 'день 1', 'garbage numbers read as none');
+});
+
+test('the received daily badge is stated only when the service says so', () => {
+  assert.equal(rewardDailyRewardText(watch({ dailyRewardToday: true })), 'Значок за сегодня получен');
+  for (const v of [false, undefined, null, 'true', 1]) assert.equal(rewardDailyRewardText(watch({ dailyRewardToday: v })), '', String(v));
+  assert.equal(rewardDailyRewardText(null), '');
+});
+
+test('the two reward switches: the slot is on unless the setting is false, the auto-queue is on only when true, both off while rewards are off', () => {
+  assert.deepEqual(rewardSwitches({ reward_campaigns_enabled: true }), { disabled: false, slot: true, autoQueue: false });
+  assert.deepEqual(rewardSwitches({ reward_campaigns_enabled: true, reward_daily_slot: false, reward_auto_queue: true }), { disabled: false, slot: false, autoQueue: true });
+  assert.deepEqual(rewardSwitches({}), { disabled: true, slot: true, autoQueue: false });
+  assert.deepEqual(rewardSwitches({ reward_campaigns_enabled: false, reward_auto_queue: true }), { disabled: true, slot: true, autoQueue: true });
+  assert.deepEqual(rewardSwitches(null), { disabled: true, slot: true, autoQueue: false });
 });

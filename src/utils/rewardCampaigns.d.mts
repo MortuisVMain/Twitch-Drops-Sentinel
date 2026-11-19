@@ -42,3 +42,6 @@ export function hiddenRewardIds(settingList: unknown, campaigns: unknown): Set<s
 export function visibleRewardCampaigns(campaigns: unknown, hiddenIds: Set<string>): RewardCampaign[];
 export function rewardMatchesQuery(campaign: RewardCampaign | null | undefined, query: string): boolean;
 export function rewardQueueStatus(campaign: RewardCampaign | null | undefined): { kind: 'running' | 'done' | 'none'; label: string };
+export function rewardDayText(campaign: RewardCampaign | null | undefined): string;
+export function rewardDailyRewardText(campaign: RewardCampaign | null | undefined): string;
+export function rewardSwitches(settings: { reward_campaigns_enabled?: boolean; reward_daily_slot?: boolean; reward_auto_queue?: boolean } | null | undefined): { disabled: boolean; slot: boolean; autoQueue: boolean };

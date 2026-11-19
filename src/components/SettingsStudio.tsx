@@ -6,6 +6,7 @@ import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, ge
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
+import { rewardSwitches } from '../utils/rewardCampaigns.mjs';
 import { tabSwitches, tabSetPatch, needsOffConfirmation, type TabId } from '../utils/tabVisibility.mjs';
 
 interface SettingsStudioProps {
@@ -360,6 +361,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
 
   const moduleOn = moduleStates(settings, { muted: isMuted, autostart: autostartEnabled });
   const rewardsOn = settings.reward_campaigns_enabled === true;
+  const rewardSwitch = rewardSwitches(settings);
   const powerModeWord = settings.auto_shutdown_mode === 'shutdown' ? 'выключится' : settings.auto_shutdown_mode === 'lock' ? 'заблокируется' : 'уйдёт в сон';
   const moduleCards: { key: ModuleKey; title: string; hint: string; tooltip?: string; onToggle: () => void }[] = [
     {
@@ -764,9 +766,39 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           >
             <span style={{ minWidth: 0 }}>
               <span className="module-switch-title">Кампании наград</span>
-              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Только показ, сбор пока не поддерживается.</span>
+              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Время просмотра набирает Sentinel, платные условия только вручную.</span>
             </span>
             <span className={`cnc-switch ${rewardsOn ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={rewardSwitch.slot}
+            aria-disabled={rewardSwitch.disabled}
+            data-reward-slot-switch="1"
+            className="module-switch-card module-switch-btn"
+            onClick={() => { if (rewardSwitch.disabled) return; playClick(); onUpdateSettings({ reward_daily_slot: !rewardSwitch.slot }); }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span className="module-switch-title">Дневной слот для наград</span>
+              <span className="module-switch-hint">Кампания из очереди сначала добирает дневную цель, потом Sentinel возвращается к дропам. Около часа в день.</span>
+            </span>
+            <span className={`cnc-switch ${rewardSwitch.slot && !rewardSwitch.disabled ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={rewardSwitch.autoQueue}
+            aria-disabled={rewardSwitch.disabled}
+            data-reward-autoqueue-switch="1"
+            className="module-switch-card module-switch-btn"
+            onClick={() => { if (rewardSwitch.disabled) return; playClick(); onUpdateSettings({ reward_auto_queue: !rewardSwitch.autoQueue }); }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span className="module-switch-title">Сам добавлять новые кампании в очередь</span>
+              <span className="module-switch-hint">Только кампании с просмотром и найденной категорией. Платные условия никогда.</span>
+            </span>
+            <span className={`cnc-switch ${rewardSwitch.autoQueue && !rewardSwitch.disabled ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
           </button>
         </div>
       </div>

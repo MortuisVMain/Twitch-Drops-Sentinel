@@ -20,7 +20,7 @@
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
 // POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
-// ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does. With it, hidden_reward_campaigns is ['rc6'] and reward_campaign_categories {}; POST /api/settings with those keys, priority_games ('reward:<id>' entries) and POST /api/farm/force|cancel-force behave like the service (force of rc2 (no category), rc3 (done today) answers 400 with a Russian message; rc1/rc4 are accepted and set forced_game and reward_watching); window.__fixturePosts lists every one of these POSTs. For the dashboard's watching branch use ?pip=idle (no active drop).
+// ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does. With it, hidden_reward_campaigns is ['rc6'] and reward_campaign_categories {}; POST /api/settings with those keys, priority_games ('reward:<id>' entries) and POST /api/farm/force|cancel-force behave like the service (force of rc2 (no category), rc3 (done today) answers 400 with a Russian message; rc1/rc4 are accepted and set forced_game and reward_watching); window.__fixturePosts lists every one of these POSTs. reward_daily_slot (default on) and reward_auto_queue (default off) are posted like any setting and held; rc4 shows day 3 of 6 and rc1 shows today's badge received. For the dashboard's watching branch use ?pip=idle (no active drop).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
 (function () {
   var q = new URLSearchParams(location.search);
@@ -130,6 +130,12 @@
       category: { name: 'Synthetic Game', slug: 'synthetic-game', source: 'game' }, farmable: true, watchedToday: 0, dailyGoal: 45, doneToday: false, earned: false, hidden: true },
   ];
   // like the service: hidden follows hidden_reward_campaigns, a category set by the user wins, farmable = a watch goal AND a category
+  // day progress of multi-day campaigns: rc4 is on day 3 of 6 (two goals reached before), rc1 got today's badge, the rest have no days
+  REWARD_SAMPLES.forEach(function (c) { c.dailyRewardToday = false; c.daysDone = 0; c.daysTotal = null; });
+  REWARD_SAMPLES.forEach(function (c) {
+    if (c.id === 'rc4') { c.daysDone = 2; c.daysTotal = 6; }
+    if (c.id === 'rc1') { c.daysDone = 1; c.daysTotal = 3; c.dailyRewardToday = true; }
+  });
   function syncRewards() {
     if (state.settings.reward_campaigns_enabled !== true) { state.reward_campaigns = []; return; }
     var hidden = state.settings.hidden_reward_campaigns || [], cats = state.settings.reward_campaign_categories || {};

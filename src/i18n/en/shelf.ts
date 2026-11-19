@@ -148,4 +148,5 @@ export const SHELF: Record<string, string> = {
   'цель на сегодня выполнена': 'today’s goal is done',
   'Кампания наград': 'Reward campaign',
   'кампания наград закончилась': 'the reward campaign has ended',
+  'Значок за сегодня получен': 'Today’s badge received',
 };

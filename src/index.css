@@ -1705,6 +1705,7 @@
   /* Keyboard-reachable switch (a real button) in the Tabs block */
   .module-switch-btn { width: 100%; min-height: 36px; gap: 10px; text-align: left; font: inherit; color: inherit; }
   .module-switch-btn:disabled { cursor: progress; opacity: 0.7; }
+  .module-switch-btn[aria-disabled='true'] { cursor: not-allowed; opacity: 0.6; }
   .module-switch-btn:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
   .module-switch-btn .cnc-switch { display: block; }
   .module-switch-title { display: block; font-size: var(--fs-xs); font-weight: 700; }

@@ -4,7 +4,7 @@ import { Ban, ChevronDown, ChevronUp, ExternalLink, Star, Tag, X, Zap } from 'lu
 import { uiLocale } from '../i18n';
 import type { RewardCampaign } from '../types';
 import {
-  REWARD_GONE_TEXT, rewardCategoryLine, rewardFarmAction, rewardGroupLines, rewardInitials, rewardLink, rewardUntilText, sanitizeCategory,
+  REWARD_GONE_TEXT, rewardCategoryLine, rewardDailyRewardText, rewardDayText, rewardFarmAction, rewardGroupLines, rewardInitials, rewardLink, rewardUntilText, sanitizeCategory,
 } from '../utils/rewardCampaigns.mjs';
 
 /** What the buttons of a reward card do; the owner of the settings and the toasts implements them. */
@@ -78,7 +78,8 @@ export function RewardCampaignCard({ campaign: c, layout, queueIndex, queueLengt
   const farm = rewardFarmAction(c, forcedGame);
   const queued = queueIndex >= 0;
   const until = rewardUntilText(c.endsAt, uiLocale());
-  const meta = [until, c.brand, queued && `#${queueIndex + 1} в очереди`].filter(Boolean) as string[];
+  const meta = [until, c.brand, rewardDayText(c), queued && `#${queueIndex + 1} в очереди`].filter(Boolean) as string[];
+  const dailyReward = rewardDailyRewardText(c);
   const closeEditor = () => {
     setEditing(false);
     categoryButton.current?.focus();
@@ -93,10 +94,11 @@ export function RewardCampaignCard({ campaign: c, layout, queueIndex, queueLengt
     <div style={{ minWidth: 0 }}>
       <div className="reward-title clip-2" title={c.name}>{layout === 'row' && chip}{c.name}</div>
       <div className="reward-meta">{meta.map((part) => <span key={part}>{part}</span>)}</div>
-      {(watching || c.earned) && (
+      {(watching || c.earned || dailyReward) && (
         <div className="reward-badges">
           {watching && <span className="reward-badge now">Смотрим сейчас</span>}
           {c.earned && <span className="reward-badge earned">Получено</span>}
+          {dailyReward && <span className="reward-badge earned">{dailyReward}</span>}
         </div>
       )}
       <div className="reward-meta">{rewardCategoryLine(c)}</div>
