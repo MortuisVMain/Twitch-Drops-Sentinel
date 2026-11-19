@@ -22,6 +22,7 @@ from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
 from .first_seen import FILE_NAME as FIRST_SEEN_FILE_NAME, FirstSeenStore
+from .node_locator import find_node
 from .interrupted import RECORD_FILE_NAME, InterruptedStore
 from .presence import Presence
 from .protection import (BUILTIN, CACHE_FILE_NAME, MAX_USER_DENYLIST, USER_DENYLIST_KEY, ProtectionChecker, clean_user_denylist,
@@ -80,14 +81,15 @@ class Tools:
 
 
 def find_tools(app_root: Path, engine_root: Path, which: Callable[[str], str | None] = shutil.which,
-               platform_name: str = sys.platform) -> Tools:
-    """Installed helper first, then the dev build; node is found the way the giveaways controller finds it."""
+               platform_name: str = sys.platform, fallback: Callable[[], str | None] = lambda: None) -> Tools:
+    """Installed helper first, then the dev build; node is found the way the giveaways controller finds it, then by
+    `fallback` (a Node.js installed after the app started is not on this process's PATH yet)."""
     if platform_name != "win32":
         return Tools("unsupported")
     helper = next((path for path in (app_root / rel for rel in _HELPER_CANDIDATES) if path.is_file()), None)
     if helper is None:
         return Tools("helper_missing")
-    node, script = which("node"), engine_root / "steam-community.js"
+    node, script = which("node") or fallback(), engine_root / "steam-community.js"
     if node is None or not script.is_file():
         return Tools("node_missing")
     return Tools(None, helper, (node, str(script)))
@@ -775,7 +777,7 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
         module_enabled=module_enabled, engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
         first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time, claimant=_active_account()),
-        get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
+        get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root, fallback=find_node),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,
         kill_reads=_kill_reads, read_achievements=achievements.read_achievements, unlock=achievements.unlock_achievements)
