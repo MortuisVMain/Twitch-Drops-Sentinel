@@ -185,6 +185,7 @@ from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
 from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
                                    create_controller as create_steam_idle_controller, steam_idle_backend_kind)
+from steam_idle.protection import USER_DENYLIST_KEY as STEAM_IDLE_DENYLIST_KEY
 from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
@@ -926,9 +927,11 @@ class SentinelSupervisor:
             logger.error(f"Error in handle_toggle_game_linked: {e}")
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
-    async def _sync_steam_idle_module(self, was_on: bool) -> None:
-        """Tells the Steam IDLE controller when the setting flipped; a failure is logged and never fails the settings update."""
-        now_on = tab_enabled(self.settings, "steamidle")
+    async def _sync_steam_idle_module(self, was_on: bool, now_on: bool | None = None) -> None:
+        """Tells the Steam IDLE controller when the setting flipped; a failure is logged and never fails the settings update.
+        `now_on` is the state the change that scheduled this sync produced; without it the setting is read now."""
+        if now_on is None:
+            now_on = tab_enabled(self.settings, "steamidle")
         if now_on == was_on:
             return
         try:
@@ -936,9 +939,10 @@ class SentinelSupervisor:
         except Exception:
             logger.error("Steam IDLE did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
 
-    async def _sync_dimmer_module(self, was_on: bool) -> None:
+    async def _sync_dimmer_module(self, was_on: bool, now_on: bool | None = None) -> None:
         """Tells the dimmer controller when the setting flipped; a failure is logged and never fails the settings update."""
-        now_on = tab_enabled(self.settings, "dimmer")
+        if now_on is None:
+            now_on = tab_enabled(self.settings, "dimmer")
         if now_on == was_on:
             return
         try:
@@ -949,14 +953,18 @@ class SentinelSupervisor:
     def _schedule_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
         """Runs the module syncs in the background (stopping Steam IDLE can take ~16 s) so the settings answer is not held.
         One sync at a time and in order, so a quick off-then-on cannot interleave; the task is kept until it ends."""
-        task = asyncio.create_task(self._run_module_sync(steam_idle_was_on, dimmer_was_on))
+        # the state this change produced is fixed now: a later change schedules its own sync, and a quick off-then-on
+        # must still stop the module before it starts again
+        steam_idle_now, dimmer_now = tab_enabled(self.settings, "steamidle"), tab_enabled(self.settings, "dimmer")
+        task = asyncio.create_task(self._run_module_sync(steam_idle_was_on, dimmer_was_on, steam_idle_now, dimmer_now))
         self._module_sync_tasks.add(task)
         task.add_done_callback(self._module_sync_finished)
 
-    async def _run_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+    async def _run_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool,
+                               steam_idle_now: bool | None = None, dimmer_now: bool | None = None) -> None:
         async with self._module_sync_lock:
-            await self._sync_steam_idle_module(steam_idle_was_on)
-            await self._sync_dimmer_module(dimmer_was_on)
+            await self._sync_steam_idle_module(steam_idle_was_on, steam_idle_now)
+            await self._sync_dimmer_module(dimmer_was_on, dimmer_now)
 
     def _module_sync_finished(self, task: "asyncio.Task[None]") -> None:
         self._module_sync_tasks.discard(task)
@@ -1331,14 +1339,17 @@ class SentinelSupervisor:
     async def handle_reset_settings(self, request: web.Request) -> web.Response:
         try:
             def to_defaults(current):
+                # the user's anti-cheat list is a safety list, like a blocklist: a reset keeps it
+                keep = copy.deepcopy(current.get(STEAM_IDLE_DENYLIST_KEY, []))
                 current.clear()
                 current.update(copy.deepcopy(SUPERVISOR_DEFAULTS))
+                current[STEAM_IDLE_DENYLIST_KEY] = keep
 
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, to_defaults, self.save_settings)
             self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
-            STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
+            STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям. Список исключений античита Steam IDLE сохранён.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
         except Exception as e:

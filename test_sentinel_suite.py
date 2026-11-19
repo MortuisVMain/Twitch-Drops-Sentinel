@@ -5948,8 +5948,8 @@ def test_steam_idle_module_follows_the_tab_setting_once_per_change():
         "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
         "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
         "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
-        "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
-        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on, now_on=None): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on, now_on)\n"
+        "    async def _sync_dimmer_module(self, was_on, now_on=None): pass\n"
         "async def post_and_wait(fake, body):\n"
         "    status = (await s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
         "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
@@ -6007,8 +6007,8 @@ def test_dimmer_module_follows_the_tab_setting_once_per_change():
         "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
         "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
         "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
-        "    async def _sync_steam_idle_module(self, was_on): pass\n"
-        "    async def _sync_dimmer_module(self, was_on): await s.SentinelSupervisor._sync_dimmer_module(self, was_on)\n"
+        "    async def _sync_steam_idle_module(self, was_on, now_on=None): pass\n"
+        "    async def _sync_dimmer_module(self, was_on, now_on=None): await s.SentinelSupervisor._sync_dimmer_module(self, was_on, now_on)\n"
         "async def post(fake, body):\n"
         "    status = (await s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
         "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
@@ -6083,8 +6083,8 @@ def test_settings_reset_does_not_wait_for_the_module_sync():
         "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
         "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
         "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
-        "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
-        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on, now_on=None): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on, now_on)\n"
+        "    async def _sync_dimmer_module(self, was_on, now_on=None): pass\n"
         "async def reset(fake): return await asyncio.wait_for(s.SentinelSupervisor.handle_reset_settings(fake, None), 2)\n"
         "async def main():\n"
         "    fake, out = Fake(), {}\n"
@@ -6111,6 +6111,58 @@ def test_settings_reset_does_not_wait_for_the_module_sync():
     assert got["failed"] is True, "a failing sync after a reset is logged"
     shutil.rmtree(work, ignore_errors=True)
     print("      background module sync on reset: PASS [OK]")
+
+
+def test_settings_reset_keeps_the_denylist_and_an_off_then_on_flip_still_stops_the_module():
+    print("[tabs] a reset keeps the user's anti-cheat list and says so; off then on in a row still reaches the controller twice...")
+    work = Path(tempfile.mkdtemp(prefix="reset_keep_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "logs = []\n"
+        "s.STATE_BRIDGE.add_log = lambda level, text: logs.append(text)\n"
+        "class Idle:\n"
+        "    def __init__(self): self.calls = []\n"
+        "    async def set_module_enabled(self, on): self.calls.append(on)\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    def __init__(self):\n"
+        "        self.settings = {'disabled_tabs': [], 'language': 'en', 'steam_idle_user_denylist': [5, 6]}; self.steam_idle = Idle()\n"
+        "        self._module_sync_tasks = set(); self._module_sync_lock = asyncio.Lock()\n"
+        "    def save_settings(self): pass\n"
+        "    def apply_engine_language(self): pass\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    _schedule_module_sync = s.SentinelSupervisor._schedule_module_sync\n"
+        "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
+        "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
+        "    async def _sync_steam_idle_module(self, was_on, now_on=None): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on, now_on)\n"
+        "    async def _sync_dimmer_module(self, was_on, now_on=None): pass\n"
+        "async def main():\n"
+        "    fake, out = Fake(), {}\n"
+        "    await s.SentinelSupervisor.handle_reset_settings(fake, None)\n"
+        "    out['kept'] = [fake.settings['steam_idle_user_denylist'], fake.settings.get('language'), fake.settings['disabled_tabs']]\n"
+        "    out['logged'] = any('античит' in text for text in logs)\n"
+        "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
+        "    fake.steam_idle.calls.clear()\n"
+        "    await s.SentinelSupervisor.handle_post_settings(fake, Req({'disabled_tabs': ['steamidle']}))\n"
+        "    await s.SentinelSupervisor.handle_reset_settings(fake, None)\n"
+        "    await asyncio.gather(*list(fake._module_sync_tasks))\n"
+        "    out['flip'] = list(fake.steam_idle.calls)\n"
+        "    print(json.dumps(out))\n"
+        "asyncio.run(main())\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0, res.stderr[-2000:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["kept"][0] == [5, 6], f"the anti-cheat list survives a reset: {got['kept']}"
+    assert got["kept"][1] != "en", f"other settings are reset: {got['kept']}"
+    assert got["logged"] is True, "the log line says the list was kept"
+    assert got["flip"] == [False, True], f"off then on reaches the controller twice, in order: {got['flip']}"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reset keeps the list, off-on flip: PASS [OK]")
 
 
 def test_settings_post_does_not_wait_for_the_module_sync():
@@ -6145,8 +6197,8 @@ def test_settings_post_does_not_wait_for_the_module_sync():
         "    _run_module_sync = s.SentinelSupervisor._run_module_sync\n"
         "    _module_sync_finished = s.SentinelSupervisor._module_sync_finished\n"
         "    _cancel_module_syncs = s.SentinelSupervisor._cancel_module_syncs\n"
-        "    async def _sync_steam_idle_module(self, was_on): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on)\n"
-        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on, now_on=None): await s.SentinelSupervisor._sync_steam_idle_module(self, was_on, now_on)\n"
+        "    async def _sync_dimmer_module(self, was_on, now_on=None): pass\n"
         "async def post(fake, body): return await asyncio.wait_for(s.SentinelSupervisor.handle_post_settings(fake, Req(body)), 2)\n"
         "async def main():\n"
         "    fake, out = Fake(), {}\n"
@@ -7944,6 +7996,7 @@ if __name__ == "__main__":
         test_dimmer_module_follows_the_tab_setting_once_per_change,
         test_settings_post_does_not_wait_for_the_module_sync,
         test_settings_reset_does_not_wait_for_the_module_sync,
+        test_settings_reset_keeps_the_denylist_and_an_off_then_on_flip_still_stops_the_module,
         test_text_colour_follows_the_theme,
         test_short_window_console_minimum_leaves_the_collapsed_console_alone,
         test_queue_row_shows_why_a_campaign_cannot_be_farmed,
