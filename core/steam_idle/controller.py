@@ -166,6 +166,7 @@ class SteamIdleController:
         self._step_done.set()
         self._wake = Wake()
         self._first_seen = first_seen or FirstSeenStore(None, wall_clock)
+        self._first_seen.bind_account(lambda: self._run_account)  # the farm's holds follow the account it runs for
         self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard,
                               on_command=self._wake.set, refund=self._first_seen)
         self._achv = AchievementsRun(
@@ -270,7 +271,7 @@ class SteamIdleController:
 
     def _store_preview(self, account_id: int, drops: list) -> None:
         games = community.farmable(drops)
-        self._first_seen.observe(games)
+        self._first_seen.observe(games, account_id)
         self._preview, self._preview_error = (account_id, games, self._clock()), None
 
     # commands: None = accepted, otherwise a refusal code

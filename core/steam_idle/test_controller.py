@@ -472,7 +472,8 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(ctl.scan())
             await self.env.settle()
             data = json.loads((Path(tmp) / FIRST_SEEN_FILE).read_text(encoding="utf-8"))
-            self.assertEqual(data["firstSeen"], {"100": 0, "200": wall[0]})
+            (bucket,) = data["accounts"].values()  # one bucket, keyed by a hash of the account
+            self.assertEqual(bucket["firstSeen"], {"100": 0, "200": wall[0]})
 
     async def test_release_held_without_a_run_is_not_held(self):
         self.assertEqual(self.make().release_held(5), "not_held")
