@@ -53,6 +53,22 @@ class CommunityTests(unittest.TestCase):
         self.assert_code(read_drops, "failed", "failed:unparsed_row")
         self.assert_code(read_library, "failed", "failed:unparsed_row")
 
+    def test_failed_read_logs_the_script_stderr_tail_without_secrets(self):
+        with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+            self.assert_code(read_drops, "noisy", "failed:unparsed_row")
+        warnings = [r.getMessage() for r in logged.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1, warnings)
+        text = warnings[0]
+        self.assertIn("drops", text)
+        self.assertIn("exit 4", text)
+        self.assertIn("failed:unparsed_row", text)
+        self.assertIn("diag line 30", text)
+        self.assertNotIn("diag line 1\n", text + "\n")
+        self.assertNotIn("diag line 10\n", text + "\n")  # older than the last ~20 lines
+        for secret in ("SECRETVALUE123", "abcDEF0123456789", "TOKENVALUE987", "76561198000000000"):
+            self.assertNotIn(secret, text)
+        self.assertLessEqual(len(text.encode("utf-8")), 4096 + 300)  # tail cap plus the fixed prefix
+
     def test_garbage_is_a_protocol_error(self):
         self.assert_code(read_drops, "garbage", "protocol")
 

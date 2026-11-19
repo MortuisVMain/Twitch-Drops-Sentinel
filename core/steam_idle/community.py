@@ -1,4 +1,5 @@
 """Reads the Steam Community `drops` and `library` commands of the browser script (one JSON line on stdout)."""
+import collections
 import json
 import logging
 import math
@@ -66,6 +67,39 @@ def _read_lines(stream, lines: "queue.Queue[str | None]") -> None:
         lines.put(None)
 
 
+_STDERR_LINES = 20
+_STDERR_LINE_CHARS = 200
+_STDERR_TOTAL_BYTES = 4096
+_BEARER = re.compile(r"(?i)\b(bearer|basic)\s+\S+")
+_SECRET = re.compile(r"(?i)(steamLoginSecure|steamLogin|sessionid|steamid|cookie|token|authorization|secret|password|passwd)"
+                     r"(\s*[=:]\s*|\s+)\S+")
+_STEAM_ID64 = re.compile(r"\b7656119\d{10}\b")
+_LONG_TOKEN = re.compile(r"[A-Za-z0-9%_+/=-]{32,}")
+
+
+def _scrub(line: str) -> str:
+    """One stderr line trimmed, with anything that looks like a cookie, token or account id replaced."""
+    line = _BEARER.sub(r"\1 <hidden>", line)
+    line = _SECRET.sub(r"\1=<hidden>", line)
+    line = _STEAM_ID64.sub("<id>", line)
+    return _LONG_TOKEN.sub("<hidden>", line)[:_STDERR_LINE_CHARS]
+
+
+def _read_stderr(stream, tail: "collections.deque[str]") -> None:
+    """Keep the last lines of the script's stderr (bounded memory); runs until the pipe closes."""
+    try:
+        while chunk := stream.readline(2000):
+            if chunk.strip():
+                tail.append(chunk.rstrip("\r\n"))
+    except (OSError, ValueError) as err:  # the pipe was closed under us after a kill
+        logger.debug("community stderr reader stopped: %s", err)
+
+
+def _stderr_tail(tail: "collections.deque[str]") -> str:
+    text = "\n".join(_scrub(line) for line in tail)
+    return text.encode("utf-8")[-_STDERR_TOTAL_BYTES:].decode("utf-8", errors="ignore")
+
+
 def _expect_args(expected_steam_id64: str | None) -> list[str]:
     """The script's `--expect=<id>` argument; an id that is not a valid SteamID64 is refused before anything runs."""
     if expected_steam_id64 is None:
@@ -82,7 +116,7 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
     """Run `<prefix> <verb>`, return its single JSON result line once it is a complete, successful result."""
     extra = _expect_args(expected_steam_id64)
     try:
-        proc = spawn(command(prefix, verb, *extra))
+        proc = spawn(command(prefix, verb, *extra), stderr=subprocess.PIPE)
     except OSError as error:
         logger.error("community %s start failed: %s", verb, error)
         raise CommunityError("start_failed") from error
@@ -91,18 +125,27 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
     lines: "queue.Queue[str | None]" = queue.Queue()
     reader = threading.Thread(target=_read_lines, args=(proc.stdout, lines), daemon=True)
     reader.start()
+    err_tail: "collections.deque[str]" = collections.deque(maxlen=_STDERR_LINES)
+    err_reader = threading.Thread(target=_read_stderr, args=(proc.stderr, err_tail), daemon=True)
+    err_reader.start()
+    failure: CommunityError | None = None
     try:
         proc.stdin.close()
         return _result(proc, lines, timeout, ok_status)
     except CommunityError as err:
         logger.error("community %s failed: %s", verb, err.code)
+        failure = err
         raise
     finally:
         kill_tree(proc)  # also reaps a browser the script may have left behind
         with _LIVE_LOCK:
             _LIVE.discard(proc)
         reader.join(timeout=2)
-        for stream in (proc.stdin, proc.stdout):
+        err_reader.join(timeout=2)
+        if failure is not None:
+            logger.warning("community %s run failed: %s (exit %s); script stderr tail:\n%s", verb, failure.code,
+                           proc.returncode, _stderr_tail(err_tail) or "(empty)")
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
             if stream is not None:
                 stream.close()
 
