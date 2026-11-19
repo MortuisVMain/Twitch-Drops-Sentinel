@@ -115,25 +115,26 @@ class StoreTests(unittest.TestCase):
                 self.assertEqual([g.app_id for g, _ in store.held([game(1)])], [1])
                 self.path.unlink()
 
-    def test_two_accounts_keep_separate_first_seen_baselines_and_releases(self):
+    def test_a_second_account_starts_with_everything_recent_and_keeps_its_own_releases(self):
         a, b = 10_000_001, 10_000_002
-        self.store.observe([game(1)], a)
+        self.store.observe([game(1)], a)  # the only store data so far: a's baseline
         self.now += DAY
         self.store.observe([game(1), game(2)], a)
         self.assertEqual([g.app_id for g, _ in self.store.held([game(1), game(2)], a)], [2])
         self.now += DAY
-        self.store.observe([game(1), game(2)], b)  # the other account's first preview is its own baseline
-        self.assertEqual(self.store.held([game(1), game(2)], b), [])
+        self.store.observe([game(1), game(2), game(3)], b)  # 3 was bought yesterday on b: nothing of b is "long ago"
+        self.assertEqual([g.app_id for g, _ in self.store.held([game(1), game(2), game(3)], b)], [1, 2, 3])
         self.store.release(2, a)
         self.assertTrue(self.store.is_released(2, a))
         self.assertFalse(self.store.is_released(2, b))
-        self.now += DAY
-        self.store.observe([game(3)], b)  # a game b gets later is held for b only
-        self.assertEqual([g.app_id for g, _ in self.store.held([game(1), game(3)], b)], [3])
-        self.assertEqual(self.store.held([game(3)], a), [])
+        self.assertEqual([g.app_id for g, _ in self.store.held([game(1), game(2), game(3)], a)], [])
         again = self.reopen()
-        self.assertEqual([g.app_id for g, _ in again.held([game(3)], b)], [3])
+        self.assertEqual([g.app_id for g, _ in again.held([game(1), game(2), game(3)], b)], [1, 2, 3])
         self.assertTrue(again.is_released(2, a) and not again.is_released(2, b))
+
+    def test_the_very_first_preview_of_an_empty_store_is_the_baseline(self):
+        self.store.observe([game(1)], 10_000_001)
+        self.assertEqual(self.store.held([game(1)], 10_000_001), [])
 
     def test_the_account_provider_is_used_when_no_account_is_given(self):
         current = [10_000_001]
@@ -145,28 +146,48 @@ class StoreTests(unittest.TestCase):
         current[0] = 10_000_002
         self.assertEqual(store.held([game(4)]), [])
 
-    def test_the_old_shared_record_moves_to_the_first_account_that_uses_it(self):
-        a, b = 10_000_001, 10_000_002
+    def write_v1(self):
         self.path.write_text(json.dumps({"version": 1, "firstSeen": {"1": 0, "2": NOW}, "released": [2]}), encoding="utf-8")
-        store = self.reopen()
-        self.assertEqual([g.app_id for g, _ in store.held([game(1), game(2)], a)], [])  # 2 is released, 1 is old
-        self.assertTrue(store.is_released(2, a))
+
+    def test_the_old_record_belongs_to_the_account_active_at_the_first_load_and_others_start_recent(self):
+        a, b = 10_000_001, 10_000_002
+        self.write_v1()
+        store = FirstSeenStore(self.path, lambda: self.now, claimant=a)
+        store.observe([game(1), game(2)], b)  # b previews first: nothing of a's record is b's
+        self.assertEqual([g.app_id for g, _ in store.held([game(1), game(2)], b)], [1, 2])
         self.assertFalse(store.is_released(2, b))
-        store.observe([game(1), game(2), game(3)], b)  # b is new: its own baseline, nothing inherited
-        self.assertEqual(store.held([game(1), game(2), game(3)], b), [])
+        store.observe([game(1), game(2)], a)
+        self.assertEqual(store.held([game(1), game(2)], a), [])  # 1 is old, 2 was released by a
+        self.assertTrue(store.is_released(2, a))
         text = self.path.read_text(encoding="utf-8")
         self.assertEqual(json.loads(text)["version"], 2)
         self.assertNotIn(str(a), text)
         self.assertNotIn(str(b), text)
-        again = self.reopen()
-        self.assertTrue(again.is_released(2, a))
-        self.assertFalse(again.is_released(2, b))
-        self.assertEqual(again._buckets.keys() & {"shared"}, set())
+        self.assertIn("shared", json.loads(text))  # the old record stays as a copy
 
-    def test_an_old_record_with_a_recent_game_keeps_holding_it_for_the_migrated_account(self):
+    def test_the_claim_survives_a_restart_and_a_later_account_cannot_take_it(self):
+        a, b = 10_000_001, 10_000_002
+        self.write_v1()
+        FirstSeenStore(self.path, lambda: self.now, claimant=a).observe([game(1)], b)
+        again = FirstSeenStore(self.path, lambda: self.now, claimant=b)  # b is the active account at this later load
+        self.assertTrue(again.is_released(2, a))
+        self.assertEqual(again.held([game(1), game(2)], a), [])
+        self.assertFalse(again.is_released(2, b))
+        self.assertEqual([g.app_id for g, _ in again.held([game(1)], b)], [1])
+
+    def test_without_a_known_account_at_load_the_first_account_seen_takes_the_old_record(self):
+        a, b = 10_000_001, 10_000_002
+        self.write_v1()
+        store = FirstSeenStore(self.path, lambda: self.now)
+        self.assertTrue(store.is_released(2, a))
+        self.assertFalse(store.is_released(2, b))
+        self.assertEqual(self.reopen().is_released(2, a), True)
+        self.assertEqual(self.reopen().is_released(2, b), False)
+
+    def test_an_old_record_with_a_recent_game_keeps_holding_it_for_its_account(self):
         a = 10_000_001
         self.path.write_text(json.dumps({"version": 1, "firstSeen": {"2": NOW}, "released": []}), encoding="utf-8")
-        self.assertEqual([g.app_id for g, _ in self.reopen().held([game(2)], a)], [2])
+        self.assertEqual([g.app_id for g, _ in FirstSeenStore(self.path, lambda: self.now, claimant=a).held([game(2)], a)], [2])
 
     def test_a_store_without_a_path_works_in_memory(self):
         store = FirstSeenStore(None, lambda: self.now)

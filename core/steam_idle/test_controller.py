@@ -438,8 +438,8 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_recent_game_is_held_back_until_released_by_hand(self):
         wall = [1_800_000_000.0]
         store = FirstSeenStore(None, lambda: wall[0])
-        store.observe([gd(100, 5)])
-        store.observe([gd(200, 2)])
+        store.observe([gd(100, 5)], ACCOUNT)
+        store.observe([gd(200, 2)], ACCOUNT)
         ctl = self.make(drops=[[gd(100, 5), gd(200, 6)]], first_seen=store)
         self.env.signed_in()
         ctl.start()

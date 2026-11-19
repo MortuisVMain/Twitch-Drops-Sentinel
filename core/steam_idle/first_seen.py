@@ -24,6 +24,7 @@ FILE_NAME = "steam_idle_first_seen.json"
 SECONDS_PER_DAY = 86400.0
 REFUND_WINDOW_SECONDS = 14 * SECONDS_PER_DAY
 REFUND_MAX_HOURS = 2.0
+ANY = "any"  # the shared bucket may go to the first account seen
 SHARED = "shared"  # the record of older versions, kept for every account together, until an account takes it over
 
 
@@ -72,30 +73,41 @@ def _parse_bucket(data: object) -> _Bucket:
     return _Bucket({int(key): value for key, value in seen.items()}, set(released))
 
 
-def _parse(data: object) -> "dict[str, _Bucket]":
-    """Version 1 (one record for every account) becomes the shared bucket; version 2 holds one bucket per account."""
+def _parse(data: object, claimant: int) -> "tuple[dict[str, _Bucket], str | None]":
+    """The buckets and who may still take over the shared one: an account key, "any" or None.
+    Version 1 (one record for every account) becomes the shared bucket, reserved for the account active at this
+    first load (or open to the first account seen when none was); version 2 holds one bucket per account."""
     if isinstance(data, dict) and data.get("version") == 1:
-        return {SHARED: _parse_bucket(data)}
+        return {SHARED: _parse_bucket(data)}, (_key(claimant) if claimant else ANY)
     if not isinstance(data, dict) or data.get("version") != 2:
         raise ValueError("not a first-seen record")
     accounts = data.get("accounts")
     if not isinstance(accounts, dict) or not all(re.fullmatch(r"[0-9a-f]{16}", key) for key in accounts):
         raise ValueError("bad accounts")
     buckets = {key: _parse_bucket(value) for key, value in accounts.items()}
+    claim = data.get("sharedClaim")
     if SHARED in data:
         buckets[SHARED] = _parse_bucket(data[SHARED])
-    return buckets
+        if claim is not None and not (isinstance(claim, str) and (claim == ANY or re.fullmatch(r"[0-9a-f]{16}", claim))):
+            raise ValueError("bad sharedClaim")
+    else:
+        claim = None
+    return buckets, claim
 
 
 class FirstSeenStore:
     """Thread-safe; a store without a path keeps everything in memory.
 
     Every call names the Steam account it is about, or leaves it to `account` (a provider of the current account id).
-    The record that older versions kept for all accounts together is the shared bucket: the first account that uses the
-    store takes it over, and every other account starts from its own first preview."""
+    The record that older versions kept for all accounts together is the shared bucket. The account active when the
+    store first loads it (`claimant`; the first account seen when there was none) gets a copy as its own; the shared
+    bucket stays as it was and nobody else takes anything from it. An account new to a store that holds any data
+    starts with every game stamped as first seen now: holding too long is fine, releasing too early is not."""
 
-    def __init__(self, path: Path | None, clock: Callable[[], float], account: Callable[[], int] = lambda: 0):
-        self._path, self._clock, self._account = path, clock, account
+    def __init__(self, path: Path | None, clock: Callable[[], float], account: Callable[[], int] = lambda: 0,
+                 claimant: int = 0):
+        self._path, self._clock, self._account, self._claimant = path, clock, account, claimant
+        self._claim: str | None = None  # who may still take a copy of the shared bucket
         self._lock = threading.Lock()
         self._buckets: dict[str, _Bucket] = {}
         self._lost = False  # True when the file could not be read: accounts missing from it count as already baselined
@@ -110,7 +122,7 @@ class FirstSeenStore:
         if path is None or not path.is_file():
             return
         try:
-            self._buckets = _parse(json.loads(path.read_text(encoding="utf-8")))
+            self._buckets, self._claim = _parse(json.loads(path.read_text(encoding="utf-8")), self._claimant)
         except (OSError, ValueError):
             self._lost = True  # a lost or unreadable file must not free recent purchases: later games count as new
             logger.error("first-seen record %s is unreadable and is set aside", path.name, exc_info=True)
@@ -126,15 +138,20 @@ class FirstSeenStore:
                                                  if key != SHARED}}
         if SHARED in self._buckets:
             data[SHARED] = self._buckets[SHARED].to_json()
+            if self._claim:
+                data["sharedClaim"] = self._claim
         try:
             atomic_write_json(self._path, data)
         except OSError:
             logger.error("first-seen record %s could not be written", self._path.name, exc_info=True)
 
     def _claim_shared(self, key: str) -> None:
-        """The first known account takes over the old shared record (caller holds the lock)."""
-        if key != SHARED and SHARED in self._buckets and key not in self._buckets:
-            self._buckets[key] = self._buckets.pop(SHARED)
+        """The entitled account takes a copy of the old shared record, once (caller holds the lock)."""
+        if (key != SHARED and SHARED in self._buckets and key not in self._buckets
+                and self._claim in (ANY, key)):
+            shared = self._buckets[SHARED]
+            self._buckets[key] = _Bucket(dict(shared.first_seen), set(shared.released))
+            self._claim = None
             self._save()
 
     def _bucket(self, account: int | None, create: bool = False) -> "_Bucket | None":
@@ -149,10 +166,12 @@ class FirstSeenStore:
         """Record the games of a drops preview that were never seen before. Entries of vanished games are kept."""
         with self._lock:
             known = self._bucket(account)
-            # An account's first preview is its existing library: stamp it as seen long ago so nothing is held back.
+            # Only the very first preview of a store with no data at all is the existing library: stamp it as seen
+            # long ago so nothing is held back. Any later account's games count as new.
             first = known is None
+            empty = not self._buckets and not self._lost
             bucket = known or self._bucket(account, create=True)
-            stamp = 0 if first and not self._lost else self._clock()
+            stamp = 0 if first and empty else self._clock()
             new = {g.app_id for g in games} - bucket.first_seen.keys()
             bucket.first_seen.update(dict.fromkeys(new, stamp))
             if new or first:

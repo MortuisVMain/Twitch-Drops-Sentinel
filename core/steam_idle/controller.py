@@ -751,6 +751,15 @@ def _kill_reads() -> None:
     achievements.kill_in_flight()
 
 
+def _active_account() -> int:
+    """The Steam account active now (0 when none or unreadable): the owner of an old first-seen record."""
+    try:
+        return read_steam_client().account_id
+    except Exception:  # registry or process lookup failed: the record then goes to the first account seen
+        logger.warning("active Steam account could not be read", exc_info=True)
+        return 0
+
+
 def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[..., object],
                       set_setting: Callable[[str, object], None], inert: bool = False,
                       module_enabled: Callable[[], bool] = lambda: True) -> SteamIdleController:
@@ -765,7 +774,7 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
     return SteamIdleController(
         module_enabled=module_enabled, engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
-        first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time),
+        first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time, claimant=_active_account()),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,
