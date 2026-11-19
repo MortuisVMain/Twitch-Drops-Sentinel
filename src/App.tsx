@@ -26,7 +26,7 @@ import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
 import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
-import { tabDigit, tabForDigit, digitRange, titleWithDigit } from './utils/tabHotkeys.mjs';
+import { tabDigit, tabForDigit, digitRange, titleWithDigit, digitHotkeyAllowed } from './utils/tabHotkeys.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
@@ -814,7 +814,7 @@ export const App: React.FC = () => {
 
       if (e.key !== 'Escape' && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
 
-      const digitTab = tabForDigit(shownTabs, e.key); // 1..N follow the visible tabs in header order
+      const digitTab = digitHotkeyAllowed(e) ? tabForDigit(shownTabs, e.key) : null; // 1..N follow the visible tabs in header order
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
 

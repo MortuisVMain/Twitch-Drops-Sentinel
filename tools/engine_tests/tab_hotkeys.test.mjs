@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { visibleTabs } = await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'tabVisibility.mjs')).href);
-const { tabDigit, tabForDigit, digitRange, titleWithDigit } = await import(
+const { tabDigit, tabForDigit, digitRange, titleWithDigit, digitHotkeyAllowed } = await import(
   pathToFileURL(path.join(ROOT, 'src', 'utils', 'tabHotkeys.mjs')).href
 );
 
@@ -68,4 +68,14 @@ test('the help range names the digits in use', () => {
 test('a tooltip shows its digit in brackets, none when the tab has no digit', () => {
   assert.equal(titleWithDigit('Steam IDLE', '4'), 'Steam IDLE (4)');
   assert.equal(titleWithDigit('Steam IDLE', null), 'Steam IDLE');
+});
+
+test('a digit is a tab hotkey only without Ctrl/Alt/Meta and outside text-entry controls', () => {
+  const body = { tagName: 'BODY', isContentEditable: false };
+  assert.equal(digitHotkeyAllowed({ target: body }), true);
+  assert.equal(digitHotkeyAllowed({ target: { tagName: 'BUTTON' } }), true);
+  assert.equal(digitHotkeyAllowed({ target: null }), true, 'no target (window level)');
+  for (const mod of ['ctrlKey', 'altKey', 'metaKey']) assert.equal(digitHotkeyAllowed({ [mod]: true, target: body }), false, mod);
+  for (const tagName of ['INPUT', 'TEXTAREA', 'SELECT']) assert.equal(digitHotkeyAllowed({ target: { tagName } }), false, tagName);
+  assert.equal(digitHotkeyAllowed({ target: { tagName: 'DIV', isContentEditable: true } }), false, 'contenteditable');
 });

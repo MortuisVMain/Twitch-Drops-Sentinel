@@ -13,6 +13,7 @@ export const APP: Record<string, string> = {
   'Бесплатные раздачи': 'Free giveaways',
   'Диммер мониторов: DDC/CI': 'Monitor dimmer: DDC/CI',
   'Настройки: 10 систем Sentinel': 'Settings: 10 Sentinel systems',
+  'Steam IDLE: фарм карточек': 'Steam IDLE: card farming', // header tab tooltip, also kept here so the tab does not depend on the Steam IDLE page strings
   'Зажмите для перемещения окна / двойной клик для разворачивания': 'Hold to move the window / double-click to maximize',
   'Палитра быстрых команд (Ctrl+K)': 'Command palette (Ctrl+K)',
   'Вернуться в стандартный оконный режим (Ctrl+M)': 'Back to the standard window mode (Ctrl+M)',

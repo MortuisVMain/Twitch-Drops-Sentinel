@@ -23,6 +23,14 @@ export function digitRange(tabs) {
   return count === 1 ? '1' : `1–${count}`;
 }
 
+/** A number key counts as a tab hotkey only without Ctrl/Alt/Meta and outside text-entry controls (input, textarea, select, contenteditable). */
+export function digitHotkeyAllowed(event) {
+  if (event.ctrlKey || event.altKey || event.metaKey) return false;
+  const target = event.target;
+  if (!target) return true;
+  return !(['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable === true);
+}
+
 /** A tab tooltip with its hotkey digit in brackets; the plain title when the tab has no digit. */
 export function titleWithDigit(title, digit) {
   return digit ? `${title} (${digit})` : title;
