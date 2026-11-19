@@ -63,6 +63,30 @@ class TableTests(unittest.TestCase):
                 self.assertEqual(BUILTIN.get(app_id), name)
 
 
+class UserDenylistCleanTests(unittest.TestCase):
+    def test_valid_ids_are_kept_in_order_without_duplicates(self):
+        self.assertEqual(protection.clean_user_denylist([5, 6, 5, 4294967295]), [5, 6, 4294967295])
+        self.assertEqual(protection.clean_user_denylist([]), [])
+        self.assertEqual(protection.clean_user_denylist(None), [])
+
+    def test_bad_entries_are_dropped_with_one_warning(self):
+        with self.assertLogs("steam_idle.protection", level="WARNING") as logged:
+            result = protection.clean_user_denylist([True, "7", 0, -1, 2 ** 32, 1.5, None, 8, 8])
+        self.assertEqual(result, [8])
+        self.assertEqual(len(logged.records), 1)
+        self.assertIn("7", logged.records[0].getMessage())  # the count of ignored entries
+
+    def test_a_value_that_is_not_a_list_is_ignored_with_a_warning(self):
+        with self.assertLogs("steam_idle.protection", level="WARNING"):
+            self.assertEqual(protection.clean_user_denylist("5"), [])
+
+    def test_the_list_is_capped_at_500(self):
+        with self.assertLogs("steam_idle.protection", level="WARNING"):
+            result = protection.clean_user_denylist(list(range(1, 601)))
+        self.assertEqual(result, list(range(1, 501)))
+        self.assertEqual(protection.MAX_USER_DENYLIST, 500)
+
+
 class FakeResponse:
     def __init__(self, status=200, chunks=(b"{}",), content_length=None):
         self.status, self.content_length = status, content_length

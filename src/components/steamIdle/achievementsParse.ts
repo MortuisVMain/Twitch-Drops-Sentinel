@@ -1,4 +1,4 @@
-import { SteamIdleAchievement, SteamIdleAchievements, SteamIdleLibraryGame, SteamIdleLibraryStatus } from '../../types';
+import { SteamIdleAchievement, SteamIdleAchievements, SteamIdleDenylist, SteamIdleLibraryGame, SteamIdleLibraryStatus } from '../../types';
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -35,9 +35,19 @@ export const parseAchievements = (v: unknown): SteamIdleAchievements | null => {
 
 export const isLibraryStatus = (v: unknown): v is SteamIdleLibraryStatus => typeof v === 'string' && LIBRARY_STATUSES.includes(v);
 
+const optBool = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
+
 export const parseLibrary = (json: unknown): SteamIdleLibraryGame[] | null => {
   if (!isRec(json) || !Array.isArray(json.games)) return null;
-  return json.games.every((g) => isGame(g) && isNum(g.playtimeMinutes)) ? (json.games as SteamIdleLibraryGame[]) : null;
+  return json.games.every((g) => isGame(g) && isNum(g.playtimeMinutes) && optBool(g.protected) && optBool(g.userDenied))
+    ? (json.games as SteamIdleLibraryGame[]) : null;
+};
+
+/** The `denylist` key of GET /state; null when it does not match the contract (the block is then hidden). */
+export const parseDenylist = (v: unknown): SteamIdleDenylist | null => {
+  if (!isRec(v) || !isNum(v.max) || !isNum(v.builtinCount) || !Array.isArray(v.entries)) return null;
+  const ok = v.entries.every((e) => isRec(e) && isNum(e.appId) && (e.name === null || typeof e.name === 'string'));
+  return ok ? (v as unknown as SteamIdleDenylist) : null;
 };
 
 export const parseAchievementList = (json: unknown): SteamIdleAchievement[] | null => {

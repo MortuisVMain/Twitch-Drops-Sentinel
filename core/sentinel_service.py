@@ -356,6 +356,7 @@ SUPERVISOR_DEFAULTS = {
     "steam_idle_unlock_min_minutes": 0,
     "steam_idle_unlock_max_minutes": 0,
     "steam_idle_unlock_skip_hidden": True,
+    "steam_idle_user_denylist": [],  # the user's own anti-cheat app ids, merged with the built-in table
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
@@ -639,6 +640,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
         self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
         self.app.router.add_post("/api/v1/steam-idle/farm/release", steam_idle.farm_release)
+        self.app.router.add_post("/api/v1/steam-idle/denylist/add", steam_idle.denylist_add)
+        self.app.router.add_post("/api/v1/steam-idle/denylist/remove", steam_idle.denylist_remove)
         self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)
         self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
         self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)

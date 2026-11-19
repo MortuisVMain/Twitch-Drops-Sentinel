@@ -47,6 +47,7 @@ const GamePicker: React.FC<{ games: SteamIdleLibraryGame[]; appId: number | null
             const hours = playedHours(g.playtimeMinutes);
             return (
               <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact selected={g.appId === appId} onSelect={() => onPick(g.appId)}
+                badge={g.protected && g.appId !== appId ? 'Античит' : undefined}
                 facts={[hours === null ? 'Не запускалась' : <>В игре: <b className="tabular">{hoursNumber(hours)}</b> ч</>]} />
             );
           })}
@@ -101,12 +102,28 @@ export const AchOneGame: React.FC<{ s: SteamIdleState; ach: SteamIdleAchievement
       {status === 'ready' && library.data && <GamePicker games={library.data} appId={appId} onPick={setAppId} />}
       {appId !== null && (
         <div className="sidle-ach-game">
-          <h3 className="sidle-subtitle sidle-game">{picked?.name ?? appId}</h3>
+          <h3 id="sidle-picked-title" className="sidle-subtitle sidle-game">{picked?.name ?? appId}</h3>
+          {picked?.protected && <p className="sidle-text">Игра с античитом: достижения в ней не выдаются.</p>}
+          {s.denylist && picked && (
+            <div className="sidle-actions sidle-ach-protected">
+              {!picked.protected && (
+                <button type="button" className="tactile-btn" aria-disabled={busy !== null} aria-describedby="sidle-picked-title"
+                  onClick={() => { if (busy === null) send('denyAdd', { appId: picked.appId }); }}>Не трогать (античит)</button>
+              )}
+              {picked.userDenied && (
+                <>
+                  <span className="sidle-meta">В вашем списке исключений</span>
+                  <button type="button" className="tactile-btn" aria-disabled={busy !== null} aria-describedby="sidle-picked-title"
+                    onClick={() => { if (busy === null) send('denyRemove', { appId: picked.appId }); }}>Убрать из списка</button>
+                </>
+              )}
+            </div>
+          )}
           {list.status === 'loading' && <Bars label="Читаем достижения игры" rows={4} />}
           {list.status === 'error' && list.error !== null
             && (list.error === 'busy' && runActive ? <BusyNote /> : <ErrorLine code={list.error} onRetry={list.reload} />)}
           {list.data && (
-            <AchList key={appId} items={list.data} skipHidden={ach.settings.skipHidden} runActive={runActive} disabled={busy !== null || !s.available}
+            <AchList key={appId} items={list.data} skipHidden={ach.settings.skipHidden} runActive={runActive} disabled={busy !== null || !s.available || picked?.protected === true}
               onStart={(body) => { sentAt.current = ach; send('achStart', { appId, ...body }); }} />
           )}
         </div>

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from steam_idle import achievements_run
+from steam_idle import achievements_run, protection
 from steam_idle import controller as controller_module
 from steam_idle._helper import WRITE_GATE
 from steam_idle.achievement_queue import GamePlan, LibraryPlan, SelectedPlan
@@ -343,9 +343,10 @@ class LibraryTests(Base):
         self.assertEqual(ctl.library_scan(), "busy")
         await self.env.settle()
         self.assertEqual(ctl.state()["library"], {"count": 3, "status": "ready", "ageSeconds": 0.0})
-        self.assertEqual(ctl.library_games(), [{"appId": 1, "name": "a", "playtimeMinutes": 0},
-                                               {"appId": 2, "name": "b", "playtimeMinutes": 0},
-                                               {"appId": 3, "name": "c", "playtimeMinutes": 0}])
+        labels = {"protected": False, "userDenied": False}
+        self.assertEqual(ctl.library_games(), [{"appId": 1, "name": "a", "playtimeMinutes": 0, **labels},
+                                               {"appId": 2, "name": "b", "playtimeMinutes": 0, **labels},
+                                               {"appId": 3, "name": "c", "playtimeMinutes": 0, **labels}])
         self.env.now += 30
         self.assertEqual(ctl.state()["library"]["ageSeconds"], 30.0)
 
@@ -423,6 +424,74 @@ class ProtectionTests(Base):
         run = run_of(self.env.ctl)
         self.assertEqual([(f["appId"], f["note"]) for f in run["finished"]], [(100, "protected_app")])
         self.assertEqual((self.env.ach_calls, self.env.unlock_calls), ([], []))
+
+
+class UserDenylistTests(Base):
+    KEY = "steam_idle_user_denylist"
+
+    def entries(self, ctl):
+        return ctl.state()["denylist"]["entries"]
+
+    async def test_default_state_and_the_add_remove_round_trip(self):
+        ctl = self.make()
+        self.assertEqual(ctl.state()["denylist"],
+                         {"max": 500, "entries": [], "builtinCount": len(protection.BUILTIN)})
+        self.assertIsNone(ctl.deny_add(5))
+        self.assertIsNone(ctl.deny_add(5))  # adding twice changes nothing
+        self.assertEqual(self.env.settings[self.KEY], [5])
+        self.assertEqual(self.entries(ctl), [{"appId": 5, "name": None}])
+        self.assertIsNone(ctl.deny_remove(5))
+        self.assertIsNone(ctl.deny_remove(5))
+        self.assertEqual((self.env.settings[self.KEY], self.entries(ctl)), ([], []))
+
+    async def test_the_name_comes_from_the_library_or_the_built_in_table(self):
+        ctl = self.make()
+        await self.ready()
+        ctl.deny_add(2)
+        self.assertEqual(self.entries(ctl), [{"appId": 2, "name": "b"}])
+
+    async def test_refusals(self):
+        ctl = self.make()
+        self.assertEqual(ctl.deny_add(730), "already_builtin")
+        for bad in (0, -1, True, "5", 2 ** 32, 1.5, None):
+            with self.subTest(bad=bad):
+                self.assertEqual(ctl.deny_add(bad), "invalid_request")
+                self.assertEqual(ctl.deny_remove(bad), "invalid_request")
+        self.env.settings[self.KEY] = list(range(1000, 1500))
+        self.assertEqual(ctl.deny_add(5), "denylist_full")
+        self.assertIsNone(ctl.deny_add(1000))  # one that is already there is not "full"
+        self.assertEqual(len(self.env.settings[self.KEY]), 500)
+        self.env.module_enabled = False
+        self.assertEqual(ctl.deny_add(5), "module_disabled")
+        self.assertEqual(ctl.deny_remove(1000), "module_disabled")
+
+    async def test_bad_stored_entries_are_ignored_and_warned_about_once(self):
+        ctl = self.make(settings={RISK: True, ACK: True, self.KEY: [5, "x", True, 6]})
+        with self.assertLogs("steam_idle.protection", level="WARNING"):
+            self.assertEqual([e["appId"] for e in self.entries(ctl)], [5, 6])
+        with self.assertNoLogs("steam_idle.protection", level="WARNING"):
+            self.assertEqual([e["appId"] for e in self.entries(ctl)], [5, 6])
+
+    async def test_a_listed_game_is_refused_at_start_and_skipped_in_a_library_run(self):
+        ctl = self.make()
+        await self.ready()
+        ctl.deny_add(100)
+        self.assertEqual(ctl.start_achievements(GamePlan(100)), "protected_app")
+        ctl.deny_add(2)
+        self.assertIsNone(ctl.start_achievements(LibraryPlan((), [])))
+        await self.env.settle()
+        notes = {f["appId"]: f["note"] for f in run_of(ctl)["finished"]}
+        self.assertEqual((notes[2], notes[1], notes[3]), ("protected_app", None, None))
+        self.assertEqual([c[2] for c in self.env.unlock_calls], [1, 3])
+        self.assertNotIn(2, self.env.protection.calls)  # decided without asking the store
+
+    async def test_library_games_carry_the_protection_labels(self):
+        ctl = self.make()
+        self.env.library = [OwnedGame(1, "a", 0), OwnedGame(2, "b", 0), OwnedGame(730, "Counter-Strike 2", 5)]
+        await self.ready()
+        ctl.deny_add(2)
+        self.assertEqual([(g["appId"], g["protected"], g["userDenied"]) for g in ctl.library_games()],
+                         [(1, False, False), (2, True, True), (730, True, False)])
 
 
 class InterruptedTests(Base):

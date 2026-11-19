@@ -261,7 +261,11 @@ export interface SteamIdleState {
   preview?: SteamIdlePreview;
   /** Absent when the service is older than achievements: the Achievements switch item is then hidden. */
   achievements?: SteamIdleAchievements;
+  /** The user's own anti-cheat list. Absent in an older service: the block is then hidden. */
+  denylist?: SteamIdleDenylist;
 }
+
+export interface SteamIdleDenylist { max: number; builtinCount: number; entries: { appId: number; name: string | null }[] }
 
 export type SteamIdleLibraryStatus = 'none' | 'scanning' | 'ready' | 'failed';
 export type SteamIdleAchRunState = 'idle' | 'scanning' | 'unlocking' | 'waiting' | 'paused' | 'suspended' | 'done' | 'stopped';
@@ -286,7 +290,13 @@ export interface SteamIdleAchInterrupted { kind: 'game' | 'selected' | 'library'
 export interface SteamIdleAchievements { acknowledged: boolean; settings: SteamIdleAchSettings; run: SteamIdleAchRun; interrupted?: SteamIdleAchInterrupted | null }
 
 /** One owned game from GET /library. */
-export interface SteamIdleLibraryGame { appId: number; name: string; playtimeMinutes: number }
+export interface SteamIdleLibraryGame {
+  appId: number; name: string; playtimeMinutes: number;
+  /** Anti-cheat by the built-in table or the user's list; absent in an older service. */
+  protected?: boolean;
+  /** On the user's own list; absent in an older service. */
+  userDenied?: boolean;
+}
 /** One achievement from GET /achievements. */
 export interface SteamIdleAchievement { apiName: string; name: string; description: string; hidden: boolean; achieved: boolean; unlockTime: number | null }
 

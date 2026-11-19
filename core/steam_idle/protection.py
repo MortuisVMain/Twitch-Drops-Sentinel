@@ -73,6 +73,34 @@ BUILTIN: dict[int, str] = {
 
 Fetch = Callable[[str], Awaitable[tuple[int, str]]]  # url -> (HTTP status, body text)
 
+USER_DENYLIST_KEY = "steam_idle_user_denylist"  # the user's own anti-cheat games, merged with BUILTIN by the controller
+MAX_USER_DENYLIST = 500
+_UINT32_MAX = 0xFFFFFFFF
+
+
+def clean_user_denylist(raw: object) -> list[int]:
+    """The valid app ids of a stored user list, in order, without repeats, at most MAX_USER_DENYLIST.
+    Anything else is ignored with one warning that carries the count only."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        logger.warning("%s is not a list and is ignored", USER_DENYLIST_KEY)
+        return []
+    unique: dict[int, None] = {}  # an insertion-ordered set
+    bad = 0
+    for item in raw:
+        if type(item) is not int or not 1 <= item <= _UINT32_MAX:
+            bad += 1
+        else:
+            unique.setdefault(item)
+    ids = list(unique)
+    if bad:
+        logger.warning("%s: %d invalid entries ignored", USER_DENYLIST_KEY, bad)
+    if len(ids) > MAX_USER_DENYLIST:
+        logger.warning("%s holds more than %d games: the rest is ignored", USER_DENYLIST_KEY, MAX_USER_DENYLIST)
+        ids = ids[:MAX_USER_DENYLIST]
+    return ids
+
 
 def is_builtin(app_id: int) -> bool:
     return app_id in BUILTIN

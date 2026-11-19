@@ -89,6 +89,18 @@ class SteamIdleRoutes:
             return web.json_response(_INVALID, status=400)
         return self._reply(self._c.release_held(body["appId"]))
 
+    async def denylist_add(self, request: web.Request) -> web.Response:
+        body = await self._body(request)
+        if not isinstance(body, dict) or set(body) != {"appId"} or not _app_id(body["appId"]):
+            return web.json_response(_INVALID, status=400)
+        return self._reply(self._c.deny_add(body["appId"]))
+
+    async def denylist_remove(self, request: web.Request) -> web.Response:
+        body = await self._body(request)
+        if not isinstance(body, dict) or set(body) != {"appId"} or not _app_id(body["appId"]):
+            return web.json_response(_INVALID, status=400)
+        return self._reply(self._c.deny_remove(body["appId"]))
+
     # achievements
     @staticmethod
     async def _body(request: web.Request) -> object:

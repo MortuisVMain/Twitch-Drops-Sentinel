@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SteamIdleState } from '../../types';
 import { LoadState, initialLoad, loadFailed, loadOk, loadRetry } from '../../utils/dataLoad';
-import { isLibraryStatus, parseAchievements } from './achievementsParse';
+import { isLibraryStatus, parseAchievements, parseDenylist } from './achievementsParse';
 import { refusalApplies } from './steamIdleText';
 
 export const BASE = 'http://127.0.0.1:28492/api/v1/steam-idle';
@@ -12,13 +12,14 @@ const COMMAND_TIMEOUT_MS = 15000;
 
 export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip' | 'release'
   | 'achAck' | 'achSettings' | 'libScan' | 'achStart' | 'achStop' | 'achPause' | 'achResume' | 'achSkip'
-  | 'achResumeInterrupted' | 'achDiscardInterrupted';
+  | 'achResumeInterrupted' | 'achDiscardInterrupted' | 'denyAdd' | 'denyRemove';
 const PATHS: Record<SteamIdleCommand, string> = {
   ack: '/ack', login: '/login', check: '/check', scan: '/scan',
   start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip', release: '/farm/release',
   achAck: '/achievements/ack', achSettings: '/achievements/settings', libScan: '/library/scan', achStart: '/achievements/start',
   achStop: '/achievements/stop', achPause: '/achievements/pause', achResume: '/achievements/resume', achSkip: '/achievements/skip',
   achResumeInterrupted: '/achievements/resume-interrupted', achDiscardInterrupted: '/achievements/discard-interrupted',
+  denyAdd: '/denylist/add', denyRemove: '/denylist/remove',
 };
 
 export type SendCommand = (command: SteamIdleCommand, body?: unknown) => void;
@@ -65,10 +66,14 @@ export const parseState = (json: unknown): SteamIdleState | null => {
   if (achievements === null) {
     if (!achShapeLogged) { achShapeLogged = true; console.error('Steam IDLE state: achievements key does not match the contract, section hidden', json.achievements); }
   } else achShapeLogged = false;
+  // Same for the user's own anti-cheat list: a bad key hides that block only.
+  const denylist = json.denylist === undefined ? undefined : parseDenylist(json.denylist);
+  if (denylist === null) console.error('Steam IDLE state: denylist key does not match the contract, block hidden', json.denylist);
   const base = json as unknown as SteamIdleState;
   return {
     ...base,
     achievements: achievements ?? undefined,
+    denylist: denylist ?? undefined,
     community: { ...base.community, checkedAgeSeconds: isNum(community.checkedAgeSeconds) ? community.checkedAgeSeconds : null },
     farm: {
       ...base.farm,

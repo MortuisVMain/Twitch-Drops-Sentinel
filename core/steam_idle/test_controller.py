@@ -258,7 +258,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         await self.env.settle()
         state = ctl.state()
         self.assertEqual(set(state), {"available", "unavailableReason", "riskAcknowledged", "steam", "community", "farm", "library", "preview",
-                                      "achievements", "busy"})
+                                      "achievements", "denylist", "busy"})
         self.assertIs(state["busy"], False)
         self.assertEqual(set(state["steam"]), {"running", "signedIn"})
         self.assertEqual(set(state["community"]), {"session", "checkedAgeSeconds"})

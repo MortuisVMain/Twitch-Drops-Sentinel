@@ -15,7 +15,7 @@
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
 // ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch|enginemissing serves the Steam IDLE tab in that scenario (default farming; enginemissing has community.session "engine_missing": the browser engine of the giveaways is not installed); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
 // ?steamidle=farmingmore is the farming scenario plus two refund-held games (card with the "Фармить всё равно" button) and two failed ones (reasons no_progress and presence_lost).
-// ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch).
+// ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch); achdeny is achidle with three entries on the user's own anti-cheat list (Pale Harbor is always on the built-in table; POST /denylist/add|remove work).
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
@@ -229,7 +229,10 @@
       run: { state: 'idle', mode: null, current: null, nextUnlockInSeconds: null, queue: [], finished: [], totals: { unlocked: 0, already: 0, skipped: 0, rejected: 0, failed: 0 }, lastError: null, paused: false, suspended: false },
     },
     preview: { status: 'none', ageSeconds: null, error: null, games: [], totalDropsRemaining: 0 },
+    denylist: { max: 500, builtinCount: 35, entries: [] },
   };
+  // ?steamidle=achdeny: the achievements section with three own entries (one long name, one name unknown)
+  if (siMode === 'achdeny') si.denylist.entries = [{ appId: 910101, name: 'Brass Meridian' }, { appId: 987654, name: null }, { appId: 910103, name: 'Saltmarsh Cartographer: Extended Survey Edition With A Deliberately Long Title For Wrapping' }];
   function siPreviewGames() {
     return [[0, 1, 0.4], [1, 2, 12.5], [2, 2, 3], [3, 3, 56], [4, 3, 110.2], [5, 4, 7]].map(function (r) { return { appId: 910000 + r[0], name: SI_NAMES[r[0]], dropsRemaining: r[1], playtimeHours: r[2] }; });
   }
@@ -254,7 +257,23 @@
   var SI_LIB_NAMES = ['Lanternfall Chronicles', 'Brass Meridian', 'Hollow Orchard Tactics', SI_NAMES[3], 'Quiet Foundry', 'Pale Harbor', 'Ember Ledger', 'Tidewrack', 'Copper Orchard', 'Veil of Marrow',
     'Ninefold Station', 'Glasswater', 'Ashen Courier', 'Mossbridge', 'Paper Lighthouse', 'Kestrel Row', 'Dust Cathedral', 'Harrowmere', 'Old Salt Radio', 'Lowtide Ferry',
     'Ironbark Dispatch', 'Sundial Heist', 'Fennel & Flint', 'Cinder Choir', 'Westerly', 'Halcyon Mine', 'Thistledown', 'Orrery', 'Nightjar Yard', 'Underhill Post'];
-  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { return { appId: 910100 + i, name: n, playtimeMinutes: (i * 137) % 2400 }; }); }
+  function siDenied(id) { return si.denylist.entries.some(function (e) { return e.appId === id; }); }
+  // game 5 (Pale Harbor) is on the built-in anti-cheat table; the user's own list marks the others
+  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { var id = 910100 + i, own = siDenied(id); return { appId: id, name: n, playtimeMinutes: (i * 137) % 2400, protected: own || i === 5, userDenied: own }; }); }
+  // POST /denylist/add|remove: the service's checks (one appId key, whole number, a built-in game is refused, 500 at most)
+  function siDenyCommand(cmd, body) {
+    var id = body && Object.keys(body).join(',') === 'appId' ? body.appId : null;
+    if (typeof id !== 'number' || id % 1 !== 0 || id < 1 || id > 4294967295) return [400, 'invalid_request'];
+    var list = si.denylist;
+    if (cmd === 'denylist/add') {
+      if (id === 910105) return [409, 'already_builtin'];
+      if (siDenied(id)) return null;
+      if (list.entries.length >= list.max) return [409, 'denylist_full'];
+      var at = id - 910100;
+      list.entries.push({ appId: id, name: at >= 0 && at < SI_LIB_NAMES.length ? SI_LIB_NAMES[at] : null });
+    } else list.entries = list.entries.filter(function (e) { return e.appId !== id; });
+    return null;
+  }
   function siLibGame(i) { return { appId: 910100 + i, name: SI_LIB_NAMES[i] }; }
   var SI_ACH_BASE = ['First light', 'Quiet hands', 'Tide table', 'Lamp keeper', 'Ledger balanced', 'Under the bridge', 'Last ferry', 'Long way round'];
   var SI_ACH_LONG = 'Collected every lantern in the Drowned Archive without ever lighting the north beacon or waking the keeper';
@@ -396,7 +415,10 @@
         if (init.signal) init.signal.addEventListener('abort', function () { rej(new DOMException('Aborted', 'AbortError')); });
       });
       if (q.get('steamidlepost')) return siReply(409, { error: q.get('steamidlepost') });
-      if (si.achievements && (cmd.indexOf('achievements/') === 0 || cmd === 'library/scan')) {
+      if (cmd.indexOf('denylist/') === 0) {
+        var denied = siDenyCommand(cmd, posted);
+        if (denied) return siReply(denied[0], { error: denied[1] });
+      } else if (si.achievements && (cmd.indexOf('achievements/') === 0 || cmd === 'library/scan')) {
         var refused = siAchCommand(cmd, posted);
         if (refused) return siReply(refused[0], { error: refused[1] });
       } else siCommand(cmd);

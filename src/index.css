@@ -2007,6 +2007,11 @@ button.sidle-card-body:focus-visible { outline: 2px solid var(--led-mint); outli
 .sidle-input-num { max-width: 8rem; }
 .sidle-input[aria-invalid='true'] { border-color: var(--led-amber); }
 .sidle-err { font-size: var(--fs-sm); color: var(--led-amber); }
+.sidle-deny-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sidle-deny-add .sidle-input { flex: 1 1 14rem; width: auto; }
+.sidle-deny-row { align-items: center; }
+.sidle-deny-remove { flex-shrink: 0; }
+.sidle-ach-protected { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .sidle-textbtn { min-height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--led-mint); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .sidle-textbtn:disabled { color: var(--text-muted); cursor: not-allowed; text-decoration: none; }
 .sidle-textbtn:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }

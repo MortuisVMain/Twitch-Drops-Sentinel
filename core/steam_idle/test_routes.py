@@ -24,6 +24,14 @@ class StubController:
         self.calls.append(("release_held", app_id))
         return self.refusal
 
+    def deny_add(self, app_id):
+        self.calls.append(("deny_add", app_id))
+        return self.refusal
+
+    def deny_remove(self, app_id):
+        self.calls.append(("deny_remove", app_id))
+        return self.refusal
+
     def __getattr__(self, name):
         def command():
             self.calls.append((name, None))
@@ -70,6 +78,19 @@ class RoutesTests(unittest.IsolatedAsyncioTestCase):
         for request in bad:
             self.assertEqual(reply(await self.routes.ack(request)), (400, {"error": "bad_request"}))
         self.assertEqual(self.controller.calls, [])
+
+    async def test_denylist_add_and_remove_take_exactly_one_app_id(self):
+        self.assertEqual(reply(await self.routes.denylist_add(FakeRequest({"appId": 5}))), (200, {"ok": True}))
+        self.assertEqual(reply(await self.routes.denylist_remove(FakeRequest({"appId": 6}))), (200, {"ok": True}))
+        self.assertEqual(self.controller.calls, [("deny_add", 5), ("deny_remove", 6)])
+        for bad in (None, [], {}, {"appId": "5"}, {"appId": True}, {"appId": 0}, {"appId": 2 ** 32}, {"appId": 5, "x": 1}):
+            for call in (self.routes.denylist_add, self.routes.denylist_remove):
+                self.assertEqual(reply(await call(FakeRequest(bad))), (400, {"error": "invalid_request"}))
+        self.assertEqual(len(self.controller.calls), 2)
+
+    async def test_denylist_refusals_answer_409_with_the_code(self):
+        routes = SteamIdleRoutes(StubController("denylist_full"))
+        self.assertEqual(reply(await routes.denylist_add(FakeRequest({"appId": 5}))), (409, {"error": "denylist_full"}))
 
     async def test_login_and_check_answer_202(self):
         self.assertEqual(reply(await self.routes.login(FakeRequest())), (202, {"ok": True}))
