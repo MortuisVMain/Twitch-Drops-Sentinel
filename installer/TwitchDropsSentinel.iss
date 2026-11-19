@@ -69,6 +69,10 @@ russian.MigrateSameFolder=Это папка, в которую ставится 
 english.MigrateSameFolder=This is the folder the app is being installed into. Pick the old folder.
 russian.MigrateFailed=Не все файлы удалось скопировать (%1). Список файлов в журнале установки.
 english.MigrateFailed=Some files could not be copied (%1). The setup log lists them.
+russian.InstallNode=Установить Node.js LTS через winget (нужен для Раздач и Steam IDLE)
+english.InstallNode=Install Node.js LTS with winget (needed for Giveaways and Steam IDLE)
+russian.OpenNodeSite=Открыть nodejs.org: там Node.js LTS (нужен для Раздач и Steam IDLE)
+english.OpenNodeSite=Open nodejs.org to get Node.js LTS (needed for Giveaways and Steam IDLE)
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -86,6 +90,11 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{ap
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
+; Node.js is needed by Giveaways and Steam IDLE. winget runs in a visible console (the window stays open when it fails);
+; the exit code lands in the setup log. Silent setups skip it unless /INSTALLNODE=1 is given; without winget a link is offered.
+Filename: "{cmd}"; Parameters: "/c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements || (echo. & echo winget failed. & pause & exit /b 1)"""; Description: "{cm:InstallNode}"; Flags: postinstall skipifsilent waituntilterminated; Check: OfferNodeWinget
+Filename: "{cmd}"; Parameters: "/c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements || exit /b 1"""; Flags: waituntilterminated; Check: NodeBySwitch
+Filename: "https://nodejs.org/en/download"; Description: "{cm:OpenNodeSite}"; Flags: postinstall shellexec skipifsilent unchecked; Check: OfferNodeLink
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [InstallDelete]
@@ -489,11 +498,53 @@ begin
     MsgBox(FmtMessage(CustomMessage('MigrateFailed'), [IntToStr(MigrateFailed)]), mbError, MB_OK);
 end;
 
+{ ---- Node.js (Giveaways and Steam IDLE need it) ---- }
+function NodeFound: Boolean;
+begin
+  Result := (FileSearch('node.exe', GetEnv('PATH')) <> '')
+    or FileExists(ExpandConstant('{commonpf64}\nodejs\node.exe'))
+    or FileExists(ExpandConstant('{commonpf32}\nodejs\node.exe'))
+    or FileExists(ExpandConstant('{localappdata}\Programs\nodejs\node.exe'));
+end;
+
+function WingetFound: Boolean;
+begin
+  Result := (FileSearch('winget.exe', GetEnv('PATH')) <> '')
+    or FileExists(ExpandConstant('{localappdata}\Microsoft\WindowsApps\winget.exe'));
+end;
+
+{ finish page: a ticked item that installs Node.js, only when it is missing and winget can do it }
+function OfferNodeWinget: Boolean;
+begin
+  Result := (not NodeFound) and WingetFound;
+end;
+
+{ finish page: without winget, only a pointer to nodejs.org }
+function OfferNodeLink: Boolean;
+begin
+  Result := (not NodeFound) and (not WingetFound);
+end;
+
+{ a silent setup installs Node.js only when asked with /INSTALLNODE=1 }
+function NodeBySwitch: Boolean;
+begin
+  Result := WizardSilent and (SwitchValue('INSTALLNODE') = '1') and (not NodeFound) and WingetFound;
+end;
+
+procedure LogNodeState;
+begin
+  Log(Format('Node.js check: node.exe found = %d, winget found = %d, silent = %d, /INSTALLNODE=%s', [Ord(NodeFound), Ord(WingetFound), Ord(WizardSilent), SwitchValue('INSTALLNODE')]));
+  if WizardSilent and (not NodeFound) and (not NodeBySwitch) then
+    Log('Node.js is missing; a silent setup installs it only with /INSTALLNODE=1 and winget present');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   { before the program files go in: the template config.json is written only when none exists }
   if CurStep = ssInstall then
-    RunMigration;
+    RunMigration
+  else if CurStep = ssPostInstall then
+    LogNodeState;
 end;
 
 function InitializeUninstall: Boolean;

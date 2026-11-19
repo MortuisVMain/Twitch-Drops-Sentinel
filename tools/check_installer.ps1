@@ -104,6 +104,15 @@ function Test-IssStatic([string]$Text) {
         "migrate list: steam_idle_*.json"                = "MigrateMask\([^\r\n]*'steam_idle_\*\.json'"
         "migrate list: data folder"                      = "MigrateTree\([^\r\n]*'data'"
         "migrate list: giveaways_engine\data folder"     = "MigrateTree\([^\r\n]*'giveaways_engine\\data'"
+        # Node.js through winget
+        "node: exact winget command"                     = 'winget install --id OpenJS\.NodeJS\.LTS -e --scope user --accept-package-agreements --accept-source-agreements'
+        "node: finish page item is postinstall + skipifsilent" = 'Flags: postinstall skipifsilent[^\r\n]*Check: OfferNodeWinget'
+        "node: /INSTALLNODE=1 switch"                    = "'INSTALLNODE'"
+        "node: label (ru)"                               = 'russian\.InstallNode=\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c Node\.js LTS \u0447\u0435\u0440\u0435\u0437 winget \(\u043d\u0443\u0436\u0435\u043d \u0434\u043b\u044f \u0420\u0430\u0437\u0434\u0430\u0447 \u0438 Steam IDLE\)'
+        "node: label (en)"                               = 'english\.InstallNode=Install Node\.js LTS with winget \(needed for Giveaways and Steam IDLE\)'
+        "node: nodejs.org note when winget is missing"   = 'https://nodejs\.org[^\r\n]*Check: OfferNodeLink'
+        "node: looks for node.exe on PATH"               = "FileSearch\('node\.exe'"
+        "node: looks for winget.exe"                     = "winget\.exe"
     }
     foreach ($k in $must.Keys) { Assert-That ($Text -match $must[$k]) "static: $k" }
 }
@@ -260,6 +269,9 @@ try {
     Assert-That (-not (Test-Path $uninstKey)) "delete: uninstall entry gone"
 
     # --- move settings from an unpacked ZIP copy (a fake old folder; it must come out untouched) ---------
+    $log0 = Get-Content -Raw -Encoding UTF8 "$logDir\install1.log"
+    Assert-That ($log0 -match "Node\.js check:") "node: the setup log records the node.exe / winget check"
+    Assert-That ($log0 -notmatch "OpenJS\.NodeJS\.LTS") "node: a silent setup without /INSTALLNODE=1 never runs winget"
     Assert-That ((Get-Content -Raw -Encoding UTF8 "$logDir\install1.log") -match "Migrate: not requested") "migrate: a silent setup without /MIGRATEFROM copies nothing"
     $utf8 = New-Object Text.UTF8Encoding($false)
     $oldCopy = Join-Path $Scratch "old copy"   # a space in the path on purpose
