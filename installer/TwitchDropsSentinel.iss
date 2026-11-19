@@ -51,6 +51,24 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [CustomMessages]
 russian.UninstallAskData=Удалить настройки и вход в аккаунты? Если оставить, они вернутся при следующей установке.
 english.UninstallAskData=Delete settings and account sign-ins? If you keep them, they come back at the next install.
+russian.MigrateTitle=Перенести настройки из старой папки
+english.MigrateTitle=Move settings from the old folder
+russian.MigrateDesc=Если вы пользовались версией из ZIP-архива, её настройки и входы в аккаунты можно взять с собой.
+english.MigrateDesc=If you used the ZIP version, you can bring its settings and account sign-ins along.
+russian.MigrateCheck=Перенести настройки и входы в аккаунты из папки:
+english.MigrateCheck=Move settings and account sign-ins from this folder:
+russian.MigrateReplace=Заменить файлы, которые уже есть в новой папке
+english.MigrateReplace=Replace files that already exist in the new folder
+russian.MigrateNote=Файлы копируются: старая папка остаётся как есть. Закройте старую копию программы, пока идёт установка.
+english.MigrateNote=Files are copied: the old folder stays as it is. Close the old copy of the app while setup runs.
+russian.MigratePick=Выберите папку со старой копией Twitch Drops Sentinel
+english.MigratePick=Pick the folder with the old copy of Twitch Drops Sentinel
+russian.MigrateBadFolder=В этой папке нет TwitchDropsSentinel.exe и config.json. Выберите папку, куда вы распаковали ZIP-архив.
+english.MigrateBadFolder=This folder has no TwitchDropsSentinel.exe and config.json. Pick the folder where you unpacked the ZIP.
+russian.MigrateSameFolder=Это папка, в которую ставится программа. Выберите старую папку.
+english.MigrateSameFolder=This is the folder the app is being installed into. Pick the old folder.
+russian.MigrateFailed=Не все файлы удалось скопировать (%1). Список файлов в журнале установки.
+english.MigrateFailed=Some files could not be copied (%1). The setup log lists them.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -128,6 +146,354 @@ begin
     if Arg = '/KEEPDATA=1' then Result := 1
     else if Arg = '/KEEPDATA=0' then Result := 0;
   end;
+end;
+
+{ /NAME=value switch of the setup command line ('' when not given); surrounding quotes are dropped. }
+function SwitchValue(const Name: String): String;
+var
+  I: Integer;
+  Arg, Prefix: String;
+begin
+  Result := '';
+  Prefix := '/' + Uppercase(Name) + '=';
+  for I := 1 to ParamCount do
+  begin
+    Arg := ParamStr(I);
+    if Pos(Prefix, Uppercase(Arg)) = 1 then
+      Result := Trim(RemoveQuotes(Copy(Arg, Length(Prefix) + 1, MaxInt)));
+  end;
+end;
+
+{ ---- Move settings from an unpacked ZIP copy (fresh installs only; files are copied, never moved) ---- }
+var
+  MigratePage: TWizardPage;
+  MigrateCheck, MigrateReplace: TNewCheckBox;
+  MigrateEdit: TNewEdit;
+  MigrateBrowse: TNewButton;
+  MigrateNote: TNewStaticText;
+  MigrateFresh: Boolean;
+  MigrateOverwrite: Boolean;
+  MigrateCopied, MigrateSkipped, MigrateFailed: Integer;
+
+{ A fresh install has no uninstall entry yet; an upgrade over an installed copy has one. }
+function IsFreshInstall: Boolean;
+begin
+  Result := not RegKeyExists(HKCU,
+    ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1'));
+end;
+
+function SamePath(const A, B: String): Boolean;
+begin
+  Result := CompareText(RemoveBackslash(ExpandFileName(A)), RemoveBackslash(ExpandFileName(B))) = 0;
+end;
+
+function IsOldCopy(const Dir: String): Boolean;
+begin
+  Result := (Dir <> '') and FileExists(AddBackslash(Dir) + '{#AppExe}') and FileExists(AddBackslash(Dir) + 'config.json');
+end;
+
+{ '' when the folder can be used as the source, else the name of the custom message that says why not. }
+function MigrationProblem(const Source, Target: String): String;
+begin
+  Result := '';
+  if SamePath(Source, Target) then
+    Result := 'MigrateSameFolder'
+  else if not IsOldCopy(Source) then
+    Result := 'MigrateBadFolder';
+end;
+
+{ The folder itself and its direct subfolders; of several copies the last by name wins (the newest version number). }
+procedure ScanRoot(const Root: String; var Found: String);
+var
+  FindRec: TFindRec;
+  Sub: String;
+begin
+  if (Root = '') or not DirExists(Root) then
+    Exit;
+  if IsOldCopy(Root) then
+    Found := Root;
+  if FindFirst(AddBackslash(Root) + '*', FindRec) then
+  try
+    repeat
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0) and (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+      begin
+        Sub := AddBackslash(Root) + FindRec.Name;
+        if IsOldCopy(Sub) then
+          Found := Sub;
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+{ Desktop, Downloads, Documents, one level deep; the first place with a copy decides. }
+function FindOldCopy: String;
+begin
+  Result := '';
+  ScanRoot(ExpandConstant('{userdesktop}'), Result);
+  if Result = '' then
+    ScanRoot(AddBackslash(GetEnv('USERPROFILE')) + 'Downloads', Result);
+  if Result = '' then
+    ScanRoot(ExpandConstant('{userdocs}'), Result);
+end;
+
+procedure MigrateFile(const SrcRoot, DstRoot, Rel: String);
+var
+  Src, Dst: String;
+begin
+  Src := AddBackslash(SrcRoot) + Rel;
+  Dst := AddBackslash(DstRoot) + Rel;
+  if not FileExists(Src) then
+    Exit;
+  if FileExists(Dst) and not MigrateOverwrite then
+  begin
+    Log('Migrate: skipped (already exists) ' + Dst);
+    MigrateSkipped := MigrateSkipped + 1;
+  end
+  else if not ForceDirectories(ExtractFileDir(Dst)) then
+  begin
+    Log('Migrate: FAILED, cannot create the folder of ' + Dst);
+    MigrateFailed := MigrateFailed + 1;
+  end
+  else if CopyFile(Src, Dst, False) then
+  begin
+    Log('Migrate: copied ' + Src + ' -> ' + Dst);
+    MigrateCopied := MigrateCopied + 1;
+  end
+  else
+  begin
+    Log('Migrate: FAILED to copy ' + Src + ' -> ' + Dst);
+    MigrateFailed := MigrateFailed + 1;
+  end;
+end;
+
+{ Files of one folder that match the mask (no subfolders). }
+procedure MigrateMask(const SrcRoot, DstRoot, Mask: String);
+var
+  FindRec: TFindRec;
+begin
+  if FindFirst(AddBackslash(SrcRoot) + Mask, FindRec) then
+  try
+    repeat
+      if FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0 then
+        MigrateFile(SrcRoot, DstRoot, FindRec.Name);
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+{ A folder with everything inside (junctions and symlinks are not followed). }
+procedure MigrateTree(const SrcRoot, DstRoot, Rel: String);
+var
+  FindRec: TFindRec;
+  Dir: String;
+begin
+  Dir := AddBackslash(SrcRoot) + Rel;
+  if not DirExists(Dir) then
+    Exit;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  try
+    repeat
+      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+      begin
+        if FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+        begin
+          if FindRec.Attributes and $400 = 0 then
+            MigrateTree(SrcRoot, DstRoot, AddBackslash(Rel) + FindRec.Name)
+          else
+            Log('Migrate: skipped (link, not followed) ' + AddBackslash(Dir) + FindRec.Name);
+        end
+        else
+          MigrateFile(SrcRoot, DstRoot, AddBackslash(Rel) + FindRec.Name);
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+procedure UpdateMigrateControls;
+begin
+  MigrateEdit.Enabled := MigrateCheck.Checked;
+  MigrateBrowse.Enabled := MigrateCheck.Checked;
+  MigrateReplace.Enabled := MigrateCheck.Checked;
+end;
+
+procedure MigrateCheckClick(Sender: TObject);
+begin
+  UpdateMigrateControls;
+end;
+
+procedure MigrateBrowseClick(Sender: TObject);
+var
+  Dir: String;
+begin
+  Dir := MigrateEdit.Text;
+  if BrowseForFolder(CustomMessage('MigratePick'), Dir, False) then
+    MigrateEdit.Text := Dir;
+end;
+
+function MigrateSource: String;
+begin
+  Result := RemoveBackslash(Trim(MigrateEdit.Text));
+end;
+
+procedure InitializeWizard;
+var
+  Given, Found: String;
+begin
+  MigrateFresh := IsFreshInstall;
+  Given := SwitchValue('MIGRATEFROM');
+  Found := '';
+  if MigrateFresh and (Given = '') then
+  begin
+    Found := GetPreviousData('MigrateFrom', '');
+    if not IsOldCopy(Found) then
+      Found := '';
+    { a silent setup copies only from a folder it was told about }
+    if (Found = '') and not WizardSilent then
+      Found := FindOldCopy;
+  end;
+
+  MigratePage := CreateCustomPage(wpSelectDir, CustomMessage('MigrateTitle'), CustomMessage('MigrateDesc'));
+
+  MigrateCheck := TNewCheckBox.Create(MigratePage);
+  MigrateCheck.Parent := MigratePage.Surface;
+  MigrateCheck.Left := 0;
+  MigrateCheck.Top := 0;
+  MigrateCheck.Width := MigratePage.SurfaceWidth;
+  MigrateCheck.Caption := CustomMessage('MigrateCheck');
+  MigrateCheck.OnClick := @MigrateCheckClick;
+
+  MigrateBrowse := TNewButton.Create(MigratePage);
+  MigrateBrowse.Parent := MigratePage.Surface;
+  MigrateBrowse.Width := ScaleX(90);
+  MigrateBrowse.Height := ScaleY(23);
+  MigrateBrowse.Left := MigratePage.SurfaceWidth - MigrateBrowse.Width;
+  MigrateBrowse.Top := MigrateCheck.Top + MigrateCheck.Height + ScaleY(6);
+  MigrateBrowse.Caption := WizardForm.DirBrowseButton.Caption;
+  MigrateBrowse.OnClick := @MigrateBrowseClick;
+
+  MigrateEdit := TNewEdit.Create(MigratePage);
+  MigrateEdit.Parent := MigratePage.Surface;
+  MigrateEdit.Left := 0;
+  MigrateEdit.Top := MigrateBrowse.Top;
+  MigrateEdit.Width := MigrateBrowse.Left - ScaleX(8);
+
+  MigrateReplace := TNewCheckBox.Create(MigratePage);
+  MigrateReplace.Parent := MigratePage.Surface;
+  MigrateReplace.Left := 0;
+  MigrateReplace.Top := MigrateBrowse.Top + MigrateBrowse.Height + ScaleY(14);
+  MigrateReplace.Width := MigratePage.SurfaceWidth;
+  MigrateReplace.Caption := CustomMessage('MigrateReplace');
+
+  MigrateNote := TNewStaticText.Create(MigratePage);
+  MigrateNote.Parent := MigratePage.Surface;
+  MigrateNote.Left := 0;
+  MigrateNote.Top := MigrateReplace.Top + MigrateReplace.Height + ScaleY(14);
+  MigrateNote.Width := MigratePage.SurfaceWidth;
+  MigrateNote.AutoSize := False;
+  MigrateNote.WordWrap := True;
+  MigrateNote.Height := ScaleY(48);
+  MigrateNote.Caption := CustomMessage('MigrateNote');
+
+  if Given <> '' then
+    MigrateEdit.Text := Given
+  else
+    MigrateEdit.Text := Found;
+  MigrateCheck.Checked := MigrateEdit.Text <> '';
+  MigrateReplace.Checked := SwitchValue('MIGRATEREPLACE') = '1';
+  UpdateMigrateControls;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = MigratePage.ID) and not MigrateFresh;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Problem: String;
+begin
+  Result := True;
+  if (CurPageID = MigratePage.ID) and MigrateCheck.Checked then
+  begin
+    Problem := MigrationProblem(MigrateSource, RemoveBackslash(WizardDirValue));
+    if Problem <> '' then
+    begin
+      if WizardSilent then
+      begin
+        { nobody to ask: say why in the log and install without migrating (a "False" here would abort the whole setup) }
+        Log('Migrate: skipped, ' + Problem + ' (' + MigrateSource + ')');
+        MigrateCheck.Checked := False;
+      end
+      else
+      begin
+        MsgBox(CustomMessage(Problem), mbError, MB_OK);
+        Result := False;
+      end;
+    end;
+  end;
+end;
+
+procedure RegisterPreviousData(PreviousDataKey: Integer);
+begin
+  { remembers the last folder used }
+  if MigrateFresh and MigrateCheck.Checked and (MigrateSource <> '') then
+    SetPreviousData(PreviousDataKey, 'MigrateFrom', MigrateSource);
+end;
+
+procedure RunMigration;
+var
+  Target, Source, Problem: String;
+begin
+  if not MigrateFresh then
+  begin
+    if SwitchValue('MIGRATEFROM') <> '' then
+      Log('Migrate: ignored, an installed copy is being upgraded');
+    Exit;
+  end;
+  if not MigrateCheck.Checked then
+  begin
+    Log('Migrate: not requested');
+    Exit;
+  end;
+  Source := MigrateSource;
+  Target := RemoveBackslash(ExpandConstant('{app}'));
+  Problem := MigrationProblem(Source, Target);
+  if Problem <> '' then
+  begin
+    Log('Migrate: skipped, ' + Problem + ' (' + Source + ')');
+    Exit;
+  end;
+  MigrateOverwrite := MigrateReplace.Checked;
+  MigrateCopied := 0;
+  MigrateSkipped := 0;
+  MigrateFailed := 0;
+  Log(Format('Migrate: from %s to %s, replace existing = %d', [Source, Target, Ord(MigrateOverwrite)]));
+
+  { the user data the app keeps next to its exe (the same list the uninstaller can delete) }
+  MigrateFile(Source, Target, 'config.json');
+  MigrateFile(Source, Target, 'Trophies.md');
+  MigrateFile(Source, Target, 'cookies.jar');
+  MigrateFile(Source, Target, 'core\settings.json');
+  MigrateFile(Source, Target, 'core\cookies.jar');
+  MigrateMask(Source, Target, 'steam_idle_*.json');
+  MigrateTree(Source, Target, 'data');
+  MigrateTree(Source, Target, 'giveaways_engine\data');
+
+  Log(Format('Migrate: done, %d copied, %d skipped, %d failed', [MigrateCopied, MigrateSkipped, MigrateFailed]));
+  if (MigrateFailed > 0) and not WizardSilent then
+    MsgBox(FmtMessage(CustomMessage('MigrateFailed'), [IntToStr(MigrateFailed)]), mbError, MB_OK);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  { before the program files go in: the template config.json is written only when none exists }
+  if CurStep = ssInstall then
+    RunMigration;
 end;
 
 function InitializeUninstall: Boolean;

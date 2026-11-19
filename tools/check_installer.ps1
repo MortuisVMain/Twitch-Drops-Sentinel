@@ -10,11 +10,14 @@
   Scratch root for the compiled setup and the test installs. Default: a new folder in the temp directory.
 .PARAMETER Iscc
   Path to ISCC.exe. Default: $env:ISCC, then the standard Inno Setup 6 locations.
+.PARAMETER StaticOnly
+  Run only the static checks of the script text (no compile, no install).
 #>
 param(
     [string]$StageDir = "",
     [string]$Scratch = "",
-    [string]$Iscc = ""
+    [string]$Iscc = "",
+    [switch]$StaticOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,8 +75,72 @@ function Wait-Gone([string]$Path, [int]$Seconds = 60) {
     return -not (Test-Path -LiteralPath $Path)
 }
 
+
+# --- static checks of the script text ---------------------------------------
+function Test-IssStatic([string]$Text) {
+    $must = [ordered]@{
+        # move settings from an unpacked ZIP copy
+        "migrate page is created after the folder page"  = 'CreateCustomPage\(wpSelectDir'
+        "migrate page title (ru)"                        = 'russian\.MigrateTitle=\u041f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0437 \u0441\u0442\u0430\u0440\u043e\u0439 \u043f\u0430\u043f\u043a\u0438'
+        "migrate page title (en)"                        = 'english\.MigrateTitle=Move settings from the old folder'
+        "migrate page is skipped on an upgrade"          = 'ShouldSkipPage[\s\S]*MigrateFresh'
+        "migrate fresh test reads the uninstall key"     = 'RegKeyExists\(HKCU[\s\S]*Uninstall'
+        "migrate /MIGRATEFROM switch"                    = "'MIGRATEFROM'"
+        "migrate /MIGRATEREPLACE switch"                 = "'MIGRATEREPLACE'"
+        "migrate folder picker"                          = 'BrowseForFolder'
+        "migrate replace checkbox text (ru)"             = 'russian\.MigrateReplace=\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c'
+        "migrate scans Desktop"                          = '\{userdesktop\}'
+        "migrate scans Documents"                        = '\{userdocs\}'
+        "migrate scans Downloads"                        = 'Downloads'
+        "migrate remembers the last folder"              = 'RegisterPreviousData|SetPreviousData'
+        "migrate copies, never moves (CopyFile)"         = 'CopyFile\('
+        "migrate logs every copied file"                 = "Log\('Migrate: copied"
+        "migrate logs skipped files"                     = "Log\('Migrate: skipped"
+        "migrate list: config.json"                      = "MigrateFile\([^\r\n]*'config\.json'"
+        "migrate list: Trophies.md"                      = "MigrateFile\([^\r\n]*'Trophies\.md'"
+        "migrate list: cookies.jar"                      = "MigrateFile\([^\r\n]*'cookies\.jar'"
+        "migrate list: core\settings.json"               = "MigrateFile\([^\r\n]*'core\\settings\.json'"
+        "migrate list: core\cookies.jar"                 = "MigrateFile\([^\r\n]*'core\\cookies\.jar'"
+        "migrate list: steam_idle_*.json"                = "MigrateMask\([^\r\n]*'steam_idle_\*\.json'"
+        "migrate list: data folder"                      = "MigrateTree\([^\r\n]*'data'"
+        "migrate list: giveaways_engine\data folder"     = "MigrateTree\([^\r\n]*'giveaways_engine\\data'"
+    }
+    foreach ($k in $must.Keys) { Assert-That ($Text -match $must[$k]) "static: $k" }
+}
+
+function New-TestFile([string]$Path, [string]$Text) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+    [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding($false)))
+}
+
+function Get-TreeHash([string]$Root) {
+    # relative path + content hash of every file: equal strings mean an equal tree
+    $base = (Resolve-Path -LiteralPath $Root).Path.TrimEnd("\")
+    $lines = Get-ChildItem -LiteralPath $Root -Recurse -Force -File | Sort-Object FullName | ForEach-Object {
+        $_.FullName.Substring($base.Length) + ":" + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    }
+    return ($lines -join "|")
+}
+
+function Remove-TestInstall([string]$Dir, [string]$Log) {
+    # uninstall and delete the data; true when the folder is gone or holds no files
+    $u = Join-Path $Dir "unins000.exe"
+    if (-not (Test-Path -LiteralPath $u)) { return $false }
+    Invoke-Setup $u @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/KEEPDATA=0", "/LOG=`"$Log`"") "uninstall $Dir"
+    if (Wait-Gone $Dir) { return $true }
+    return (@(Get-ChildItem -LiteralPath $Dir -Recurse -Force -File -ErrorAction SilentlyContinue).Count -eq 0)
+}
+
 $ownScratch = $false
 try {
+    if (-not (Test-Path -LiteralPath $issPath)) { throw "No installer script to compile" }
+    Assert-That $true "installer script exists: installer\TwitchDropsSentinel.iss"
+    Test-IssStatic (Get-Content -Raw -Encoding UTF8 $issPath)
+    if ($StaticOnly) {
+        if ($script:failures -gt 0) { Write-Host "RESULT: $($script:failures) check(s) FAILED"; exit 1 }
+        Write-Host "RESULT: all static checks passed"
+        exit 0
+    }
     # --- inputs ---------------------------------------------------------------
     if (-not $StageDir) {
         $newest = Get-ChildItem (Join-Path $repo "dist_release") -Directory -ErrorAction SilentlyContinue |
@@ -93,12 +160,11 @@ try {
 
     $version = (Get-Content -Raw (Join-Path $repo "core\version.py")) -replace '(?s).*__version__\s*=\s*"([^"]+)".*', '$1'
     $installA = Join-Path $Scratch "install-a"
+    $script:activeInstall = $installA
     $buildDir = Join-Path $Scratch "build"
     $logDir = Join-Path $Scratch "logs"
     New-Item -ItemType Directory -Force -Path $buildDir, $logDir | Out-Null
 
-    Assert-That (Test-Path -LiteralPath $issPath) "installer script exists: installer\TwitchDropsSentinel.iss"
-    if (-not (Test-Path -LiteralPath $issPath)) { throw "No installer script to compile" }
     $appId = [regex]::Match((Get-Content -Raw -Encoding UTF8 $issPath), 'AppId=\{\{([0-9A-Fa-f\-]{36})\}').Groups[1].Value
     Assert-That ($appId.Length -eq 36) "AppId GUID found in the script"
     $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{$appId}_is1"
@@ -193,6 +259,67 @@ try {
     Assert-That $deleted "delete: install folder gone or holds no files"
     Assert-That (-not (Test-Path $uninstKey)) "delete: uninstall entry gone"
 
+    # --- move settings from an unpacked ZIP copy (a fake old folder; it must come out untouched) ---------
+    Assert-That ((Get-Content -Raw -Encoding UTF8 "$logDir\install1.log") -match "Migrate: not requested") "migrate: a silent setup without /MIGRATEFROM copies nothing"
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $oldCopy = Join-Path $Scratch "old copy"   # a space in the path on purpose
+    $oldMarker = "old-copy-marker-" + [Guid]::NewGuid().ToString("N")
+    $migrated = @("config.json", "Trophies.md", "cookies.jar", "core\settings.json", "core\cookies.jar", "steam_idle_first_seen.json",
+        "data\installed_games.json", "data\backups\profile.zip", "giveaways_engine\data\sessions.json", "giveaways_engine\data\browser\Default\Cookies")
+    $notMigrated = @("steam_idle_first_seen.json.corrupt", "core\sentinel_service.log", ".backup_state\cookies.jar", "notes.txt")
+    foreach ($rel in (@("TwitchDropsSentinel.exe") + $migrated + $notMigrated)) { New-TestFile (Join-Path $oldCopy $rel) "$oldMarker $rel" }
+    $oldHash = Get-TreeHash $oldCopy
+    $installB = Join-Path $Scratch "install-b"
+    $script:activeInstall = $installB
+    $fromArgs = @("/MIGRATEFROM=`"$oldCopy`"")
+
+    # fresh install into an empty folder: everything on the list arrives, nothing else
+    Invoke-Setup $setupExe ($silent + $fromArgs + @("/DIR=`"$installB`"", "/LOG=`"$logDir\migrate1.log`"")) "fresh install with /MIGRATEFROM"
+    foreach ($rel in $migrated) {
+        $dst = Join-Path $installB $rel
+        Assert-That ((Test-Path -LiteralPath $dst) -and ((Get-Content -Raw -LiteralPath $dst) -eq "$oldMarker $rel")) "migrate: copied $rel"
+    }
+    foreach ($rel in $notMigrated) { Assert-That (-not (Test-Path -LiteralPath (Join-Path $installB $rel))) "migrate: not copied $rel" }
+    Assert-That ((Get-TreeHash $oldCopy) -eq $oldHash) "migrate: the old folder is unchanged (copy, never move)"
+    $log1 = Get-Content -Raw -Encoding UTF8 "$logDir\migrate1.log"
+    Assert-That (([regex]::Matches($log1, "Migrate: copied ")).Count -eq $migrated.Count) "migrate: the setup log names every copied file ($($migrated.Count))"
+    Assert-That ($log1 -match "Migrate: done, $($migrated.Count) copied, 0 skipped, 0 failed") "migrate: the setup log ends with the totals"
+    Assert-That (Test-Path -LiteralPath (Join-Path $installB "TwitchDropsSentinel.exe")) "migrate: the program itself is installed"
+
+    # an upgrade over an installed copy never migrates, whatever the switches say
+    $keepText = "upgrade-keeps-this"
+    New-TestFile (Join-Path $installB "config.json") $keepText
+    Invoke-Setup $setupExe ($silent + $fromArgs + @("/MIGRATEREPLACE=1", "/DIR=`"$installB`"", "/LOG=`"$logDir\migrate2.log`"")) "upgrade with /MIGRATEFROM"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "config.json")) -eq $keepText) "migrate: an upgrade leaves config.json alone"
+    Assert-That ((Get-Content -Raw -Encoding UTF8 "$logDir\migrate2.log") -match "Migrate: ignored, an installed copy is being upgraded") "migrate: the upgrade says why it did not migrate"
+    Assert-That (Remove-TestInstall $installB "$logDir\migrate-un1.log") "migrate: scratch install removed (1)"
+
+    # a fresh install into a folder that already holds data: existing files are skipped ...
+    New-TestFile (Join-Path $installB "config.json") "target-config"
+    New-TestFile (Join-Path $installB "data\installed_games.json") "target-games"
+    Invoke-Setup $setupExe ($silent + $fromArgs + @("/DIR=`"$installB`"", "/LOG=`"$logDir\migrate3.log`"")) "fresh install over existing data, no replace"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "config.json")) -eq "target-config") "migrate: existing config.json is kept without Replace"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "data\installed_games.json")) -eq "target-games") "migrate: existing data file is kept without Replace"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "cookies.jar")) -eq "$oldMarker cookies.jar") "migrate: files that were absent are still copied"
+    Assert-That ((Get-Content -Raw -Encoding UTF8 "$logDir\migrate3.log") -match "Migrate: skipped \(already exists\)") "migrate: skipped files are logged"
+    Assert-That (Remove-TestInstall $installB "$logDir\migrate-un2.log") "migrate: scratch install removed (2)"
+
+    # ... unless Replace is on
+    New-TestFile (Join-Path $installB "config.json") "target-config"
+    Invoke-Setup $setupExe ($silent + $fromArgs + @("/MIGRATEREPLACE=1", "/DIR=`"$installB`"", "/LOG=`"$logDir\migrate4.log`"")) "fresh install over existing data, replace"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "config.json")) -eq "$oldMarker config.json") "migrate: Replace overwrites the existing config.json"
+    Assert-That ((Get-TreeHash $oldCopy) -eq $oldHash) "migrate: the old folder is still unchanged after Replace"
+    Assert-That (Remove-TestInstall $installB "$logDir\migrate-un3.log") "migrate: scratch install removed (3)"
+
+    # a folder that is not an old copy is refused and logged, the install itself still succeeds
+    $notACopy = Join-Path $Scratch "not a copy"
+    New-TestFile (Join-Path $notACopy "readme.txt") "x"
+    Invoke-Setup $setupExe ($silent + @("/MIGRATEFROM=`"$notACopy`"", "/DIR=`"$installB`"", "/LOG=`"$logDir\migrate5.log`"")) "fresh install with a bad /MIGRATEFROM"
+    Assert-That ((Get-Content -Raw -Encoding UTF8 "$logDir\migrate5.log") -match "Migrate: skipped, MigrateBadFolder") "migrate: a folder without exe and config.json is refused in the log"
+    Assert-That ((Get-Content -Raw -Encoding UTF8 (Join-Path $installB "config.json")) -eq (Get-Content -Raw -Encoding UTF8 (Join-Path $StageDir "config.json"))) "migrate: a refused folder leaves the clean template config.json"
+    Assert-That (Remove-TestInstall $installB "$logDir\migrate-un4.log") "migrate: scratch install removed (4)"
+    $script:activeInstall = $installA
+
     # --- the user's account stays untouched ----------------------------------------
     $shortcutsAfter = @(Get-ShortcutSnapshot)
     $changed = @(Compare-Object -ReferenceObject $shortcutsBefore -DifferenceObject $shortcutsAfter -ErrorAction SilentlyContinue)
@@ -210,7 +337,7 @@ catch {
 finally {
     # the check must not leave an install behind, whatever happened
     if ($appId -and (Test-Path $uninstKey)) {
-        $u = Join-Path $installA "unins000.exe"
+        $u = Join-Path $script:activeInstall "unins000.exe"
         if (Test-Path -LiteralPath $u) {
             $cleanup = New-Object Diagnostics.ProcessStartInfo
             $cleanup.FileName = $u
