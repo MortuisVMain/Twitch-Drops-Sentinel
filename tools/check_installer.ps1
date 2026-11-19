@@ -104,8 +104,14 @@ function Test-IssStatic([string]$Text) {
         "migrate list: steam_idle_*.json"                = "MigrateMask\([^\r\n]*'steam_idle_\*\.json'"
         "migrate list: data folder"                      = "MigrateTree\([^\r\n]*'data'"
         "migrate list: giveaways_engine\data folder"     = "MigrateTree\([^\r\n]*'giveaways_engine\\data'"
+        "migrate: links are not followed (reparse attribute)" = 'and \$400'
+        "migrate: links are logged"                      = "Log\('Migrate: skipped \(link, not followed\)"
+        "migrate: the root folders are checked for links" = 'PathHasLink\(SrcRoot, Rel\)'
+        "migrate: a pasted path loses its quotes"        = 'RemoveQuotes\(Trim\(MigrateEdit\.Text\)\)'
         # Node.js through winget
-        "node: exact winget command"                     = 'winget install --id OpenJS\.NodeJS\.LTS -e --scope user --accept-package-agreements --accept-source-agreements'
+        "node: retry without --scope"                    = 'winget install --id OpenJS\.NodeJS\.LTS -e --accept-package-agreements --accept-source-agreements'
+        "node: both winget results go to the setup log"  = '(?s)tds-winget\.log.*LoadStringsFromFile\(WingetLogPath'
+        "node: exact winget command"                    = 'winget install --id OpenJS\.NodeJS\.LTS -e --scope user --accept-package-agreements --accept-source-agreements'
         "node: finish page item is postinstall + skipifsilent" = 'Flags: postinstall skipifsilent[^\r\n]*Check: OfferNodeWinget'
         "node: /INSTALLNODE=1 switch"                    = "'INSTALLNODE'"
         "node: label (ru)"                               = 'russian\.InstallNode=\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c Node\.js LTS \u0447\u0435\u0440\u0435\u0437 winget \(\u043d\u0443\u0436\u0435\u043d \u0434\u043b\u044f \u0420\u0430\u0437\u0434\u0430\u0447 \u0438 Steam IDLE\)'
@@ -129,6 +135,40 @@ function Get-TreeHash([string]$Root) {
         $_.FullName.Substring($base.Length) + ":" + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
     }
     return ($lines -join "|")
+}
+
+function Invoke-FakeWinget([string]$CmdLine, [string]$Dir, [int]$ScopeRc, [int]$MachineRc) {
+    # Runs the finish-page command line with a fake winget.exe first on a PATH that holds nothing else but System32,
+    # so the real winget cannot be reached. Returns the exit code, the arguments of every call and the lines of tds-winget.log.
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    $fakeExe = Join-Path $Dir "winget.exe"
+    if (-not (Test-Path -LiteralPath $fakeExe)) {
+        $cls = "P" + [Guid]::NewGuid().ToString("N")
+        $src = 'using System; using System.IO; public static class ' + $cls + ' { public static int Main(string[] a) { string s = string.Join(" ", a); File.AppendAllText(Environment.GetEnvironmentVariable("FAKE_CALLS"), s + "\r\n"); return int.Parse(Environment.GetEnvironmentVariable(s.Contains("--scope user") ? "FAKE_SCOPE_RC" : "FAKE_MACHINE_RC")); } }'
+        Add-Type -TypeDefinition $src -OutputAssembly $fakeExe -OutputType ConsoleApplication
+    }
+    $calls = Join-Path $Dir "calls.txt"
+    $wlog = Join-Path $Dir "tds-winget.log"
+    Remove-Item -LiteralPath $calls, $wlog -ErrorAction SilentlyContinue
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = Join-Path $env:SystemRoot "System32\cmd.exe"
+    $psi.Arguments = $CmdLine
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.EnvironmentVariables["PATH"] = "$Dir;" + (Join-Path $env:SystemRoot "System32")
+    $psi.EnvironmentVariables["TEMP"] = $Dir
+    $psi.EnvironmentVariables["FAKE_CALLS"] = $calls
+    $psi.EnvironmentVariables["FAKE_SCOPE_RC"] = [string]$ScopeRc
+    $psi.EnvironmentVariables["FAKE_MACHINE_RC"] = [string]$MachineRc
+    $p = [Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Close()   # a "pause" at the end reads end-of-input and returns
+    $null = $p.StandardOutput.ReadToEndAsync()
+    if (-not $p.WaitForExit(30000)) { $p.Kill() }
+    $callLines = @(); if (Test-Path -LiteralPath $calls) { $callLines = @(Get-Content -LiteralPath $calls) }
+    $logLines = @(); if (Test-Path -LiteralPath $wlog) { $logLines = @(Get-Content -LiteralPath $wlog) }
+    return @{ Exit = $p.ExitCode; Calls = $callLines; Log = $logLines }
 }
 
 function Remove-TestInstall([string]$Dir, [string]$Log) {
@@ -331,6 +371,68 @@ try {
     Assert-That ((Get-Content -Raw -Encoding UTF8 (Join-Path $installB "config.json")) -eq (Get-Content -Raw -Encoding UTF8 (Join-Path $StageDir "config.json"))) "migrate: a refused folder leaves the clean template config.json"
     Assert-That (Remove-TestInstall $installB "$logDir\migrate-un4.log") "migrate: scratch install removed (4)"
     $script:activeInstall = $installA
+
+    # links inside the old folder are not followed: two junction roots (data, engine data) and a file symlink
+    $linkCopy = Join-Path $Scratch "link copy"
+    $outside = Join-Path $Scratch "outside"
+    New-TestFile (Join-Path $linkCopy "TwitchDropsSentinel.exe") "fake"
+    New-TestFile (Join-Path $linkCopy "config.json") "link-copy-config"
+    New-TestFile (Join-Path $linkCopy "core\settings.json") "real-settings"
+    New-TestFile (Join-Path $outside "data\secret.json") "outside-data"
+    New-TestFile (Join-Path $outside "engine\secret2.json") "outside-engine"
+    New-TestFile (Join-Path $outside "trophies-target.md") "outside-trophies"
+    New-Item -ItemType Directory -Force -Path (Join-Path $linkCopy "giveaways_engine") | Out-Null
+    cmd /c mklink /J "$linkCopy\data" "$outside\data" | Out-Null
+    cmd /c mklink /J "$linkCopy\giveaways_engine\data" "$outside\engine" | Out-Null
+    Assert-That ((Test-Path -LiteralPath "$linkCopy\data\secret.json") -and (Test-Path -LiteralPath "$linkCopy\giveaways_engine\data\secret2.json")) "migrate: the test junctions exist"
+    $symlinkMade = $false
+    try {
+        New-Item -ItemType SymbolicLink -Path "$linkCopy\Trophies.md" -Target "$outside\trophies-target.md" -ErrorAction Stop | Out-Null
+        $symlinkMade = $true
+    } catch { Write-Host "[INFO] file symlink needs admin or developer mode here: that sub-check is skipped" }
+    $script:activeInstall = $installB
+    Invoke-Setup $setupExe ($silent + @("/MIGRATEFROM=`"$linkCopy`"", "/DIR=`"$installB`"", "/LOG=`"$logDir\migrate6.log`"")) "fresh install from a folder with links"
+    Assert-That (-not (Test-Path -LiteralPath (Join-Path $installB "data\secret.json"))) "migrate: a junction as the data root is not followed"
+    Assert-That (-not (Test-Path -LiteralPath (Join-Path $installB "giveaways_engine\data\secret2.json"))) "migrate: a junction as the engine data root is not followed"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "config.json")) -eq "link-copy-config") "migrate: the plain files beside the links are still copied"
+    Assert-That ((Get-Content -Raw -LiteralPath (Join-Path $installB "core\settings.json")) -eq "real-settings") "migrate: core\settings.json is still copied"
+    $log6 = Get-Content -Raw -Encoding UTF8 "$logDir\migrate6.log"
+    $linkLines = ([regex]::Matches($log6, "Migrate: skipped \(link, not followed\)")).Count
+    Assert-That ($linkLines -ge 2) "migrate: the skipped junction roots are logged ($linkLines lines)"
+    if ($symlinkMade) {
+        $trophies = Join-Path $installB "Trophies.md"
+        Assert-That ((Get-Content -Raw -LiteralPath $trophies) -ne "outside-trophies") "migrate: a file symlink is not copied through"
+        Assert-That ($linkLines -ge 3) "migrate: the skipped file symlink is logged"
+    }
+    Assert-That (Remove-TestInstall $installB "$logDir\migrate-un5.log") "migrate: scratch install removed (5)"
+    $script:activeInstall = $installA
+    cmd /c rmdir "$linkCopy\data" | Out-Null
+    cmd /c rmdir "$linkCopy\giveaways_engine\data" | Out-Null
+    Assert-That ((Get-Content -Raw -LiteralPath "$outside\data\secret.json") -eq "outside-data") "migrate: the junction targets are untouched"
+
+    # the finish-page winget command: --scope user first, then a machine install; run against a fake winget, never the real one
+    $issText = Get-Content -Raw -Encoding UTF8 $issPath
+    $nodeCmd = [regex]::Match($issText, '(?m)^Filename: "\{cmd\}"; Parameters: "(.*)"; Description: "\{cm:InstallNode\}"')
+    Assert-That $nodeCmd.Success "node: the finish page command is found in the script"
+    if ($nodeCmd.Success) {
+        $line = $nodeCmd.Groups[1].Value.Replace('""', '"')
+        $fakeDir = Join-Path $Scratch "fakewinget"
+        $a = Invoke-FakeWinget $line $fakeDir 0 9
+        Assert-That (($a.Exit -eq 0) -and ($a.Calls.Count -eq 1) -and ($a.Calls[0] -match "--scope user")) "node: --scope user works, one winget call"
+        Assert-That (($a.Log -join "|") -match "scope user: exit code 0") "node: the first result is logged"
+        $b = Invoke-FakeWinget $line $fakeDir 1 0
+        Assert-That (($b.Exit -eq 0) -and ($b.Calls.Count -eq 2)) "node: --scope user fails, the retry runs and wins (exit 0, 2 calls)"
+        Assert-That (($b.Calls[1] -notmatch "--scope") -and ($b.Calls[1] -match "OpenJS.NodeJS.LTS")) "node: the retry has no --scope"
+        Assert-That (($b.Log.Count -eq 2) -and ($b.Log[0] -match "exit code 1") -and ($b.Log[1] -match "exit code 0")) "node: both results are logged"
+        $c = Invoke-FakeWinget $line $fakeDir 1 1
+        Assert-That (($c.Exit -eq 1) -and ($c.Calls.Count -eq 2)) "node: both attempts fail: exit code 1 reaches the setup log"
+    }
+    $silentCmd = [regex]::Match($issText, '(?m)^Filename: "\{cmd\}"; Parameters: "(.*)"; Flags: waituntilterminated; Check: NodeBySwitch')
+    Assert-That $silentCmd.Success "node: the /INSTALLNODE=1 command is found in the script"
+    if ($silentCmd.Success) {
+        $d = Invoke-FakeWinget ($silentCmd.Groups[1].Value.Replace('""', '"')) (Join-Path $Scratch "fakewinget2") 1 0
+        Assert-That (($d.Exit -eq 0) -and ($d.Calls.Count -eq 2)) "node: the silent command retries without --scope too"
+    }
 
     # --- the user's account stays untouched ----------------------------------------
     $shortcutsAfter = @(Get-ShortcutSnapshot)

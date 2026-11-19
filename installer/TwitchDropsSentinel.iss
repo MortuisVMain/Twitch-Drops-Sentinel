@@ -91,9 +91,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app
 
 [Run]
 ; Node.js is needed by Giveaways and Steam IDLE. winget runs in a visible console (the window stays open when it fails);
-; the exit code lands in the setup log. Silent setups skip it unless /INSTALLNODE=1 is given; without winget a link is offered.
-Filename: "{cmd}"; Parameters: "/c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements || (echo. & echo winget failed. & pause & exit /b 1)"""; Description: "{cm:InstallNode}"; Flags: postinstall skipifsilent waituntilterminated; Check: OfferNodeWinget
-Filename: "{cmd}"; Parameters: "/c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements || exit /b 1"""; Flags: waituntilterminated; Check: NodeBySwitch
+; both exit codes (--scope user, then the machine install) land in the setup log. Silent setups skip it unless /INSTALLNODE=1 is given; without winget a link is offered.
+Filename: "{cmd}"; Parameters: "/v:on /c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements & set RC=!errorlevel! & echo winget with --scope user: exit code !RC!>>""%TEMP%\tds-winget.log"" & if !RC! neq 0 (echo. & echo Retrying without --scope: this installs for all users and Windows asks for permission. & winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements & set RC=!errorlevel! & echo winget without --scope: exit code !RC!>>""%TEMP%\tds-winget.log"" & if !RC! neq 0 (echo. & echo winget failed. & pause)) & exit /b !RC!"""; Description: "{cm:InstallNode}"; Flags: postinstall skipifsilent waituntilterminated; Check: OfferNodeWinget
+Filename: "{cmd}"; Parameters: "/v:on /c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements & set RC=!errorlevel! & echo winget with --scope user: exit code !RC!>>""%TEMP%\tds-winget.log"" & if !RC! neq 0 (echo. & echo Retrying without --scope: this installs for all users and Windows asks for permission. & winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements & set RC=!errorlevel! & echo winget without --scope: exit code !RC!>>""%TEMP%\tds-winget.log"") & exit /b !RC!"""; Flags: waituntilterminated; Check: NodeBySwitch
 Filename: "https://nodejs.org/en/download"; Description: "{cm:OpenNodeSite}"; Flags: postinstall shellexec skipifsilent unchecked; Check: OfferNodeLink
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
@@ -247,6 +247,50 @@ begin
     ScanRoot(ExpandConstant('{userdocs}'), Result);
 end;
 
+{ True for a junction or symlink (reparse point): its own entry carries the attribute. }
+function IsLink(const Path: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(RemoveBackslash(Path), FindRec) then
+  try
+    Result := FindRec.Attributes and $400 <> 0;
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+{ True when any part of Rel below Root (a folder on the way, or the item itself) is a link. }
+function PathHasLink(const Root, Rel: String): Boolean;
+var
+  Rest, Current: String;
+  P: Integer;
+begin
+  Result := False;
+  Current := RemoveBackslash(Root);
+  Rest := Rel;
+  while Rest <> '' do
+  begin
+    P := Pos('\', Rest);
+    if P = 0 then
+    begin
+      Current := Current + '\' + Rest;
+      Rest := '';
+    end
+    else
+    begin
+      Current := Current + '\' + Copy(Rest, 1, P - 1);
+      Rest := Copy(Rest, P + 1, MaxInt);
+    end;
+    if IsLink(Current) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
 procedure MigrateFile(const SrcRoot, DstRoot, Rel: String);
 var
   Src, Dst: String;
@@ -255,6 +299,11 @@ begin
   Dst := AddBackslash(DstRoot) + Rel;
   if not FileExists(Src) then
     Exit;
+  if PathHasLink(SrcRoot, Rel) then
+  begin
+    Log('Migrate: skipped (link, not followed) ' + Src);
+    Exit;
+  end;
   if FileExists(Dst) and not MigrateOverwrite then
   begin
     Log('Migrate: skipped (already exists) ' + Dst);
@@ -302,18 +351,18 @@ begin
   Dir := AddBackslash(SrcRoot) + Rel;
   if not DirExists(Dir) then
     Exit;
+  if PathHasLink(SrcRoot, Rel) then
+  begin
+    Log('Migrate: skipped (link, not followed) ' + Dir);
+    Exit;
+  end;
   if FindFirst(AddBackslash(Dir) + '*', FindRec) then
   try
     repeat
       if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
       begin
         if FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
-        begin
-          if FindRec.Attributes and $400 = 0 then
-            MigrateTree(SrcRoot, DstRoot, AddBackslash(Rel) + FindRec.Name)
-          else
-            Log('Migrate: skipped (link, not followed) ' + AddBackslash(Dir) + FindRec.Name);
-        end
+          MigrateTree(SrcRoot, DstRoot, AddBackslash(Rel) + FindRec.Name)
         else
           MigrateFile(SrcRoot, DstRoot, AddBackslash(Rel) + FindRec.Name);
       end;
@@ -346,13 +395,14 @@ end;
 
 function MigrateSource: String;
 begin
-  Result := RemoveBackslash(Trim(MigrateEdit.Text));
+  Result := RemoveBackslash(RemoveQuotes(Trim(MigrateEdit.Text)));
 end;
 
 procedure InitializeWizard;
 var
   Given, Found: String;
 begin
+  DeleteFile(ExpandConstant('{%TEMP}\tds-winget.log'));
   MigrateFresh := IsFreshInstall;
   Given := SwitchValue('MIGRATEFROM');
   Found := '';
@@ -529,6 +579,28 @@ end;
 function NodeBySwitch: Boolean;
 begin
   Result := WizardSilent and (SwitchValue('INSTALLNODE') = '1') and (not NodeFound) and WingetFound;
+end;
+
+{ The winget command lines write their exit codes to this file; setup copies them into its log when it ends. }
+function WingetLogPath: String;
+begin
+  Result := ExpandConstant('{%TEMP}\tds-winget.log');
+end;
+
+procedure DeinitializeSetup;
+var
+  Lines: TArrayOfString;
+  I: Integer;
+begin
+  if FileExists(WingetLogPath) then
+  begin
+    if LoadStringsFromFile(WingetLogPath, Lines) then
+      for I := 0 to GetArrayLength(Lines) - 1 do
+        Log('Node.js ' + Trim(Lines[I]))
+    else
+      Log('Node.js: could not read ' + WingetLogPath);
+    DeleteFile(WingetLogPath);
+  end;
 end;
 
 procedure LogNodeState;
