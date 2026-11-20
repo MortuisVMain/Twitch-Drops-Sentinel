@@ -19,6 +19,9 @@ import json
 import time
 import urllib.request
 import subprocess
+
+# Tests must never open the Twitch activation page in the user's real browser (child processes inherit this).
+os.environ["SENTINEL_NO_BROWSER"] = "1"
 from contextlib import suppress
 from pathlib import Path
 import psutil
