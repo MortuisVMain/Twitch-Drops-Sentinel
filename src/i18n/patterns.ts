@@ -187,6 +187,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Кампания наград: (.+)$/, 'Reward campaign: $1'],
   [/^Смотреть (\d+) мин в день$/, 'Watch $1 min a day'],
   [/^сегодня (\d+)\/(\d+)$/, 'today $1/$2'],
+  [/^сегодня (\d+)\/(\d+) \(Twitch\)$/, 'today $1/$2 (Twitch)'],
   [/^день (\d+) из (\d+)$/, 'day $1 of $2'],
   [/^день (\d+)$/, 'day $1'],
   [/^#(\d+) в очереди$/, '#$1 in the queue'],

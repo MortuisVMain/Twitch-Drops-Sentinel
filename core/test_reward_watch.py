@@ -6,6 +6,8 @@ Run: python -m unittest discover -s core -p "test_reward*.py" -t core
 from __future__ import annotations
 
 import asyncio
+import os as _os
+_os.environ["SENTINEL_NO_BROWSER"] = "1"  # never open the Twitch activation page from tests
 import json
 import logging
 import tempfile
@@ -649,10 +651,14 @@ class FakeEngine:
     _reward_ineligible_reason = twitch.Twitch._reward_ineligible_reason
     _slot_budget_and_minutes = twitch.Twitch._slot_budget_and_minutes
     _log_slot_limit_once = twitch.Twitch._log_slot_limit_once
+    _reward_current_view = twitch.Twitch._reward_current_view
+    _reward_apply_progress = twitch.Twitch._reward_apply_progress
+    _reward_note_claim = twitch.Twitch._reward_note_claim
 
     def __init__(self):
         self._reward_backoff = {}
         self._reward_slot_pick = False
+        self._reward_link = rw.DropLink()
         self._slot_limit_logged_day = None
         self.forced_game = None
         self.reward_target = None

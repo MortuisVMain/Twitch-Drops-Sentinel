@@ -465,6 +465,7 @@ class Twitch:
         self._reward_failed_beats: int = 0
         self._reward_backoff: dict[str, float] = {}  # campaign id -> time until which the daily slot skips it
         self._reward_slot_pick: bool = False  # the watched campaign was picked by the daily slot (drops were wanted)
+        self._reward_link = reward_watch.DropLink()  # the Twitch drop whose progress counts for the watched reward campaign
         self._slot_limit_logged_day: Optional[str] = None
         self._reward_last_success: Optional[float] = None
         self._category_task: Optional[asyncio.Task] = None
@@ -1450,6 +1451,8 @@ class Twitch:
             status_text = _("status", "watching").format(channel=channel.name)
             self.print(status_text)
             self.gui.status.update(status_text)
+        if self.reward_target is not None:
+            return  # a reward campaign: the hero shows Twitch's own progress of the linked drop, not a stale inventory copy
         active_campaign = self.get_active_campaign(channel)
         if active_campaign and (active_drop := active_campaign.first_drop) is not None:
             active_drop.display()
@@ -1479,6 +1482,8 @@ class Twitch:
             self._reward_logged_minutes = None
             self._reward_failed_beats = 0
             self._reward_last_success = time() if target else None
+            self._reward_link.reset()
+            STATE_BRIDGE.reward_drop_id = None
         self.reward_target = target
         STATE_BRIDGE.reward_watching = {"id": target["id"], "name": target["name"]} if target else None
 
@@ -1550,14 +1555,53 @@ class Twitch:
         logger.info("[НАГРАДА] Дневной лимит слота исчерпан, остальные награды — когда нет дропов")
         STATE_BRIDGE.add_log("INFO", "[НАГРАДА] Дневной лимит слота исчерпан, остальные награды — когда нет дропов")
 
-    def _reward_ineligible_reason(self) -> Optional[str]:
-        """Why the watched campaign must not be watched any more (hidden, ended, earned, all days done...), None when it may go on."""
+    def _reward_current_view(self) -> Optional[dict]:
+        """The watched campaign as the state shows it right now (progress, done flags), None when it is gone."""
         target = self.reward_target
         viewed = reward_watch.REWARD_WATCH.view(STATE_BRIDGE.reward_campaigns, STATE_BRIDGE.reward_hidden, STATE_BRIDGE.reward_categories)
-        current = next((c for c in viewed if c.get("id") == target["id"]), None)
+        return next((c for c in viewed if c.get("id") == target["id"]), None)
+
+    def _reward_ineligible_reason(self, ignore_done: bool = False) -> Optional[str]:
+        """Why the watched campaign must not be watched any more (hidden, ended, earned, all days done...), None when it may go on."""
+        current = self._reward_current_view()
         if current is None:
             return "кампании больше нет в списке"
-        return reward_watch.ineligible_reason(current, datetime.now(timezone.utc))
+        return reward_watch.ineligible_reason(current, datetime.now(timezone.utc), ignore_done=ignore_done)
+
+    def _reward_apply_progress(self, drop: TimedDrop, current: Any, required: Any) -> None:
+        """A drop-progress message while a reward campaign is watched. Only this drop's own counter moves (another drop's
+        counter must not drag it along), a lower value never replaces a higher one, and when the drop is the one linked to the
+        reward campaign its minutes become Twitch's authoritative progress and the hero shows exactly that drop."""
+        try:
+            current = int(current)
+            required = int(required) if required else int(drop.required_minutes)
+        except (TypeError, ValueError):
+            logger.warning("Drop progress with unreadable minutes ignored: %r / %r", current, required)
+            return
+        target = self.reward_target
+        names = [target["name"]] + [r["name"] for g in target.get("groups") or [] for r in g.get("rewards") or []]
+        game = drop.campaign.game
+        status = self._reward_link.observe(
+            drop.id, drop.name, current, required, special=bool(game.is_special() or game.name == "Special Events"),
+            similar=reward_watch.names_similar(drop.name, names), day=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        delta = current - drop.real_current_minutes
+        if delta > 0:
+            drop._update_real_minutes(delta)
+        if status is None:
+            return
+        link = self._reward_link
+        done = link.required > 0 and link.minutes >= link.required
+        reward_watch.REWARD_WATCH.ledger.set_twitch_progress(target["id"], link.minutes, link.required, done, replace=status == "new")
+        if status == "new":
+            logger.info("[НАГРАДА] Кампания «%s»: прогресс берём у Twitch, дроп «%s» (%s/%s мин)", target["name"], drop.name, link.minutes, link.required)
+        STATE_BRIDGE.reward_drop_id = drop.id
+        drop.display()
+
+    def _reward_note_claim(self, drop: TimedDrop) -> None:
+        """Twitch says the linked drop was claimed: the day's goal is reached whatever the minutes said."""
+        if self.reward_target is not None and self._reward_link.drop_id == drop.id:
+            link = self._reward_link
+            reward_watch.REWARD_WATCH.ledger.set_twitch_progress(self.reward_target["id"], max(link.minutes, link.required), link.required, True)
 
     def _reward_stop_target(self, reason: str) -> bool:
         """Stops watching the reward campaign and re-evaluates (drops or the next campaign). Always False (for a tick's return)."""
@@ -1592,9 +1636,10 @@ class Twitch:
                 self._reward_stop_target("её убрали из очереди")
 
     async def _reward_tick(self, channel: Channel) -> bool:
-        """One watch beat for the reward campaign (the same send_watch the drops use). Counts the real time since the
-        last good beat toward today's minutes; True when the daily goal is reached. Three failed beats in a row put the
-        channel on cooldown and switch; 15 minutes without a good beat drop the campaign for a re-evaluation."""
+        """One watch beat for the reward campaign (the same send_watch the drops use). Counts the real time since the last good
+        beat locally and returns True when the day's goal is reached: by Twitch's own progress of the linked drop when it
+        reports any (the local count never ends the day before it, only a 90 minute cap does), by the local count otherwise.
+        Three failed beats in a row put the channel on cooldown and switch; 15 minutes without a good beat drop the campaign."""
         target = self.reward_target
         interval = WATCH_INTERVAL.total_seconds()
         succeeded = await channel.send_watch()
@@ -1602,7 +1647,7 @@ class Twitch:
             return False  # switched, hidden or finished while the beat was in flight: it counts for nothing
         if self._reward_slot_pick and not STATE_BRIDGE.reward_daily_slot:
             return self._reward_stop_target("дневной слот отключён в настройках")
-        reason = self._reward_ineligible_reason()
+        reason = self._reward_ineligible_reason(ignore_done=True)
         if reason:
             return self._reward_stop_target(reason)
         now = time()
@@ -1613,13 +1658,10 @@ class Twitch:
             self._reward_last_success = now
             last, self._reward_last_tick = self._reward_last_tick, now
             if last is not None and 0 < now - last <= 2 * interval:
-                minutes = ledger.add_seconds(target["id"], now - last)
+                ledger.add_seconds(target["id"], now - last)
                 if self._reward_slot_pick:
                     ledger.add_slot_seconds(now - last)
-            else:
-                minutes = ledger.minutes_today(target["id"])
         else:
-            minutes = ledger.minutes_today(target["id"])
             self._reward_failed_beats += 1
             logger.log(CALL, f"Watch requested failed for channel: {channel.name}")
             if self._reward_last_success is not None and now - self._reward_last_success >= REWARD_STALL_SECONDS:
@@ -1627,6 +1669,7 @@ class Twitch:
                                target["name"], round((now - self._reward_last_success) / 60))
                 if not self._reward_skip_for_a_while("нет успешных отправок"):
                     self._set_reward_target(None)
+                    self._reward_slot_pick = False
                     self.stop_watching()
                     self.change_state(State.GAMES_UPDATE)
                 return False
@@ -1638,14 +1681,16 @@ class Twitch:
                 self.stop_watching()
                 self.change_state(State.CHANNEL_SWITCH)
                 return False
+        current = self._reward_current_view() or {}
+        minutes = current.get("watchedToday", 0)
         goal = target["dailyGoal"]
-        line = reward_watch.status_line(channel.name, target["category"]["name"], target["name"], minutes, goal)
+        line = reward_watch.status_line(channel.name, target["category"]["name"], target["name"], minutes, goal, current.get("progressSource"))
         self.gui.status.update(line)
         if minutes != self._reward_logged_minutes:
             self._reward_logged_minutes = minutes
             STATE_BRIDGE.add_log("INFO", line)
-        if minutes >= goal:
-            self._reward_goal_reached(target, minutes)
+        if current.get("doneToday"):
+            self._reward_goal_reached(target, minutes, bool(current.get("cappedToday")))
             return True
         if self._reward_slot_pick:
             slot_minutes, budget = self._slot_budget_and_minutes(list(getattr(self.settings, "priority", None) or []))
@@ -1654,9 +1699,15 @@ class Twitch:
                 self._reward_stop_target("дневной лимит слота исчерпан")
         return False
 
-    def _reward_goal_reached(self, target: dict, minutes: int) -> None:
+    def _reward_goal_reached(self, target: dict, minutes: int, capped: bool = False) -> None:
         reward_watch.REWARD_WATCH.ledger.save()
-        self._notify_daily_goal(target, minutes)
+        if capped:
+            local = reward_watch.REWARD_WATCH.ledger.minutes_today(target["id"])
+            logger.warning("[НАГРАДА] Twitch засчитал кампании «%s» только %s/%s мин за %s мин просмотра: слот на сегодня закрыт.",
+                           target["name"], minutes, target["dailyGoal"], local)
+            STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] Twitch засчитал «{target['name']}» только {minutes}/{target['dailyGoal']} мин: слот на сегодня закрыт.")
+        else:
+            self._notify_daily_goal(target, minutes)
         if reward_watch.reward_id(getattr(self, "forced_game", None)) == target["id"]:
             logger.info("[НАГРАДА] Принудительный фокус выполнен. Возврат в авто-режим.")
             self._clear_forced_reward()
@@ -1975,6 +2026,7 @@ class Twitch:
                 )
                 return
             drop.update_claim(message["data"]["drop_instance_id"])
+            self._reward_note_claim(drop)
             campaign = drop.campaign
             await drop.claim()
             drop.display()
@@ -2013,7 +2065,10 @@ class Twitch:
         watching = self.watching_channel.get_with_default(None)
         if drop is not None and (drop.can_earn(watching) or not drop.is_claimed):
             # the received payload is for the drop we expected
-            drop.update_minutes(message["data"]["current_progress_min"])
+            if self.reward_target is not None:
+                self._reward_apply_progress(drop, message["data"]["current_progress_min"], message["data"].get("required_progress_min"))
+            else:
+                drop.update_minutes(message["data"]["current_progress_min"])
             if drop.current_minutes >= drop.required_minutes and not drop.is_claimed:
                 if getattr(self, "auto_claim_drops_enabled", True):
                     logger.info(

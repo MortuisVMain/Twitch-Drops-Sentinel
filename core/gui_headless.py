@@ -58,6 +58,7 @@ class SentinelStateBridge:
         self.reward_daily_slot: bool = True  # a queued campaign takes the daily slot before drops
         self.reward_auto_queue: bool = False  # new farmable campaigns are appended to the queue
         self.reward_auto_queue_hook: Optional[Any] = None  # set by the service: called when campaigns or categories changed
+        self.reward_drop_id: Optional[str] = None  # the Twitch drop linked to the watched reward campaign: the only one the hero may show
         self.reward_watching: Optional[dict] = None  # {"id", "name"} of the reward campaign being watched now
         self.recent_logs: list[dict] = []
         # Entries are numbered (seq) so a client asks only for what is newer; a new service run is a new session, because
@@ -401,6 +402,9 @@ class HeadlessLoginForm:
         STATE_BRIDGE.status_text = _("sentinel", "login_required_status").format(code=code)
         STATE_BRIDGE.add_log("AUTH", _("sentinel", "login_code_log").format(code=code, uri=uri))
         send_windows_toast("Twitch Drops Sentinel — Авторизация", f"Код авторизации: {code}\nОткройте Twitch в браузере для подтверждения")
+        if os.environ.get("SENTINEL_NO_BROWSER") == "1":
+            logger.warning("SENTINEL_NO_BROWSER: the Twitch activation page was not opened")
+            return
         try:
             import webbrowser
             webbrowser.open(str(uri))
@@ -521,6 +525,9 @@ class HeadlessGUIManager:
         current = STATE_BRIDGE.active_drop
         if drop.is_claimed and not (current and current["id"] == drop.id):
             return
+        pinned = STATE_BRIDGE.reward_drop_id
+        if pinned is not None and getattr(drop, "id", None) != pinned:
+            return  # a reward campaign is watched: only its linked Twitch drop may take the hero
         self.inv.add_drop(drop)
         self.progress.display(drop, countdown=countdown, subone=subone)
 

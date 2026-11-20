@@ -130,6 +130,9 @@ test('today text, target line and progress percent', () => {
   assert.equal(rewardTodayText(watch({ watchedToday: 23, dailyGoal: 60 })), 'сегодня 23/60');
   assert.equal(rewardTodayText(watch({ watchedToday: 99, dailyGoal: 60 })), 'сегодня 60/60');
   assert.equal(rewardTodayText(watch({ dailyGoal: null })), '');
+  assert.equal(rewardTodayText(watch({ watchedToday: 1, dailyGoal: 60, progressSource: 'twitch' })), 'сегодня 1/60 (Twitch)', 'Twitch’s own number is labelled');
+  assert.equal(rewardTodayText(watch({ watchedToday: 8, dailyGoal: 60, progressSource: 'local' })), 'сегодня 8/60');
+  assert.equal(rewardTodayText(watch({ watchedToday: 8, dailyGoal: 60, progressSource: 'other' })), 'сегодня 8/60');
   assert.equal(rewardTargetLine(watch({ category: { name: 'GTA', slug: 'g', source: 'guess' } })), 'Кампания наград: Launch · GTA');
   assert.equal(rewardTargetLine(watch({ category: null })), 'Кампания наград: Launch');
   assert.equal(rewardTargetLine({ id: 'x', name: '' }), 'Кампания наград');

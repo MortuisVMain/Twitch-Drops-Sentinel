@@ -6,6 +6,8 @@ Run: python -m unittest discover -s core -p "test_reward*.py" -t core
 from __future__ import annotations
 
 import json
+import os as _os
+_os.environ["SENTINEL_NO_BROWSER"] = "1"  # never open the Twitch activation page from tests
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone

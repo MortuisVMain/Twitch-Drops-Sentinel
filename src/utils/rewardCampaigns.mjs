@@ -105,10 +105,11 @@ export const rewardFarmAction = (campaign, forcedGame) => {
 const rewardNames = (rewards) =>
   (Array.isArray(rewards) ? rewards : []).map((r) => (typeof r?.name === 'string' ? r.name.trim() : '')).filter(Boolean);
 
-/** "сегодня 23/60" (watched minutes never above the goal), '' when the campaign has no daily watch goal. */
+/** "сегодня 23/60" (watched minutes never above the goal; "(Twitch)" when the number is Twitch's own), '' when the campaign has no daily watch goal. */
 export const rewardTodayText = (campaign) => {
   const goalMinutes = num(campaign?.dailyGoal);
-  return goalMinutes ? `сегодня ${Math.min(num(campaign?.watchedToday), goalMinutes)}/${goalMinutes}` : '';
+  const text = `сегодня ${Math.min(num(campaign?.watchedToday), goalMinutes)}/${goalMinutes}`;
+  return goalMinutes ? (campaign?.progressSource === 'twitch' ? `${text} (Twitch)` : text) : '';
 };
 
 /** Goal groups as the service sent them, or built from the two plain goals of an older service (all rewards under the first). */

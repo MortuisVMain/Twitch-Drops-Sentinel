@@ -31,6 +31,7 @@ CANDIDATE_LIMIT = 6
 LEDGER_KEEP_DAYS = 40
 NEGATIVE_RETRY_SECONDS = 6 * 3600
 QUEUED_LIMIT = 500  # queue entries ever seen are remembered (so the auto-queue never re-adds a removed one)
+LOCAL_CAP_MINUTES = 90  # safety: a stuck Twitch counter cannot hold a campaign longer than this much local watch time a day
 SLOT_CAP_MINUTES = 60  # the daily slot never takes more than an hour in total
 BACKOFF_SECONDS = 900.0  # a campaign without streams (or that stalled) waits this long before the slot tries it again
 EARNED_LIMIT = 200
@@ -196,6 +197,71 @@ def _seconds(value: Any) -> Optional[float]:
     return float(value)
 
 
+def _twitch_record(value: Any) -> Optional[dict]:
+    if not isinstance(value, dict):
+        return None
+    minutes, required = value.get("minutes"), value.get("required")
+    if isinstance(minutes, bool) or not isinstance(minutes, (int, float)) or not math.isfinite(minutes) or minutes < 0:
+        return None
+    required = int(required) if isinstance(required, (int, float)) and not isinstance(required, bool) and math.isfinite(required) and required > 0 else 0
+    return {"minutes": int(minutes), "required": required, "done": value.get("done") is True}
+
+
+def _name_tokens(name: Any) -> set[str]:
+    if not isinstance(name, str):
+        return set()
+    return {t for t in re.findall(r"[a-z0-9\u0430-\u044f]+", name.lower()) if len(t) >= 2 and t not in GENERIC_WORDS}
+
+
+def names_similar(drop_name: Any, names: Iterable[Any]) -> bool:
+    """True when a Twitch drop's name shares at least two meaningful words with one of the reward names ("GTA DVD Drops" ~
+    "GTA DVD Chest"); generic words (drop, chest, badge...) do not count, and a single shared word only when both are that word."""
+    drop = _name_tokens(drop_name)
+    for name in names:
+        other = _name_tokens(name)
+        common = drop & other
+        if len(common) >= 2 or (common and common == drop == other):
+            return True
+    return False
+
+
+class DropLink:
+    """The Twitch drop whose progress counts for the reward campaign being watched. A drop whose name resembles a reward of the
+    campaign, or a sitewide "special" drop, is linked; the link is sticky (other drops' counters are ignored), a resembling drop
+    replaces a merely special one, the minutes never go down, and a new UTC day starts over."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.drop_id: Optional[str] = None
+        self.name: Optional[str] = None
+        self.minutes = 0
+        self.required = 0
+        self.day: Optional[str] = None
+        self._preferred = False
+
+    def observe(self, drop_id: str, name: str, minutes: int, required: int, *, special: bool, similar: bool, day: str) -> Optional[str]:
+        """None: not this campaign's drop. "linked": the linked drop reported. "new": this drop became the link."""
+        if self.drop_id is not None and self.day != day:
+            self.reset()
+        if drop_id == self.drop_id:
+            self.minutes = max(self.minutes, minutes)
+            self.required = required or self.required
+            return "linked"
+        if not (similar or special):
+            return None
+        if self.drop_id is not None and not (similar and not self._preferred):
+            return None
+        self.drop_id, self.name, self.minutes, self.required, self.day, self._preferred = drop_id, name, max(0, minutes), max(0, required), day, similar
+        return "new"
+
+
+def local_cap(goal: int) -> int:
+    """Local watch minutes after which a campaign is given up for the day even if Twitch's counter did not finish."""
+    return max(LOCAL_CAP_MINUTES, goal + 30)
+
+
 class WatchLedger:
     """Seconds watched per campaign per UTC day (counted as whole minutes, 40 days kept) and the campaigns known to be
     earned (until the campaign ends, or 40 days when its end is unknown)."""
@@ -212,6 +278,13 @@ class WatchLedger:
         daily = raw.get("daily_rewards") if isinstance(raw.get("daily_rewards"), dict) else {}
         self.daily_rewards: dict[str, dict[str, bool]] = {
             d: {k: True for k, v in m.items() if v is True} for d, m in daily.items() if isinstance(m, dict)}
+        twitch_raw = raw.get("twitch_progress") if isinstance(raw.get("twitch_progress"), dict) else {}
+        self.twitch_progress: dict[str, dict[str, dict]] = {}
+        for day, per_campaign in twitch_raw.items():
+            if isinstance(per_campaign, dict):
+                clean = {k: r for k, r in ((k, _twitch_record(v)) for k, v in per_campaign.items()) if r is not None}
+                if clean:
+                    self.twitch_progress[day] = clean
         slot = raw.get("slot_seconds") if isinstance(raw.get("slot_seconds"), dict) else {}
         self.slot_seconds: dict[str, float] = {d: v for d, v in ((d, _seconds(v)) for d, v in slot.items()) if v is not None}
         queued = raw.get("queued_ids")
@@ -233,6 +306,8 @@ class WatchLedger:
             del self.daily_rewards[day]
         for day in [d for d in self.slot_seconds if d < oldest]:
             del self.slot_seconds[day]
+        for day in [d for d in self.twitch_progress if d < oldest]:
+            del self.twitch_progress[day]
         for key in [k for k in self.earned if self._earned_over(self.earned[k], now)]:
             del self.earned[key]
 
@@ -278,9 +353,43 @@ class WatchLedger:
     def daily_reward_today(self, campaign_id: str, now: Optional[datetime] = None) -> bool:
         return self.daily_rewards.get(_utc_day(now or datetime.now(timezone.utc)), {}).get(campaign_id) is True
 
+    def set_twitch_progress(self, campaign_id: str, minutes: Any, required: Any, done: bool = False,
+                            now: Optional[datetime] = None, replace: bool = False) -> None:
+        """What Twitch itself reports for the drop being progressed for this campaign today: minutes, required minutes and
+        whether it is finished. Monotonic within the day unless `replace` (a different drop was linked)."""
+        record = _twitch_record({"minutes": minutes, "required": required, "done": done})
+        if record is None:
+            return
+        now = now or datetime.now(timezone.utc)
+        today = self.twitch_progress.setdefault(_utc_day(now), {})
+        old = today.get(campaign_id)
+        if old and not replace:
+            record["minutes"] = max(record["minutes"], old["minutes"])
+            record["done"] = record["done"] or old["done"]
+            record["required"] = record["required"] or old["required"]
+        changed = old != record
+        today[campaign_id] = record
+        self._prune(now)
+        if changed and (old is None or old["minutes"] != record["minutes"] or old["done"] != record["done"]):
+            self.save()
+
+    def twitch_today(self, campaign_id: str, now: Optional[datetime] = None) -> Optional[dict]:
+        record = self.twitch_progress.get(_utc_day(now or datetime.now(timezone.utc)), {}).get(campaign_id)
+        return dict(record) if record else None
+
     def days_done(self, campaign_id: str, goal: int) -> int:
-        """In how many (kept) UTC days the watch goal of the campaign was reached."""
-        return sum(1 for per_campaign in self.days.values() if goal and int(per_campaign.get(campaign_id, 0.0) // 60) >= goal)
+        """In how many (kept) UTC days the watch goal of the campaign was reached: Twitch's word where it reported progress
+        that day, otherwise the local count."""
+        if not goal:
+            return 0
+        count = 0
+        for day in set(self.days) | set(self.twitch_progress):
+            record = self.twitch_progress.get(day, {}).get(campaign_id)
+            if record:
+                count += record["done"] or record["minutes"] >= (record["required"] or goal)
+            else:
+                count += int(self.days.get(day, {}).get(campaign_id, 0.0) // 60) >= goal
+        return count
 
     def add_slot_seconds(self, seconds: float, now: Optional[datetime] = None) -> None:
         """Time watched today in the daily slot (before drops), all campaigns together; counts toward the day's slot budget."""
@@ -313,7 +422,7 @@ class WatchLedger:
 
     def save(self) -> None:
         _write_json(self.path, {"days": self.days, "earned": self.earned, "daily_rewards": self.daily_rewards,
-                                  "slot_seconds": self.slot_seconds, "queued_ids": self.queued}, "reward watch ledger")
+                                  "slot_seconds": self.slot_seconds, "twitch_progress": self.twitch_progress, "queued_ids": self.queued}, "reward watch ledger")
 
 
 class CategoryResolver:
@@ -472,7 +581,16 @@ def view(campaigns: Iterable[dict], hidden: Iterable[str], categories: dict, res
         else:
             category = resolver.cached(campaign)
         goal = _watch_minutes(campaign)
-        watched = ledger.minutes_today(cid, now)
+        local = ledger.minutes_today(cid, now)
+        twitch = ledger.twitch_today(cid, now)
+        done, capped = False, False
+        if goal and twitch:
+            twitch_done = twitch["done"] or twitch["minutes"] >= (twitch["required"] or goal)
+            capped = not twitch_done and local >= local_cap(goal)
+            done = twitch_done or capped
+        elif goal:
+            done = local >= goal
+        watched = twitch["minutes"] if twitch else local
         out.append({
             **campaign,
             "groups": campaign.get("groups") or [],
@@ -481,7 +599,10 @@ def view(campaigns: Iterable[dict], hidden: Iterable[str], categories: dict, res
             "farmable": bool(goal) and category is not None,
             "watchedToday": watched,
             "dailyGoal": goal,
-            "doneToday": bool(goal) and watched >= goal,
+            "doneToday": done,
+            "cappedToday": capped,
+            "twitchMinutes": twitch["minutes"] if twitch else None,
+            "progressSource": "twitch" if twitch else "local",
             "earned": ledger.is_earned(cid, now),
             "dailyRewardToday": ledger.daily_reward_today(cid, now),
             "daysDone": ledger.days_done(cid, goal) if goal else 0,
@@ -491,8 +612,8 @@ def view(campaigns: Iterable[dict], hidden: Iterable[str], categories: dict, res
     return out
 
 
-def ineligible_reason(campaign: dict, now: datetime) -> Optional[str]:
-    """Why a viewed campaign must not be farmed now (None when it may)."""
+def ineligible_reason(campaign: dict, now: datetime, ignore_done: bool = False) -> Optional[str]:
+    """Why a viewed campaign must not be farmed now (None when it may). `ignore_done`: not "the day's goal is done"."""
     if campaign.get("hidden"):
         return "кампания скрыта"
     if _ended(campaign, now):
@@ -503,7 +624,7 @@ def ineligible_reason(campaign: dict, now: datetime) -> Optional[str]:
         return "награда уже получена"
     if _days_exhausted(campaign):
         return "все дни выполнены"
-    if campaign.get("doneToday"):
+    if campaign.get("doneToday") and not ignore_done:
         return "дневная цель выполнена"
     return None
 
@@ -651,8 +772,9 @@ def daily_goal_text(campaign: str, days_done: int, days_total: Optional[int]) ->
     return f"{campaign}: дневная цель выполнена ({tail})"
 
 
-def status_line(channel: str, category: str, campaign: str, minutes: int, goal: int) -> str:
-    return f"[НАГРАДА] Смотрим {channel} ({category}) для «{campaign}»: {minutes}/{goal} мин сегодня"
+def status_line(channel: str, category: str, campaign: str, minutes: int, goal: int, source: Optional[str] = None) -> str:
+    suffix = " (Twitch)" if source == "twitch" else ""
+    return f"[НАГРАДА] Смотрим {channel} ({category}) для «{campaign}»: {minutes}/{goal} мин сегодня{suffix}"
 
 
 class RewardWatch:

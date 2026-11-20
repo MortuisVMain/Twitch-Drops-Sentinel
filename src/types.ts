@@ -159,6 +159,9 @@ export interface RewardCampaign {
   doneToday?: boolean; // dailyGoal reached today: it is eligible again from the next UTC day
   earned?: boolean; // Twitch said the reward was earned
   dailyRewardToday?: boolean; // today's daily reward (a badge a day) was received
+  twitchMinutes?: number | null; // minutes Twitch itself reports for the linked drop today, null while it reports none
+  progressSource?: 'twitch' | 'local'; // whose number watchedToday is: Twitch's, or the local count when Twitch reports nothing
+  cappedToday?: boolean; // given up for today: Twitch's counter did not finish after the local safety cap
   daysDone?: number; // UTC days on which the watch goal was reached
   daysTotal?: number | null; // days the campaign runs when its summary says so ("six different days")
   hidden?: boolean; // the user hid it: shown by the page only on request, never farmed
