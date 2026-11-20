@@ -79,6 +79,7 @@ _clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
 REWARD_FAILED_BEATS = 3  # failed beats in a row before the channel is put on cooldown
+REWARD_NO_PROGRESS_SECONDS = 600.0  # a reward watched this long without any Twitch progress is reported once
 REWARD_STALL_SECONDS = 900.0  # no good beat for this long: the reward campaign is dropped and the choice re-evaluated
 CATEGORY_LOOKUPS_PER_CYCLE = 3
 CATEGORY_LOOKUP_TIMEOUT = 8.0  # seconds for one lookup, no retries
@@ -466,6 +467,10 @@ class Twitch:
         self._reward_backoff: dict[str, float] = {}  # campaign id -> time until which the daily slot skips it
         self._reward_slot_pick: bool = False  # the watched campaign was picked by the daily slot (drops were wanted)
         self._reward_link = reward_watch.DropLink()  # the Twitch drop whose progress counts for the watched reward campaign
+        self._reward_started_at: Optional[float] = None
+        self._reward_warned = False
+        self._reward_poll_counter = 0
+        self._reward_seen: dict[str, list[str]] = {"pubsub": [], "current_drop": []}  # what Twitch sent while a reward was watched
         self._slot_limit_logged_day: Optional[str] = None
         self._reward_last_success: Optional[float] = None
         self._category_task: Optional[asyncio.Task] = None
@@ -1484,6 +1489,10 @@ class Twitch:
             self._reward_last_success = time() if target else None
             self._reward_link.reset()
             STATE_BRIDGE.reward_drop_id = None
+            self._reward_started_at = time() if target else None
+            self._reward_warned = False
+            self._reward_poll_counter = 0
+            self._reward_seen = {"pubsub": [], "current_drop": []}
         self.reward_target = target
         STATE_BRIDGE.reward_watching = {"id": target["id"], "name": target["name"]} if target else None
 
@@ -1568,34 +1577,122 @@ class Twitch:
             return "кампании больше нет в списке"
         return reward_watch.ineligible_reason(current, datetime.now(timezone.utc), ignore_done=ignore_done)
 
-    def _reward_apply_progress(self, drop: TimedDrop, current: Any, required: Any) -> None:
-        """A drop-progress message while a reward campaign is watched. Only this drop's own counter moves (another drop's
-        counter must not drag it along), a lower value never replaces a higher one, and when the drop is the one linked to the
-        reward campaign its minutes become Twitch's authoritative progress and the hero shows exactly that drop."""
+    def _reward_names(self) -> list[str]:
+        target = self.reward_target
+        return [target["name"]] + [r["name"] for g in target.get("groups") or [] for r in g.get("rewards") or []]
+
+    @staticmethod
+    def _is_special_game(game: Any) -> bool:
+        return bool(game.is_special() or game.name == "Special Events")
+
+    def _reward_note_seen(self, source: str, label: str) -> None:
+        seen = self._reward_seen[source]
+        seen.append(label)
+        del seen[:-20]
+
+    def _reward_feed(self, drop: TimedDrop, current: Any, required: Any, source: str) -> Optional[str]:
+        """The adapter for a drop whose Twitch minutes we know, whichever source they came from (pubsub, current_drop,
+        inventory). Only this drop's own counter moves (another drop's counter must not drag it along), a lower value never
+        replaces a higher one, and when the drop is the one linked to the reward campaign its minutes become Twitch's
+        authoritative progress and the hero shows exactly that drop."""
         try:
             current = int(current)
             required = int(required) if required else int(drop.required_minutes)
         except (TypeError, ValueError):
-            logger.warning("Drop progress with unreadable minutes ignored: %r / %r", current, required)
-            return
+            logger.warning("Drop progress with unreadable minutes ignored (%s): %r / %r", source, current, required)
+            return None
         target = self.reward_target
-        names = [target["name"]] + [r["name"] for g in target.get("groups") or [] for r in g.get("rewards") or []]
         game = drop.campaign.game
-        status = self._reward_link.observe(
-            drop.id, drop.name, current, required, special=bool(game.is_special() or game.name == "Special Events"),
-            similar=reward_watch.names_similar(drop.name, names), day=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-        delta = current - drop.real_current_minutes
+        status = self._reward_link.feed(self._reward_names(), drop.id, drop.name, game.name, game.id, current, required, source,
+                                        datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        link = self._reward_link
+        # the linked drop shows the link's (never lower) minutes, whichever copy of the drop reported
+        delta = (link.minutes if status is not None else current) - drop.real_current_minutes
         if delta > 0:
             drop._update_real_minutes(delta)
         if status is None:
-            return
-        link = self._reward_link
+            return None
         done = link.required > 0 and link.minutes >= link.required
         reward_watch.REWARD_WATCH.ledger.set_twitch_progress(target["id"], link.minutes, link.required, done, replace=status == "new")
         if status == "new":
-            logger.info("[НАГРАДА] Кампания «%s»: прогресс берём у Twitch, дроп «%s» (%s/%s мин)", target["name"], drop.name, link.minutes, link.required)
+            logger.info("[НАГРАДА] Кампания «%s»: прогресс берём у Twitch (источник: %s), дроп «%s» %s/%s", target["name"], source,
+                        drop.name, link.minutes, link.required)
         STATE_BRIDGE.reward_drop_id = drop.id
         drop.display()
+        return status
+
+    def _reward_apply_progress(self, drop: TimedDrop, current: Any, required: Any) -> None:
+        """A drop-progress (pubsub) message while a reward campaign is watched."""
+        self._reward_feed(drop, current, required, "pubsub")
+
+    def _reward_scan_inventory(self) -> None:
+        """After an inventory refetch: Twitch's `currentMinutesWatched` of the drops in the fresh inventory. The linked drop
+        is refreshed from its new object; without a link the unclaimed drop with the most minutes that is named like a reward
+        (else a sitewide special one) becomes the link, but only with evidence of progress (more than 0 minutes)."""
+        if self.reward_target is None:
+            return
+        link = self._reward_link
+        names = self._reward_names()
+        found: list[tuple[bool, int, TimedDrop]] = []
+        for campaign in self.inventory:
+            special = self._is_special_game(campaign.game)
+            for drop in campaign.drops:
+                if drop.is_claimed:
+                    continue
+                if link.drop_id is not None and drop.id == link.drop_id:
+                    self._reward_feed(drop, drop.real_current_minutes, drop.required_minutes, "inventory")
+                    return
+                similar = reward_watch.names_similar(drop.name, names)
+                if similar or special:
+                    found.append((similar, drop.real_current_minutes, drop))
+        if link.drop_id is None and found:
+            similar, minutes, best = max(found, key=lambda f: (f[0], f[1]))
+            if minutes > 0:
+                self._reward_feed(best, minutes, best.required_minutes, "inventory")
+
+    async def _reward_poll_current_drop(self, channel: Channel) -> None:
+        """Twitch's CurrentDrop answer for the watched channel (the same request the drops use every third beat)."""
+        try:
+            context = await self.gql_request(GQL_QUERIES["CurrentDrop"].with_variables({"channelID": str(channel.id), "channelLogin": ""}))
+        except Exception as exc:
+            self._reward_note_seen("current_drop", "ошибка запроса")
+            logger.warning("[НАГРАДА] Запрос CurrentDrop не удался: %s", exc, exc_info=True)
+            return
+        data = context.get("data") if isinstance(context, dict) else None
+        user = data.get("currentUser") if isinstance(data, dict) else None
+        session = user.get("dropCurrentSession") if isinstance(user, dict) else None
+        if not isinstance(session, dict):
+            self._reward_note_seen("current_drop", "нет сессии")
+            return
+        drop_id = session.get("dropID")
+        self._reward_note_seen("current_drop", f"{drop_id}={session.get('currentMinutesWatched')}")
+        drop = self._drops.get(drop_id)
+        if drop is not None and self.reward_target is not None:
+            self._reward_feed(drop, session.get("currentMinutesWatched"), session.get("requiredMinutesWatched"), "current_drop")
+
+    def _reward_hero_status(self, channel: Channel, target: dict, minutes: int, goal: int) -> None:
+        """No Twitch drop is linked yet: the hero shows the reward watch itself (the local estimate, marked as such)."""
+        pct = round(minutes / goal * 100) if goal else 0
+        STATE_BRIDGE.active_drop = {
+            "id": f"reward:{target['id']}", "name": target["name"], "game": target["category"]["name"],
+            "current_minutes": minutes, "required_minutes": goal, "progress_percent": pct,
+            "remaining_seconds": max(0, (goal - minutes) * 60), "channel_name": channel.name, "channel_id": "twitch-streamless",
+            "is_claimed": False, "can_claim": False, "source": "local", "reward": True,
+        }
+
+    def _reward_warn_no_progress(self) -> None:
+        """Once: ten minutes of watching and Twitch never reported progress for a drop we could link - say what we did see."""
+        self._reward_warned = True
+        special = [
+            f"{c.name}: " + ", ".join(f"{d.name} {d.real_current_minutes}/{d.required_minutes}" + (" (забран)" if d.is_claimed else "") for d in c.drops)
+            for c in self.inventory if self._is_special_game(c.game)
+        ]
+        logger.warning(
+            "[НАГРАДА] Кампания «%s»: за %s мин просмотра Twitch не прислал прогресса ни одного подходящего дропа. "
+            "drop-progress событий: %s (%s); ответов CurrentDrop: %s (%s); спец-кампании инвентаря: %s",
+            self.reward_target["name"], round(REWARD_NO_PROGRESS_SECONDS / 60), len(self._reward_seen["pubsub"]),
+            ", ".join(self._reward_seen["pubsub"][-5:]) or "-", len(self._reward_seen["current_drop"]),
+            ", ".join(self._reward_seen["current_drop"][-5:]) or "-", "; ".join(special) or "нет")
 
     def _reward_note_claim(self, drop: TimedDrop) -> None:
         """Twitch says the linked drop was claimed: the day's goal is reached whatever the minutes said."""
@@ -1681,9 +1778,20 @@ class Twitch:
                 self.stop_watching()
                 self.change_state(State.CHANNEL_SWITCH)
                 return False
+        if succeeded:
+            self._reward_poll_counter += 1
+            if self._reward_poll_counter % 3 == 0:
+                await self._reward_poll_current_drop(channel)
+                if self.reward_target is not target:
+                    return False
+        if (self._reward_link.drop_id is None and not self._reward_warned and self._reward_started_at is not None
+                and now - self._reward_started_at >= REWARD_NO_PROGRESS_SECONDS):
+            self._reward_warn_no_progress()
         current = self._reward_current_view() or {}
         minutes = current.get("watchedToday", 0)
         goal = target["dailyGoal"]
+        if STATE_BRIDGE.reward_drop_id is None:
+            self._reward_hero_status(channel, target, minutes, goal)
         line = reward_watch.status_line(channel.name, target["category"]["name"], target["name"], minutes, goal, current.get("progressSource"))
         self.gui.status.update(line)
         if minutes != self._reward_logged_minutes:
@@ -2053,6 +2161,8 @@ class Twitch:
                 self.change_state(State.INVENTORY_FETCH)
             return
         assert msg_type == "drop-progress"
+        if self.reward_target is not None:
+            self._reward_note_seen("pubsub", f"{drop.name if drop is not None else drop_id}={message['data'].get('current_progress_min')}")
         if drop is not None:
             drop_text = (
                 f"{drop.name} ({drop.campaign.game}, "
@@ -2695,6 +2805,10 @@ class Twitch:
         if self._mnt_task is not None and not self._mnt_task.done():
             self._mnt_task.cancel()
         self._mnt_task = asyncio.create_task(self._maintenance_task())
+        try:
+            self._reward_scan_inventory()  # Twitch's own minutes of the fresh inventory feed the reward link
+        except Exception as exc:
+            logger.warning("[НАГРАДА] Прогресс из инвентаря не прочитан: %s", exc, exc_info=True)
 
     def get_active_campaign(self, channel: Channel | None = None) -> DropsCampaign | None:
         if not self.wanted_games:

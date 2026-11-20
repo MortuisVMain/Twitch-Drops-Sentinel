@@ -525,9 +525,8 @@ class HeadlessGUIManager:
         current = STATE_BRIDGE.active_drop
         if drop.is_claimed and not (current and current["id"] == drop.id):
             return
-        pinned = STATE_BRIDGE.reward_drop_id
-        if pinned is not None and getattr(drop, "id", None) != pinned:
-            return  # a reward campaign is watched: only its linked Twitch drop may take the hero
+        if STATE_BRIDGE.reward_watching is not None and getattr(drop, "id", None) != STATE_BRIDGE.reward_drop_id:
+            return  # a reward campaign is watched: only its linked Twitch drop may take the hero (before a link: the watch status)
         self.inv.add_drop(drop)
         self.progress.display(drop, countdown=countdown, subone=subone)
 

@@ -12,6 +12,8 @@ export interface ActiveDrop {
   is_claimed: boolean;
   can_claim: boolean;
   preview_url?: string;
+  source?: 'local'; // set while a reward campaign is watched and no Twitch drop is linked yet: the numbers are the local estimate
+  reward?: boolean; // the hero shows a reward campaign watch, not a drops campaign
 }
 
 export interface HardwareGuard {

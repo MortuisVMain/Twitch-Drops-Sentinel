@@ -654,11 +654,23 @@ class FakeEngine:
     _reward_current_view = twitch.Twitch._reward_current_view
     _reward_apply_progress = twitch.Twitch._reward_apply_progress
     _reward_note_claim = twitch.Twitch._reward_note_claim
+    _reward_names = twitch.Twitch._reward_names
+    _is_special_game = staticmethod(twitch.Twitch._is_special_game)
+    _reward_note_seen = twitch.Twitch._reward_note_seen
+    _reward_feed = twitch.Twitch._reward_feed
+    _reward_poll_current_drop = twitch.Twitch._reward_poll_current_drop
+    _reward_hero_status = twitch.Twitch._reward_hero_status
+    _reward_warn_no_progress = twitch.Twitch._reward_warn_no_progress
 
     def __init__(self):
         self._reward_backoff = {}
         self._reward_slot_pick = False
         self._reward_link = rw.DropLink()
+        self._reward_started_at = None
+        self._reward_warned = False
+        self._reward_poll_counter = 0
+        self._reward_seen = {"pubsub": [], "current_drop": []}
+        self._drops = {}
         self._slot_limit_logged_day = None
         self.forced_game = None
         self.reward_target = None

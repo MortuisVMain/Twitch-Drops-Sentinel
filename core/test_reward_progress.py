@@ -206,6 +206,11 @@ async def _no_network(*args, **kwargs):
     raise AssertionError("a test must never reach Twitch, its login or the network")
 
 
+async def _empty_session(*args, **kwargs):
+    """The CurrentDrop answer while Twitch has no session: the only request a watched reward may make in a test."""
+    return {"data": {"currentUser": {"dropCurrentSession": None}}}
+
+
 def _no_network_sync(*args, **kwargs):
     raise AssertionError("a test must never reach Twitch, its login or the network")
 
@@ -234,7 +239,7 @@ class EngineProgressTests(TempDir):
         self.addCleanup(self.restore)
         self.engine = twitch.Twitch(Settings(Args()))
         # login and network are cut off for good: anything that reaches them fails loudly instead of starting a device-code login
-        self.engine.get_auth, self.engine.gql_request, self.engine.request = _no_network, _no_network, _no_network_sync
+        self.engine.get_auth, self.engine.gql_request, self.engine.request = _no_network, _empty_session, _no_network_sync
         self.engine.settings.priority = ["reward:a"]
         self.channel = FakeChannel()
         self.engine.watching_channel.set(self.channel)

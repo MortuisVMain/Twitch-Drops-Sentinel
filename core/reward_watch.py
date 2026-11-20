@@ -239,6 +239,7 @@ class DropLink:
         self.minutes = 0
         self.required = 0
         self.day: Optional[str] = None
+        self.source: Optional[str] = None  # how the link was made: pubsub, current_drop or inventory
         self._preferred = False
 
     def observe(self, drop_id: str, name: str, minutes: int, required: int, *, special: bool, similar: bool, day: str) -> Optional[str]:
@@ -255,6 +256,16 @@ class DropLink:
             return None
         self.drop_id, self.name, self.minutes, self.required, self.day, self._preferred = drop_id, name, max(0, minutes), max(0, required), day, similar
         return "new"
+
+    def feed(self, names: Iterable[Any], drop_id: str, name: str, game_name: Any, game_id: Any, minutes: int, required: int,
+             source: str, day: str) -> Optional[str]:
+        """The one adapter every Twitch progress source goes through (pubsub event, CurrentDrop answer, inventory refetch):
+        decides special/similar from the drop's name and game, then observes it. Returns observe's answer."""
+        special = game_id in Game.SPECIAL_GAME_IDS or game_name == "Special Events"
+        status = self.observe(drop_id, name, minutes, required, special=special, similar=names_similar(name, names), day=day)
+        if status == "new":
+            self.source = source
+        return status
 
 
 def local_cap(goal: int) -> int:
