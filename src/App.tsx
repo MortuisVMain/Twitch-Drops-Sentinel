@@ -193,7 +193,7 @@ const hidePipCover = (img: HTMLImageElement) => {
 };
 
 // Not a Tailwind class: the row's own hover background would otherwise hide it
-const CMD_SELECTED_STYLE: React.CSSProperties = { background: 'rgba(255, 255, 255, 0.06)', boxShadow: 'inset 0 0 0 1px var(--led-mint)' };
+const CMD_SELECTED_STYLE: React.CSSProperties = { background: 'var(--bg-row-hover)', boxShadow: 'inset 0 0 0 1px var(--led-mint)' };
 
 export const App: React.FC = () => {
 
@@ -1940,7 +1940,7 @@ export const App: React.FC = () => {
 
         return (
           <div 
-            className="fixed inset-0 z-50 bg-[#0c100f]/65 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
+            className="fixed inset-0 z-50 bg-black/65 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
             onClick={() => setShowCmdPalette(false)}
           >
             <div
@@ -1949,15 +1949,15 @@ export const App: React.FC = () => {
               aria-modal="true"
               aria-label="Быстрые команды"
               tabIndex={-1}
-              className="w-full max-w-xl outline-none bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col max-h-[80vh] my-auto animate-in zoom-in-95 duration-150"
+              className="w-full max-w-xl outline-none bg-(--bg-chassis-base) border border-(--border-subtle) rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col max-h-[80vh] my-auto animate-in zoom-in-95 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-3 px-4 bg-[#202725] border-b border-[#303a35] flex items-center gap-2.5 shrink-0">
-                <Search className="w-4 h-4 text-[#73bba5] shrink-0" aria-hidden="true" focusable="false" />
+              <div className="p-3 px-4 bg-(--bg-row) border-b border-(--border-subtle) flex items-center gap-2.5 shrink-0">
+                <Search className="w-4 h-4 text-(--led-mint) shrink-0" aria-hidden="true" focusable="false" />
                 <input 
                   type="text" 
                   placeholder="Поиск по играм, стримам и действиям... (Esc)" 
-                  className="w-full bg-transparent border-none text-xs md:text-sm text-[#e9eeec] placeholder-[var(--text-muted)] font-medium"
+                  className="w-full bg-transparent border-none text-xs md:text-sm text-(--text-primary) placeholder-[var(--text-muted)] font-medium"
                   value={cmdSearch}
                   onChange={(e) => setCmdSearch(e.target.value)}
                   onKeyDown={(e) => {
@@ -1971,7 +1971,7 @@ export const App: React.FC = () => {
                     }
                   }}
                 />
-                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[length:var(--fs-xs)] tabular text-[var(--text-muted)] shrink-0 select-none">
+                <kbd className="px-1.5 py-0.5 rounded bg-(--bg-well) border border-(--border-subtle) text-[length:var(--fs-xs)] tabular text-[var(--text-muted)] shrink-0 select-none">
                   ESC
                 </kbd>
               </div>
@@ -1987,17 +1987,17 @@ export const App: React.FC = () => {
                       {navActions.map((item, i) => (
                         <button 
                           key={item.id}
-                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-white/[0.06] text-left transition-colors cursor-pointer group"
+                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-(--bg-row-hover) text-left transition-colors cursor-pointer group"
                           {...optionProps(i)}
                           onClick={() => runResult(i)}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className="w-5 text-center text-xs shrink-0"><item.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                            <span className="text-xs font-semibold text-white group-hover:text-[#73bba5] transition-colors truncate">
+                            <span className="text-xs font-semibold text-(--text-primary) group-hover:text-(--led-mint) transition-colors truncate">
                               {item.title}
                             </span>
                           </div>
-                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[#73bba5] font-bold shrink-0">
+                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--bg-well) border border-(--border-subtle) text-(--led-mint) font-bold shrink-0">
                             {item.key}
                           </span>
                         </button>
@@ -2015,18 +2015,18 @@ export const App: React.FC = () => {
                       {quickActions.map((item, i) => (
                         <button 
                           key={item.id}
-                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-white/[0.06] text-left transition-colors cursor-pointer group"
+                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-(--bg-row-hover) text-left transition-colors cursor-pointer group"
                           {...optionProps(navActions.length + i)}
                           onClick={() => runResult(navActions.length + i)}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className="w-5 text-center text-xs shrink-0"><item.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                            <span className="text-xs font-semibold text-white group-hover:text-[#73bba5] transition-colors truncate">
+                            <span className="text-xs font-semibold text-(--text-primary) group-hover:text-(--led-mint) transition-colors truncate">
                               {item.title}
                             </span>
                           </div>
                           {item.key && (
-                            <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/5 text-[var(--text-muted)] shrink-0">
+                            <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--bg-row) border border-(--border-subtle) text-[var(--text-muted)] shrink-0">
                               {item.key}
                             </span>
                           )}
@@ -2038,7 +2038,7 @@ export const App: React.FC = () => {
 
                 {matchingGames.length > 0 && (
                   <div>
-                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] uppercase tracking-[0.04em] px-2 py-0.5 pt-1 flex items-center justify-between">
+                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-(--led-mint) uppercase tracking-[0.04em] px-2 py-0.5 pt-1 flex items-center justify-between">
                       <span>Игры в каталоге</span>
                       <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">Фокус <CornerDownLeft className="ui-icon" aria-hidden="true" focusable="false" /></span>
                     </div>
@@ -2046,17 +2046,17 @@ export const App: React.FC = () => {
                       {matchingGames.map((game, i) => (
                         <button 
                           key={game.id}
-                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-[#368873]/20 text-left transition-colors cursor-pointer group border border-transparent hover:border-[#73bba5]/30"
+                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-(--led-mint)/20 text-left transition-colors cursor-pointer group border border-transparent hover:border-(--led-mint)/30"
                           {...optionProps(navActions.length + quickActions.length + i)}
                           onClick={() => runResult(navActions.length + quickActions.length + i)}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="w-5 text-center text-xs shrink-0"><Target className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                            <span className="text-xs font-bold text-white group-hover:text-[#73bba5] transition-colors truncate">
+                            <span className="text-xs font-bold text-(--text-primary) group-hover:text-(--led-mint) transition-colors truncate">
                               {game.name}
                             </span>
                           </div>
-                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-bold shrink-0">
+                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--led-mint)/20 text-(--led-mint) border border-(--led-mint)/30 font-bold shrink-0">
                             В ФОКУС <CornerDownLeft className="ui-icon" aria-hidden="true" focusable="false" />
                           </span>
                         </button>
@@ -2067,14 +2067,14 @@ export const App: React.FC = () => {
 
                 {totalResults === 0 && (
                   <div className="p-6 text-center text-[var(--text-muted)] space-y-1">
-                    <p className="text-xs font-semibold text-white">Ничего не найдено по запросу «{cmdSearch}»</p>
+                    <p className="text-xs font-semibold text-(--text-primary)">Ничего не найдено по запросу «{cmdSearch}»</p>
                     <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или название вкладки.</p>
                   </div>
                 )}
               </div>
 
-              <div className="p-2.5 px-4 bg-[#202725] border-t border-[#303a35] flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] shrink-0 select-none">
-                <span title="Цифра открывает вкладку, если она не выключена в настройках"><kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Цифры</kbd> Вкладки •<kbd className="px-1.5 py-0.5 bg-black/40 rounded border border-white/10 text-white tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
+              <div className="p-2.5 px-4 bg-(--bg-row) border-t border-(--border-subtle) flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] shrink-0 select-none">
+                <span title="Цифра открывает вкладку, если она не выключена в настройках"><kbd className="px-1.5 py-0.5 bg-(--bg-well) rounded border border-(--border-subtle) text-(--text-primary) tabular text-[length:var(--fs-xs)]">Цифры</kbd> Вкладки •<kbd className="px-1.5 py-0.5 bg-(--bg-well) rounded border border-(--border-subtle) text-(--text-primary) tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
               </div>
             </div>
           </div>

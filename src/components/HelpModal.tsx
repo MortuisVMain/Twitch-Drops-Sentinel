@@ -50,7 +50,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
     title: 'Советы по дашборду и фарму',
     tips: [
       {
-        icon: <Zap size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
+        icon: <Zap size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Фарм без видео',
         description: 'Sentinel общается с серверами Twitch напрямую, не скачивая видеопоток. Видеокарта не нагружается, а трафик экономится: до 2,5 ГБ в час.',
         badge: '0% GPU'
@@ -81,7 +81,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
     title: 'Советы по управлению библиотекой и очередью',
     tips: [
       {
-        icon: <Layers size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
+        icon: <Layers size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Очередь по порядку (#1, #2, #3)',
         description: 'Sentinel фармит игры из очереди строго сверху вниз. Порядок меняется стрелками на карточке игры. Вкладка «Активные кампании» показывает только то, что идёт прямо сейчас, новые кампании с меткой «НОВАЯ» стоят первыми.',
         badge: 'Порядок'
@@ -112,7 +112,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
     title: 'Советы по бесплатным раздачам',
     tips: [
       {
-        icon: <KeyRound size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
+        icon: <KeyRound size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Вход в магазины в один клик',
         description: 'Нажмите «Войти в аккаунт» на карточке магазина. Откроется окно браузера: войдите один раз, и сессия сохранится. Сменить аккаунт можно кнопкой на карточке.',
         badge: 'Один раз'
@@ -143,7 +143,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
     title: 'Управление яркостью и экранами',
     tips: [
       {
-        icon: <SlidersHorizontal size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
+        icon: <SlidersHorizontal size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Одна карточка на монитор',
         description: 'У каждого монитора свой ползунок, своя база и кнопка «Затемнить этот». Если монитор не принимает команды яркости, доступно только программное затемнение.',
         badge: 'По мониторам'
@@ -174,7 +174,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
         badge: 'После очереди'
       },
       {
-        icon: <RefreshCw size={16} className="text-[#73bba5]" aria-hidden="true" focusable="false" />,
+        icon: <RefreshCw size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Автообновление в 1 клик через GitHub',
         description: 'Sentinel проверяет релизы на GitHub. Когда выходит новая версия, её можно поставить прямо из приложения: вход, настройки и журнал сохранятся.',
         badge: 'Данные целы'
@@ -243,14 +243,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-[#0c100f]/75 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
       onClick={() => {
         onClose();
         triggerElementRef.current?.focus?.();
       }}
     >
       <div 
-        className="w-[min(920px,92vw)] outline-none bg-[#171d1c] border border-[#303a35] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
+        className="w-[min(920px,92vw)] outline-none bg-(--bg-chassis-base) border border-(--border-subtle) rounded-2xl shadow-2xl flex flex-col max-h-[90vh] my-auto overflow-hidden animate-in zoom-in-95 duration-150 relative"
         onClick={(e) => e.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -259,13 +259,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
         tabIndex={-1}
       >
         {/* Modal Header - shrink-0 ensures it stays intact */}
-        <div className="py-4 px-6 border-b border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
+        <div className="py-4 px-6 border-b border-(--border-subtle) bg-(--bg-row) flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-[#368873]/20 border border-[#73bba5]/40 text-[#73bba5] flex items-center justify-center shrink-0 shadow-sm">
+            <div className="w-9 h-9 rounded-xl bg-(--led-mint)/20 border border-(--led-mint)/40 text-(--led-mint) flex items-center justify-center shrink-0 shadow-sm">
               <CircleHelp size={18} aria-hidden="true" focusable="false" />
             </div>
             <div>
-              <h2 id="help-title" className="text-sm md:text-base font-bold text-white">
+              <h2 id="help-title" className="text-sm md:text-base font-bold text-(--text-primary)">
                 Справка и горячие клавиши
               </h2>
               <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5">
@@ -277,14 +277,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           <button
             onClick={handleClose}
             aria-label="Закрыть"
-            className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[var(--text-muted)] hover:text-white transition-all cursor-pointer active:scale-95 border border-white/5"
+            className="p-1.5 rounded-lg bg-(--bg-row) hover:bg-(--bg-row-hover) text-[var(--text-muted)] hover:text-(--text-primary) transition-all cursor-pointer active:scale-95 border border-(--border-subtle)"
           >
             <X size={16} aria-hidden="true" focusable="false" />
           </button>
         </div>
 
         {/* Categories Tab Navigation Strip - shrink-0 */}
-        <div className="py-2 px-6 bg-[#171d1c] border-b border-[#303a35] flex flex-wrap items-center gap-1.5 shrink-0">
+        <div className="py-2 px-6 bg-(--bg-chassis-base) border-b border-(--border-subtle) flex flex-wrap items-center gap-1.5 shrink-0">
           {(Object.keys(TAB_TIPS) as Array<Exclude<HelpCategory, 'hotkeys'>>).map((catKey) => {
             const cat = TAB_TIPS[catKey];
             const isCurrentActiveTab = activeTab === catKey;
@@ -299,14 +299,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                 }}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 select-none ${
                   isSelected
-                    ? 'bg-[#368873]/25 text-[#73bba5] border border-[#73bba5]/40 shadow-sm'
-                    : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
+                    ? 'bg-(--led-mint)/25 text-(--led-mint) border border-(--led-mint)/40 shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-(--text-primary) hover:bg-(--bg-row-hover) border border-transparent'
                 }`}
               >
                 <span>{cat.icon}</span>
                 <span>{cat.label}</span>
                 {isCurrentActiveTab && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3AD29F] animate-pulse" title="Текущая открытая вкладка" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-(--led-mint) animate-pulse" title="Текущая открытая вкладка" />
                 )}
               </button>
             );
@@ -319,8 +319,8 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
             }}
             className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 select-none ${
               selectedCategory === 'hotkeys'
-                ? 'bg-[#368873]/25 text-[#73bba5] border border-[#73bba5]/40 shadow-sm'
-                : 'text-[var(--text-muted)] hover:text-white hover:bg-white/[0.04] border border-transparent'
+                ? 'bg-(--led-mint)/25 text-(--led-mint) border border-(--led-mint)/40 shadow-sm'
+                : 'text-[var(--text-muted)] hover:text-(--text-primary) hover:bg-(--bg-row-hover) border border-transparent'
             }`}
           >
             <Keyboard size={15} aria-hidden="true" focusable="false" />
@@ -337,7 +337,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                   {TAB_TIPS[selectedCategory].title}
                 </span>
                 {activeTab === selectedCategory && (
-                  <span className="text-[length:var(--fs-xs)] font-semibold text-[#73bba5] flex items-center gap-1">
+                  <span className="text-[length:var(--fs-xs)] font-semibold text-(--led-mint) flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     Активная вкладка
                   </span>
@@ -348,19 +348,19 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                 {TAB_TIPS[selectedCategory].tips.map((tip, idx) => (
                   <div
                     key={idx}
-                    className="p-3.5 rounded-xl bg-[#202725] border border-[#303a35] hover:border-[#73bba5]/35 transition-all flex flex-col justify-between gap-2 min-w-0"
+                    className="p-3.5 rounded-xl bg-(--bg-row) border border-(--border-subtle) hover:border-(--led-mint)/35 transition-all flex flex-col justify-between gap-2 min-w-0"
                   >
                     <div className="flex items-start justify-between gap-2 min-w-0">
                       <div className="flex items-start gap-2 min-w-0">
-                        <div className="p-1 rounded-lg bg-black/40 border border-white/5 shrink-0 text-[#73bba5]">
+                        <div className="p-1 rounded-lg bg-(--bg-well) border border-(--border-subtle) shrink-0 text-(--led-mint)">
                           {tip.icon}
                         </div>
-                        <span className="text-xs font-bold text-white leading-snug min-w-0 break-words" title={tip.title}>
+                        <span className="text-xs font-bold text-(--text-primary) leading-snug min-w-0 break-words" title={tip.title}>
                           {tip.title}
                         </span>
                       </div>
                       {tip.badge && (
-                        <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-[#368873]/20 text-[#73bba5] border border-[#73bba5]/30 font-semibold shrink-0">
+                        <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--led-mint)/20 text-(--led-mint) border border-(--led-mint)/30 font-semibold shrink-0">
                           {tip.badge}
                         </span>
                       )}
@@ -384,13 +384,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                 {HOTKEYS_LIST.filter((hk) => dimmerEnabled || !hk.dimmerOnly).map((hk, idx) => (
                   <div
                     key={idx}
-                    className="p-2.5 px-3 rounded-xl bg-[#202725] border border-[#303a35] flex items-center justify-between gap-2 min-w-0"
+                    className="p-2.5 px-3 rounded-xl bg-(--bg-row) border border-(--border-subtle) flex items-center justify-between gap-2 min-w-0"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-white leading-snug break-words">{hk.label}</div>
+                      <div className="text-xs font-bold text-(--text-primary) leading-snug break-words">{hk.label}</div>
                       <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 leading-snug break-words">{!dimmerEnabled && hk.descWithoutDimmer ? hk.descWithoutDimmer : hk.desc}</div>
                     </div>
-                    <kbd className="px-2 py-0.5 rounded-md bg-black/60 border border-white/15 text-[length:var(--fs-xs)] tabular font-bold text-[#73bba5] shadow-inner shrink-0 select-none">
+                    <kbd className="px-2 py-0.5 rounded-md bg-(--bg-well) border border-(--border-subtle) text-[length:var(--fs-xs)] tabular font-bold text-(--led-mint) shadow-inner shrink-0 select-none">
                       {hk.key}
                     </kbd>
                   </div>
@@ -400,25 +400,25 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           )}
 
           {/* Bottom Security / Architecture Note - Compact */}
-          <div className="mt-2 p-3 px-4 rounded-xl bg-gradient-to-r from-[#202725] to-[#1a2320] border border-[#368873]/30 flex items-start gap-2.5 shrink-0">
-            <ShieldCheck size={16} className="text-[#73bba5] shrink-0 mt-0.5" aria-hidden="true" focusable="false" />
+          <div className="mt-2 p-3 px-4 rounded-xl bg-gradient-to-r from-(--bg-row) to-(--bg-chassis-base) border border-(--led-mint)/30 flex items-start gap-2.5 shrink-0">
+            <ShieldCheck size={16} className="text-(--led-mint) shrink-0 mt-0.5" aria-hidden="true" focusable="false" />
             <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed">
-              <strong className="text-white inline mr-1">Принцип автономности и безопасности Sentinel:</strong>
+              <strong className="text-(--text-primary) inline mr-1">Принцип автономности и безопасности Sentinel:</strong>
               Все пароли, сессии и авторизационные токены хранятся исключительно в локальных файлах на вашем компьютере. Никаких внешних серверов, аналитики или облачных баз данных.
             </div>
           </div>
         </div>
 
         {/* Modal Footer - shrink-0 ensures it is ALWAYS 100% visible */}
-        <div className="py-3 px-6 border-t border-[#303a35] bg-[#202725] flex items-center justify-between gap-4 shrink-0">
+        <div className="py-3 px-6 border-t border-(--border-subtle) bg-(--bg-row) flex items-center justify-between gap-4 shrink-0">
           <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[length:var(--fs-xs)] tabular text-white">Esc</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-(--bg-well) border border-(--border-subtle) text-[length:var(--fs-xs)] tabular text-(--text-primary)">Esc</kbd>
             <span>для закрытия</span>
           </div>
 
           <button
             onClick={handleClose}
-            className="px-4 py-1.5 rounded-xl bg-[#368873] hover:bg-[#2d7462] text-white text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-md shrink-0 whitespace-nowrap"
+            className="px-4 py-1.5 rounded-xl bg-(--led-mint) hover:brightness-110 text-(--cta-text) text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-md shrink-0 whitespace-nowrap"
           >
             <Check size={13} aria-hidden="true" focusable="false" />
             <span>Всё понятно</span>
