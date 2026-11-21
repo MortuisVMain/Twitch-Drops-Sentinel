@@ -177,4 +177,6 @@ export const SETTINGS: Record<string, string> = {
   'Новый адрес вебхука (необязательно)': 'New webhook address (optional)',
   'Адрес вебхука Discord': 'Discord webhook address',
   'Discord сохранён': 'Discord saved',
+  'Возвращаем прошлую версию…': 'Bringing the previous version back…',
+  'Да, вернуть': 'Yes, roll back',
 };
