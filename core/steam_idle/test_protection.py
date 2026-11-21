@@ -62,6 +62,18 @@ class TableTests(unittest.TestCase):
             with self.subTest(app_id=app_id):
                 self.assertEqual(BUILTIN.get(app_id), name)
 
+    def test_more_well_known_anti_cheat_games_are_listed(self):
+        expected = {1599340: "Lost Ark", 1824220: "Chivalry 2", 1063730: "New World: Aeternum",
+                    2479810: "Gray Zone Warfare", 1144200: "Ready or Not", 304930: "Unturned", 513710: "SCUM",
+                    2507950: "Delta Force", 2139460: "Once Human", 438100: "VRChat", 1874880: "Arma Reforger",
+                    2399830: "ARK: Survival Ascended", 2622380: "ELDEN RING NIGHTREIGN",
+                    1888160: "ARMORED CORE™ VI FIRES OF RUBICON™", 1361210: "Warhammer 40,000: Darktide",
+                    2807960: "Battlefield™ 6", 1962663: "Call of Duty®: Warzone™", 2195250: "EA SPORTS FC™ 24",
+                    2669320: "EA SPORTS FC™ 25", 1818750: "MultiVersus"}
+        for app_id, name in expected.items():
+            with self.subTest(app_id=app_id):
+                self.assertEqual(BUILTIN.get(app_id), name)
+
 
 class UserDenylistCleanTests(unittest.TestCase):
     def test_valid_ids_are_kept_in_order_without_duplicates(self):
