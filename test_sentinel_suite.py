@@ -3257,7 +3257,8 @@ class _FakeTaskScheduler:
             return self.returncode
 
     def __init__(self, exists=False, fail_writes=False, query_broken=False, hang_writes=False, action=None,
-                 node_version=b"v24.1.0\n", last_result=None, hang_queries=False):
+                 node_version=b"v24.1.0\n", last_result=None, hang_queries=False, legacy=None):
+        self.legacy = legacy  # action of a task under the name 3.7.0 and older used, or None when there is none
         self.hang_queries = hang_queries
         self.action = action or {}
         self.node_version = node_version
@@ -3279,6 +3280,11 @@ class _FakeTaskScheduler:
                 return self.hung_proc
             if self.query_broken:
                 return self._Proc(b"", 1)
+            if "'FreeGamesClaimerStudio'" in script:
+                found = self.legacy is not None
+                info = {"exists": found, "state": "Ready" if found else "Unknown", "lastRun": None, "nextRun": None,
+                        "lastResult": None, "daysOfWeek": 37 if found else None, **(self.legacy or {})}
+                return self._Proc(json.dumps(info).encode(), 0)
             info = {"exists": self.exists, "state": "Ready" if self.exists else "Unknown", "lastRun": None,
                     "nextRun": None, "lastResult": self.last_result, "daysOfWeek": 37 if self.exists else None, **self.action}
             return self._Proc(json.dumps(info).encode(), 0)
@@ -3288,6 +3294,11 @@ class _FakeTaskScheduler:
             return self.hung_proc
         if self.fail_writes:
             return self._Proc(b"", 1)
+        if "Unregister-ScheduledTask" in script:  # the move of a legacy task: registers a copy only when none exists yet
+            if not self.exists:
+                self.exists, self.action = True, self.legacy
+            self.legacy = None
+            return self._Proc(b"", 0)
         if "Register-ScheduledTask" in script:
             if self.exists:  # no -Force: the real cmdlet refuses a task that already exists
                 return self._Proc(b"", 1)
@@ -3317,7 +3328,8 @@ def test_scheduler_task_is_created_on_a_clean_install():
         sched = run(fake, lambda o: o.toggle_scheduler(enable=True))
         assert sched["exists"] is True, sched
         script = fake.writes[-1]
-        assert "Register-ScheduledTask" in script and "FreeGamesClaimerStudio" in script, script
+        assert "Register-ScheduledTask" in script and f"'{gc.TASK_NAME}'" in script, script
+        assert "'FreeGamesClaimerStudio'" not in script, "the name 3.7.0 shared between installs must not be created again"
         assert "runner.js" in script and "node.exe" in script, script
         assert "ClaimGames.cmd" not in script, "the task must not depend on the batch proxy"
         assert "-Force" not in script, "a task that appeared meanwhile must never be overwritten"
@@ -3415,6 +3427,86 @@ def test_scheduler_task_is_created_on_a_clean_install():
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "data?.scheduler?.state !== 'Disabled'" not in view, "a missing task must not read as active"
     assert "isSchedulerMissing" in view and "{actionError" in view, "the missing task and scheduler errors must be shown"
+
+
+def test_scheduler_task_name_is_unique_per_install_and_the_legacy_task_moves():
+    print("[clean-install] Giveaways scheduler: each install has its own task name, the 3.7.0 task moves only to its own install...")
+    sys.path.insert(0, str(SANDBOX / "core"))
+    import giveaways_controller as gc
+
+    # Different folders, different names; the same folder in another letter case, the same name
+    first, second = gc.install_task_name(Path(r"C:\Apps\Sentinel")), gc.install_task_name(Path(r"D:\Sentinel copy"))
+    assert first != second and first.startswith("FreeGamesClaimerStudio-") and second.startswith("FreeGamesClaimerStudio-"), (first, second)
+    assert gc.install_task_name(Path(r"c:\apps\SENTINEL")) == first
+    assert gc.TASK_NAME == gc.install_task_name(gc.PROJECT_DIR) and gc.TASK_NAME != gc.LEGACY_TASK_NAME
+
+    node = r"C:\Program Files\nodejs\node.exe"
+    original_exec, original_which = gc.asyncio.create_subprocess_exec, gc.shutil.which
+    original_fgc_path = os.environ.pop("FGC_PATH", None)
+    gc.shutil.which = lambda name, *a, **k: node
+
+    async def repair_then_state(o):
+        await o.repair_task_paths()
+        return await o._query_scheduler(force=True)
+
+    def run(fake):
+        gc.asyncio.create_subprocess_exec = fake
+        return asyncio.run(repair_then_state(gc.GiveawaysOrchestrator()))
+
+    try:
+        arguments, work_dir = gc._task_action(node)
+        here = {"execute": "conhost.exe", "arguments": arguments, "workingDirectory": work_dir}
+        other_install = Path(tempfile.mkdtemp(prefix="other_install_", dir=SANDBOX))
+        (other_install / "runner.js").write_text("", encoding="utf-8")
+        foreign = {**here, "arguments": arguments.replace(str(gc.resolve_fgc_root()), str(other_install))}
+        gone = {**here, "arguments": arguments.replace(str(gc.resolve_fgc_root()), r"D:\deleted folder\giveaways_engine")}
+
+        # The legacy task of this install moves to its own name with everything the user set, the old name is freed
+        fake = _FakeTaskScheduler(legacy=here)
+        state = run(fake)
+        assert len(fake.writes) == 1 and "-InputObject" in fake.writes[0] and "Unregister-ScheduledTask" in fake.writes[0], fake.writes
+        assert f"'{gc.TASK_NAME}'" in fake.writes[0] and fake.legacy is None, fake.writes
+        assert state["exists"] and state["taskName"] == gc.TASK_NAME and not state["repairError"], state
+
+        # The legacy task of another install that still exists is never touched, and this install shows no task
+        fake = _FakeTaskScheduler(legacy=foreign)
+        state = run(fake)
+        assert not fake.writes and fake.legacy == foreign and state["exists"] is False, (fake.writes, state)
+
+        # The legacy task of an install that is gone is taken over and re-pointed here
+        fake = _FakeTaskScheduler(legacy=gone)
+        state = run(fake)
+        assert len(fake.writes) == 2 and "Unregister-ScheduledTask" in fake.writes[0] and "Set-ScheduledTask" in fake.writes[1], fake.writes
+        assert state["exists"] and not state["repairError"], state
+
+        # ...unless this install already has its own task: then it stays for the install it belongs to
+        fake = _FakeTaskScheduler(exists=True, action=here, legacy=gone)
+        run(fake)
+        assert not fake.writes and fake.legacy == gone, fake.writes
+
+        # A leftover legacy copy of this install's own task (a move cut short) is removed, the own task is kept
+        fake = _FakeTaskScheduler(exists=True, action=here, legacy=here)
+        run(fake)
+        assert len(fake.writes) == 1 and "Unregister-ScheduledTask" in fake.writes[0] and fake.legacy is None, fake.writes
+
+        # A legacy task with the user's own launcher is not ours
+        fake = _FakeTaskScheduler(legacy={"execute": r"C:\Scripts\Launcher.bat", "arguments": "", "workingDirectory": ""})
+        state = run(fake)
+        assert not fake.writes and state["exists"] is False, fake.writes
+
+        # A failed move is reported, not hidden
+        fake = _FakeTaskScheduler(legacy=here, fail_writes=True)
+        state = run(fake)
+        assert state["repairError"] and fake.legacy == here, state
+    finally:
+        gc.asyncio.create_subprocess_exec, gc.shutil.which = original_exec, original_which
+        if original_fgc_path is not None:
+            os.environ["FGC_PATH"] = original_fgc_path
+
+    # Uninstall removes every task of the family that points into its folder, the legacy name included
+    iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
+    remove = iss[iss.index("procedure RemoveOwnSchedulerTask"):iss.index("procedure DeleteByMask")]
+    assert "SchedulerTask + '*''" in remove and "-TaskName $t.TaskName -TaskPath $t.TaskPath" in remove, remove
 
 
 def test_scheduler_query_that_hangs_is_killed_and_reaped():
@@ -8345,6 +8437,7 @@ if __name__ == "__main__":
         test_auto_shutdown_can_be_cancelled_and_engine_flags_apply,
         test_store_card_shows_login_even_with_nothing_claimed,
         test_scheduler_task_is_created_on_a_clean_install,
+        test_scheduler_task_name_is_unique_per_install_and_the_legacy_task_moves,
         test_scheduler_query_that_hangs_is_killed_and_reaped,
         test_engine_installs_itself_for_a_scheduled_run,
         test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install,

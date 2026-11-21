@@ -7,6 +7,7 @@ Architected by Argon Reasoning Engine & Mortuis_V_Studio
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -42,7 +43,16 @@ RUN_LOG_TAIL_BYTES = 4096
 FGC_ROOT = resolve_fgc_root()
 DATA_DIR = FGC_ROOT / "data"
 CMD_ENTRY = FGC_ROOT / "ClaimGames.cmd"
-TASK_NAME = "FreeGamesClaimerStudio"
+LEGACY_TASK_NAME = "FreeGamesClaimerStudio"  # 3.7.0 and older: one name for every install, so each copy took the task of another for its own
+
+
+def install_task_name(install_dir: Path) -> str:
+    """The task name of one install: copies in different folders never share a task."""
+    digest = hashlib.sha1(str(install_dir).casefold().encode("utf-8")).hexdigest()[:8]
+    return f"{LEGACY_TASK_NAME}-{digest}"
+
+
+TASK_NAME = install_task_name(PROJECT_DIR)
 ENGINE_INCOMPLETE_MARK = ".engine-install-incomplete"  # in the engine's data/: written before npm install, removed when it succeeded
 SESSIONS_FILE = "sessions.json"  # store -> last login state the engine saw: {account, confirmedAt} or {account: null}
 # The browser that signs in and claims ("giveaways_browser" in config.json). Each browser has its own profile and so its own record
@@ -302,15 +312,15 @@ class GiveawaysOrchestrator:
             except asyncio.QueueFull:
                 self._sse_queues.discard(q)
 
-    async def _query_scheduler(self, force: bool = False) -> dict:
+    async def _query_scheduler(self, force: bool = False, task_name: str = TASK_NAME) -> dict:
         now = asyncio.get_event_loop().time()
-        if not force and (now - self._scheduler_cache[0] < 120.0):
+        if task_name == TASK_NAME and not force and (now - self._scheduler_cache[0] < 120.0):
             return self._scheduler_cache[1]
 
         ps_script = (
             f"[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
-            f"$t = Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; "
-            f"if ($t) {{ $i = Get-ScheduledTaskInfo -TaskName '{TASK_NAME}'; "
+            f"$t = Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue; "
+            f"if ($t) {{ $i = Get-ScheduledTaskInfo -TaskName '{task_name}'; "
             f"$a = $t.Actions[0]; "
             f"$d = if ($t.Triggers[0].DaysOfWeek) {{ [int]$t.Triggers[0].DaysOfWeek }} else {{ 37 }}; "
             f"@{{ exists=$true; state=$t.State.ToString(); "
@@ -340,7 +350,7 @@ class GiveawaysOrchestrator:
 
             last_run_failed = _last_run_failed(raw.get("lastResult"), raw.get("state"), raw.get("lastRun"), raw.get("arguments"))
             result = {
-                "taskName": TASK_NAME,
+                "taskName": task_name,
                 "exists": bool(raw.get("exists")),
                 "state": raw.get("state", "Unknown"),
                 "lastRunTime": raw.get("lastRun"),
@@ -356,7 +366,7 @@ class GiveawaysOrchestrator:
         except Exception as e:
             logger.warning(f"Windows Task Scheduler query failed: {type(e).__name__}: {e}")
             result = {
-                "taskName": TASK_NAME,
+                "taskName": task_name,
                 "exists": False,
                 "queryFailed": True,
                 "state": "Unknown",
@@ -372,7 +382,8 @@ class GiveawaysOrchestrator:
             }
 
         result["repairError"] = self._repair_error
-        self._scheduler_cache = (now, result)
+        if task_name == TASK_NAME:
+            self._scheduler_cache = (now, result)
         return result
 
     @staticmethod
@@ -445,12 +456,41 @@ class GiveawaysOrchestrator:
         )
         logger.info(f"Created scheduler task {TASK_NAME}: days={days}, runner={runner_file}")
 
+    async def _adopt_legacy_task(self, own_exists: bool) -> bool:
+        """Moves the task of 3.7.0 and older to this install's name when it is this install's (or its install is gone).
+
+        The legacy name was shared by every install. A task whose runner.js still exists in another folder stays for that
+        install to take. True when the scheduler was changed.
+        """
+        legacy = await self._query_scheduler(force=True, task_name=LEGACY_TASK_NAME)
+        action = legacy.get("action") or {}
+        if not legacy.get("exists") or (action.get("execute") or "").lower() != "conhost.exe":
+            return False
+        found = re.search(r'"([^"]*runner\.js)"', action.get("arguments") or "")
+        if not found:
+            return False  # a task the user set up with an own launcher
+        runner = found.group(1)
+        here = runner.casefold() == str(resolve_fgc_root() / "runner.js").casefold()
+        if not here and (own_exists or Path(runner).is_file()):
+            logger.info(f"Scheduler task {LEGACY_TASK_NAME} belongs to another install, left as is: {runner}")
+            return False
+        await self._run_scheduler_write(
+            f"$t = Get-ScheduledTask -TaskName '{LEGACY_TASK_NAME}'; "
+            f"if (-not (Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue)) "
+            f"{{ Register-ScheduledTask -TaskName '{TASK_NAME}' -InputObject $t | Out-Null }}; "
+            f"Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false"
+        )
+        logger.info(f"Scheduler task {LEGACY_TASK_NAME} moved to {TASK_NAME}" + (" (already there, the old one removed)" if own_exists else ""))
+        return True
+
     async def repair_task_paths(self) -> None:
-        """At service start: re-points a task created by this app when the app or Node.js moved. Never raises, never creates."""
+        """At service start: takes over the task of 3.7.0 and older, re-points it when the app or Node.js moved. Never raises, never creates."""
         async with self._scheduler_write_lock:
             self._repair_error = None
             try:
                 sched = await self._query_scheduler(force=True)
+                if not sched.get("queryFailed") and await self._adopt_legacy_task(bool(sched.get("exists"))):
+                    sched = await self._query_scheduler(force=True)
                 action = sched.get("action") or {}
                 is_ours = (action.get("execute") or "").lower() == "conhost.exe" and "runner.js" in (action.get("arguments") or "")
                 if not sched.get("exists") or not is_ours:

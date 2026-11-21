@@ -659,13 +659,15 @@ var
   Root, Script: String;
   ResultCode: Integer;
 begin
-  { the giveaways schedule is a Task Scheduler task whose action points into the install folder }
+  { the giveaways schedule is a Task Scheduler task whose action points into the install folder. Its name is
+    SchedulerTask plus a hash of the install folder (3.7.0 and older: SchedulerTask alone, shared by every install),
+    so every task of that family is checked and only those pointing here are removed }
   Root := AddBackslash(ExpandConstant('{app}'));
   StringChangeEx(Root, '''', '''''', True);
-  Script := '$t = Get-ScheduledTask -TaskName ''' + SchedulerTask + ''' -ErrorAction SilentlyContinue; ' +
-    'if ($t) { $hit = $false; foreach ($a in $t.Actions) { ' +
+  Script := 'foreach ($t in @(Get-ScheduledTask -TaskName ''' + SchedulerTask + '*'' -ErrorAction SilentlyContinue)) { ' +
+    '$hit = $false; foreach ($a in $t.Actions) { ' +
     'if ((([string]$a.Execute + '' '' + [string]$a.Arguments).IndexOf(''' + Root + ''', [StringComparison]::OrdinalIgnoreCase)) -ge 0) { $hit = $true } } ' +
-    'if ($hit) { Unregister-ScheduledTask -TaskName ''' + SchedulerTask + ''' -Confirm:$false } }';
+    'if ($hit) { Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false } }';
   if Exec('powershell.exe', '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"',
           '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     Log(Format('Scheduler task check finished with code %d', [ResultCode]))
