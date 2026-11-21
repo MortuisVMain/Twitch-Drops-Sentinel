@@ -168,4 +168,7 @@ export const DASHBOARD: Record<string, string> = {
   'В очереди только кампании наград: ждём, пока их можно смотреть.': 'Only reward campaigns are queued: waiting until they can be watched.',
   'Смотрим без загрузки видео': 'Watching without loading video',
   'Квесты и предложения брендов со страницы Twitch Drops. Очередь, фарм, скрытие и категория настраиваются на полке.': 'Quests and brand offers from the Twitch Drops page. Queue, farming, hiding and category are set on the shelf.',
+  'ПАУЗА ПО РАСПИСАНИЮ:': 'SCHEDULED PAUSE:',
+  'В расписании не выбран ни один день, фарм не начнётся.': 'No day is chosen in the schedule, farming will not start.',
+  'Выключить расписание и фармить сейчас': 'Turn the schedule off and farm now',
 };

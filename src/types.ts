@@ -16,11 +16,20 @@ export interface ActiveDrop {
   reward?: boolean; // the hero shows a reward campaign watch, not a drops campaign
 }
 
+export interface FarmSchedule {
+  enabled: boolean;
+  days: number[]; // Monday = 0
+  start: string; // "HH:MM", local time
+  end: string; // end <= start runs past midnight; equal = the whole day
+}
+
 export interface HardwareGuard {
   is_gaming: boolean;
   detected_game: string | null;
   on_battery: boolean;
   is_paused: boolean;
+  schedule_paused?: boolean; // paused because now is outside the farm schedule
+  schedule_next?: string | null; // local ISO time the schedule next starts or stops farming
   ping_ms: number;
   cpu_percent: number;
   gpu_percent: number;
@@ -84,6 +93,7 @@ export interface SentinelSettings {
   pause_on_battery: boolean;
   native_toasts: boolean;
   update_channel?: 'stable' | 'beta'; // beta: pre-releases are offered too
+  farm_schedule?: FarmSchedule; // quiet hours: farm only inside the window
   ui_sound_enabled?: boolean;
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;

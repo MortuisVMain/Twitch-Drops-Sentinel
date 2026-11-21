@@ -6317,7 +6317,7 @@ def test_reward_campaigns_unit_tests():
 
 
 # core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
-CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel"]
+CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel", "test_farm_schedule"]
 
 
 def test_core_feature_unit_tests():
@@ -6371,6 +6371,40 @@ def test_profile_restore_api_stages_a_checked_backup():
     finally:
         shutil.rmtree(pending, ignore_errors=True)
     print("      profile restore API: PASS [OK]")
+
+
+def test_farm_schedule_pauses_outside_the_window():
+    print("[schedule] farm_schedule is cleaned on POST and pauses farming outside its window...")
+    ensure_test_service()
+
+    def call(path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(BASE_URL + path, data=data, method="GET" if body is None else "POST",
+                                     headers={"Connection": "close", "User-Agent": "Sentinel-Test", "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as res:
+            return json.loads(res.read().decode("utf-8"))
+
+    def hardware_until(paused, budget=20.0):
+        deadline = time.time() + budget
+        while time.time() < deadline:
+            hw = call("/api/state")["hardware"]
+            if hw.get("schedule_paused") is paused:
+                return hw
+            time.sleep(0.5)
+        raise AssertionError(f"schedule_paused never became {paused}: {hw}")
+
+    try:
+        saved = call("/api/settings", {"farm_schedule": {"enabled": True, "days": [9, "x"], "start": "99:00", "end": "07:30"}})["settings"]
+        assert saved["farm_schedule"] == {"enabled": True, "days": [], "start": "01:00", "end": "07:30"}, saved["farm_schedule"]
+        hw = hardware_until(True)
+        assert hw["is_paused"] is True and hw.get("schedule_next") is None, hw
+        call("/api/settings", {"farm_schedule": {"enabled": True, "days": [0, 1, 2, 3, 4, 5, 6], "start": "00:00", "end": "00:00"}})
+        hw = hardware_until(False)
+        assert hw.get("schedule_next"), "inside a window the end time is reported"
+    finally:
+        call("/api/settings", {"farm_schedule": {"enabled": False, "days": [0, 1, 2, 3, 4, 5, 6], "start": "01:00", "end": "09:00"}})
+    hardware_until(False)
+    print("      farm schedule: PASS [OK]")
 
 
 def test_steam_idle_module_follows_the_tab_setting_once_per_change():
@@ -8557,6 +8591,7 @@ if __name__ == "__main__":
         test_reward_campaigns_unit_tests,
         test_core_feature_unit_tests,
         test_profile_restore_api_stages_a_checked_backup,
+        test_farm_schedule_pauses_outside_the_window,
         test_reward_campaigns_setting_state_and_request,
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
