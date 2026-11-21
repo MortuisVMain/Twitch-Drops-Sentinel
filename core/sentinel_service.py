@@ -201,6 +201,7 @@ from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
 from updater import UPDATE_CHANNELS, UPDATER
 import farm_schedule
+from signin_watch import SignInWatch, lost_text
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import NOTIFIER, set_enabled as set_native_toasts
@@ -2080,6 +2081,40 @@ class SentinelSupervisor:
 
             await asyncio.sleep(1)
 
+    def signin_snapshot(self) -> dict:
+        """source -> account (signed in), None (known signed out); unknown sources are left out. See signin_watch."""
+        current: dict = {}
+        if STATE_BRIDGE.oauth_code:
+            current["twitch"] = None
+        elif STATE_BRIDGE.username:
+            current["twitch"] = STATE_BRIDGE.username
+        stores, _inventory = self.giveaways._read_inventory_sync()
+        for store, meta in stores.items():
+            current[store] = meta.get("account") or None
+        farm_state = self.steam_idle.farm_state()
+        if farm_state == "needs_login":
+            current["steam_idle"] = None
+        elif farm_state not in ("idle", "done", "stopped"):
+            current["steam_idle"] = "Steam IDLE"
+        return current
+
+    async def signin_watch_loop(self):
+        """Every 5 minutes: a sign-in that was there and is gone now is announced once (toast, Telegram/Discord)."""
+        from notifications import NOTIFIER
+        watch = SignInWatch()
+        await asyncio.sleep(20)
+        while self.is_running:
+            try:
+                current = await asyncio.to_thread(self.signin_snapshot)
+                for source, account in watch.observe(current):
+                    text = lost_text(source, account)
+                    logger.warning("Sign-in lost: %s", text)
+                    STATE_BRIDGE.add_log("WARN", text)
+                    NOTIFIER.notify("signin_lost", f"{source}:{account}:{int(time.time())}", "Twitch Drops Sentinel", text)
+            except Exception as exc:
+                logger.warning("Sign-in watch pass failed: %s", exc, exc_info=True)
+            await asyncio.sleep(300)
+
     async def games_folder_rescan_loop(self):
         """Silently scans game libraries every 30 minutes for newly installed titles."""
         logger.info(_("sentinel", "scanner_started"))
@@ -2160,6 +2195,7 @@ class SentinelSupervisor:
             self.hardware_guard_loop(),
             self.luna_autoshutdown_loop(),
             self.games_folder_rescan_loop(),
+            self.signin_watch_loop(),
         ]
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")

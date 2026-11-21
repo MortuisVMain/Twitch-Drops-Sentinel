@@ -203,6 +203,10 @@ class SteamIdleController:
         self._preview_error: str | None = None
         self._deny_cache: tuple[str, list[int]] | None = None  # repr of the stored list, its cleaned form
 
+    def farm_state(self) -> str:
+        """The card farm's state alone ("idle", "farming", "needs_login"...), without probing Steam."""
+        return self._farm.status()["state"]
+
     # payload
     def state(self) -> dict:
         """`busy` is true while the farm or an achievements run is active: turning the module off would stop it."""
