@@ -16,6 +16,7 @@ import { TargetMoreMenu } from './TargetMoreMenu';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
+import { queueDeadlineRisks } from '../utils/queueDeadline.mjs';
 import { collapseLogs, CONSOLE_COLLAPSED_KEY, CONSOLE_FILTER_KEY, type ConsoleFilter, filterLogs, hostCanOpenLogFile, openLogFile, parseConsoleFilter, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
 import { primaryChipIndex, sortOffQueue, splitQueueRows } from '../utils/dashboardLayout';
@@ -307,6 +308,19 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     if (catalogModalTab === 'INSTALLED' && !game.is_installed) return false;
     return true;
   }), [forceCandidates, catalogModalSearch, catalogModalTab, priorityList]);
+
+  // queue games that close before the queue reaches and finishes them (the farming game goes first); an estimate
+  const queueRisks = useMemo(() => {
+    const order = activeGame
+      ? [...gamePriority.filter((n) => safeLower(n) === safeLower(activeGame)), ...gamePriority.filter((n) => safeLower(n) !== safeLower(activeGame))]
+      : gamePriority;
+    const rows = order.map((name) => {
+      const match = allGames.find((g) => safeLower(g.name) === safeLower(name) || smartGameMatch(g.name, name));
+      const live = Boolean(match && match.has_drops && match.is_active_now && !match.is_finished && match.is_account_connected !== false && match.farmable !== false);
+      return { key: safeLower(name), endAtIso: live ? match?.drops_end_at : null, watchMinutes: live ? match?.remaining_watch_minutes : null };
+    });
+    return queueDeadlineRisks(rows, Date.now());
+  }, [gamePriority, allGames, activeGame]);
 
   const queueCampaigns = useMemo(() => {
     const list: Array<{
@@ -680,6 +694,19 @@ const filteredLogs = useMemo(() => {
                           campaignLabel(item.state)
                         )}
                       </div>
+                      {item.state.kind === 'running' && queueRisks.has(safeLower(item.name)) && (() => {
+                        const risk = queueRisks.get(safeLower(item.name))!;
+                        const left = formatTimeLeft(risk.msLeft);
+                        const watch = formatTimeLeft(risk.watchMinutes * 60000);
+                        const why = risk.alone
+                          ? `Кампания закроется через ${left}, а смотреть ещё ${watch}: все дропы не успеть. Это оценка.`
+                          : `Кампания закроется через ${left}. Игры выше в очереди займут ${formatTimeLeft(risk.aheadMinutes * 60000)}, своих ${watch}. Поднимите её выше, чтобы успеть. Это оценка.`;
+                        return (
+                          <div className="queue-deadline-risk" role="note" title={why} style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {risk.alone ? `не успеть: закроется через ${left}` : `не успеет в очереди · закроется через ${left}`}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 

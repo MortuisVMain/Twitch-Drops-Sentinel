@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Queue deadlines: a queued game whose campaign will close before the queue reaches and finishes it is marked in the queue ("won't make it in the queue") with the time left, and a Windows notification suggests moving it up. A campaign too short even when started now says so. An estimate from the watching still needed.
 
 ## [3.8.0] - 2026-11-21
 - Reward campaigns (opt-in, off by default): Sentinel fetches Twitch reward campaigns (quests and brand offers), shows them on the dashboard and the Game Shelf with their deadline and goal, can queue and watch their category in a daily slot, and follows Twitch's own progress. Drops Twitch already confirmed are no longer claimed again.
