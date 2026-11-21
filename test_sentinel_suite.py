@@ -6313,6 +6313,32 @@ def test_reward_campaigns_unit_tests():
     print(f"      reward campaign unit tests ({result.testsRun} run): PASS [OK]")
 
 
+# core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
+CORE_UNIT_MODULES = ["test_queue_deadline"]
+
+
+def test_core_feature_unit_tests():
+    print(f"[core] unit tests {', '.join(CORE_UNIT_MODULES)} against the sandbox copy of core...")
+    import io
+    import unittest
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    try:
+        suite = unittest.defaultTestLoader.loadTestsFromNames(CORE_UNIT_MODULES)
+        assert suite.countTestCases() > 0, "no core unit tests were found"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in CORE_UNIT_MODULES:
+            sys.modules.pop(name, None)
+    assert result.wasSuccessful(), f"core unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      core unit tests ({result.testsRun} run): PASS [OK]")
+
+
 def test_steam_idle_module_follows_the_tab_setting_once_per_change():
     print("[tabs] turning the Steam IDLE tab off or on reaches the controller once per change, also on a settings reset...")
     work = Path(tempfile.mkdtemp(prefix="steam_idle_switch_", dir=SANDBOX))
@@ -8495,6 +8521,7 @@ if __name__ == "__main__":
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
         test_reward_campaigns_unit_tests,
+        test_core_feature_unit_tests,
         test_reward_campaigns_setting_state_and_request,
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,

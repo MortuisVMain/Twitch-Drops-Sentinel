@@ -550,6 +550,56 @@ def campaign_remaining_watch_minutes(camp) -> int | None:
         return None
 
 
+def queue_deadline_risks(rows: list, now: datetime) -> list:
+    """Queue campaigns that will close before the queue reaches and finishes them.
+
+    rows: dicts in queue order, {"key", "game", "ends_at" (aware datetime), "watch_minutes" (int or None)}.
+    Games are farmed one at a time, so a game waits for the watching still needed by every game above it
+    (per game the longest of its campaigns: one game's campaigns accrue together). A row with unknown
+    watching adds nothing and is never flagged. An estimate, never a promise.
+    Returns dicts {"key", "game", "watch_minutes", "ahead_minutes", "minutes_left", "alone"} for the late
+    rows; alone=True when the campaign cannot be finished even if it starts right now."""
+    risks: list = []
+    ahead = 0
+    order: list = []
+    by_game: dict = {}
+    for row in rows:
+        game = row["game"]
+        if game not in by_game:
+            by_game[game] = []
+            order.append(game)
+        by_game[game].append(row)
+    for game in order:
+        longest = 0
+        for row in by_game[game]:
+            watch = row.get("watch_minutes")
+            if watch is None or watch <= 0:
+                continue
+            minutes_left = (row["ends_at"] - now).total_seconds() / 60
+            if minutes_left <= 0:
+                continue  # closed: the engine will not watch it, so it holds nobody up
+            longest = max(longest, watch)
+            if ahead + watch > minutes_left:
+                risks.append({
+                    "key": row["key"], "game": game, "watch_minutes": watch, "ahead_minutes": ahead,
+                    "minutes_left": int(minutes_left), "alone": watch > minutes_left,
+                })
+        ahead += longest
+    return risks
+
+
+def format_minutes_ru(minutes: float) -> str:
+    """'2 ч 05 мин', '45 мин', '3 дн 4 ч' for toasts and logs."""
+    total = max(0, int(round(minutes)))
+    days, rest = divmod(total, 24 * 60)
+    hours, mins = divmod(rest, 60)
+    if days:
+        return f"{days} дн {hours} ч"
+    if hours:
+        return f"{hours} ч {mins:02d} мин"
+    return f"{mins} мин"
+
+
 def campaign_farmability(camp, horizon: timedelta = timedelta(hours=1)) -> tuple:
     """(farmable, reason) for a campaign the engine knows. The same test that decides wanted_games
     (can_earn_within the next hour), plus a human reason when it fails, so the UI never has to guess."""

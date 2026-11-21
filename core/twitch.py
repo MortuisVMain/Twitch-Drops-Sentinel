@@ -1121,8 +1121,32 @@ class Twitch:
                 lambda game: f"{game}: кампания ждёт привязки аккаунта игры",
                 lambda games: f"Кампании ждут привязки аккаунта ({len(games)}): {', '.join(games[:3])} и другие",
             )
+            self._notify_queue_deadlines(priority, [c for c in queue_campaigns if c.linked])
         except Exception as exc:
             logger.warning("Queue notifications failed: %s", exc, exc_info=True)
+
+    def _notify_queue_deadlines(self, priority: list[str], campaigns: list) -> None:
+        """One toast per queue campaign that will close before the queue gets to finish it: the games
+        above it need more watching than the campaign has left (or it is too late even on its own)."""
+        from notifications import NOTIFIER
+        from utils import campaign_remaining_watch_minutes, format_minutes_ru, queue_deadline_risks
+        rows = []
+        for entry in reward_watch.game_entries(priority):
+            for c in campaigns:
+                if smart_game_match(c.game.name, entry) and all(r["key"] != c.id for r in rows):
+                    rows.append({"key": c.id, "game": entry, "ends_at": c.ends_at,
+                                 "watch_minutes": campaign_remaining_watch_minutes(c)})
+        for risk in queue_deadline_risks(rows, datetime.now(timezone.utc)):
+            left = format_minutes_ru(risk["minutes_left"])
+            watch = format_minutes_ru(risk["watch_minutes"])
+            if risk["alone"]:
+                text = f"{risk['game']}: кампания закроется через {left}, а смотреть ещё {watch}. Все дропы не успеть."
+            else:
+                ahead = format_minutes_ru(risk["ahead_minutes"])
+                text = (f"{risk['game']}: кампания закроется через {left}, а игры выше в очереди займут {ahead}. "
+                        f"Поднимите её выше, чтобы успеть.")
+            if NOTIFIER.notify("queue_late", risk["key"], "Twitch Drops Sentinel", text):
+                logger.info("Queue deadline: %s", text)
 
     async def _watch_loop(self) -> NoReturn:
         interval: float = WATCH_INTERVAL.total_seconds()
