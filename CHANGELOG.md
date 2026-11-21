@@ -4,6 +4,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 - Reward campaigns (opt-in): a new Settings switch, off by default, makes Sentinel ask Twitch for reward campaigns (quests and brand offers) and show them in a collapsed group on the dashboard with their deadline, goal and a link to Twitch. Display only; drop campaigns and farming are unchanged.
+- Giveaways schedule: each installed copy now has its own Task Scheduler task (`FreeGamesClaimerStudio-<hash of the install folder>`), so one copy no longer shows, switches or removes the schedule of another. The task of 3.7.0 and older moves to the new name at the first start, keeping its days, time and on/off state; a task of another copy that still exists is left alone.
 
 ## [3.7.0] - 2026-11-18
 - Installer: a per-user Windows installer (no administrator rights) with a Start menu entry, an uninstaller that asks whether to keep settings and sign-ins, and upgrades that keep them. The portable zip is still published.

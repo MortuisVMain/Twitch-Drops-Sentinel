@@ -284,10 +284,21 @@ try {
     Assert-That (-not (Test-Path -LiteralPath (Join-Path $installA "TwitchDropsSentinel.update"))) "stale updater leftover .update is removed on upgrade"
     Assert-That (Test-Path -LiteralPath $exe) "exe still installed after reinstall"
 
+    # --- scheduler tasks: uninstall removes the one pointing into its folder, never another copy's (disabled, never run) ---
+    $taskTag = [Guid]::NewGuid().ToString("N").Substring(0, 8)
+    $script:checkTasks = @("FreeGamesClaimerStudio-check-own-$taskTag", "FreeGamesClaimerStudio-check-other-$taskTag")
+    foreach ($pair in @(@($script:checkTasks[0], $installA), @($script:checkTasks[1], (Join-Path $Scratch "other copy")))) {
+        $taskAction = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless `"node.exe`" `"$($pair[1])\giveaways_engine\runner.js`" --scheduled"
+        Register-ScheduledTask -TaskName $pair[0] -Action $taskAction -Trigger (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "03:00") `
+            -Settings (New-ScheduledTaskSettingsSet -Disable) | Out-Null
+    }
+
     # --- uninstall, keep data ---------------------------------------------------
     $unins = Join-Path $installA "unins000.exe"
     Assert-That (Test-Path -LiteralPath $unins) "uninstaller present"
     Invoke-Setup $unins @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/KEEPDATA=1", "/LOG=`"$logDir\uninstall1.log`"") "uninstall /KEEPDATA=1"
+    Assert-That (-not (Get-ScheduledTask -TaskName $script:checkTasks[0] -ErrorAction SilentlyContinue)) "uninstall removes the scheduler task pointing into its folder"
+    Assert-That ([bool](Get-ScheduledTask -TaskName $script:checkTasks[1] -ErrorAction SilentlyContinue)) "uninstall keeps the scheduler task of another copy"
     Assert-That (Wait-Gone $exe) "keep: program exe removed"
     Assert-That (Wait-Gone (Join-Path $installA "portable_runtime")) "keep: portable_runtime removed"
     Assert-That (Wait-Gone (Join-Path $installA "dist")) "keep: dist removed"
@@ -468,6 +479,9 @@ catch {
     $script:failures++
 }
 finally {
+    foreach ($name in @($script:checkTasks)) {
+        if ($name -and (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue)) { Unregister-ScheduledTask -TaskName $name -Confirm:$false }
+    }
     # the check must not leave an install behind, whatever happened
     if ($appId -and (Test-Path $uninstKey)) {
         $u = Join-Path $script:activeInstall "unins000.exe"
