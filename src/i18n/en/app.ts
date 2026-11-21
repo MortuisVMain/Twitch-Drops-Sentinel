@@ -147,6 +147,7 @@ export const APP: Record<string, string> = {
   'Включить звук интерфейса': 'Turn interface sound on',
   'Выключить звук интерфейса': 'Turn interface sound off',
   'Справка и горячие клавиши': 'Help & hotkeys',
+  'Поддержать проект': 'Support the project',
   'Поиск по играм, стримам и действиям... (Esc)': 'Search games, streams and actions... (Esc)',
   'Установка...': 'Installing...',
   'Установить обновление': 'Install update',

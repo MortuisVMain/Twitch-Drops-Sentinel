@@ -5288,6 +5288,21 @@ def test_english_ui_covers_every_russian_string():
     print("      " + result.stdout.strip().splitlines()[-1] + " [OK]")
 
 
+def test_donate_link_is_one_https_address():
+    print("[Donate] The app and both READMEs point to the same https donation page...")
+    import re
+    src = (WORKSPACE / "src" / "utils" / "donate.ts").read_text(encoding="utf-8")
+    m = re.search(r"export const DONATE_URL = '([^']*)';", src)
+    assert m, "src/utils/donate.ts must define DONATE_URL as a string literal"
+    url = m.group(1)
+    assert re.fullmatch(r"https://\S+", url), f"DONATE_URL must be an absolute https address, got {url!r}"
+    for readme in ("README.md", "README.ru.md"):
+        text = (WORKSPACE / readme).read_text(encoding="utf-8")
+        assert f"]({url})" in text, f"{readme} must link the donation page {url}"
+        assert "DONATE_URL_PLACEHOLDER" not in text, f"{readme} still has the donation placeholder"
+    print(f"      {url} [OK]")
+
+
 def test_claimed_drop_never_replaces_the_drop_being_farmed():
     print("[Dashboard] A drop that is not being farmed cannot take over the progress counter...")
     import sys
@@ -8448,6 +8463,7 @@ if __name__ == "__main__":
         test_config_files_saved_with_a_bom_still_load,
         test_patch_update_keeps_user_data_and_blocks_path_traversal,
         test_english_ui_covers_every_russian_string,
+        test_donate_link_is_one_https_address,
         test_claimed_drop_never_replaces_the_drop_being_farmed,
         test_local_service_refuses_foreign_pages_and_resets_cleanly,
         test_local_api_token_guards_every_route_when_the_host_sets_one,

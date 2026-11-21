@@ -119,6 +119,10 @@ flowchart LR
     Core -->|"по желанию"| Stores[("Магазины игр<br/>сборщик раздач")]
 ```
 
+## Поддержать проект
+
+Sentinel бесплатный и без рекламы. Если он экономит вам время, поддержать разработку можно здесь: [DONATE_URL_PLACEHOLDER](DONATE_URL_PLACEHOLDER). Та же ссылка есть в приложении: «…» → «Поддержать проект».
+
 ## Благодарности
 
 Ядро фарма Twitch основано на [TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) от DevilXD (MIT). Модуль бесплатных игр основан на [free-games-claimer](https://github.com/vogler/free-games-claimer) от Ralf Vogler (AGPL-3.0). Подробности в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

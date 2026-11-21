@@ -117,6 +117,10 @@ flowchart LR
     Core -->|"optional"| Stores[("Game stores<br/>free-games claimer")]
 ```
 
+## Support the project
+
+Sentinel is free and has no ads. If it saves you time, you can support development here: [DONATE_URL_PLACEHOLDER](DONATE_URL_PLACEHOLDER). The same link is in the app under "…" → "Support the project".
+
 ## Credits
 
 The Twitch farming core is based on [TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) by DevilXD (MIT). The free-games module is based on [free-games-claimer](https://github.com/vogler/free-games-claimer) by Ralf Vogler (AGPL-3.0). Details are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
