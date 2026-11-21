@@ -10,6 +10,8 @@ const POWER_VERB: Record<string, string> = {
 export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]> = [
   [/^Когда очередь закончится, ПК (.+)$/, (verb) => `When the queue ends, the PC ${POWER_VERB[verb] ?? verb}`],
   [/^Активирована тема: (.+)$/, 'Theme activated: $1'],
+  [/^Бэкап проверен\. Текущий профиль сохранён в (.+)\. Перезапуск…$/, 'Backup checked. The current profile was saved as $1. Restarting…'],
+  [/^Не удалось восстановить: (.+)$/, 'Could not restore: $1'],
   [/^Задник шасси: (.+)$/, 'Chassis backdrop: $1'],
   [/^Установлена актуальная версия (.+)$/, 'You have the latest version $1'],
   [/^Не удалось проверить обновления: (.+)$/, 'Could not check for updates: $1'],

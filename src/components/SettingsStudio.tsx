@@ -1,4 +1,4 @@
-import { ClipboardCopy, Folder, Hourglass, Lock, Moon, Package, Plus, Power, RefreshCw, Stethoscope, Target, Timer, Trash2, TriangleAlert, X, Zap } from 'lucide-react';
+import { ClipboardCopy, Folder, History, Hourglass, Lock, Moon, Package, Plus, Power, RefreshCw, Stethoscope, Target, Timer, Trash2, TriangleAlert, X, Zap } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
@@ -207,6 +207,74 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     setTimeout(() => {
       setBackupLabel('Бэкап профиля (.zip)');
     }, 3500);
+  };
+
+  // Restore: a backup is staged by the service and applied at the next start, so the app restarts right after
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [backups, setBackups] = useState<Array<{ name: string; size: number; modified: number }> | null>(null);
+  const [restoreAsk, setRestoreAsk] = useState<string | null>(null);
+  const [restoreMsg, setRestoreMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+
+  const loadBackups = async () => {
+    setBackups(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/backups');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setBackups(Array.isArray(data.backups) ? data.backups : []);
+    } catch (err) {
+      console.error('SettingsStudio: listing backups failed', err);
+      setBackups([]);
+      setRestoreMsg({ text: 'Не удалось получить список бэкапов', error: true });
+    }
+  };
+
+  const toggleRestore = () => {
+    playClick();
+    const next = !restoreOpen;
+    setRestoreOpen(next);
+    setRestoreAsk(null);
+    setRestoreMsg(null);
+    if (next) void loadBackups();
+  };
+
+  const restartAfterRestore = async () => {
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') {
+      wv.postMessage({ type: 'RESTART_SENTINEL' });
+      return;
+    }
+    try {
+      await fetch('http://127.0.0.1:28492/api/restart', { method: 'POST' });
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      console.error('SettingsStudio: restart after restore failed', err);
+    }
+  };
+
+  const runRestore = async (body: { name: string } | { pick: true }) => {
+    playClick();
+    setRestoreAsk(null);
+    setRestoreBusy(true);
+    setRestoreMsg({ text: 'Проверяем бэкап…', error: false });
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.status === 'cancelled') { setRestoreMsg(null); return; }
+      if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
+      setRestoreMsg({ text: `Бэкап проверен. Текущий профиль сохранён в ${data.safety}. Перезапуск…`, error: false });
+      setTimeout(() => { void restartAfterRestore(); }, 1500);
+    } catch (err) {
+      console.error('SettingsStudio: restore failed', err);
+      setRestoreMsg({ text: `Не удалось восстановить: ${err instanceof Error ? err.message : String(err)}`, error: true });
+    } finally {
+      setRestoreBusy(false);
+    }
   };
 
   const handleRescanClick = async () => {
@@ -806,6 +874,48 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       {/* Danger zone: destructive actions live apart from everyday buttons and always ask first */}
       <div className="danger-zone" role="group" aria-label="Опасная зона">
         <span className="danger-zone-title"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Опасная зона</span>
+        <div className="danger-zone-item" style={{ flexWrap: 'wrap' }}>
+          <button className="safety-guard-btn" onClick={toggleRestore} aria-expanded={restoreOpen} title="Вернуть настройки, вход и трофеи из бэкапа профиля">
+            <History className="ui-icon" aria-hidden="true" focusable="false" /> Восстановить из бэкапа
+          </button>
+          <span className="danger-zone-hint">Заменяет текущий профиль, перед этим сохраняет его</span>
+        </div>
+        {restoreOpen && (
+          <div className="restore-panel" role="region" aria-label="Восстановление из бэкапа">
+            {backups === null ? (
+              <span className="danger-zone-hint">Загружаем список бэкапов…</span>
+            ) : backups.length === 0 ? (
+              <span className="danger-zone-hint">В папке data/backups бэкапов нет. Выберите файл вручную.</span>
+            ) : (
+              <ul className="restore-list">
+                {backups.slice(0, 8).map((b) => (
+                  <li key={b.name} className="restore-row">
+                    <span className="restore-name" title={b.name}>
+                      {new Date(b.modified * 1000).toLocaleString()} <span className="tabular" style={{ color: 'var(--text-muted)' }}>· {Math.max(1, Math.round(b.size / 1024))} КБ</span>
+                    </span>
+                    {restoreAsk === b.name ? (
+                      <>
+                        <span className="danger-zone-question">Заменить профиль этим бэкапом? Приложение перезапустится.</span>
+                        <button className="safety-guard-btn armed" disabled={restoreBusy} onClick={() => runRestore({ name: b.name })}>Да, восстановить</button>
+                        <button className="tactile-btn" autoFocus onClick={() => { playClick(); setRestoreAsk(null); }}>Отмена</button>
+                      </>
+                    ) : (
+                      <button className="tactile-btn" disabled={restoreBusy} onClick={() => { playClick(); setRestoreAsk(b.name); }}>Восстановить</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="tactile-btn" disabled={restoreBusy} onClick={() => runRestore({ pick: true })} title="Выбрать .zip бэкапа в другом месте, например с другого компьютера">
+                <Folder className="ui-icon" aria-hidden="true" focusable="false" /> Выбрать файл…
+              </button>
+              {restoreMsg && (
+                <span role="status" className="danger-zone-hint" style={{ color: restoreMsg.error ? 'var(--led-rose)' : 'var(--text-secondary)' }}>{restoreMsg.text}</span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="danger-zone-item">
           {pendingDanger === 'trophies' ? (
             <>

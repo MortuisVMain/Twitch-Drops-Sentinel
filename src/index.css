@@ -1738,6 +1738,10 @@
   .danger-zone-title { font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--led-rose); }
   .danger-zone-item { display: flex; align-items: center; gap: 8px; min-height: 29px; }
   .danger-zone-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+  .restore-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg-well); border: 1px solid var(--border-subtle); }
+  .restore-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .restore-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 48px; }
+  .restore-name { flex: 1 1 14rem; min-width: 0; font-size: var(--fs-xs); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .danger-zone-question { font-size: var(--fs-xs); font-weight: 700; color: var(--text-primary); }
 
   .modal-backdrop { position: fixed; inset: 0; background: rgba(3, 4, 6, 0.78); backdrop-filter: blur(14px); z-index: 150; display: none; align-items: center; justify-content: center; padding: 20px; }
