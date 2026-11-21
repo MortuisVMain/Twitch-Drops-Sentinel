@@ -432,6 +432,8 @@ try {
     if ($silentCmd.Success) {
         $d = Invoke-FakeWinget ($silentCmd.Groups[1].Value.Replace('""', '"')) (Join-Path $Scratch "fakewinget2") 1 0
         Assert-That (($d.Exit -eq 0) -and ($d.Calls.Count -eq 2)) "node: the silent command retries without --scope too"
+        $e = Invoke-FakeWinget ($silentCmd.Groups[1].Value.Replace('""', '"')) (Join-Path $Scratch "fakewinget3") 0 9
+        Assert-That (($e.Exit -eq 0) -and ($e.Calls.Count -eq 1)) "node: the silent command stops after a working --scope user"
     }
 
     # --- the user's account stays untouched ----------------------------------------
