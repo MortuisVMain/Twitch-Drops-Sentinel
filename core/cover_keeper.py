@@ -35,6 +35,9 @@ def steam_fallback_urls(url: str) -> list:
     return [cdn.format(app=app, file=name) for name in STEAM_FILES for cdn in CDNS]
 
 
+QUEUE_REWARD_PREFIX = "reward:"  # a queue entry for a reward campaign, not a game: it has no cover
+
+
 def _key(name: str) -> str:
     return re.sub(r"[^a-z0-9а-я]+", " ", (name or "").lower()).strip()
 
@@ -46,7 +49,7 @@ def cover_targets(catalog: list, queue: Optional[Iterable[str]]) -> list:
     extra = []
     for name in queue or []:
         key = _key(name)
-        if key and key not in seen:
+        if key and key not in seen and not str(name).startswith(QUEUE_REWARD_PREFIX):
             seen.add(key)
             extra.append({"name": name, "box_art": None})
     return list(catalog) + extra
@@ -59,7 +62,7 @@ def shelf_names(settings: dict, trophies: Iterable[dict], ignored: Iterable[str]
     seen, out = set(), []
     for name in names:
         key = _key(name)
-        if key and key not in seen:
+        if key and key not in seen and not str(name).startswith(QUEUE_REWARD_PREFIX):
             seen.add(key)
             out.append(name)
     return out

@@ -4,6 +4,7 @@ import { followBackendLanguage } from '../i18n';
 import { followBackendTextScale } from '../utils/textScale';
 import { setServerCovers } from '../utils/gameBoxArts';
 import { withServiceToken } from '../utils/serviceAuth.mjs';
+import { isRewardQueueEntry, queueItems } from '../utils/rewardCampaigns.mjs';
 import { ConnectionPhase, FullSentinelState, SentinelSettings, TrophyItem } from '../types';
 
 // The service took over 15 s to answer after launch (measured): 4 times that still counts as a start, not a failure
@@ -55,6 +56,7 @@ const INITIAL_STATE: FullSentinelState = {
     excluded_games: [],
   },
   trophies: [],
+  reward_campaigns: [],
   installed_games: [],
   all_catalog_games: [],
 };
@@ -557,12 +559,17 @@ export function useSentinelState(
     // Swap positions
     [current[idx], current[targetIdx]] = [current[targetIdx], current[idx]];
     await saveSettingsChange({ priority_games: current });
-    showToast(`Приоритет обновлен: ${gameName} перемещен ${direction === 'up' ? 'выше' : 'ниже'}`);
+    // a reward campaign is named by its campaign, never by its queue key
+    const shownName = isRewardQueueEntry(gameName)
+      ? queueItems([gameName], sentinelState.reward_campaigns, null)[0]?.name ?? gameName
+      : gameName;
+    showToast(`Приоритет обновлен: ${shownName} перемещен ${direction === 'up' ? 'выше' : 'ниже'}`);
   };
 
   // Manual Farm Override (Принудительный запуск фарма выбранной игры)
   const handleForceFarm = async (gameName: string) => {
     playClick();
+    const previousForced = sentinelState.forced_game ?? null;
     setSentinelState((prev) => ({ ...prev, forced_game: gameName }));
     try {
       const res = await fetch('http://127.0.0.1:28492/api/farm/force', {
@@ -573,7 +580,14 @@ export function useSentinelState(
       if (res.ok) {
         showToast(`Принудительный фокус: ${gameName}`);
       } else {
-        showToast(`Не удалось переключить фарм на ${gameName}`);
+        // the service explains a refusal (a reward campaign without a category, done for today...) in `message`
+        const refusal = await res.json().then((body: { message?: unknown }) => (typeof body?.message === 'string' ? body.message : ''), (err) => {
+          console.warn('force farm: the refusal has no readable body', err);
+          return '';
+        });
+        console.error('force farm: refused', res.status, gameName, refusal);
+        setSentinelState((prev) => ({ ...prev, forced_game: previousForced }));
+        showToast(refusal || `Не удалось переключить фарм на ${gameName}`);
       }
     } catch {
       showToast(`Принудительный фокус: ${gameName}`);

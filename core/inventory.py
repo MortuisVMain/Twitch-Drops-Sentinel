@@ -31,6 +31,9 @@ CLAIM_NEW = "claimed"
 CLAIM_ALREADY = "already_claimed"
 # Claim instances announced and journaled by this process: one row per instance, never one per game and reward text.
 _RECORDED_CLAIMS: set[str] = set()
+# Drops Twitch confirmed as claimed in this process. Linked-account campaigns keep reporting isClaimed=false
+# after an accepted claim, so without this every inventory sync claims them again.
+_CONFIRMED_CLAIMED_DROPS: set[str] = set()
 
 
 def remove_dimensions(url: URLType) -> URLType:
@@ -140,6 +143,8 @@ class BaseDrop:
             and all(self.starts_at <= dt < self.ends_at for dt in dts)
         ):
             self.is_claimed = True
+        if self.id in _CONFIRMED_CLAIMED_DROPS:
+            self.is_claimed = True
         preconditions = data.get("preconditionDrops") or []
         self.precondition_drops: list[str] = [
             d.get("id", "") for d in preconditions if isinstance(d, dict) and d.get("id")
@@ -233,6 +238,7 @@ class BaseDrop:
             logger.error(f"Drop claim has potentially failed! Drop ID: {self.id}")
             return False
         self.is_claimed = True
+        _CONFIRMED_CLAIMED_DROPS.add(self.id)
         instance = self.claim_id or self.id
         if (status == CLAIM_ALREADY and not completed_live) or instance in _RECORDED_CLAIMS:
             logger.debug("Drop %s (%s) was already claimed: not announced, not journaled", self.id, instance)
