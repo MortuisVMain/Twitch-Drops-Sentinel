@@ -18,6 +18,7 @@ import { PhotoBackdrop } from './components/PhotoBackdrop';
 import { AppearancePanel } from './components/AppearancePanel';
 
 import { HelpModal } from './components/HelpModal';
+import { HistoryModal } from './components/HistoryModal';
 import { useModalFocus } from './hooks/useModalFocus';
 import { clampPaletteIndex, defaultPaletteIndex, movePaletteIndex } from './utils/paletteIndex';
 import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils/gameBoxArts';
@@ -31,7 +32,7 @@ import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
 import {
-  Ban, Check, ChevronRight, CircleHelp, Copy, CornerDownLeft, Ellipsis, Gamepad2, Gift, Hourglass,
+  Ban, Check, ChevronRight, CircleHelp, Copy, History, CornerDownLeft, Ellipsis, Gamepad2, Gift, Hourglass,
   LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Pin, Play,
   RefreshCw, Settings, SkipForward, Square, Target,
 } from 'lucide-react';
@@ -205,6 +206,7 @@ export const App: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const [showCmdPalette, setShowCmdPalette] = useState(false);
 
@@ -1315,6 +1317,9 @@ export const App: React.FC = () => {
                 <span><Moon className="ui-icon" aria-hidden="true" focusable="false" /> Ночной режим</span>
                 <span className="more-check">{isNightGuard && <Check className="ui-icon" aria-hidden="true" focusable="false" />}</span>
               </button>
+              <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHistory(true); }}>
+                <span><History className="ui-icon" aria-hidden="true" focusable="false" /> История и статистика</span>
+              </button>
               <button className="more-item more-item-help" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHelpModal(true); }}>
                 <span><CircleHelp className="ui-icon" aria-hidden="true" focusable="false" /> Справка и горячие клавиши</span>
               </button>
@@ -1896,6 +1901,7 @@ export const App: React.FC = () => {
           { id: 'open-theme', icon: Palette, title: 'Выбрать тему оформления', action: () => setShowThemeMenu(true) },
           { id: 'toggle-sound', icon: isMuted ? VolumeX : Volume2, title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? 'Звук интерфейса выключен' : 'Звук интерфейса включён'); } },
           { id: 'open-help', icon: CircleHelp, title: 'Справка и горячие клавиши', action: () => setShowHelpModal(true) },
+          { id: 'open-history', icon: History, title: 'История и статистика', action: () => setShowHistory(true) },
         ].filter(item => !query || item.title.toLowerCase().includes(query) || (item.key || '').toLowerCase().includes(query));
 
         const matchingGames = (sentinelState?.all_catalog_games || [])
@@ -2105,6 +2111,7 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
 
+      <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} trophies={sentinelState.trophies || []} />
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} digitRange={digitRange(shownTabs)} />
 
 
