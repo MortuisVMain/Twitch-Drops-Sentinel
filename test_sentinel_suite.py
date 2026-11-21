@@ -37,6 +37,9 @@ WORKSPACE = Path(__file__).resolve().parent
 # On a CI runner there is no exe, no cookies, no journal and no live Twitch: gates that need them print an
 # explicit SKIP instead of failing (set CI=1 locally to rehearse it).
 IN_CI = os.environ.get("CI", "").lower() in ("1", "true", "yes")
+# The user's own files (exe, journal, cookies, giveaways database) live only in their working folder. A git
+# worktree or fresh clone on the dev PC has none of them either, so the same explicit SKIPs apply there too.
+NO_USER_DATA = IN_CI or not (WORKSPACE / "Trophies.md").exists()
 # test_giveaways_hub_integration reads the claimed-games inventory of the user's own giveaways database
 CI_LIVE_ONLY: set = {"test_giveaways_hub_integration"}
 
@@ -83,7 +86,7 @@ def _build_sandbox():
     for name in ("config.json", "config.default.json", "Trophies.md"):
         if (WORKSPACE / name).exists():
             shutil.copy2(WORKSPACE / name, root / name)
-    if IN_CI:
+    if NO_USER_DATA:
         # a fresh checkout has neither the user's config nor the trophy journal: start from the defaults
         if not (root / "config.json").exists() and (root / "config.default.json").exists():
             shutil.copy2(root / "config.default.json", root / "config.json")
@@ -122,8 +125,8 @@ def test_artifacts():
     app_ico = WORKSPACE / "assets" / "app.ico"
     cookies_jar = WORKSPACE / "core" / "cookies.jar"  # existence check only
 
-    if IN_CI and not exe_path.exists():
-        print("      SKIP: TwitchDropsSentinel.exe is built later in the pipeline, not present on the runner")
+    if NO_USER_DATA and not exe_path.exists():
+        print("      SKIP: TwitchDropsSentinel.exe is built later in the pipeline, not present in a fresh checkout")
     else:
         assert exe_path.exists(), f"EXE missing: {exe_path}"
         exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
@@ -136,7 +139,7 @@ def test_artifacts():
     assert html_kb > 200, "dist/index.html appears incomplete!"
 
     assert app_ico.exists(), "app.ico missing!"
-    if IN_CI and not cookies_jar.exists():
+    if NO_USER_DATA and not cookies_jar.exists():
         print("      SKIP: cookies.jar is a private user file and never lives in the repository")
     else:
         assert cookies_jar.exists(), "cookies.jar missing!"
@@ -266,8 +269,8 @@ def test_core_service_api():
     with safe_urlopen(v_req, timeout=10.0) as res:
         assert res.status == 200
         v_res = json.loads(res.read().decode("utf-8"))
-        if IN_CI and v_res.get("verified") is not True:
-            print("      SKIP: /api/verify-game needs the live Twitch catalog, which a CI runner does not have")
+        if NO_USER_DATA and v_res.get("verified") is not True:
+            print("      SKIP: /api/verify-game needs the live Twitch catalog, which a fresh checkout does not have")
         else:
             assert v_res.get("verified") is True
             assert "Desert" in v_res.get("canonical_name", "")
@@ -279,7 +282,7 @@ def test_core_service_api():
         assert res.status == 200
         c_res = json.loads(res.read().decode("utf-8"))
         assert isinstance(c_res, list)
-        if IN_CI and len(c_res) <= 50:
+        if NO_USER_DATA and len(c_res) <= 50:
             print("      SKIP: a catalog of more than 50 games needs the user's installed games and live Twitch data")
         else:
             assert len(c_res) > 50
@@ -8504,8 +8507,8 @@ if __name__ == "__main__":
     # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
     failed = []
     for gate in GATES:
-        if IN_CI and gate.__name__ in CI_LIVE_ONLY:
-            print(f"      SKIP [{gate.__name__}]: needs the user's data, the exe or live Twitch; not available on a CI runner")
+        if NO_USER_DATA and gate.__name__ in CI_LIVE_ONLY:
+            print(f"      SKIP [{gate.__name__}]: needs the user's data, the exe or live Twitch; not available in a fresh checkout")
             continue
         if os.environ.get("CI_COLLECT") == "1":
             try:
