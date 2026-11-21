@@ -401,7 +401,12 @@ class HeadlessLoginForm:
         STATE_BRIDGE.oauth_uri = str(uri)
         STATE_BRIDGE.status_text = _("sentinel", "login_required_status").format(code=code)
         STATE_BRIDGE.add_log("AUTH", _("sentinel", "login_code_log").format(code=code, uri=uri))
-        send_windows_toast("Twitch Drops Sentinel — Авторизация", f"Код авторизации: {code}\nОткройте Twitch в браузере для подтверждения")
+        try:  # through the gate: honours the notifications switch, reaches Telegram/Discord, once per code
+            from notifications import NOTIFIER
+            NOTIFIER.notify("twitch_login", str(code), "Twitch Drops Sentinel — Авторизация",
+                            f"Нужен вход в Twitch. Код авторизации: {code}. Откройте Twitch в браузере для подтверждения")
+        except Exception as exc:
+            logger.warning("Twitch sign-in notification failed: %s", exc, exc_info=True)
         if os.environ.get("SENTINEL_NO_BROWSER") == "1":
             logger.warning("SENTINEL_NO_BROWSER: the Twitch activation page was not opened")
             return
