@@ -1,6 +1,6 @@
 {
   "name": "sentinel-giveaways-engine",
-  "version": "3.5.20",
+  "version": "3.7.0",
   "description": "Twitch Drops Sentinel Integrated Giveaways Subsystem",
   "author": "Mortuis_V / Mortuis_V_Studio",
   "private": true,

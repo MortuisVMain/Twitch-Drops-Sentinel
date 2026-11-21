@@ -262,6 +262,9 @@ def json_save(path: Path, contents: Mapping[Any, Any], *, sort: bool = False) ->
 
 def webopen(url: URL | str):
     url_str = str(url)
+    if os.environ.get("SENTINEL_NO_BROWSER") == "1":
+        logger.warning("SENTINEL_NO_BROWSER: not opening %s", url_str)
+        return
     if IS_PACKAGED and sys.platform == "linux":
         # https://pyinstaller.org/en/stable/
         # runtime-information.html#ld-library-path-libpath-considerations

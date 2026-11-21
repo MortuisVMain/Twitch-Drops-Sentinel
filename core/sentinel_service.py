@@ -179,15 +179,21 @@ from gui_headless import STATE_BRIDGE, send_windows_toast
 from translate import _
 from twitch import Twitch
 from settings import Settings, default_settings as devilxd_default_settings
-from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE
+from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE, STEAM_IDLE_LIVE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
-from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser
+from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
+from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
+                                   create_controller as create_steam_idle_controller, steam_idle_backend_kind)
+from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
+from tab_visibility import apply_disabled_tabs, tab_enabled
+import reward_campaigns
+import reward_watch
 from engine_flags import apply_engine_flags
-from local_access import host_allowed, origin_allowed
+from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
 from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
@@ -320,6 +326,25 @@ SLUG_TO_GAME_NAME = {
     "aion2": "AION 2",
 }
 
+def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
+    """Appends the new farmable reward campaigns to the end of priority_games (when the switch is on) and saves; returns the
+    campaign ids appended, None when there was nothing to add. A campaign appended once is never appended again."""
+    new_priority, added = reward_campaigns.auto_queue_plan(STATE_BRIDGE, service.settings)
+    if not added:
+        return None
+    apply_change(service.settings, lambda current: current.update({"priority_games": new_priority}), service.save_settings)
+    reward_watch.REWARD_WATCH.ledger.mark_queued(added)
+    logger.info("Reward auto-queue: %d campaign(s) added to the end of the queue: %s", len(added), ", ".join(added))
+    STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] В очередь добавлено кампаний наград: {len(added)}")
+    return added
+
+
+def normalize_priority_entry(name: str) -> str:
+    """A queue entry: a game name is normalised, a `reward:<campaignId>` key is kept as it is (normalising would destroy it)."""
+    stripped = name.strip() if isinstance(name, str) else name
+    return reward_watch.clean_key(stripped) if reward_watch.is_reward_key(stripped) else normalize_game_name(name)
+
+
 def normalize_game_name(name: str) -> str:
     cleaned = name.strip()
     low = cleaned.lower()
@@ -343,9 +368,20 @@ SUPERVISOR_DEFAULTS = {
     "claim_channel_points": True,
     "auto_claim_drops": True,
     "giveaways_enabled": True,
+    "reward_campaigns_enabled": False,  # show Twitch reward campaigns on the dashboard and farm their watch time (subs are never bought)
+    "reward_daily_slot": True,  # a queued reward campaign takes the daily slot before drops until today's goal is reached
+    "reward_auto_queue": False,  # append new farmable reward campaigns (watch goal + category) to the end of the queue
+    "hidden_reward_campaigns": [],  # reward campaign ids the user hid: kept in the state with hidden=true, never farmed
+    "reward_campaign_categories": {},  # reward campaign id -> category name chosen by the user (empty name removes it)
+    "disabled_tabs": [],  # optional tabs the user turned off: shelf, steamidle, dimmer (giveaways follows giveaways_enabled)
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
     "giveaways_browser": "auto",
+    "steam_idle_risk_ack": False,
+    "steam_idle_achievements_ack": False,
+    "steam_idle_unlock_min_minutes": 0,
+    "steam_idle_unlock_max_minutes": 0,
+    "steam_idle_unlock_skip_hidden": True,
     "streamer_watchdog_enabled": True,
     "game_directories": [],
     "priority_games": ["Rust", "Path of Exile 2", "Cyberpunk 2077", "The Witcher 3: Wild Hunt", "Hunt: Showdown 1896", "No Man's Sky"],
@@ -362,12 +398,21 @@ SUPERVISOR_DEFAULTS = {
 }
 
 
+def _dimmer_off_response() -> web.Response:
+    """The Dimmer tab is turned off: its commands are refused (reading the state stays allowed)."""
+    return web.json_response({"error": "module_disabled"}, status=409)
+
+
 class SentinelSupervisor:
     def __init__(self):
+        self.api_token = take_api_token()  # first, so no child process created below inherits it
+        logger.info("Local API token: %s", "required" if self.api_token else "not set (development or test run)")
         self.app = web.Application()
         self.twitch_client: Optional[Twitch] = None
         self.scanner = GameScanner()
         self.settings: dict = self.load_settings()
+        reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
+        STATE_BRIDGE.reward_auto_queue_hook = lambda: apply_reward_auto_queue(self)
         set_native_toasts(self.settings.get("native_toasts", True))
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
@@ -384,7 +429,15 @@ class SentinelSupervisor:
         self.luna_countdown: Optional[int] = None
         self.luna_fired = False
         self.giveaways = GiveawaysOrchestrator()
-        self.dimmer = DimmerController()
+        self._module_sync_tasks: set = set()
+        self._module_sync_lock = asyncio.Lock()
+        self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, "dimmer"))
+        self.steam_idle = create_steam_idle_controller(
+            PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
+            lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
+            inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert",
+            module_enabled=lambda: tab_enabled(self.settings, "steamidle"))
+        self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
 
@@ -403,7 +456,9 @@ class SentinelSupervisor:
                 # utf-8-sig: Notepad and PowerShell save a BOM, which plain utf-8 refuses to parse
                 with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
+                    reward_campaigns.drop_invalid_setting(data)
                     default_settings.update(data)
+                    apply_disabled_tabs(default_settings)
             except Exception as e:
                 logger.warning(f"Could not load config.json: {e}")
 
@@ -424,7 +479,7 @@ class SentinelSupervisor:
 
         # Normalize priority_games from config.json
         if "priority_games" in default_settings:
-            norm_list = [normalize_game_name(g) for g in default_settings["priority_games"]]
+            norm_list = [normalize_priority_entry(g) for g in default_settings["priority_games"]]
             seen = set()
             default_settings["priority_games"] = [g for g in norm_list if not (g in seen or seen.add(g))]
 
@@ -432,7 +487,7 @@ class SentinelSupervisor:
         try:
             devilxd_settings = json_load(SETTINGS_PATH, devilxd_default_settings)
             if devilxd_settings.get("priority"):
-                p_list = [normalize_game_name(g) for g in devilxd_settings["priority"]]
+                p_list = [normalize_priority_entry(g) for g in devilxd_settings["priority"]]
                 seen = set()
                 default_settings["priority_games"] = [g for g in p_list if not (g in seen or seen.add(g))]
             if devilxd_settings.get("exclude"):
@@ -447,7 +502,7 @@ class SentinelSupervisor:
 
     def save_settings(self):
         # 1. Normalize priority games list
-        priority_list = [normalize_game_name(g) for g in self.settings.get("priority_games", [])]
+        priority_list = [normalize_priority_entry(g) for g in self.settings.get("priority_games", [])]
         seen = set()
         deduped_priority = [g for g in priority_list if not (g in seen or seen.add(g))]
         self.settings["priority_games"] = deduped_priority
@@ -601,6 +656,30 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/dimmer/mute", self.handle_dimmer_mute)
         self.app.router.add_post("/api/v1/dimmer/save-baseline", self.handle_dimmer_save_baseline)
         self.app.router.add_post("/api/v1/dimmer/restore-baseline", self.handle_dimmer_restore_baseline)
+        steam_idle = self.steam_idle_routes
+        self.app.router.add_get("/api/v1/steam-idle/state", steam_idle.state)
+        self.app.router.add_post("/api/v1/steam-idle/ack", steam_idle.ack)
+        self.app.router.add_post("/api/v1/steam-idle/login", steam_idle.login)
+        self.app.router.add_post("/api/v1/steam-idle/check", steam_idle.check)
+        self.app.router.add_post("/api/v1/steam-idle/scan", steam_idle.scan)
+        self.app.router.add_post("/api/v1/steam-idle/farm/start", steam_idle.farm_start)
+        self.app.router.add_post("/api/v1/steam-idle/farm/stop", steam_idle.farm_stop)
+        self.app.router.add_post("/api/v1/steam-idle/farm/pause", steam_idle.farm_pause)
+        self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
+        self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
+        self.app.router.add_post("/api/v1/steam-idle/farm/release", steam_idle.farm_release)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
+        self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)
+        self.app.router.add_get("/api/v1/steam-idle/library", steam_idle.library)
+        self.app.router.add_get("/api/v1/steam-idle/achievements", steam_idle.achievements_read)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/start", steam_idle.achievements_start)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/resume-interrupted", steam_idle.achievements_resume_interrupted)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/discard-interrupted", steam_idle.achievements_discard_interrupted)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/stop", steam_idle.achievements_stop)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/pause", steam_idle.achievements_pause)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/resume", steam_idle.achievements_resume)
+        self.app.router.add_post("/api/v1/steam-idle/achievements/skip", steam_idle.achievements_skip)
 
         # CORS preflight middleware
         self.app.middlewares.append(self.cors_middleware)
@@ -617,10 +696,15 @@ class SentinelSupervisor:
                 headers["Access-Control-Allow-Origin"] = origin
                 headers["Vary"] = "Origin"
                 headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-                headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+                headers["Access-Control-Allow-Headers"] = f"Content-Type, Authorization, X-Requested-With, {TOKEN_HEADER}"
 
-        if request.method == "OPTIONS":
+        if request.method == "OPTIONS":  # a preflight carries no custom headers: the origin and host checks above are its only gate
             response = web.Response()
+            allow(response.headers)
+            return response
+        if not token_allowed(self.api_token, request.path, request.headers, request.query):
+            logger.warning(f"Refused {request.method} {request.path}: missing or wrong API token")
+            response = web.json_response({"error": "unauthorized"}, status=401)
             allow(response.headers)
             return response
         try:
@@ -789,6 +873,7 @@ class SentinelSupervisor:
                 g["box_art"] = cover
 
         installed_games = [g for g in catalog_games if g.get("is_installed")]
+        slot_minutes, slot_budget = reward_campaigns.slot_status(STATE_BRIDGE, self.settings)
 
         return {
             "version": self.get_app_version(),
@@ -811,6 +896,10 @@ class SentinelSupervisor:
                 "total_farm_hours": uptime_hours,
             },
             "settings": self.settings,
+            "reward_campaigns": reward_campaigns.state_list(STATE_BRIDGE, self.settings),
+            "reward_watching": getattr(STATE_BRIDGE, "reward_watching", None) if self.settings.get("reward_campaigns_enabled") is True else None,
+            "slot_minutes_today": slot_minutes,
+            "slot_budget_today": slot_budget,
             "trophies": trophies,
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
@@ -868,16 +957,70 @@ class SentinelSupervisor:
             logger.error(f"Error in handle_toggle_game_linked: {e}")
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+    async def _sync_steam_idle_module(self, was_on: bool) -> None:
+        """Tells the Steam IDLE controller when the setting flipped; a failure is logged and never fails the settings update."""
+        now_on = tab_enabled(self.settings, "steamidle")
+        if now_on == was_on:
+            return
+        try:
+            await self.steam_idle.set_module_enabled(now_on)
+        except Exception:
+            logger.error("Steam IDLE did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
+
+    async def _sync_dimmer_module(self, was_on: bool) -> None:
+        """Tells the dimmer controller when the setting flipped; a failure is logged and never fails the settings update."""
+        now_on = tab_enabled(self.settings, "dimmer")
+        if now_on == was_on:
+            return
+        try:
+            await self.dimmer.set_module_enabled(now_on)
+        except Exception:
+            logger.error("Dimmer did not follow the tab switch (now %s)", "on" if now_on else "off", exc_info=True)
+
+    def _schedule_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+        """Runs the module syncs in the background (stopping Steam IDLE can take ~16 s) so the settings answer is not held.
+        One sync at a time and in order, so a quick off-then-on cannot interleave; the task is kept until it ends."""
+        task = asyncio.create_task(self._run_module_sync(steam_idle_was_on, dimmer_was_on))
+        self._module_sync_tasks.add(task)
+        task.add_done_callback(self._module_sync_finished)
+
+    async def _run_module_sync(self, steam_idle_was_on: bool, dimmer_was_on: bool) -> None:
+        async with self._module_sync_lock:
+            await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
+
+    def _module_sync_finished(self, task: "asyncio.Task[None]") -> None:
+        self._module_sync_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Module sync after a settings change failed", exc_info=task.exception())
+
+    async def _cancel_module_syncs(self) -> None:
+        """Shutdown: cancel the syncs still running and wait for them to end."""
+        pending = list(self._module_sync_tasks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
     async def handle_post_settings(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
             if "priority_games" in data:
-                norm_p = [normalize_game_name(g) for g in data["priority_games"]]
+                norm_p = [normalize_priority_entry(g) for g in data["priority_games"]]
                 seen = set()
                 data["priority_games"] = [g for g in norm_p if not (g in seen or seen.add(g))]
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
+            apply_disabled_tabs(data)
+            reward_campaigns.drop_invalid_setting(data)
+            steam_idle_was_on = tab_enabled(self.settings, "steamidle")
+            dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
+            try:
+                apply_reward_auto_queue(self)
+            except Exception as exc:  # the settings are saved already: a failing auto-queue must not turn the POST into an error
+                logger.error("Reward auto-queue failed after saving the settings: %s", exc, exc_info=True)
+            self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()
             n_games = len(self.settings.get("priority_games", []))
@@ -945,11 +1088,16 @@ class SentinelSupervisor:
         return web.json_response({"status": "restarting"})
 
     async def _delayed_stop(self):
+        await self._cancel_module_syncs()
         # Stop the Node giveaways tree first, otherwise it outlives the service.
         try:
             await asyncio.wait_for(self.giveaways.abort_claim(), timeout=2.5)
         except Exception as e:
             logger.warning(f"Could not abort giveaways process on shutdown: {e}")
+        try:  # closes the steam-idle queue first, then waits for an unlock call in flight (never kills it)
+            await asyncio.wait_for(self.steam_idle.shutdown(), timeout=STEAM_IDLE_SHUTDOWN_BUDGET)
+        except Exception as e:
+            logger.warning(f"Steam idle did not shut down cleanly: {e!r}")
         await asyncio.sleep(0.5)
         sys.exit(0)
 
@@ -1059,6 +1207,10 @@ class SentinelSupervisor:
             game = (data.get("game") or "").strip()
             if not game:
                 return web.json_response({"status": "error", "message": "Game name is required"}, status=400)
+            if reward_watch.is_reward_key(game):
+                problem = reward_campaigns.force_problem(STATE_BRIDGE, self.settings, reward_watch.reward_id(game))
+                if problem:
+                    return web.json_response({"status": "error", "message": problem}, status=400)
             logger.info(f"API Force Farm: Requesting manual farm override for '{game}'")
             STATE_BRIDGE.forced_game = game
             if self.twitch_client:
@@ -1223,7 +1375,12 @@ class SentinelSupervisor:
                 current.clear()
                 current.update(copy.deepcopy(SUPERVISOR_DEFAULTS))
 
+            steam_idle_was_on = tab_enabled(self.settings, "steamidle")
+            dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, to_defaults, self.save_settings)
+            reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
+            await self._sync_steam_idle_module(steam_idle_was_on)
+            await self._sync_dimmer_module(dimmer_was_on)
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
@@ -1551,6 +1708,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_brightness(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1575,6 +1734,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_blackout(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1595,6 +1756,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_timer(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1604,6 +1767,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_ultradark(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1614,6 +1779,8 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_mute(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         try:
             body = await request.json()
         except Exception:
@@ -1623,16 +1790,22 @@ class SentinelSupervisor:
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_save_baseline(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         state = await self.dimmer.save_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def handle_dimmer_restore_baseline(self, request: web.Request) -> web.Response:
+        if not self.dimmer.enabled():
+            return _dimmer_off_response()
         state = await self.dimmer.restore_baseline()
         return web.json_response({"status": "ok", "state": state, **state})
 
     async def _on_app_shutdown(self, app):
         logger.info("Cleaning up Giveaways processes on shutdown...")
+        await self._cancel_module_syncs()
         await self.giveaways.abort_claim()
+        await self.steam_idle.shutdown()
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -1692,6 +1865,10 @@ class SentinelSupervisor:
                         break
 
                 is_gaming = detected_game is not None
+                try:  # any detected game suspends Steam IDLE, even with pause_on_gaming off: a held game blocks launching it
+                    self.steam_idle.set_suspended(is_gaming)
+                except Exception:
+                    logger.error("Steam IDLE suspend hook failed", exc_info=True)
 
                 self.hardware_state.update({
                     "is_gaming": is_gaming,
@@ -1734,7 +1911,7 @@ class SentinelSupervisor:
         while self.is_running:
             try:
                 enabled = bool(self.settings.get("auto_shutdown_on_complete", False))
-                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []))
+                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []), reward_campaigns.queue_pending(STATE_BRIDGE, self.settings))
                 was_counting = self.luna_countdown is not None
                 step = next_countdown(self.luna_countdown, enabled, done, self.luna_fired)
                 self.luna_countdown = step.countdown
