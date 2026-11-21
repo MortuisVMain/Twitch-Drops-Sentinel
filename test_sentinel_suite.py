@@ -42,6 +42,8 @@ IN_CI = os.environ.get("CI", "").lower() in ("1", "true", "yes")
 NO_USER_DATA = IN_CI or not (WORKSPACE / "Trophies.md").exists()
 # test_giveaways_hub_integration reads the claimed-games inventory of the user's own giveaways database
 CI_LIVE_ONLY: set = {"test_giveaways_hub_integration"}
+# Gates that need the internet (live Twitch search). SUITE_OFFLINE=1 skips them loudly, for a run without network.
+NETWORK_GATES: set = {"test_search_games_and_box_art_cache"}
 
 # The suite never touches the user's live data, config, cookies or the live service on port 28492.
 # It copies the code and a read-only snapshot of the data into a temp project root and runs its own
@@ -8597,28 +8599,65 @@ if __name__ == "__main__":
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
         test_installer_script_keeps_its_promises,
     ]
-    # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
-    # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
-    failed = []
-    for gate in GATES:
+    # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.
+    # --fail-fast (or SUITE_FAIL_FAST=1) stops at the first failure like before. -k SUBSTR (repeatable) runs only
+    # the gates whose name contains it; --list prints the gate names. Gates that need the user's own data skip on
+    # CI and in a fresh checkout, network gates skip with SUITE_OFFLINE=1; both say so, never silently.
+    import argparse
+    import traceback
+    parser = argparse.ArgumentParser(description="Twitch Drops Sentinel verification suite")
+    parser.add_argument("-k", dest="only", action="append", default=[], help="run only gates whose name contains this (repeatable)")
+    parser.add_argument("--fail-fast", action="store_true", default=os.environ.get("SUITE_FAIL_FAST") == "1")
+    parser.add_argument("--list", action="store_true", help="print the gate names and exit")
+    args = parser.parse_args()
+    if args.list:
+        print("\n".join(gate.__name__ for gate in GATES))
+        sys.exit(0)
+    selected = [g for g in GATES if not args.only or any(part in g.__name__ for part in args.only)]
+    if not selected:
+        print(f"No gate matches {args.only}; --list shows the names.")
+        sys.exit(2)
+    offline = os.environ.get("SUITE_OFFLINE") == "1"
+    failed: list = []
+    skipped: list = []
+    timings: list = []
+    for gate in selected:
         if NO_USER_DATA and gate.__name__ in CI_LIVE_ONLY:
             print(f"      SKIP [{gate.__name__}]: needs the user's data, the exe or live Twitch; not available in a fresh checkout")
+            skipped.append(gate.__name__)
             continue
-        if os.environ.get("CI_COLLECT") == "1":
-            try:
-                gate()
-            except Exception as exc:  # noqa: BLE001 - collecting, reported below
-                failed.append(gate.__name__)
-                print(f"      COLLECT-FAIL [{gate.__name__}]: {type(exc).__name__}: {exc}")
-        else:
+        if offline and gate.__name__ in NETWORK_GATES:
+            print(f"      SKIP [{gate.__name__}]: needs the internet; SUITE_OFFLINE=1")
+            skipped.append(gate.__name__)
+            continue
+        started = time.time()
+        try:
             gate()
+        except Exception as exc:  # noqa: BLE001 - every gate runs; failures are listed below
+            if args.fail_fast:
+                raise
+            print(f"      FAIL [{gate.__name__}]: {type(exc).__name__}: {str(exc)[:500]}")
+            traceback.print_exc(limit=-3)
+            failed.append((gate.__name__, f"{type(exc).__name__}: {str(exc).splitlines()[0][:200] if str(exc) else ''}"))
+        finally:
+            timings.append((time.time() - started, gate.__name__))
+    print("=" * 65)
+    ran = len(selected) - len(skipped)
+    print(f"  {ran - len(failed)} passed, {len(failed)} failed, {len(skipped)} skipped, of {len(selected)} gates")
+    slowest = sorted(timings, reverse=True)[:5]
+    print("  Slowest: " + ", ".join(f"{name} {secs:.1f}s" for secs, name in slowest))
     if failed:
-        print("CI_COLLECT failures:", failed)
+        print("  FAILED GATES:")
+        for name, reason in failed:
+            print(f"    - {name}: {reason}")
+        print("=" * 65)
+        if SUITE_PROC is not None:
+            SUITE_PROC.terminate()
         sys.exit(1)
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
-    print(f"  ALL {len(GATES)} VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print(f"  ALL {len(selected) - len(skipped)} VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()
