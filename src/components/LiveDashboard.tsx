@@ -699,10 +699,10 @@ const filteredLogs = useMemo(() => {
                         const left = formatTimeLeft(risk.msLeft);
                         const watch = formatTimeLeft(risk.watchMinutes * 60000);
                         const why = risk.alone
-                          ? `Кампания закроется через ${left}, а смотреть ещё ${watch}: все дропы не успеть.`
-                          : `Кампания закроется через ${left}. Игры выше в очереди займут ${formatTimeLeft(risk.aheadMinutes * 60000)}, своих ${watch}. Поднимите её выше, чтобы успеть.`;
+                          ? `Кампания закроется через ${left}, а смотреть ещё ${watch}: все дропы не успеть. Это оценка.`
+                          : `Кампания закроется через ${left}. Игры выше в очереди займут ${formatTimeLeft(risk.aheadMinutes * 60000)}, своих ${watch}. Поднимите её выше, чтобы успеть. Это оценка.`;
                         return (
-                          <div className="queue-deadline-risk" role="note" title={`${why} Это оценка.`} style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div className="queue-deadline-risk" role="note" title={why} style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {risk.alone ? `не успеть: закроется через ${left}` : `не успеет в очереди · закроется через ${left}`}
                           </div>
                         );

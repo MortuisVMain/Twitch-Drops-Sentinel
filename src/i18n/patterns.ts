@@ -49,6 +49,10 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^(\d+)д (\d+)ч$/, '$1d $2h'],
   [/^(\d+)м$/, '$1m'],
   [/^сгорает через (.+)$/, 'expires in $1'],
+  [/^Кампания закроется через (.+), а смотреть ещё (.+): все дропы не успеть\. Это оценка\.$/, 'The campaign ends in $1 and $2 of watching is left: not every drop can be made. An estimate.'],
+  [/^Кампания закроется через (.+)\. Игры выше в очереди займут (.+), своих (.+)\. Поднимите её выше, чтобы успеть\. Это оценка\.$/, 'The campaign ends in $1. Games above it in the queue take $2, its own watching $3. Move it up to make it. An estimate.'],
+  [/^не успеть: закроется через (.+)$/, "won't make it: ends in $1"],
+  [/^не успеет в очереди · закроется через (.+)$/, "won't make it in the queue · ends in $1"],
   // SettingsStudio
   [/^Найдено игр: (\d+)$/, 'Games found: $1'],
   [/^Не удалось получить диагностический отчет \(HTTP (\d+)\)\.$/, 'Could not get the diagnostic report (HTTP $1).'],
