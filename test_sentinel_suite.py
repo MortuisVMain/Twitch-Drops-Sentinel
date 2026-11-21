@@ -381,6 +381,13 @@ def test_palette_integrity():
                 violations.append(f"{tsx_file.name} contains banned color {color}")
     assert len(violations) == 0, f"Found neon color violations: {violations}"
     print("      Zero-Neon Check (0 banned accents in components): ALL PASS [OK]")
+    # Popups follow the active theme: no hard-coded Tailwind hex colours (they pinned Help and Ctrl+K to the Apple Luna dark palette).
+    # GameSearchAutocomplete is not mounted anywhere. Browser-level check: tools/check_dialog_themes.cjs.
+    hex_class = re.compile(r"[a-z]-\[#[0-9a-fA-F]{3,8}\]")
+    themed = [WORKSPACE / "src" / "App.tsx"] + [f for f in components_dir.glob("*.tsx") if f.name != "GameSearchAutocomplete.tsx"]
+    pinned = [f"{f.name}: {m}" for f in themed for m in hex_class.findall(f.read_text(encoding="utf-8"))]
+    assert not pinned, f"Hard-coded hex colour classes ignore the theme: {pinned}"
+    print("      Theme-following popups (0 hard-coded hex colour classes): ALL PASS [OK]")
 
 def test_safe_inventory_parsing():
     print("[10/10] Testing Safe GraphQL Dict Parsing & Resiliency...")
