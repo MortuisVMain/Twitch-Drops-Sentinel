@@ -32,6 +32,11 @@ logger = logging.getLogger("TwitchDrops.Updater")
 CORE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = CORE_DIR.parent
 CACHE_FILE = PROJECT_DIR / "data" / "update_check_cache.json"
+# The files an update replaced, kept until the next update, so "Roll back" can put the previous version back
+ROLLBACK_DIR = PROJECT_DIR / "data" / "rollback"
+ROLLBACK_MANIFEST = ROLLBACK_DIR / "manifest.json"
+# A version rolled back from is not offered again; a newer one is
+SKIP_FILE = PROJECT_DIR / "data" / "update_skip.json"
 
 from version import __version__ as CURRENT_VERSION
 REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest"
@@ -242,6 +247,103 @@ def check_and_apply_pending_exe_update() -> bool:
         logger.warning(f"Could not swap TwitchDropsSentinel.update to .exe: {e}")
         return False
 
+class RollbackRecorder:
+    """Saves each file an update is about to replace (once) and notes the files it adds. The manifest is written
+    only when the update finished, so a half-applied update never offers a rollback that would mix versions."""
+
+    def __init__(self, root: Path, rollback_dir: Path) -> None:
+        self.root, self.dir = root, rollback_dir
+        self.saved: list[str] = []
+        self.added: list[str] = []
+        shutil.rmtree(rollback_dir, ignore_errors=True)
+        (rollback_dir / "files").mkdir(parents=True, exist_ok=True)
+
+    def before_write(self, target: Path) -> None:
+        rel = target.resolve().relative_to(self.root.resolve()).as_posix()
+        if target.name == "TwitchDropsSentinel.update":  # swapped in for the exe right after extraction
+            self.before_write(target.with_name("TwitchDropsSentinel.exe"))
+        if rel in self.saved or rel in self.added:
+            return
+        if target.is_file():
+            dest = self.dir / "files" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, dest)
+            self.saved.append(rel)
+        else:
+            self.added.append(rel)
+
+    def finish(self, from_version: str, to_version: str) -> None:
+        manifest = {"from_version": from_version, "to_version": to_version, "created": time.time(),
+                    "saved": self.saved, "added": self.added}
+        (self.dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+def rollback_info(manifest_path: Optional[Path] = None) -> Optional[dict]:
+    """{"from_version", "to_version", "created"} of the update that can be rolled back, or None."""
+    manifest_path = manifest_path or ROLLBACK_MANIFEST
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return {"from_version": str(data["from_version"]), "to_version": str(data["to_version"]), "created": float(data["created"])}
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Rollback manifest %s is unreadable: %s", manifest_path, exc)
+        return None
+
+
+def _put_back(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.suffix.lower() == ".exe" and target.exists():  # a running exe can be renamed, not overwritten
+        old = target.with_suffix(".exe.old")
+        old.unlink(missing_ok=True)
+        target.rename(old)
+    temp = target.with_name(target.name + ".rollback.tmp")
+    shutil.copy2(source, temp)
+    os.replace(temp, target)
+
+
+def apply_rollback(root: Optional[Path] = None, rollback_dir: Optional[Path] = None, skip_file: Optional[Path] = None) -> tuple[bool, str]:
+    """Puts the files of the previous version back and removes the ones the update added. The version rolled back
+    from is remembered so it is not offered again. The app must restart."""
+    root, rollback_dir, skip_file = root or PROJECT_DIR, rollback_dir or ROLLBACK_DIR, skip_file or SKIP_FILE
+    manifest_path = rollback_dir / "manifest.json"
+    info = rollback_info(manifest_path)
+    if info is None:
+        return False, "Откатывать нечего: последнее обновление не сохранило прошлую версию."
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    root_resolved = root.resolve()
+    try:
+        for rel in data.get("saved", []):
+            target = (root / rel).resolve()
+            if root_resolved not in target.parents:
+                raise ValueError(f"path outside the app: {rel}")
+            _put_back(rollback_dir / "files" / rel, target)
+        for rel in data.get("added", []):
+            target = (root / rel).resolve()
+            if root_resolved not in target.parents or _is_protected(rel):
+                continue
+            target.unlink(missing_ok=True)
+    except Exception as exc:
+        logger.error("Rollback to v%s failed; the rollback copy is kept for another try: %s", info["from_version"], exc, exc_info=True)
+        return False, f"Откат не удался: {exc}"
+    skip_file.parent.mkdir(parents=True, exist_ok=True)
+    skip_file.write_text(json.dumps({"skip": info["to_version"]}), encoding="utf-8")
+    shutil.rmtree(rollback_dir, ignore_errors=True)
+    logger.info("Rolled back from v%s to v%s", info["to_version"], info["from_version"])
+    return True, f"Возвращена версия {info['from_version']}. Перезапустите Sentinel."
+
+
+def skipped_version(skip_file: Optional[Path] = None) -> str:
+    skip_file = skip_file or SKIP_FILE
+    try:
+        return str(json.loads(skip_file.read_text(encoding="utf-8")).get("skip", ""))
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError, AttributeError) as exc:
+        logger.warning("Update skip file %s is unreadable: %s", skip_file, exc)
+        return ""
+
+
 class SafeAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
     """
     Prevents leaking or conflicting Authorization headers when redirected
@@ -348,6 +450,13 @@ class GitHubUpdater:
             self._retry_not_before = 0.0
         logger.info("Update channel: %s", channel)
 
+    def forget_cached_check(self) -> None:
+        """After a rollback the cached answer names the wrong local version."""
+        with self._lock:
+            self._cached_result = None
+            self.last_check_time = 0.0
+        CACHE_FILE.unlink(missing_ok=True)
+
     def check_for_updates(self, force: bool = False) -> dict[str, Any]:
         """Callers arriving while a request is in flight wait for its answer instead of sending their own."""
         now = time.time()
@@ -427,7 +536,8 @@ class GitHubUpdater:
                 remote_ver = version_key(remote_tag)
                 local_ver = version_key(live_current)
 
-                update_avail = remote_ver > local_ver
+                skipped = skipped_version()
+                update_avail = remote_ver > local_ver and not (skipped and version_key(skipped) == remote_ver)
                 assets = data.get("assets", [])
 
                 patch_url = None
@@ -659,6 +769,9 @@ class GitHubUpdater:
                 if bad_file:
                     return False, f"Архив поврежден: ошибка в файле {bad_file}"
 
+                recorder = RollbackRecorder(PROJECT_DIR, ROLLBACK_DIR)
+                from_version = get_live_local_version()
+
                 # 1. Backup protected user data first
                 backup_dir.mkdir(parents=True, exist_ok=True)
                 for item_name in ("config.json", "Trophies.md", "core/cookies.jar"):
@@ -676,6 +789,7 @@ class GitHubUpdater:
                             logger.info(f"Preserving protected path, not extracting: {member}")
                         continue
                     target_file.parent.mkdir(parents=True, exist_ok=True)
+                    recorder.before_write(target_file)
 
                     # If target file is an existing .exe, rotate it first to avoid PermissionError on Windows!
                     if target_file.exists() and target_file.suffix.lower() == ".exe":
@@ -696,6 +810,7 @@ class GitHubUpdater:
 
             # Immediately attempt to swap pending TwitchDropsSentinel.update to TwitchDropsSentinel.exe
             check_and_apply_pending_exe_update()
+            recorder.finish(from_version, get_live_local_version())
 
             # Invalidate update cache so subsequent checks immediately see new version
             with self._lock:

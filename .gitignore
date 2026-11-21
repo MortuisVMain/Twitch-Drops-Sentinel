@@ -43,6 +43,7 @@ steam_idle_*.json.corrupt
 core/settings.json
 Trophies.md
 data/*.json
+data/rollback/
 data/browser/
 !data/.gitkeep
 

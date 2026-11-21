@@ -279,6 +279,32 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     }
   };
 
+  // Rollback: the files the last update replaced are kept; putting them back needs a restart
+  const [rollback, setRollback] = useState<{ from_version: string; to_version: string } | null>(null);
+  const [rollbackAsk, setRollbackAsk] = useState(false);
+  const [rollbackMsg, setRollbackMsg] = useState<{ text: string; error: boolean } | null>(null);
+  useEffect(() => {
+    fetch('http://127.0.0.1:28492/api/updates/rollback')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => setRollback(d.rollback || null))
+      .catch((err) => console.error('SettingsStudio: rollback info failed', err));
+  }, []);
+  const runRollback = async () => {
+    playClick();
+    setRollbackAsk(false);
+    setRollbackMsg({ text: 'Возвращаем прошлую версию…', error: false });
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/updates/rollback', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
+      setRollbackMsg({ text: `Готово: ${data.message} Перезапуск…`, error: false });
+      setRollback(null);
+      setTimeout(() => { void restartAfterRestore(); }, 1500);
+    } catch (err) {
+      setRollbackMsg({ text: `Откат не удался: ${err instanceof Error ? err.message : String(err)}`, error: true });
+    }
+  };
+
   const handleRescanClick = async () => {
     playClick();
     setScanLabel('Сканирование библиотек...');
@@ -999,6 +1025,18 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             >
               {settings.update_channel === 'beta' ? 'Бета-версии: вкл' : 'Бета-версии: выкл'}
             </button>
+            {rollback && (rollbackAsk ? (
+              <>
+                <span className="danger-zone-question">{`Вернуть v${rollback.from_version}? v${rollback.to_version} больше не будет предлагаться, приложение перезапустится.`}</span>
+                <button className="safety-guard-btn armed" onClick={runRollback}>Да, вернуть</button>
+                <button className="tactile-btn" autoFocus onClick={() => { playClick(); setRollbackAsk(false); }}>Отмена</button>
+              </>
+            ) : (
+              <button className="tactile-btn" onClick={() => { playClick(); setRollbackAsk(true); }} title={`Если v${rollback.to_version} работает хуже, вернуть v${rollback.from_version}. Настройки и вход не меняются.`}>
+                <History className="ui-icon" aria-hidden="true" focusable="false" /> {`Вернуть v${rollback.from_version}`}
+              </button>
+            ))}
+            {rollbackMsg && <span role="status" className="danger-zone-hint" style={{ color: rollbackMsg.error ? 'var(--led-rose)' : 'var(--text-secondary)' }}>{rollbackMsg.text}</span>}
             <button className="chunky-cta" onClick={handleCheckUpdates} disabled={isCheckingUpdates || !onCheckUpdates}>
               {isCheckingUpdates ? 'Проверка...' : 'Проверить обновления'}
             </button>

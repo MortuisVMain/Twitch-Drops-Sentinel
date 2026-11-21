@@ -677,6 +677,8 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/updates/check", self.handle_check_updates)
         self.app.router.add_post("/api/updates/apply", self.handle_apply_update)
         self.app.router.add_get("/api/updates/status", self.handle_get_update_status)
+        self.app.router.add_get("/api/updates/rollback", self.handle_get_rollback)
+        self.app.router.add_post("/api/updates/rollback", self.handle_apply_rollback)
         self.app.router.add_get("/ws", self.handle_ws)
         self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
@@ -1497,6 +1499,20 @@ class SentinelSupervisor:
         except Exception as e:
             logger.error("Webhook test failed: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
+    async def handle_get_rollback(self, request: web.Request) -> web.Response:
+        """The update that can be rolled back ({from_version, to_version, created}) or null."""
+        from updater import rollback_info
+        return web.json_response({"status": "ok", "rollback": await asyncio.to_thread(rollback_info)})
+
+    async def handle_apply_rollback(self, request: web.Request) -> web.Response:
+        from updater import apply_rollback
+        if UPDATER.get_status().get("is_updating"):
+            return web.json_response({"status": "error", "message": "Сейчас устанавливается обновление"}, status=409)
+        ok, message = await asyncio.to_thread(apply_rollback)
+        if ok:
+            UPDATER.forget_cached_check()
+            STATE_BRIDGE.add_log("INFO", message)
+        return web.json_response({"status": "ok" if ok else "error", "message": message, "restart_required": ok}, status=200 if ok else 400)
 
     async def handle_reset_settings(self, request: web.Request) -> web.Response:
         try:
