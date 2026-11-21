@@ -123,6 +123,23 @@ def sessions_file_name(browser: str) -> str:
     return SESSIONS_FILE_BY_BROWSER.get(browser, SESSIONS_FILE)
 
 
+def notify_new_claims(inventory: List[dict]) -> None:
+    """One notification per newly claimed giveaway (Windows toast and Telegram/Discord). The first read only
+    remembers what is already claimed, so nothing old is announced."""
+    try:
+        from notifications import NOTIFIER
+        NOTIFIER.notify_new(
+            "giveaway_claimed",
+            [(item["id"], f"{item['title']} ({STORE_DISPLAY_NAMES.get(item['store'], item['store'])})")
+             for item in inventory if item["status"] == "claimed"],
+            "Twitch Drops Sentinel",
+            lambda game: f"Забрана бесплатная игра: {game}",
+            lambda games: f"Забрано бесплатных игр: {len(games)} ({', '.join(games[:3])}…)",
+        )
+    except Exception as exc:
+        logger.warning("Giveaway claim notifications failed: %s", exc, exc_info=True)
+
+
 def owned_status(entry: dict) -> Optional[str]:
     """'claimed' or 'existed' for a game the account owns; None for anything else.
 
@@ -688,6 +705,7 @@ class GiveawaysOrchestrator:
             }
 
         inventory.sort(key=lambda x: x["timestampMs"], reverse=True)
+        notify_new_claims(inventory)
         self._file_mtimes = current_mtimes
         self._cached_browser = browser
         self._cached_stores = stores_meta

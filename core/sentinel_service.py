@@ -203,7 +203,8 @@ from updater import UPDATE_CHANNELS, UPDATER
 import farm_schedule
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
-from notifications import set_enabled as set_native_toasts
+from notifications import NOTIFIER, set_enabled as set_native_toasts
+from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
 
 # One file grows without limit (70 MB seen: Notepad cannot open it). The current file plus 5 backups
@@ -445,6 +446,7 @@ class SentinelSupervisor:
         STATE_BRIDGE.reward_auto_queue_hook = lambda: apply_reward_auto_queue(self)
         set_native_toasts(self.settings.get("native_toasts", True))
         UPDATER.set_channel(self.settings.get("update_channel", "stable"))
+        NOTIFIER.add_listener(WEBHOOKS.deliver)
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
         self.force_paused = False
@@ -657,6 +659,9 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/auth/logout", self.handle_logout)
         self.app.router.add_post("/api/logout", self.handle_logout)
         self.app.router.add_post("/api/backup", self.handle_backup_profile)
+        self.app.router.add_get("/api/webhooks", self.handle_get_webhooks)
+        self.app.router.add_post("/api/webhooks", self.handle_post_webhooks)
+        self.app.router.add_post("/api/webhooks/test", self.handle_test_webhook)
         self.app.router.add_get("/api/backups", self.handle_list_backups)
         self.app.router.add_post("/api/backup/restore", self.handle_restore_backup)
         self.app.router.add_post("/api/game-directories/clear-cache", self.handle_clear_installed_games)
@@ -1463,6 +1468,33 @@ class SentinelSupervisor:
             return web.json_response({"status": "ok", "files": staged, "safety": safety_name, "restart_required": True})
         except Exception as e:
             logger.error("Profile restore failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_get_webhooks(self, request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok", "webhooks": WEBHOOKS.public()})
+
+    async def handle_post_webhooks(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            public = await asyncio.to_thread(WEBHOOKS.update, data)
+            logger.info("Webhook settings saved: telegram=%s discord=%s", public["telegram"]["enabled"], public["discord"]["enabled"])
+            return web.json_response({"status": "ok", "webhooks": public})
+        except WebhookError as e:
+            return web.json_response({"status": "error", "message": str(e)}, status=400)
+        except Exception as e:
+            logger.error("Saving webhook settings failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_test_webhook(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            await asyncio.to_thread(WEBHOOKS.send_test, str(data.get("channel", "")) if isinstance(data, dict) else "")
+            return web.json_response({"status": "ok"})
+        except WebhookError as e:
+            logger.warning("Webhook test failed: %s", e)
+            return web.json_response({"status": "error", "message": str(e)}, status=400)
+        except Exception as e:
+            logger.error("Webhook test failed: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_reset_settings(self, request: web.Request) -> web.Response:

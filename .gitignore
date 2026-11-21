@@ -37,6 +37,7 @@ scratch/
 
 # User state and local config
 config.json
+data/webhooks.json
 steam_idle_*.json
 steam_idle_*.json.corrupt
 core/settings.json
