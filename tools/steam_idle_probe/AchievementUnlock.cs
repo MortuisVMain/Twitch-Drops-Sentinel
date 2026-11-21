@@ -62,8 +62,11 @@ internal sealed class AchievementWriter
         var locked = _items.Where(item => !item.Achieved).Select(item => item.ApiName).ToHashSet(StringComparer.Ordinal);
         if (!names.Any(locked.Contains))
             return null;
-        if (stop.WaitHandle.WaitOne(StabilityGap))
-            return "worker_cancelled";
+        // A timed wait can end up to one timer tick early on Windows: wait out what is left until the full gap has passed
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        for (var left = StabilityGap; left > TimeSpan.Zero; left = StabilityGap - waited.Elapsed)
+            if (stop.WaitHandle.WaitOne(left))
+                return "worker_cancelled";
         foreach (var item in _items)
             if (!stats.GetAchievementState(item.ApiName, out bool now, out _) || now != item.Achieved)
                 return "stats_unavailable";
