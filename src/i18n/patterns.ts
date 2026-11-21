@@ -12,6 +12,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Активирована тема: (.+)$/, 'Theme activated: $1'],
   [/^Не сохранено: (.+)$/, 'Not saved: $1'],
   [/^Не отправлено: (.+)$/, 'Not sent: $1'],
+  [/^Неделя с (.+): дропов (\d+), игр (\d+)$/, 'Week of $1: $2 drops, $3 games'],
   [/^Бэкап проверен\. Текущий профиль сохранён в (.+)\. Перезапуск…$/, 'Backup checked. The current profile was saved as $1. Restarting…'],
   [/^Не удалось восстановить: (.+)$/, 'Could not restore: $1'],
   [/^Сейчас вне окна фарма\. Фарм продолжится (.+)\.$/, 'Outside the farming window now. Farming resumes $1.'],
