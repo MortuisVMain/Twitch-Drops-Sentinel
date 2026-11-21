@@ -12,12 +12,10 @@ Core Microservice & Asynchronous Engine:
 from __future__ import annotations
 
 import asyncio
-import ctypes
 import json
 import logging
 import logging.handlers
 import os
-import platform
 import re
 import shutil
 import subprocess
@@ -46,131 +44,6 @@ PROJECT_DIR = CORE_DIR.parent
 if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
-def set_sleep_guard(enable: bool):
-    """
-    Prevents Windows from entering sleep mode while farming is active.
-    ES_CONTINUOUS: 0x80000000
-    ES_SYSTEM_REQUIRED: 0x00000001
-    Note: Does NOT set ES_DISPLAY_REQUIRED so user's monitor can turn off cleanly.
-    """
-    if sys.platform == "win32":
-        try:
-            ES_CONTINUOUS = 0x80000000
-            ES_SYSTEM_REQUIRED = 0x00000001
-            flags = (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) if enable else ES_CONTINUOUS
-            ctypes.windll.kernel32.SetThreadExecutionState(flags)
-        except Exception as e:
-            logger.debug("SetThreadExecutionState failed: %s", e)
-
-def get_autostart_status() -> tuple[bool, str]:
-    if sys.platform != "win32":
-        return False, ""
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ) as key:
-            val, _ = winreg.QueryValueEx(key, "TwitchDropsSentinel")
-            return True, str(val)
-    except FileNotFoundError:
-        return False, ""
-    except Exception:
-        return False, ""
-
-def set_autostart_status(enabled: bool) -> bool:
-    if sys.platform != "win32":
-        return False
-    try:
-        import winreg
-        exe_path = PROJECT_DIR / "TwitchDropsSentinel.exe"
-        if not exe_path.exists():
-            candidate = PROJECT_DIR / "desktop" / "publish" / "TwitchDropsSentinel.exe"
-            if candidate.exists():
-                exe_path = candidate
-        cmd = f'"{exe_path.resolve()}" --minimized'
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS) as key:
-            if enabled:
-                winreg.SetValueEx(key, "TwitchDropsSentinel", 0, winreg.REG_SZ, cmd)
-            else:
-                try:
-                    winreg.DeleteValue(key, "TwitchDropsSentinel")
-                except FileNotFoundError as e:
-                    logger.debug("Autostart registry key not present on delete: %s", e)
-        return True
-    except Exception:
-        return False
-
-_PROGRESS_COUNTER_RE = re.compile(r'^(.*?)\s*\((\d+)\s*/\s*(\d+)\)\s*$')
-
-
-def report_log_tail(logs: list, limit: int = 120) -> list:
-    """Journal entries for the report: level prefix shown once, counter runs folded, then the last `limit`."""
-    entries = []
-    for item in logs:
-        level = str(item.get('level') or 'INFO')
-        text = str(item.get('message', ''))
-        stripped = re.sub(r'^\s*(\[' + re.escape(level) + r'\]\s*)+', '', text, flags=re.IGNORECASE)
-        entries.append({'time': item.get('time', ''), 'level': level, 'message': stripped or text})
-    folded = []
-    for entry in entries:
-        match = _PROGRESS_COUNTER_RE.match(entry['message'])
-        if folded and match:
-            prev = _PROGRESS_COUNTER_RE.match(folded[-1]['message'])
-            if prev and prev.group(1) == match.group(1) and folded[-1]['level'] == entry['level']:
-                folded[-1] = entry
-                continue
-        folded.append(entry)
-    return folded[-limit:]
-
-
-def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -> str:
-    os_info = f"{platform.system()} {platform.release()} (Build {platform.version()})"
-    py_info = f"Python {platform.python_version()} ({platform.architecture()[0]})"
-    try:
-        ram = psutil.virtual_memory()
-        ram_info = f"Total: {round(ram.total / (1024**3), 1)} GB, Available: {round(ram.available / (1024**3), 1)} GB"
-    except Exception:
-        ram_info = "N/A"
-
-    active_drop = STATE_BRIDGE.active_drop or {}
-    streamer = STATE_BRIDGE.watching_channel or "None"
-    user_id_raw = STATE_BRIDGE.user_id or "Not logged in"
-    masked_user = f"{user_id_raw[:3]}***" if len(user_id_raw) > 3 else user_id_raw
-
-    log_lines = []
-    for log_item in report_log_tail(STATE_BRIDGE.recent_logs):
-        msg = f"[{log_item.get('time', '')}] [{log_item.get('level', 'INFO')}] {log_item.get('message', '')}"
-        sanitized_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
-        sanitized_msg = re.sub(r'(auth_token|client_secret|token|password)=["\']?[a-zA-Z0-9_\-]+["\']?', r'\1=[REDACTED]', sanitized_msg, flags=re.IGNORECASE)
-        sanitized_msg = re.sub(r'cookies\.jar', 'cookies.jar [PRESENT]', sanitized_msg)
-        log_lines.append(sanitized_msg)
-
-    report_lines = [
-        "==================================================",
-        f"TWITCH DROPS SENTINEL v{APP_VERSION} — DIAGNOSTIC REPORT",
-        "==================================================",
-        f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"OS: {os_info}",
-        f"Runtime: {py_info}",
-        f"RAM: {ram_info}",
-        f"CPU Load: {hardware_state.get('cpu_percent', 0)}%",
-        f"Battery Status: {'On Battery' if hardware_state.get('on_battery') else 'AC Connected'}",
-        f"Gaming Guard: {'Active (Playing: ' + str(hardware_state.get('detected_game')) + ')' if hardware_state.get('is_gaming') else 'Idle'}",
-        "",
-        "--- TWITCH & FARMING STATUS ---",
-        f"Session User: {masked_user}",
-        f"Streamer Watching: {streamer}",
-        f"Active Drop Game: {active_drop.get('game', 'None')}",
-        f"Active Drop Name: {active_drop.get('name', 'None')}",
-        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress_percent', 0)}%)" if active_drop else "Progress: no active drop",
-        f"Priority Games: {', '.join(settings.get('priority_games', [])) or 'None'}",
-        f"Installed Games Detected: {len([g for g in CAMPAIGNS_FETCHER.get_catalog() if g.get('is_installed')])}",
-        f"Game Directories: {len(settings.get('game_directories', []))} configured",
-        "",
-        "--- RECENT LOGS (SANITIZED) ---",
-        "\n".join(log_lines) if log_lines else "[No logs recorded yet]",
-        "==================================================",
-        "END OF DIAGNOSTIC REPORT"
-    ]
-    return "\n".join(report_lines)
 
 import truststore
 truststore.inject_into_ssl()
@@ -208,35 +81,8 @@ from notifications import NOTIFIER, set_enabled as set_native_toasts
 from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
 
-# One file grows without limit (70 MB seen: Notepad cannot open it). The current file plus 5 backups
-# (sentinel_service.log.1 ... .5), 10 MB each, 60 MB at most, is plenty for support. Only this process writes them.
-LOG_FILE_MAX_BYTES = 10 * 1024 * 1024
-LOG_FILE_BACKUPS = 5
-
-
-def make_file_log_handler(path, max_bytes: int = LOG_FILE_MAX_BYTES, backups: int = LOG_FILE_BACKUPS) -> logging.Handler:
-    return logging.handlers.RotatingFileHandler(path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8")
-
-
-class LiveLogCaptureHandler(logging.Handler):
-    def emit(self, record):
-        try:
-            msg = record.getMessage()
-            if msg and not msg.startswith("GET /api/state"):
-                lvl = record.levelname
-                if "[WATCH]" in msg or "[WATCHING]" in msg or "Watching:" in msg or "Просмотр канала:" in msg or "Подключен к трансляции" in msg:
-                    lvl = "WATCH"
-                elif "[CLAIM]" in msg or "Claimed drop" in msg or "Drop получено" in msg or "Забран трофей" in msg:
-                    lvl = "CLAIM"
-                elif "[PROGRESS]" in msg or "Прогресс" in msg:
-                    lvl = "PROGRESS"
-                elif "[LOGIN]" in msg or "OAuth" in msg or "код" in msg.lower():
-                    lvl = "AUTH"
-                elif "[STATUS]" in msg:
-                    lvl = "STATUS"
-                STATE_BRIDGE.add_log(lvl, msg)
-        except Exception:
-            pass
+from service_system import (LOG_FILE_BACKUPS, LOG_FILE_MAX_BYTES, LiveLogCaptureHandler, generate_sanitized_diagnostic_report,
+                            get_autostart_status, make_file_log_handler, report_log_tail, set_autostart_status, set_sleep_guard)
 
 log_capture = LiveLogCaptureHandler()
 
@@ -279,81 +125,7 @@ def apply_restore_at_start() -> None:
     except Exception as e:
         logger.error("Applying the staged profile restore failed; the current profile stays: %s", e, exc_info=True)
 
-DEFAULT_GAMES_PROCESSES = [
-    "poe2.exe", "pathofexile.exe", "pathofexile_x64.exe", "hunt.exe",
-    "cs2.exe", "csgo.exe", "rustclient.exe", "rust.exe", "deadlock.exe",
-    "valorant.exe", "valorant-win64-shipping.exe", "dota2.exe", "r5apex.exe",
-    "overwatch.exe", "rainbowsix.exe", "fortniteclient-win64-shipping.exe",
-    "warframe.x64.exe", "pubg.exe", "tslgame.exe", "witcher3.exe",
-    "cyberpunk2077.exe", "godofwarragnarok.exe", "horizonforbiddenwest.exe",
-    "spiderman2.exe", "tlou-i.exe", "tlou-ii.exe", "frostpunk2.exe",
-    "inzoi.exe", "hades2.exe", "stellaris.exe", "terraria.exe",
-    "hearthstone.exe", "starcraft.exe", "rdr2.exe", "acvalhalla.exe",
-    "deathstranding.exe", "dredge.exe", "mechanicus2.exe", "nfsunbound.exe"
-]
-
-SYSTEM_NON_GAME_EXES = {
-    "happ.exe", "spotify.exe", "telegram.exe", "firefox.exe", "chrome.exe",
-    "opera.exe", "msedge.exe", "brave.exe", "discord.exe", "utorrent.exe",
-    "torrent.exe", "qbittorrent.exe", "winscp.exe", "hwinfo64.exe", "hwinfo32.exe",
-    "gpu-z.exe", "cpu-z.exe", "update.exe", "updater.exe", "launcher.exe",
-    "ollama.exe", "ffmpeg.exe", "regorganizer.exe", "systeminformer.exe",
-    "jetbrains_client64.exe", "vcpkg.exe", "qtwebengineprocess.exe",
-    "samsungmagician.exe", "purevpn.exe", "mpc-hc64.exe", "mpc-be64.exe",
-    "vlc.exe", "explorer.exe", "taskmgr.exe", "cmd.exe", "powershell.exe",
-    "conhost.exe", "ctfmon.exe", "searchhost.exe", "startmenuexperiencehost.exe",
-    "textinputhost.exe", "shellexperiencehost.exe", "applicationframehost.exe",
-    "runtimebroker.exe", "smartscreen.exe", "securityhealthservice.exe",
-    "onedrive.exe", "googledrivesync.exe", "dropbox.exe", "notion.exe",
-    "slack.exe", "zoom.exe", "teams.exe", "obs64.exe", "obs.exe",
-    "everything.exe", "sharex.exe", "lightshot.exe", "powertoys.exe",
-    "mscopilot.exe", "copilot.exe", "cortana.exe", "widgetservice.exe",
-    "widgets.exe", "photoshop.exe", "finereader.exe", "aimp.exe", "anvir.exe",
-    "blender.exe", "c4dpy.exe", "cheatengine-x86_64.exe", "unrealeditor.exe",
-    "antigravity ide.exe", "deepseek harness.exe", "gemini.exe", "dsx.exe",
-    "asus_framework.exe", "game cheats manager.exe", "game save manager.exe",
-}
-
-SLUG_TO_GAME_NAME = {
-    "poe2": "Path of Exile 2",
-    "poe": "Path of Exile",
-    "path of exile 2": "Path of Exile 2",
-    "rust": "Rust",
-    "hunt": "Hunt: Showdown 1896",
-    "hunt showdown": "Hunt: Showdown 1896",
-    "hunt: showdown": "Hunt: Showdown 1896",
-    "hunt1896": "Hunt: Showdown 1896",
-    "nomansky": "No Man's Sky",
-    "no mans sky": "No Man's Sky",
-    "witcher": "The Witcher 3: Wild Hunt",
-    "witcher 3": "The Witcher 3: Wild Hunt",
-    "witcher3": "The Witcher 3: Wild Hunt",
-    "the witcher 3": "The Witcher 3: Wild Hunt",
-    "cyberpunk": "Cyberpunk 2077",
-    "cyberpunk2077": "Cyberpunk 2077",
-    "hearthstone": "Hearthstone",
-    "starcraft2": "StarCraft II",
-    "rdr2": "Red Dead Redemption 2",
-    "acvalhalla": "Assassin's Creed Valhalla",
-    "inzoi": "inZOI",
-    "hogwarts": "Hogwarts Legacy",
-    "wardogs": "WARDOGS",
-    "warframe": "Warframe",
-    "tarkov": "Escape from Tarkov",
-    "eft": "Escape from Tarkov",
-    "cs2": "Counter-Strike 2",
-    "csgo": "Counter-Strike 2",
-    "dota2": "Dota 2",
-    "dota": "Dota 2",
-    "valorant": "VALORANT",
-    "apex": "Apex Legends",
-    "overwatch": "Overwatch 2",
-    "rainbowsix": "Tom Clancy's Rainbow Six Siege",
-    "r6": "Tom Clancy's Rainbow Six Siege",
-    "deadlock": "Deadlock",
-    "aion": "AION",
-    "aion2": "AION 2",
-}
+from service_games import DEFAULT_GAMES_PROCESSES, SLUG_TO_GAME_NAME, SYSTEM_NON_GAME_EXES, normalize_game_name, normalize_priority_entry
 
 def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
     """Appends the new farmable reward campaigns to the end of priority_games (when the switch is on) and saves; returns the
@@ -368,24 +140,6 @@ def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
     return added
 
 
-def normalize_priority_entry(name: str) -> str:
-    """A queue entry: a game name is normalised, a `reward:<campaignId>` key is kept as it is (normalising would destroy it)."""
-    stripped = name.strip() if isinstance(name, str) else name
-    return reward_watch.clean_key(stripped) if reward_watch.is_reward_key(stripped) else normalize_game_name(name)
-
-
-def normalize_game_name(name: str) -> str:
-    cleaned = name.strip()
-    low = cleaned.lower()
-    if low in SLUG_TO_GAME_NAME:
-        return SLUG_TO_GAME_NAME[low]
-    
-    # Check if there is an active Twitch campaign matching this name
-    matched = CAMPAIGNS_FETCHER.find_active_campaign(cleaned)
-    if matched and matched.get("gameDisplayName"):
-        return matched["gameDisplayName"]
-
-    return cleaned
 
 SUPERVISOR_DEFAULTS = {
     "auto_shutdown_on_complete": False,

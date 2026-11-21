@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Code structure: the biggest files are split into modules (service helpers, game names, the Ctrl+K palette, the mini-window deck, the focus catalog dialog). Nothing changes for the user.
 - Telegram and Discord: Settings can send the app's notifications to a Telegram bot chat or a Discord webhook, with a Test button. Same events as the Windows notifications, whether or not those are on, plus a notification for each newly claimed free game. The bot token and webhook address are stored encrypted for your Windows account and are never shown again.
 - Lost sign-ins: when a sign-in the app relies on is gone (Twitch, a giveaways store, Steam Community for Steam IDLE), a notification says which one and what stopped, once, also if it ran out while the app was closed. The Twitch sign-in code notification now follows the Windows notifications switch.
 - History and stats (menu … or Ctrl+K): Twitch drops and claimed free games in one feed, totals for 7 days, 30 days and all time, a chart of the last 8 weeks, filters, and a CSV export for Excel.

@@ -19,9 +19,10 @@ import { AppearancePanel } from './components/AppearancePanel';
 
 import { HelpModal } from './components/HelpModal';
 import { HistoryModal } from './components/HistoryModal';
+import { CommandPalette } from './components/CommandPalette';
+import { PipMiniDeck } from './components/PipMiniDeck';
 import { useModalFocus } from './hooks/useModalFocus';
-import { clampPaletteIndex, defaultPaletteIndex, movePaletteIndex } from './utils/paletteIndex';
-import { resolveGameBoxArt, isBlankCover, isSteamArt, retryCover } from './utils/gameBoxArts';
+import { resolveGameBoxArt } from './utils/gameBoxArts';
 
 import { useTactileAudio } from './hooks/useTactileAudio';
 
@@ -32,9 +33,9 @@ import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
 
 import {
-  Ban, Check, ChevronRight, CircleHelp, Copy, History, CornerDownLeft, Ellipsis, Gamepad2, Gift, Hourglass,
-  LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Pin, Play,
-  RefreshCw, Settings, SkipForward, Square, Target,
+  Check, ChevronRight, CircleHelp, Copy, History, Ellipsis, Gamepad2, Gift, Hourglass,
+  LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Play,
+  RefreshCw, Settings, Square,
 } from 'lucide-react';
 
 import { 
@@ -59,7 +60,6 @@ import {
 
   Cpu,
 
-  Radio,
 
   Sliders,
 
@@ -188,14 +188,8 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 const UPDATE_POLL_MS = 30 * 60 * 1000;
 
 /** Hide the PiP cover and show its emoji fallback. */
-const hidePipCover = (img: HTMLImageElement) => {
-  img.style.display = 'none';
-  const fallback = img.parentElement?.querySelector('.pip-cover-fallback') as HTMLElement | null;
-  if (fallback) fallback.style.display = 'flex';
-};
 
 // Not a Tailwind class: the row's own hover background would otherwise hide it
-const CMD_SELECTED_STYLE: React.CSSProperties = { background: 'var(--bg-row-hover)', boxShadow: 'inset 0 0 0 1px var(--led-mint)' };
 
 export const App: React.FC = () => {
 
@@ -984,10 +978,6 @@ export const App: React.FC = () => {
 
   const progressPct = activeDrop?.progress_percent || 0;
 
-  const circumference = 201;
-
-  const strokeDashoffset = circumference - (progressPct / 100) * circumference;
-
   const activeGameBoxArt = useMemo(() => {
     if (!activeDrop?.game) return undefined;
     const match = sentinelState.all_catalog_games?.find(
@@ -1460,189 +1450,17 @@ export const App: React.FC = () => {
 
 
       {/* ==================== DEDICATED PIP MINI-DECK HUD ==================== */}
-
-      <div 
-
-        className="pip-dedicated-hud" 
-
-        onMouseDown={handleHeaderMouseDown}
-
-        title="Зажмите левую кнопку мыши для свободного перемещения мини-кокпита PIP"
-
-      >
-
-        <div className="pip-top-row">
-
-          <div className="pip-cover-slot" title={activeDrop?.game ? `Фармится: ${activeDrop.game}` : 'Ожидание дропа'}>
-            {activeGameBoxArt ? (
-              <img 
-                src={activeGameBoxArt} 
-                alt={activeDrop?.game || 'Game Cover'} 
-                className="pip-cover-img"
-                crossOrigin={isSteamArt(activeGameBoxArt) ? 'anonymous' : undefined}
-                onLoad={(e) => { if (isBlankCover(e.currentTarget) && !retryCover(e.currentTarget, activeDrop?.game || '')) hidePipCover(e.currentTarget); }}
-                onError={(e) => { if (!retryCover(e.currentTarget, activeDrop?.game || '')) hidePipCover(e.currentTarget); }}
-              />
-            ) : null}
-            <div className="pip-cover-fallback" style={{ display: activeGameBoxArt ? 'none' : 'flex' }}>
-              <span style={{ fontSize: 'var(--fs-xl)' }}><Gamepad2 className="ui-icon" aria-hidden="true" focusable="false" /></span>
-            </div>
-            <div className="pip-cover-tag">
-              <span className="pulse-dot"></span>
-              <span>LIVE</span>
-            </div>
-          </div>
-
-          <div className="pip-ring-wrap">
-
-            <svg width="100%" height="100%" viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
-
-              <circle cx="36" cy="36" r="32" fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth="4"></circle>
-
-              <circle 
-
-                cx="36" 
-
-                cy="36" 
-
-                r="32" 
-
-                fill="none" 
-
-                stroke="var(--led-mint)" 
-
-                strokeWidth="4"
-
-                strokeLinecap="round" 
-
-                strokeDasharray={circumference} 
-
-                strokeDashoffset={strokeDashoffset} 
-
-              />
-
-            </svg>
-
-            <div style={{ textAlign: 'center', zIndex: 2 }}>
-
-              <div className="tabular" style={{ fontSize: 'var(--fs-md)', fontWeight: 800, lineHeight: 1 }}>
-
-                {Math.round(progressPct)}%
-
-              </div>
-
-              <div className="tabular" style={{ fontSize: 'calc(var(--fs-xs) * 0.93)', lineHeight: 1, letterSpacing: '-0.06em', color: 'var(--led-mint)' }}>
-
-                {activeDrop ? `~${Math.round(activeDrop.remaining_seconds / 60)}М` : 'ГОТОВ'}
-
-              </div>
-
-            </div>
-
-          </div>
-
-
-
-          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
-            <div className="pip-info-row">
-              <span className="version-chip pip-chip" title={activeDrop?.game || 'STANDBY'}>
-                {activeDrop?.game || 'STANDBY'}
-              </span>
-              <span className="tabular pip-channel" title={sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}>
-                <Radio className="ui-icon" aria-hidden="true" focusable="false" /> {sentinelState.watching_channel ? `@${sentinelState.watching_channel}` : 'ожидание стримера'}
-              </span>
-            </div>
-            <div className="pip-reward" title={activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}>
-              {activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}
-            </div>
-          </div>
-        </div>
-
-        <div className="pip-action-bar">
-
-          <button 
-
-            className={`tactile-btn pip-action-btn ${isTopMost ? 'active-mint' : ''}`} 
-
-            onClick={handleToggleTopMost}
-
-            title={isTopMost ? "Открепить окно от верхнего слоя" : "Закрепить поверх всех окон"}
-
-          >
-
-            <span><Pin className="ui-icon" aria-hidden="true" focusable="false" /></span>
-
-            <span className="pip-label-full">{isTopMost ? 'ЗАКРЕПЛЕНО' : 'ПОВЕРХ ОКОН'}</span>
-
-            <span className="pip-label-short">{isTopMost ? 'ЗАКРЕП' : 'ПОВЕРХ'}</span>
-
-          </button>
-
-          <button 
-
-            className="tactile-btn pip-action-btn" 
-
-            onClick={() => handleSwitchStreamer(false)}
-
-            title="Сменить текущий стрим"
-
-          >
-
-            <span><RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /></span>
-
-            <span className="pip-label-full">Сменить стрим</span>
-
-            <span className="pip-label-short">Стрим</span>
-
-          </button>
-
-          <button 
-
-            className="tactile-btn pip-action-btn" 
-
-            onClick={() => handleSwitchStreamer(true)}
-
-            title="Перейти к следующей игре в очереди"
-
-          >
-
-            <span><SkipForward className="ui-icon" aria-hidden="true" focusable="false" /></span>
-
-            <span className="pip-label-full">След. игра</span>
-
-            <span className="pip-label-short">След.</span>
-
-          </button>
-
-          <button 
-
-            className="tactile-btn pip-action-btn danger-hover" 
-
-            onClick={() => {
-
-              if (sentinelState.watching_channel) {
-
-                handleBanStreamer(sentinelState.watching_channel, false);
-
-              }
-
-            }}
-
-            title="Исключить текущий канал из фарма навсегда"
-
-          >
-
-            <span><Ban className="ui-icon" aria-hidden="true" focusable="false" /></span>
-
-            <span className="pip-label-full">Исключить</span>
-
-            <span className="pip-label-short">Искл.</span>
-
-          </button>
-
-        </div>
-
-      </div>
+      <PipMiniDeck
+        activeDrop={activeDrop}
+        activeGameBoxArt={activeGameBoxArt}
+        progressPct={progressPct}
+        watchingChannel={sentinelState.watching_channel}
+        isTopMost={isTopMost}
+        onHeaderMouseDown={handleHeaderMouseDown}
+        onToggleTopMost={handleToggleTopMost}
+        onSwitchStreamer={handleSwitchStreamer}
+        onBanStreamer={handleBanStreamer}
+      />
 
 
 
@@ -1913,167 +1731,19 @@ export const App: React.FC = () => {
           handleTabChange('dashboard');
           showToast(`Фокус: ${game.name}`);
         };
-        // The order the sections are drawn in: the arrows walk this list
-        const results = [
-          ...navActions.map(item => ({ title: item.title, run: item.action })),
-          ...quickActions.map(item => ({ title: item.title, run: item.action })),
-          ...matchingGames.map(game => ({ title: game.name, run: () => focusGame(game) })),
-        ];
-        const totalResults = results.length;
-        const selectedIndex = cmdIndex === null ? defaultPaletteIndex(navActions.length) : clampPaletteIndex(cmdIndex, totalResults);
-        const runResult = (index: number) => {
-          const result = index >= 0 ? results[index] : undefined; // nothing selected: Enter does nothing
-          if (!result) return;
-          playClick();
-          result.run();
-          setShowCmdPalette(false);
-        };
-        const optionProps = (index: number) => ({
-          'data-cmd-selected': index === selectedIndex,
-          'aria-current': index === selectedIndex ? ('true' as const) : undefined,
-          style: index === selectedIndex ? CMD_SELECTED_STYLE : undefined,
-        });
-
         return (
-          <div 
-            className="fixed inset-0 z-50 bg-black/65 backdrop-blur-md flex items-center justify-center p-3 animate-in fade-in duration-150"
-            onClick={() => setShowCmdPalette(false)}
-          >
-            <div
-              ref={cmdDialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label="Быстрые команды"
-              tabIndex={-1}
-              className="w-full max-w-xl outline-none bg-(--bg-chassis-base) border border-(--border-subtle) rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col max-h-[80vh] my-auto animate-in zoom-in-95 duration-150"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-3 px-4 bg-(--bg-row) border-b border-(--border-subtle) flex items-center gap-2.5 shrink-0">
-                <Search className="w-4 h-4 text-(--led-mint) shrink-0" aria-hidden="true" focusable="false" />
-                <input 
-                  type="text" 
-                  placeholder="Поиск по играм, стримам и действиям... (Esc)" 
-                  className="w-full bg-transparent border-none text-xs md:text-sm text-(--text-primary) placeholder-[var(--text-muted)] font-medium"
-                  value={cmdSearch}
-                  onChange={(e) => setCmdSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.nativeEvent.isComposing) return;
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setCmdIndex(movePaletteIndex(selectedIndex, e.key === 'ArrowDown' ? 1 : -1, totalResults));
-                    } else if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (!e.repeat) runResult(selectedIndex);
-                    }
-                  }}
-                />
-                <kbd className="px-1.5 py-0.5 rounded bg-(--bg-well) border border-(--border-subtle) text-[length:var(--fs-xs)] tabular text-[var(--text-muted)] shrink-0 select-none">
-                  ESC
-                </kbd>
-              </div>
-
-              <span className="sr-only" role="status" data-overflow-ok>{results[selectedIndex]?.title ?? ''}</span>
-              <div className="p-2 overflow-y-auto space-y-2 scrollbar-thin flex-1 min-h-0">
-                {navActions.length > 0 && (
-                  <div>
-                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] px-2 py-0.5">
-                      Навигация
-                    </div>
-                    <div className="space-y-0.5">
-                      {navActions.map((item, i) => (
-                        <button 
-                          key={item.id}
-                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-(--bg-row-hover) text-left transition-colors cursor-pointer group"
-                          {...optionProps(i)}
-                          onClick={() => runResult(i)}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-5 text-center text-xs shrink-0"><item.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                            <span className="text-xs font-semibold text-(--text-primary) group-hover:text-(--led-mint) transition-colors truncate">
-                              {item.title}
-                            </span>
-                          </div>
-                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--bg-well) border border-(--border-subtle) text-(--led-mint) font-bold shrink-0">
-                            {item.key}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {quickActions.length > 0 && (
-                  <div>
-                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] px-2 py-0.5 pt-1">
-                      Действия
-                    </div>
-                    <div className="space-y-0.5">
-                      {quickActions.map((item, i) => (
-                        <button 
-                          key={item.id}
-                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-(--bg-row-hover) text-left transition-colors cursor-pointer group"
-                          {...optionProps(navActions.length + i)}
-                          onClick={() => runResult(navActions.length + i)}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-5 text-center text-xs shrink-0"><item.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                            <span className="text-xs font-semibold text-(--text-primary) group-hover:text-(--led-mint) transition-colors truncate">
-                              {item.title}
-                            </span>
-                          </div>
-                          {item.key && (
-                            <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--bg-row) border border-(--border-subtle) text-[var(--text-muted)] shrink-0">
-                              {item.key}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {matchingGames.length > 0 && (
-                  <div>
-                    <div className="text-[length:var(--fs-xs)] tabular font-bold text-(--led-mint) uppercase tracking-[0.04em] px-2 py-0.5 pt-1 flex items-center justify-between">
-                      <span>Игры в каталоге</span>
-                      <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">Фокус <CornerDownLeft className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                    </div>
-                    <div className="space-y-0.5">
-                      {matchingGames.map((game, i) => (
-                        <button 
-                          key={game.id}
-                          className="w-full flex items-center justify-between p-2 px-2.5 rounded-lg hover:bg-(--led-mint)/20 text-left transition-colors cursor-pointer group border border-transparent hover:border-(--led-mint)/30"
-                          {...optionProps(navActions.length + quickActions.length + i)}
-                          onClick={() => runResult(navActions.length + quickActions.length + i)}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-5 text-center text-xs shrink-0"><Target className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                            <span className="text-xs font-bold text-(--text-primary) group-hover:text-(--led-mint) transition-colors truncate">
-                              {game.name}
-                            </span>
-                          </div>
-                          <span className="text-[length:var(--fs-xs)] tabular px-1.5 py-0.5 rounded bg-(--led-mint)/20 text-(--led-mint) border border-(--led-mint)/30 font-bold shrink-0">
-                            В ФОКУС <CornerDownLeft className="ui-icon" aria-hidden="true" focusable="false" />
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {totalResults === 0 && (
-                  <div className="p-6 text-center text-[var(--text-muted)] space-y-1">
-                    <p className="text-xs font-semibold text-(--text-primary)">Ничего не найдено по запросу «{cmdSearch}»</p>
-                    <p className="text-[length:var(--fs-xs)]">Попробуйте ввести имя игры или название вкладки.</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-2.5 px-4 bg-(--bg-row) border-t border-(--border-subtle) flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] shrink-0 select-none">
-                <span title="Цифра открывает вкладку, если она не выключена в настройках"><kbd className="px-1.5 py-0.5 bg-(--bg-well) rounded border border-(--border-subtle) text-(--text-primary) tabular text-[length:var(--fs-xs)]">Цифры</kbd> Вкладки •<kbd className="px-1.5 py-0.5 bg-(--bg-well) rounded border border-(--border-subtle) text-(--text-primary) tabular text-[length:var(--fs-xs)]">Esc</kbd> Закрыть</span>
-              </div>
-            </div>
-          </div>
+          <CommandPalette
+            dialogRef={cmdDialogRef}
+            search={cmdSearch}
+            onSearchChange={setCmdSearch}
+            cmdIndex={cmdIndex}
+            onIndexChange={setCmdIndex}
+            onClose={() => setShowCmdPalette(false)}
+            navActions={navActions}
+            quickActions={quickActions}
+            matchingGames={matchingGames}
+            onFocusGame={focusGame}
+          />
         );
       })()}
 
