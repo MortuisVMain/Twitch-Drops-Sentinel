@@ -65,6 +65,8 @@ russian.MigratePick=Выберите папку со старой копией T
 english.MigratePick=Pick the folder with the old copy of Twitch Drops Sentinel
 russian.MigrateBadFolder=В этой папке нет TwitchDropsSentinel.exe и config.json. Выберите папку, куда вы распаковали ZIP-архив.
 english.MigrateBadFolder=This folder has no TwitchDropsSentinel.exe and config.json. Pick the folder where you unpacked the ZIP.
+russian.DirNoAccess=Нет прав на запись в папку:%n%1%n%nУстановка идёт без прав администратора. Выберите папку в своём профиле, например:%n%2
+english.DirNoAccess=You cannot write to this folder:%n%1%n%nSetup runs without administrator rights. Pick a folder in your own profile, for example:%n%2
 russian.MigrateSameFolder=Это папка, в которую ставится программа. Выберите старую папку.
 english.MigrateSameFolder=This is the folder the app is being installed into. Pick the old folder.
 russian.MigrateFailed=Не все файлы удалось скопировать (%1). Список файлов в журнале установки.
@@ -472,11 +474,37 @@ begin
   Result := (PageID = MigratePage.ID) and not MigrateFresh;
 end;
 
+{ True when a file can be created in Dir or, if it does not exist yet, in its nearest existing parent }
+function DirWritable(const Dir: String): Boolean;
+var
+  Probe: String;
+begin
+  Probe := RemoveBackslash(Dir);
+  while (Probe <> '') and not DirExists(Probe) do
+  begin
+    if ExtractFileDir(Probe) = Probe then Break;
+    Probe := ExtractFileDir(Probe);
+  end;
+  Probe := AddBackslash(Probe) + 'tds-write-check-' + GetDateTimeString('hhnnsszzz', #0, #0) + '.tmp';
+  Result := SaveStringToFile(Probe, '', False);
+  if Result and not DeleteFile(Probe) then
+    Log('Could not delete the write check file ' + Probe);
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Problem: String;
 begin
   Result := True;
+  if (CurPageID = wpSelectDir) and not IsAdminInstallMode and not DirWritable(WizardDirValue) then
+  begin
+    { without this the copy step fails with a bare "Access denied" after the user has clicked through every page }
+    Log('Folder not writable: ' + WizardDirValue);
+    if not WizardSilent then
+      MsgBox(FmtMessage(CustomMessage('DirNoAccess'), [WizardDirValue, ExpandConstant('{localappdata}\Programs\{#AppName}')]), mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
   if (CurPageID = MigratePage.ID) and MigrateCheck.Checked then
   begin
     Problem := MigrationProblem(MigrateSource, RemoveBackslash(WizardDirValue));

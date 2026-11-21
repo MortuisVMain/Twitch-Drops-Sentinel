@@ -119,6 +119,9 @@ function Test-IssStatic([string]$Text) {
         "node: nodejs.org note when winget is missing"   = 'https://nodejs\.org[^\r\n]*Check: OfferNodeLink'
         "node: looks for node.exe on PATH"               = "FileSearch\('node\.exe'"
         "node: looks for winget.exe"                     = "winget\.exe"
+        "folder: the folder page checks write access"    = "CurPageID = wpSelectDir"
+        "folder: no-access message (en)"                 = 'english\.DirNoAccess='
+        "folder: no-access message (ru)"                 = 'russian\.DirNoAccess='
     }
     foreach ($k in $must.Keys) { Assert-That ($Text -match $must[$k]) "static: $k" }
 }
@@ -421,6 +424,20 @@ try {
     cmd /c rmdir "$linkCopy\giveaways_engine\data" | Out-Null
     Assert-That ((Get-Content -Raw -LiteralPath "$outside\data\secret.json") -eq "outside-data") "migrate: the junction targets are untouched"
 
+    # a folder the user cannot write to (Program Files without admin) is refused before anything is copied
+    $noAccess = Join-Path $env:ProgramFiles ("TDS check " + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+    $psiNa = New-Object Diagnostics.ProcessStartInfo
+    $psiNa.FileName = $setupExe
+    $psiNa.Arguments = (($silent + @("/DIR=`"$noAccess`"", "/LOG=`"$logDir\noaccess.log`"")) -join " ")
+    $psiNa.UseShellExecute = $false
+    $psiNa.CreateNoWindow = $true
+    $pNa = [Diagnostics.Process]::Start($psiNa)
+    if (-not $pNa.WaitForExit(120000)) { $pNa.Kill() }
+    $naLog = Get-Content -Raw -Encoding UTF8 "$logDir\noaccess.log"
+    Assert-That ($pNa.ExitCode -ne 0) "folder: an install into an unwritable folder does not report success (got $($pNa.ExitCode))"
+    Assert-That ($naLog -match "Folder not writable") "folder: the unwritable folder is named in the log"
+    Assert-That ($naLog -notmatch "Creating directory") "folder: nothing is created before the refusal"
+    Assert-That (-not (Test-Path -LiteralPath $noAccess)) "folder: the unwritable folder was not created"
     # the finish-page winget command: --scope user first, then a machine install; run against a fake winget, never the real one
     $issText = Get-Content -Raw -Encoding UTF8 $issPath
     $nodeCmd = [regex]::Match($issText, '(?m)^Filename: "\{cmd\}"; Parameters: "(.*)"; Description: "\{cm:InstallNode\}"')
