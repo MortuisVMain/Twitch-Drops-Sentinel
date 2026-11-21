@@ -40,7 +40,19 @@ class ToastGate:
         self._lock = threading.Lock()
         self._seen: Dict[str, float] = {}
         self._primed: set = set()
+        self._listeners: List[Callable[[str, str], None]] = []
         self._load()
+
+    def add_listener(self, listener: Callable[[str, str], None]) -> None:
+        """Also called with every notification the gate lets through (once per event), whether or not toasts are on."""
+        self._listeners.append(listener)
+
+    def _tell_listeners(self, title: str, message: str) -> None:
+        for listener in self._listeners:
+            try:
+                listener(title, message)
+            except Exception as exc:
+                logger.warning("Notification listener failed: %s", exc, exc_info=True)
 
     def _load(self) -> None:
         if self._store_path is None or not self._store_path.exists():
@@ -76,6 +88,7 @@ class ToastGate:
                 return False
             self._seen[token] = time.time()
             self._save()
+        self._tell_listeners(title, message)
         if not self._enabled():
             return False
         self._sender(title, message)
@@ -104,15 +117,17 @@ class ToastGate:
                     fresh.append((key, label))
             if first or fresh:
                 self._save()
-        if first or not fresh or not self._enabled():
+        if first or not fresh:
             return 0
         labels = [label for _, label in fresh]
-        if len(labels) <= MAX_TOASTS_PER_BATCH:
-            for label in labels:
-                self._sender(title, one(label))
-            return len(labels)
-        self._sender(title, many(labels))
-        return 1
+        messages = [one(label) for label in labels] if len(labels) <= MAX_TOASTS_PER_BATCH else [many(labels)]
+        for message in messages:
+            self._tell_listeners(title, message)
+        if not self._enabled():
+            return 0
+        for message in messages:
+            self._sender(title, message)
+        return len(messages)
 
 
 _state = {"enabled": True}

@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Telegram and Discord: Settings can send the app's notifications to a Telegram bot chat or a Discord webhook, with a Test button. Same events as the Windows notifications, whether or not those are on, plus a notification for each newly claimed free game. The bot token and webhook address are stored encrypted for your Windows account and are never shown again.
 - Profile restore: Settings, Danger zone, "Restore from backup" lists the backups in data/backups or takes a .zip from anywhere (for example from another PC). The archive is checked first, the current profile is saved as its own backup, and the files are put back at the next start, so the running app cannot save over them.
 - Beta channel: Settings has a "Beta versions" switch next to the update check. When it is on, GitHub pre-releases are offered too and marked as beta; a final release still beats its betas, and switching back to stable never offers a pre-release.
 - Farm schedule: Settings has a Farm schedule card (off by default): farming runs only inside a daily window on the chosen weekdays, for example 01:00 to 09:00. A window may run past midnight. Outside it farming pauses with a notification, and the dashboard says when it resumes, with a Farm now button that turns the schedule off.

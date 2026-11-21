@@ -5,6 +5,7 @@ import { getLang, setLang, type Lang } from '../i18n';
 import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { FarmScheduleCard } from './FarmScheduleCard';
+import { WebhooksCard } from './WebhooksCard';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 import { rewardSwitches } from '../utils/rewardCampaigns.mjs';
@@ -873,6 +874,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           </button>
         </div>
       </div>
+
+      <WebhooksCard playClick={playClick} />
 
       {/* Danger zone: destructive actions live apart from everyday buttons and always ask first */}
       <div className="danger-zone" role="group" aria-label="Опасная зона">

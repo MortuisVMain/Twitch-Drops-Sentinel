@@ -93,7 +93,7 @@ def _build_sandbox():
         if not (root / "Trophies.md").exists():
             (root / "Trophies.md").write_text("# \U0001f3c6 \u0416\u0443\u0440\u043d\u0430\u043b \u0422\u0440\u043e\u0444\u0435\u0435\u0432\n\n| \u0414\u0430\u0442\u0430 | \u0418\u0433\u0440\u0430 | \u0414\u0440\u043e\u043f | \u041a\u0430\u043c\u043f\u0430\u043d\u0438\u044f | \u0421\u0442\u0430\u0442\u0443\u0441 |\n|---|---|---|---|---|\n", encoding="utf-8")
     if (WORKSPACE / "data").exists():
-        shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups"))
+        shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups", "webhooks.json"))
     engine_src = WORKSPACE / "giveaways_engine"
     if engine_src.exists():
         shutil.copytree(engine_src, root / "giveaways_engine", ignore=shutil.ignore_patterns("node_modules", "browser", "screenshots", "*.log"))
@@ -6317,7 +6317,7 @@ def test_reward_campaigns_unit_tests():
 
 
 # core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
-CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel", "test_farm_schedule"]
+CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel", "test_farm_schedule", "test_webhooks"]
 
 
 def test_core_feature_unit_tests():
