@@ -248,11 +248,11 @@ test('extractSteamId: the 17-digit g_steamID of the page, null for a signed-out 
   }
 });
 
-test('parseArgs: --expect needs 17 digits and only status, drops and library accept it', () => {
-  for (const command of ['status', 'drops', 'library']) {
+test('parseArgs: --expect needs 17 digits and only login, status, drops and library accept it', () => {
+  for (const command of ['login', 'status', 'drops', 'library']) {
     assert.deepEqual(sc.parseArgs([command, `--expect=${FAKE_ID}`]), { command, expect: FAKE_ID });
   }
-  for (const bad of [['drops', '--expect='], ['drops', '--expect=123'], ['login', `--expect=${FAKE_ID}`],
+  for (const bad of [['drops', '--expect='], ['drops', '--expect=123'], ['login', '--expect=123'],
     ['dump', 'x', `--expect=${FAKE_ID}`], ['drops', `--expect=${FAKE_ID}`, 'x'], ['drops', `--other=${FAKE_ID}`]]) {
     assert.equal(sc.parseArgs(bad).error, 'usage', JSON.stringify(bad));
   }
@@ -314,4 +314,57 @@ test('fetchHtml reads the page through the context request API with the browser 
   assert.equal(await sc.fetchHtml(page(() => reply('https://steamcommunity.com/login/home/?goto=my', 200, 'login')), BADGES), null);
   await assert.rejects(sc.fetchHtml(page(url => reply(url, 503, '')), BADGES), error => error.code == 'http_503');
   await assert.rejects(sc.fetchHtml(page(() => { throw new Error('net down'); }), BADGES), error => error.code == 'load_failed');
+});
+
+// A browser context stand-in: `account` is the account the profile is signed in to (null: signed out).
+const fakeContext = account => {
+  const ctx = { account, cleared: 0, loginPageLoads: 0, handlers: {} };
+  const makePage = () => {
+    let current = 'about:blank';
+    return {
+      goto: async url => {
+        if (url.includes('/login/')) { ctx.loginPageLoads += 1; current = url; return; }
+        current = ctx.account ? `https://steamcommunity.com/profiles/${ctx.account}/badges` : 'https://steamcommunity.com/login/home/?goto=my%2Fbadges';
+      },
+      url: () => current,
+      content: async () => `<script>g_steamID = "${ctx.account}";</script>`,
+      close: async () => {},
+    };
+  };
+  const first = makePage();
+  Object.assign(ctx, {
+    on: (event, fn) => { ctx.handlers[event] = fn; },
+    pages: () => [first],
+    newPage: async () => makePage(),
+    cookies: async () => ctx.account ? [{ name: 'steamLoginSecure' }] : [],
+    clearCookies: async () => { ctx.cleared += 1; ctx.account = null; },
+  });
+  return ctx;
+};
+const CLIENT = '76561190000000001';
+const OTHER = '76561190000000002';
+
+test('login: a session of another account is signed out and the sign-in page shown again, not taken as done', async () => {
+  const ctx = fakeContext(OTHER);
+  let ticks = 0;
+  const delay = async () => { ticks += 1; if (ticks == 3) ctx.account = CLIENT; };  // the user signs in on the third check
+  assert.deepEqual(await sc.login(ctx, delay, CLIENT), { status: 'signed_in' });
+  assert.equal(ctx.cleared, 1, 'the other account was signed out once');
+  assert.equal(ctx.loginPageLoads, 2, 'the sign-in page was opened again after signing out');
+});
+
+test('login: the expected account already signed in, or no expectation, ends at once', async () => {
+  for (const [account, expect] of [[CLIENT, CLIENT], [OTHER, undefined]]) {
+    const ctx = fakeContext(account);
+    assert.deepEqual(await sc.login(ctx, async () => {}, expect), { status: 'signed_in' });
+    assert.equal(ctx.cleared, 0);
+  }
+});
+
+test('login: closing the window while another account is signed in ends as closed', async () => {
+  const ctx = fakeContext(OTHER);
+  let ticks = 0;
+  const delay = async () => { ticks += 1; if (ticks == 2) ctx.handlers.close(); };
+  assert.deepEqual(await sc.login(ctx, delay, CLIENT), { status: 'closed' });
+  assert.equal(ctx.cleared, 1);
 });
