@@ -195,7 +195,7 @@ import reward_campaigns
 import reward_watch
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
-from profile_backup import profile_entries, write_backup
+from profile_backup import BackupError, apply_pending_restore, profile_entries, stage_restore, write_backup
 from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
@@ -250,6 +250,31 @@ logger = logging.getLogger("SentinelService")
 
 CONFIG_FILE = PROJECT_DIR / "config.json"
 TROPHIES_FILE = PROJECT_DIR / "Trophies.md"
+BACKUP_DIR = PROJECT_DIR / "data" / "backups"
+RESTORE_PENDING_DIR = PROJECT_DIR / "data" / "restore_pending"
+
+
+def pick_zip_file() -> str:
+    """Windows file dialog for a backup .zip; '' when cancelled."""
+    ps_script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+        "$f.Title = 'Выберите бэкап профиля Sentinel'; "
+        "$f.Filter = 'Бэкап Sentinel (*.zip)|*.zip'; "
+        "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }"
+    )
+    res = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps_script], capture_output=True, text=True, timeout=300)
+    return res.stdout.strip()
+
+
+def apply_restore_at_start() -> None:
+    """A restore staged before the restart is applied before settings, cookies or the engine load."""
+    try:
+        restored = apply_pending_restore(PROJECT_DIR, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH), RESTORE_PENDING_DIR)
+        if restored:
+            logger.info("Profile restored from backup at start: %s", ", ".join(restored))
+    except Exception as e:
+        logger.error("Applying the staged profile restore failed; the current profile stays: %s", e, exc_info=True)
 
 DEFAULT_GAMES_PROCESSES = [
     "poe2.exe", "pathofexile.exe", "pathofexile_x64.exe", "hunt.exe",
@@ -627,6 +652,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/auth/logout", self.handle_logout)
         self.app.router.add_post("/api/logout", self.handle_logout)
         self.app.router.add_post("/api/backup", self.handle_backup_profile)
+        self.app.router.add_get("/api/backups", self.handle_list_backups)
+        self.app.router.add_post("/api/backup/restore", self.handle_restore_backup)
         self.app.router.add_post("/api/game-directories/clear-cache", self.handle_clear_installed_games)
         self.app.router.add_post("/api/settings/reset", self.handle_reset_settings)
         self.app.router.add_post("/api/restart", self.handle_restart)
@@ -1354,7 +1381,7 @@ class SentinelSupervisor:
 
     async def handle_backup_profile(self, request: web.Request) -> web.Response:
         try:
-            backup_dir = PROJECT_DIR / "data" / "backups"
+            backup_dir = BACKUP_DIR
             backup_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             zip_filename = f"sentinel_profile_backup_{ts}.zip"
@@ -1378,6 +1405,55 @@ class SentinelSupervisor:
             })
         except Exception as e:
             logger.error(f"Error creating backup: {e}", exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_list_backups(self, request: web.Request) -> web.Response:
+        """Profile backups in data/backups, newest first."""
+        try:
+            items = []
+            if BACKUP_DIR.is_dir():
+                for p in BACKUP_DIR.glob("*.zip"):
+                    st = p.stat()
+                    items.append({"name": p.name, "size": st.st_size, "modified": st.st_mtime})
+            items.sort(key=lambda i: i["modified"], reverse=True)
+            return web.json_response({"status": "ok", "backups": items, "folder": str(BACKUP_DIR)})
+        except Exception as e:
+            logger.error("Listing profile backups failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_restore_backup(self, request: web.Request) -> web.Response:
+        """Stages a profile backup to be applied at the next start: {"name": "<file in data/backups>"} or
+        {"pick": true} for a file dialog. The current profile is backed up first. The app must restart."""
+        try:
+            data = await request.json()
+            if not isinstance(data, dict):
+                return web.json_response({"status": "error", "message": "ожидался объект"}, status=400)
+            if data.get("pick"):
+                chosen = await asyncio.to_thread(pick_zip_file)
+                if not chosen:
+                    return web.json_response({"status": "cancelled"})
+                zip_path = Path(chosen)
+            else:
+                name = data.get("name")
+                if not isinstance(name, str) or not name or Path(name).name != name or not name.lower().endswith(".zip"):
+                    return web.json_response({"status": "error", "message": "неверное имя бэкапа"}, status=400)
+                zip_path = BACKUP_DIR / name
+            if not zip_path.is_file():
+                return web.json_response({"status": "error", "message": f"файл не найден: {zip_path.name}"}, status=404)
+            entries = profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH)
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            safety_name = f"sentinel_profile_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            await asyncio.to_thread(write_backup, BACKUP_DIR / safety_name, entries)
+            try:
+                staged = await asyncio.to_thread(stage_restore, zip_path, entries, RESTORE_PENDING_DIR)
+            except BackupError as e:
+                logger.warning("Profile restore refused for %s: %s", zip_path, e)
+                return web.json_response({"status": "error", "message": str(e), "safety": safety_name}, status=400)
+            logger.info("Profile restore staged from %s (%d files); current profile saved as %s", zip_path, len(staged), safety_name)
+            STATE_BRIDGE.add_log("INFO", f"Бэкап {zip_path.name} будет восстановлен при перезапуске. Текущий профиль сохранён в {safety_name}.")
+            return web.json_response({"status": "ok", "files": staged, "safety": safety_name, "restart_required": True})
+        except Exception as e:
+            logger.error("Profile restore failed: %s", e, exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_reset_settings(self, request: web.Request) -> web.Response:
@@ -2041,6 +2117,7 @@ if __name__ == "__main__":
         check_and_apply_pending_exe_update()
     except Exception as e:
         logger.warning(f"Error checking pending exe update: {e}")
+    apply_restore_at_start()
     supervisor = SentinelSupervisor()
     try:
         asyncio.run(supervisor.start())

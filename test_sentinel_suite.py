@@ -6317,7 +6317,7 @@ def test_reward_campaigns_unit_tests():
 
 
 # core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
-CORE_UNIT_MODULES = ["test_queue_deadline"]
+CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore"]
 
 
 def test_core_feature_unit_tests():
@@ -6340,6 +6340,37 @@ def test_core_feature_unit_tests():
             sys.modules.pop(name, None)
     assert result.wasSuccessful(), f"core unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
     print(f"      core unit tests ({result.testsRun} run): PASS [OK]")
+
+
+def test_profile_restore_api_stages_a_checked_backup():
+    print("[backup] /api/backups lists backups; /api/backup/restore refuses bad names and stages a real backup for the next start...")
+    ensure_test_service()
+
+    def call(path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(BASE_URL + path, data=data, method="GET" if body is None else "POST",
+                                     headers={"Connection": "close", "User-Agent": "Sentinel-Test", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    status, made = call("/api/backup", {})
+    assert status == 200 and made.get("filename"), made
+    status, listed = call("/api/backups")
+    assert status == 200 and any(b["name"] == made["filename"] for b in listed["backups"]), listed
+    assert call("/api/backup/restore", {"name": "../config.json"})[0] == 400, "a path is never accepted as a backup name"
+    assert call("/api/backup/restore", {"name": "missing.zip"})[0] == 404
+    pending = SANDBOX / "data" / "restore_pending"
+    try:
+        status, staged = call("/api/backup/restore", {"name": made["filename"]})
+        assert status == 200 and staged.get("restart_required") and "config.json" in staged["files"], staged
+        assert (pending / "restore.json").is_file(), "the restore waits for the next start"
+        assert (SANDBOX / "data" / "backups" / staged["safety"]).is_file(), "the current profile is saved first"
+    finally:
+        shutil.rmtree(pending, ignore_errors=True)
+    print("      profile restore API: PASS [OK]")
 
 
 def test_steam_idle_module_follows_the_tab_setting_once_per_change():
@@ -8525,6 +8556,7 @@ if __name__ == "__main__":
         test_steam_idle_package_unit_tests,
         test_reward_campaigns_unit_tests,
         test_core_feature_unit_tests,
+        test_profile_restore_api_stages_a_checked_backup,
         test_reward_campaigns_setting_state_and_request,
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,

@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Profile restore: Settings, Danger zone, "Restore from backup" lists the backups in data/backups or takes a .zip from anywhere (for example from another PC). The archive is checked first, the current profile is saved as its own backup, and the files are put back at the next start, so the running app cannot save over them.
 - Queue deadlines: a queued game whose campaign will close before the queue reaches and finishes it is marked in the queue ("won't make it in the queue") with the time left, and a Windows notification suggests moving it up. A campaign too short even when started now says so. An estimate from the watching still needed.
 
 ## [3.8.0] - 2026-11-21
