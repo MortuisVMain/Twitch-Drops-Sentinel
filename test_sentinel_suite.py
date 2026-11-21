@@ -19,6 +19,9 @@ import json
 import time
 import urllib.request
 import subprocess
+
+# Tests must never open the Twitch activation page in the user's real browser (child processes inherit this).
+os.environ["SENTINEL_NO_BROWSER"] = "1"
 from contextlib import suppress
 from pathlib import Path
 import psutil
@@ -5925,6 +5928,292 @@ def test_disabled_tabs_setting_is_cleaned_translated_and_persisted():
     print("      disabled_tabs: PASS [OK]")
 
 
+def test_reward_campaigns_setting_state_and_request():
+    print("[rewards] reward_campaigns_enabled: default off, bool only, saved, clears the list when off, reaches /api/state...")
+    work = Path(tempfile.mkdtemp(prefix="reward_campaigns_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from types import SimpleNamespace\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    hardware_state = {}\n"
+        "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    def _schedule_module_sync(self, a, b): pass\n"
+        "    def load_trophies(self): return []\n"
+        "    def get_app_version(self): return 'test'\n"
+        "    def shelf_game_names(self, trophies): return []\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "def state(fake): return asyncio.run(s.SentinelSupervisor.get_full_state(fake))\n"
+        "B = s.STATE_BRIDGE\n"
+        "out = {'default': s.SUPERVISOR_DEFAULTS['reward_campaigns_enabled']}\n"
+        "fake = Fake()\n"
+        "out['fresh'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled]\n"
+        "B.reward_campaigns = [{'id': 'stale'}]\n"
+        "out['off_state'] = state(fake)['reward_campaigns']\n"
+        "out['bad_status'] = post(fake, {'reward_campaigns_enabled': 'yes'})\n"
+        "out['bad'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled]\n"
+        "post(fake, {'reward_campaigns_enabled': True})\n"
+        "out['on'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled]\n"
+        "B.reward_campaigns = [{'id': 'a'}, {'id': 'b'}]\n"
+        "out['on_state'] = [c['id'] for c in state(fake)['reward_campaigns']]\n"
+        "out['reloaded'] = s.SentinelSupervisor.load_settings(None)['reward_campaigns_enabled']\n"
+        "post(fake, {'reward_campaigns_enabled': 1})\n"
+        "out['int_ignored'] = fake.settings['reward_campaigns_enabled']\n"
+        "post(fake, {'language': 'ru'})\n"
+        "out['untouched'] = [fake.settings['reward_campaigns_enabled'], len(B.reward_campaigns)]\n"
+        "post(fake, {'reward_campaigns_enabled': False})\n"
+        "out['off'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled, B.reward_campaigns, state(fake)['reward_campaigns']]\n"
+        "post(fake, {'reward_campaigns_enabled': True}); B.reward_campaigns = [{'id': 'c'}]\n"
+        "asyncio.run(s.SentinelSupervisor.handle_reset_settings(fake, None))\n"
+        "out['reset'] = [fake.settings['reward_campaigns_enabled'], B.reward_campaigns_enabled, B.reward_campaigns]\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")  # an old config: no such key
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert res.returncode == 0, res.stderr[-2500:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["default"] is False and got["fresh"] == [False, False], f"an old config reads as off: {got}"
+    assert got["off_state"] == [], f"nothing is served while the setting is off, even a stale list: {got['off_state']}"
+    assert got["bad_status"] == 200 and got["bad"] == [False, False], f"a non-bool is ignored, the update still succeeds: {got['bad']}"
+    assert got["on"] == [True, True], f"the switch reaches the engine's shared state: {got['on']}"
+    assert got["on_state"] == ["a", "b"], f"/api/state carries reward_campaigns: {got['on_state']}"
+    assert got["reloaded"] is True, "saved to config.json and read back"
+    assert got["int_ignored"] is True, "1 is not a bool: the stored value stays"
+    assert got["untouched"] == [True, 2], "an update without the key leaves it and the list alone"
+    assert got["off"] == [False, False, [], []], f"turning it off clears the list at once: {got['off']}"
+    assert got["reset"] == [False, False, []], f"a settings reset turns it off: {got['reset']}"
+    config.write_text(json.dumps({"reward_campaigns_enabled": "yes"}), encoding="utf-8")
+    res = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, 'core'); import sentinel_service as s; print(s.SentinelSupervisor.load_settings(None)['reward_campaigns_enabled'])"],
+                         cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert res.returncode == 0 and res.stdout.strip().splitlines()[-1] == "False", f"a non-bool in config.json reads as off: {res.stdout[-300:]} {res.stderr[-300:]}"
+    twitch_src = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True)' in twitch_src, "reward campaigns come from their own request"
+    assert 'self.gql_request(GQL_QUERIES["Inventory"])' in twitch_src, "the inventory request is untouched"
+    assert 'response = await self.gql_request(GQL_QUERIES["Campaigns"])' in twitch_src, "drop campaigns keep the plain dashboard request (true returns no dropCampaigns)"
+    constants_src = (WORKSPACE / "core" / "constants.py").read_text(encoding="utf-8")
+    assert constants_src.count('"fetchRewardCampaigns": False') == 2, "the shared constants keep asking for no reward campaigns"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reward campaigns setting and state: PASS [OK]")
+
+
+def test_reward_campaigns_queue_force_hide_and_categories_api():
+    print("[rewards] reward:<id> in the queue survives, Farm now and hide are validated, category overrides are cleaned, turning it off reaches the engine...")
+    work = Path(tempfile.mkdtemp(prefix="reward_queue_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from types import SimpleNamespace\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Engine:\n"
+        "    def __init__(self): self.changes = 0\n"
+        "    def reward_settings_changed(self): self.changes += 1\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    hardware_state = {}\n"
+        "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    def _schedule_module_sync(self, a, b): pass\n"
+        "    def load_trophies(self): return []\n"
+        "    def get_app_version(self): return 'test'\n"
+        "    def shelf_game_names(self, trophies): return s.shelf_names(self.settings, trophies, [])\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "def force(fake, game):\n"
+        "    r = asyncio.run(s.SentinelSupervisor.handle_force_farm(fake, Req({'game': game})))\n"
+        "    return r.status\n"
+        "def state(fake): return asyncio.run(s.SentinelSupervisor.get_full_state(fake))\n"
+        "B = s.STATE_BRIDGE\n"
+        "out = {'defaults': [s.SUPERVISOR_DEFAULTS['hidden_reward_campaigns'], s.SUPERVISOR_DEFAULTS['reward_campaign_categories']]}\n"
+        "fake = Fake()\n"
+        "post(fake, {'reward_campaigns_enabled': True})\n"
+        "post(fake, {'priority_games': ['Rust', 'reward:abc', 'reward:abc', 'reward:XyZ-1', '  reward:padded  ']})\n"
+        "out['queue'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "out['queue_reloaded'] = [g for g in s.SentinelSupervisor.load_settings(None)['priority_games'] if g.startswith('reward:')]\n"
+        "out['shelf'] = [n for n in s.shelf_names(fake.settings, [], []) if 'reward' in n.lower()]\n"
+        "post(fake, {'hidden_reward_campaigns': [' a ', 'a', 'b']})\n"
+        "out['hidden'] = [fake.settings['hidden_reward_campaigns'], B.reward_hidden]\n"
+        "out['bad_hidden_status'] = post(fake, {'hidden_reward_campaigns': 'x'})\n"
+        "out['bad_hidden'] = fake.settings['hidden_reward_campaigns']\n"
+        "post(fake, {'reward_campaign_categories': {'c1': '  Just Chatting ', 'c2': ''}})\n"
+        "out['cats'] = [fake.settings['reward_campaign_categories'], B.reward_categories]\n"
+        "post(fake, {'reward_campaign_categories': ['x']})\n"
+        "out['bad_cats'] = fake.settings['reward_campaign_categories']\n"
+        "post(fake, {'reward_campaign_categories': {}})\n"
+        "out['cats_cleared'] = fake.settings['reward_campaign_categories']\n"
+        "post(fake, {'hidden_reward_campaigns': ['b']})\n"
+        "B.reward_campaigns = [{'id': 'a', 'name': 'A', 'game': 'Some Game', 'minutesGoal': 60, 'groups': [{'goalKind': 'watch', 'minutes': 60, 'subs': 0, 'rewards': []}]},\n"
+        "                      {'id': 'b', 'name': 'B', 'game': 'Some Game', 'minutesGoal': 60, 'groups': [{'goalKind': 'watch', 'minutes': 60, 'subs': 0, 'rewards': []}]},\n"
+        "                      {'id': 's', 'name': 'Subs', 'game': 'Some Game', 'groups': [{'goalKind': 'subs', 'minutes': 0, 'subs': 1, 'rewards': []}]}]\n"
+        "st = state(fake)\n"
+        "out['state'] = {c['id']: [c['farmable'], c['hidden'], c['category']['source'] if c['category'] else None, c['dailyGoal'], c['watchedToday'], c['doneToday'], c['earned']] for c in st['reward_campaigns']}\n"
+        "out['force_ok'] = force(fake, 'reward:a')\n"
+        "out['forced'] = B.forced_game\n"
+        "out['force_hidden'] = force(fake, 'reward:b')\n"
+        "out['force_unknown'] = force(fake, 'reward:nope')\n"
+        "out['force_subs'] = force(fake, 'reward:s')\n"
+        "out['force_game'] = force(fake, 'Rust')\n"
+        "B.forced_game = None\n"
+        "engine = Engine(); fake.twitch_client = engine\n"
+        "post(fake, {'reward_campaigns_enabled': False})\n"
+        "fake.twitch_client = None\n"
+        "out['force_off'] = force(fake, 'reward:a')\n"
+        "out['engine_told'] = engine.changes\n"
+        "out['watching_off'] = state(fake)['reward_watching']\n"
+        "post(fake, {'reward_campaigns_enabled': True})\n"
+        "B.reward_watching = {'id': 'a', 'name': 'A'}\n"
+        "out['watching_on'] = state(fake)['reward_watching']\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert res.returncode == 0, res.stderr[-2500:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["defaults"] == [[], {}], f"defaults: {got['defaults']}"
+    assert got["queue"] == ["reward:abc", "reward:XyZ-1", "reward:padded"], f"reward keys keep their case and are deduplicated: {got['queue']}"
+    assert got["queue_reloaded"] == got["queue"], f"reward keys survive a save and a reload: {got['queue_reloaded']}"
+    assert got["shelf"] == [], f"reward keys are not shelf games: {got['shelf']}"
+    assert got["hidden"] == [["a", "b"], ["a", "b"]], f"hidden list trimmed, deduplicated and mirrored to the engine: {got['hidden']}"
+    assert got["bad_hidden_status"] == 200 and got["bad_hidden"] == ["a", "b"], f"a bad hidden list is ignored: {got['bad_hidden']}"
+    assert got["cats"] == [{"c1": "Just Chatting"}, {"c1": "Just Chatting"}], f"empty names remove an override: {got['cats']}"
+    assert got["bad_cats"] == {"c1": "Just Chatting"} and got["cats_cleared"] == {}, f"{got['bad_cats']} {got['cats_cleared']}"
+    assert got["state"]["a"] == [True, False, "game", 60, 0, False, False], f"/api/state fields of a farmable campaign: {got['state']['a']}"
+    assert got["state"]["b"][:2] == [True, True], f"a hidden campaign stays in the state with hidden=true: {got['state']['b']}"
+    assert got["state"]["s"][:2] == [False, False] and got["state"]["s"][3] is None, f"a subs-only campaign is not farmable: {got['state']['s']}"
+    assert got["force_ok"] == 200 and got["forced"] == "reward:a", f"Farm now accepts reward:<id>: {got['force_ok']} {got['forced']}"
+    assert (got["force_hidden"], got["force_unknown"], got["force_subs"]) == (400, 400, 400), "hidden, unknown and subs-only campaigns are refused"
+    assert got["force_game"] == 200, "a plain game still works"
+    assert got["force_off"] == 400, "Farm now on a reward campaign is refused while the setting is off"
+    assert got["engine_told"] >= 1, "turning the setting off tells the engine"
+    assert got["watching_off"] is None and got["watching_on"] == {"id": "a", "name": "A"}, f"reward_watching in /api/state: {got['watching_off']} {got['watching_on']}"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reward campaigns queue, force, hide and categories: PASS [OK]")
+
+
+def test_reward_campaigns_daily_slot_and_auto_queue_settings():
+    print("[rewards] reward_daily_slot (default on) and reward_auto_queue (default off): bool only, mirrored to the engine, the auto-queue appends once and respects removals...")
+    work = Path(tempfile.mkdtemp(prefix="reward_slot_", dir=SANDBOX))
+    shutil.copytree(SANDBOX / "core", work / "core", ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import sys, json, asyncio; sys.path.insert(0, 'core'); import sentinel_service as s\n"
+        "from types import SimpleNamespace\n"
+        "class Req:\n"
+        "    def __init__(self, body): self.body = body\n"
+        "    async def json(self): return self.body\n"
+        "class Fake:\n"
+        "    twitch_client = None\n"
+        "    hardware_state = {}\n"
+        "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
+        "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
+        "    def apply_engine_language(self): pass\n"
+        "    def _schedule_module_sync(self, a, b): pass\n"
+        "    def load_trophies(self): return []\n"
+        "    def get_app_version(self): return 'test'\n"
+        "    def shelf_game_names(self, trophies): return []\n"
+        "    async def broadcast_ws(self): pass\n"
+        "    async def _sync_steam_idle_module(self, was_on): pass\n"
+        "    async def _sync_dimmer_module(self, was_on): pass\n"
+        "def post(fake, body): return asyncio.run(s.SentinelSupervisor.handle_post_settings(fake, Req(body))).status\n"
+        "def state(fake): return asyncio.run(s.SentinelSupervisor.get_full_state(fake))\n"
+        "B = s.STATE_BRIDGE\n"
+        "grp = lambda kind, m, n: [{'goalKind': kind, 'minutes': m, 'subs': n, 'rewards': []}]\n"
+        "out = {'defaults': [s.SUPERVISOR_DEFAULTS['reward_daily_slot'], s.SUPERVISOR_DEFAULTS['reward_auto_queue']]}\n"
+        "fake = Fake()\n"
+        "out['fresh'] = [fake.settings['reward_daily_slot'], fake.settings['reward_auto_queue'], B.reward_daily_slot, B.reward_auto_queue]\n"
+        "post(fake, {'reward_daily_slot': False, 'reward_auto_queue': True})\n"
+        "out['set'] = [fake.settings['reward_daily_slot'], fake.settings['reward_auto_queue'], B.reward_daily_slot, B.reward_auto_queue]\n"
+        "out['bad_status'] = post(fake, {'reward_daily_slot': 'no', 'reward_auto_queue': 1})\n"
+        "out['bad'] = [fake.settings['reward_daily_slot'], fake.settings['reward_auto_queue']]\n"
+        "post(fake, {'reward_auto_queue': False, 'reward_daily_slot': True})\n"
+        "B.reward_campaigns = [{'id': 'a', 'name': 'A', 'game': 'G', 'minutesGoal': 60, 'groups': grp('watch', 60, 0)},\n"
+        "                      {'id': 'b', 'name': 'B', 'game': 'G', 'minutesGoal': 60, 'groups': grp('watch', 60, 0)},\n"
+        "                      {'id': 's', 'name': 'S', 'game': 'G', 'groups': grp('subs', 0, 1)},\n"
+        "                      {'id': 'n', 'name': 'No category', 'game': None, 'minutesGoal': 60, 'groups': grp('watch', 60, 0)}]\n"
+        "post(fake, {'reward_campaigns_enabled': True, 'priority_games': ['Rust']})\n"
+        "out['off_changes_nothing'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "post(fake, {'reward_auto_queue': True})\n"
+        "out['appended'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "out['order'] = fake.settings['priority_games'].index('reward:a') < fake.settings['priority_games'].index('reward:b')\n"
+        "out['persisted'] = [g for g in s.SentinelSupervisor.load_settings(None)['priority_games'] if g.startswith('reward:')]\n"
+        "post(fake, {'priority_games': [g for g in fake.settings['priority_games'] if g != 'reward:a']})\n"
+        "out['removed_stays_removed'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "B.reward_campaigns.append({'id': 'c', 'name': 'C', 'game': 'G', 'minutesGoal': 30, 'groups': grp('watch', 30, 0)})\n"
+        "s.apply_reward_auto_queue(fake)\n"
+        "out['new_one_added'] = [g for g in fake.settings['priority_games'] if g.startswith('reward:')]\n"
+        "out['quiet_second_time'] = s.apply_reward_auto_queue(fake)\n"
+        "st = state(fake)['reward_campaigns'][0]\n"
+        "out['state_fields'] = {k: st[k] for k in ('dailyRewardToday', 'daysDone', 'daysTotal', 'doneToday')}\n"
+        "full = state(fake)\n"
+        "out['slot_state'] = [full['slot_minutes_today'], full['slot_budget_today']]\n"
+        "real = s.apply_reward_auto_queue\n"
+        "def boom(service): raise RuntimeError('disk full')\n"
+        "s.apply_reward_auto_queue = boom\n"
+        "out['boom_status'] = post(fake, {'language': 'ru'})\n"
+        "s.apply_reward_auto_queue = real\n"
+        "print(json.dumps(out))\n"
+    )
+    config = work / "config.json"
+    config.write_text(json.dumps({"giveaways_enabled": True}), encoding="utf-8")
+    res = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert res.returncode == 0, res.stderr[-2500:]
+    got = json.loads(res.stdout.strip().splitlines()[-1])
+    assert got["defaults"] == [True, False], f"defaults: {got['defaults']}"
+    assert got["fresh"] == [True, False, True, False], f"an old config: slot on, auto-queue off: {got['fresh']}"
+    assert got["set"] == [False, True, False, True], f"both switches reach the engine's shared state: {got['set']}"
+    assert got["bad_status"] == 200 and got["bad"] == [False, True], f"non-bool values are ignored: {got['bad']}"
+    assert got["off_changes_nothing"] == [], f"the auto-queue does nothing while it is off: {got['off_changes_nothing']}"
+    assert got["appended"] == ["reward:a", "reward:b"], f"farmable campaigns only (no subs-only, no category): {got['appended']}"
+    assert got["persisted"] == got["appended"], f"saved to config.json: {got['persisted']}"
+    assert got["removed_stays_removed"] == ["reward:b"], f"a campaign the user removed is not added again: {got['removed_stays_removed']}"
+    assert got["new_one_added"] == ["reward:b", "reward:c"], f"a new campaign goes to the end: {got['new_one_added']}"
+    assert got["quiet_second_time"] in (False, None), "nothing to add the second time"
+    assert set(got["state_fields"]) == {"dailyRewardToday", "daysDone", "daysTotal", "doneToday"}, got["state_fields"]
+    assert got["slot_state"] == [0, 60], f"the page sees the slot minutes and today's budget (largest queued goal, at most 60): {got['slot_state']}"
+    assert got["boom_status"] == 200, f"a failing auto-queue must not turn a saved settings POST into an error: {got['boom_status']}"
+    shutil.rmtree(work, ignore_errors=True)
+    print("      reward campaigns daily slot and auto-queue settings: PASS [OK]")
+
+
+def test_reward_campaigns_unit_tests():
+    print("[rewards] core/test_reward*.py: parser, request variable, setting helpers, category watching and its engine glue against the sandbox copy of core...")
+    import io
+    import unittest
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    try:
+        suite = unittest.defaultTestLoader.discover(str(core_dir), pattern="test_reward*.py", top_level_dir=str(core_dir))
+        assert suite.countTestCases() > 0, "no reward campaign tests were discovered"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in ("reward_campaigns", "reward_watch", "test_reward_campaigns", "test_reward_watch", "test_reward_slot"):
+            sys.modules.pop(name, None)
+    assert result.wasSuccessful(), f"reward campaign unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      reward campaign unit tests ({result.testsRun} run): PASS [OK]")
+
+
 def test_steam_idle_module_follows_the_tab_setting_once_per_change():
     print("[tabs] turning the Steam IDLE tab off or on reaches the controller once per change, also on a settings reset...")
     work = Path(tempfile.mkdtemp(prefix="steam_idle_switch_", dir=SANDBOX))
@@ -7137,6 +7426,93 @@ def test_claim_status_decides_what_is_announced_and_journaled():
     print("      Claim status, one journal row per claim instance: PASS [OK]")
 
 
+def test_claimed_drop_is_not_claimed_again_after_inventory_sync():
+    print("[claims] A drop Twitch confirmed as claimed stays claimed when the next inventory still reports isClaimed=false...")
+    import asyncio
+    core_dir = SANDBOX / "core"
+    if str(core_dir) not in sys.path:
+        sys.path.insert(0, str(core_dir))
+    import notifications
+    import inventory
+    from inventory import DropsCampaign
+    from settings import Settings
+    from twitch import Twitch
+
+    class Args:
+        tray = False
+        log = False
+        dump = False
+        logging_level = 20
+        debug_ws = 0
+        debug_gql = 0
+
+    t = Twitch(Settings(Args()))
+    t.print = lambda *_a, **_k: None
+
+    # Shaped like Inventory.dropCampaignsInProgress of a linked-account campaign: after an accepted claim
+    # Twitch keeps returning the drop with full minutes, a dropInstanceID and isClaimed=false.
+    def inventory_payload(camp_id, drop_id, required):
+        return {
+            "id": camp_id, "name": "Season drops", "status": "ACTIVE", "self": {"isAccountConnected": True},
+            "accountLinkURL": "https://example.invalid/link",
+            "game": {"id": 7, "displayName": "Synthetic Shooter"},
+            "startAt": "2026-11-10T02:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+            "timeBasedDrops": [{
+                "id": drop_id, "name": "Weapon EXP Token x2", "requiredMinutesWatched": required,
+                "startAt": "2026-11-10T02:00:00Z", "endAt": "2099-01-01T00:00:00Z",
+                "benefitEdges": [{"benefit": {"id": drop_id + "_b", "name": "Weapon EXP Token x2",
+                                              "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": ""}}],
+                "self": {"currentMinutesWatched": required, "dropInstanceID": f"u#{camp_id}#{drop_id}", "isClaimed": False},
+            }],
+        }
+
+    def sync(camp_id, drop_id, required=60):
+        claimed_benefits = {drop_id + "_b": inventory.timestamp("2026-11-19T08:49:27Z")}
+        return DropsCampaign(t, inventory_payload(camp_id, drop_id, required), claimed_benefits).timed_drops[drop_id]
+
+    calls = []
+
+    def stub(d, status):
+        async def fake():
+            calls.append(d.id)
+            return status
+        d._claim = fake
+
+    trophies = Path(inventory.__file__).resolve().parent.parent / "Trophies.md"
+    assert Path(trophies).resolve().is_relative_to(Path(SANDBOX).resolve()), f"must be the sandbox copy, not the live journal: {trophies}"
+    original = trophies.read_bytes() if trophies.exists() else None
+    saved_notify = notifications.NOTIFIER.notify
+    notifications.NOTIFIER.notify = lambda *a, **k: True
+    try:
+        for camp_id, drop_id, required, status in (
+            ("rc_new", "rc_drop_new", 60, "claimed"),           # Twitch accepted the claim now
+            ("rc_old", "rc_drop_old", 0, "already_claimed"),    # a sub-only drop Twitch already had as claimed
+        ):
+            first = sync(camp_id, drop_id, required)
+            assert first.can_claim, "the first sync offers the finished drop for claiming"
+            stub(first, status)
+            assert asyncio.run(first.claim()) is True and first.is_claimed
+
+            # the next inventory sync rebuilds the drop from the same Twitch answer
+            again = sync(camp_id, drop_id, required)
+            assert again.is_claimed, f"{drop_id}: a claim Twitch confirmed must survive the inventory rebuild"
+            assert not again.can_claim, f"{drop_id}: the engine must not claim the same drop every inventory cycle"
+        assert calls == ["rc_drop_new", "rc_drop_old"], calls
+
+        # a failed claim is retried on the next sync
+        failed = sync("rc_fail", "rc_drop_fail")
+        stub(failed, None)
+        assert asyncio.run(failed.claim()) is False
+        assert sync("rc_fail", "rc_drop_fail").can_claim, "a failed claim must stay claimable"
+    finally:
+        notifications.NOTIFIER.notify = saved_notify
+        if original is None:
+            trophies.unlink(missing_ok=True)
+        else:
+            trophies.write_bytes(original)
+    print("      Confirmed claims survive inventory sync: PASS [OK]")
+
+
 def test_console_log_buffer_keeps_an_hour_and_folds_counters():
     print("[logs] The log buffer folds counter runs, keeps older lines and the report tail is long enough...")
     sys.path.insert(0, str(SANDBOX / "core"))
@@ -8011,12 +8387,17 @@ if __name__ == "__main__":
         test_channel_point_chest_uses_the_real_login_state,
         test_diagnostic_report_shows_the_real_drop_and_a_readable_journal,
         test_claim_status_decides_what_is_announced_and_journaled,
+        test_claimed_drop_is_not_claimed_again_after_inventory_sync,
         test_console_log_buffer_keeps_an_hour_and_folds_counters,
         test_console_journal_keeps_five_hours_and_serves_only_new_lines,
         test_service_log_file_rotates_and_stays_utf8,
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_reward_campaigns_unit_tests,
+        test_reward_campaigns_setting_state_and_request,
+        test_reward_campaigns_queue_force_hide_and_categories_api,
+        test_reward_campaigns_daily_slot_and_auto_queue_settings,
         test_installer_script_keeps_its_promises,
     ]
     # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped

@@ -1676,6 +1676,9 @@ export const App: React.FC = () => {
 
               oauthUri={sentinelState.oauth_uri}
 
+              rewardCampaigns={sentinelState.reward_campaigns}
+              rewardWatching={sentinelState.reward_watching ?? null}
+
               onToggleAutoShutdown={() =>
 
                 handleUpdateSettings({
@@ -1770,6 +1773,11 @@ export const App: React.FC = () => {
               onManualRefresh={handleManualRefresh}
 
               lastSyncAt={lastSyncAt}
+              rewardCampaigns={sentinelState.settings.reward_campaigns_enabled === true ? sentinelState.reward_campaigns : undefined}
+              hiddenRewardList={sentinelState.settings.hidden_reward_campaigns}
+              rewardCategories={sentinelState.settings.reward_campaign_categories}
+              rewardWatchingId={sentinelState.reward_watching?.id ?? null}
+              onUpdateSettings={handleUpdateSettings}
 
               onShowToast={showToast}
 

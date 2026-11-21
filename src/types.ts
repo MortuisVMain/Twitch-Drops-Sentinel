@@ -12,6 +12,8 @@ export interface ActiveDrop {
   is_claimed: boolean;
   can_claim: boolean;
   preview_url?: string;
+  source?: 'local'; // set while a reward campaign is watched and no Twitch drop is linked yet: the numbers are the local estimate
+  reward?: boolean; // the hero shows a reward campaign watch, not a drops campaign
 }
 
 export interface HardwareGuard {
@@ -85,6 +87,11 @@ export interface SentinelSettings {
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
   giveaways_enabled?: boolean;
+  reward_campaigns_enabled?: boolean; // show Twitch reward campaigns and farm their watch time (subscriptions are never bought)
+  reward_daily_slot?: boolean; // default true: a queued reward campaign takes the daily slot before drops until today's goal is reached
+  reward_auto_queue?: boolean; // default false: new farmable reward campaigns are appended to the end of the queue
+  hidden_reward_campaigns?: string[]; // campaign ids the user hid: still in the state with hidden=true, never farmed (post the whole list)
+  reward_campaign_categories?: Record<string, string>; // campaign id -> category name chosen by the user (post the whole map; an empty name removes an entry)
   disabled_tabs?: ('shelf' | 'steamidle' | 'dimmer')[]; // optional tabs turned off; Giveaways follows giveaways_enabled
   giveaways_selected_stores?: StoreId[];
   giveaways_headless?: boolean;
@@ -115,6 +122,53 @@ export interface SentinelLogEntry {
   replaces?: number | null;
 }
 
+/** One reward group of a reward campaign: what has to be done (watch minutes or subscriptions) and what it gives. Subscriptions are display-only. */
+export interface RewardGroup {
+  goalKind: 'watch' | 'subs' | 'other';
+  minutes: number; // 0 when the group has no watch goal
+  subs: number; // 0 when the group has no subscription goal
+  rewards: { name: string; image?: string | null; earnableUntil?: string | null }[];
+}
+
+/** The category a reward campaign is watched in: source game (Twitch names it), user (chosen in settings) or guess (found in the texts and checked with Twitch). */
+export interface RewardCategory {
+  name: string;
+  slug: string;
+  source: 'game' | 'guess' | 'user';
+}
+
+/** A Twitch reward campaign (quest or brand offer) as the service trims it; its watch time is farmed in `category`. */
+export interface RewardCampaign {
+  id: string;
+  name: string;
+  brand?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  summary?: string | null;
+  instructions?: string | null;
+  url?: string | null; // https only
+  game?: string | null;
+  image?: string | null; // https only
+  rewards?: { name: string; image?: string | null; earnableUntil?: string | null }[];
+  minutesGoal?: number | null;
+  subsGoal?: number | null;
+  groups?: RewardGroup[];
+  sitewide?: boolean; // not tied to one game
+  category?: RewardCategory | null; // null: no category could be found, so it cannot be farmed (the user can set one)
+  farmable?: boolean; // a watch group with minutes AND a category
+  watchedToday?: number; // whole minutes watched today (UTC day), counted by the app
+  dailyGoal?: number | null; // minutes of the watch group, null without one
+  doneToday?: boolean; // dailyGoal reached today: it is eligible again from the next UTC day
+  earned?: boolean; // Twitch said the reward was earned
+  dailyRewardToday?: boolean; // today's daily reward (a badge a day) was received
+  twitchMinutes?: number | null; // minutes Twitch itself reports for the linked drop today, null while it reports none
+  progressSource?: 'twitch' | 'local'; // whose number watchedToday is: Twitch's, or the local count when Twitch reports nothing
+  cappedToday?: boolean; // given up for today: Twitch's counter did not finish after the local safety cap
+  daysDone?: number; // UTC days on which the watch goal was reached
+  daysTotal?: number | null; // days the campaign runs when its summary says so ("six different days")
+  hidden?: boolean; // the user hid it: shown by the page only on request, never farmed
+}
+
 export interface FullSentinelState {
   version?: string;
   connected: boolean;
@@ -127,6 +181,10 @@ export interface FullSentinelState {
   hardware: HardwareGuard;
   stats: SentinelStats;
   settings: SentinelSettings;
+  reward_campaigns?: RewardCampaign[]; // empty while the setting is off
+  reward_watching?: { id: string; name: string } | null; // the reward campaign being watched right now
+  slot_minutes_today?: number; // minutes the daily reward slot took today (UTC), before drops
+  slot_budget_today?: number; // minutes it may take today: the largest queued daily goal, at most 60; 0 while the slot is off
   installed_games: GameItem[];
   all_catalog_games: GameItem[];
   ignored_games?: string[];

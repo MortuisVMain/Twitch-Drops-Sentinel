@@ -191,6 +191,8 @@ from atomic_json import atomic_write_json
 from auto_shutdown import next_countdown, priority_drops_done
 from settings_transaction import apply_change, save_transaction
 from tab_visibility import apply_disabled_tabs, tab_enabled
+import reward_campaigns
+import reward_watch
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
 from profile_backup import profile_entries, write_backup
@@ -325,6 +327,25 @@ SLUG_TO_GAME_NAME = {
     "aion2": "AION 2",
 }
 
+def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
+    """Appends the new farmable reward campaigns to the end of priority_games (when the switch is on) and saves; returns the
+    campaign ids appended, None when there was nothing to add. A campaign appended once is never appended again."""
+    new_priority, added = reward_campaigns.auto_queue_plan(STATE_BRIDGE, service.settings)
+    if not added:
+        return None
+    apply_change(service.settings, lambda current: current.update({"priority_games": new_priority}), service.save_settings)
+    reward_watch.REWARD_WATCH.ledger.mark_queued(added)
+    logger.info("Reward auto-queue: %d campaign(s) added to the end of the queue: %s", len(added), ", ".join(added))
+    STATE_BRIDGE.add_log("INFO", f"[НАГРАДА] В очередь добавлено кампаний наград: {len(added)}")
+    return added
+
+
+def normalize_priority_entry(name: str) -> str:
+    """A queue entry: a game name is normalised, a `reward:<campaignId>` key is kept as it is (normalising would destroy it)."""
+    stripped = name.strip() if isinstance(name, str) else name
+    return reward_watch.clean_key(stripped) if reward_watch.is_reward_key(stripped) else normalize_game_name(name)
+
+
 def normalize_game_name(name: str) -> str:
     cleaned = name.strip()
     low = cleaned.lower()
@@ -348,6 +369,11 @@ SUPERVISOR_DEFAULTS = {
     "claim_channel_points": True,
     "auto_claim_drops": True,
     "giveaways_enabled": True,
+    "reward_campaigns_enabled": False,  # show Twitch reward campaigns on the dashboard and farm their watch time (subs are never bought)
+    "reward_daily_slot": True,  # a queued reward campaign takes the daily slot before drops until today's goal is reached
+    "reward_auto_queue": False,  # append new farmable reward campaigns (watch goal + category) to the end of the queue
+    "hidden_reward_campaigns": [],  # reward campaign ids the user hid: kept in the state with hidden=true, never farmed
+    "reward_campaign_categories": {},  # reward campaign id -> category name chosen by the user (empty name removes it)
     "disabled_tabs": [],  # optional tabs the user turned off: shelf, steamidle, dimmer (giveaways follows giveaways_enabled)
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
@@ -387,6 +413,8 @@ class SentinelSupervisor:
         self.twitch_client: Optional[Twitch] = None
         self.scanner = GameScanner()
         self.settings: dict = self.load_settings()
+        reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
+        STATE_BRIDGE.reward_auto_queue_hook = lambda: apply_reward_auto_queue(self)
         set_native_toasts(self.settings.get("native_toasts", True))
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
@@ -430,6 +458,7 @@ class SentinelSupervisor:
                 # utf-8-sig: Notepad and PowerShell save a BOM, which plain utf-8 refuses to parse
                 with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
+                    reward_campaigns.drop_invalid_setting(data)
                     default_settings.update(data)
                     apply_disabled_tabs(default_settings)
             except Exception as e:
@@ -452,7 +481,7 @@ class SentinelSupervisor:
 
         # Normalize priority_games from config.json
         if "priority_games" in default_settings:
-            norm_list = [normalize_game_name(g) for g in default_settings["priority_games"]]
+            norm_list = [normalize_priority_entry(g) for g in default_settings["priority_games"]]
             seen = set()
             default_settings["priority_games"] = [g for g in norm_list if not (g in seen or seen.add(g))]
 
@@ -460,7 +489,7 @@ class SentinelSupervisor:
         try:
             devilxd_settings = json_load(SETTINGS_PATH, devilxd_default_settings)
             if devilxd_settings.get("priority"):
-                p_list = [normalize_game_name(g) for g in devilxd_settings["priority"]]
+                p_list = [normalize_priority_entry(g) for g in devilxd_settings["priority"]]
                 seen = set()
                 default_settings["priority_games"] = [g for g in p_list if not (g in seen or seen.add(g))]
             if devilxd_settings.get("exclude"):
@@ -475,7 +504,7 @@ class SentinelSupervisor:
 
     def save_settings(self):
         # 1. Normalize priority games list
-        priority_list = [normalize_game_name(g) for g in self.settings.get("priority_games", [])]
+        priority_list = [normalize_priority_entry(g) for g in self.settings.get("priority_games", [])]
         seen = set()
         deduped_priority = [g for g in priority_list if not (g in seen or seen.add(g))]
         self.settings["priority_games"] = deduped_priority
@@ -848,6 +877,7 @@ class SentinelSupervisor:
                 g["box_art"] = cover
 
         installed_games = [g for g in catalog_games if g.get("is_installed")]
+        slot_minutes, slot_budget = reward_campaigns.slot_status(STATE_BRIDGE, self.settings)
 
         return {
             "version": self.get_app_version(),
@@ -870,6 +900,10 @@ class SentinelSupervisor:
                 "total_farm_hours": uptime_hours,
             },
             "settings": self.settings,
+            "reward_campaigns": reward_campaigns.state_list(STATE_BRIDGE, self.settings),
+            "reward_watching": getattr(STATE_BRIDGE, "reward_watching", None) if self.settings.get("reward_campaigns_enabled") is True else None,
+            "slot_minutes_today": slot_minutes,
+            "slot_budget_today": slot_budget,
             "trophies": trophies,
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
@@ -982,15 +1016,21 @@ class SentinelSupervisor:
         try:
             data = await request.json()
             if "priority_games" in data:
-                norm_p = [normalize_game_name(g) for g in data["priority_games"]]
+                norm_p = [normalize_priority_entry(g) for g in data["priority_games"]]
                 seen = set()
                 data["priority_games"] = [g for g in norm_p if not (g in seen or seen.add(g))]
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             apply_disabled_tabs(data)
+            reward_campaigns.drop_invalid_setting(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
+            try:
+                apply_reward_auto_queue(self)
+            except Exception as exc:  # the settings are saved already: a failing auto-queue must not turn the POST into an error
+                logger.error("Reward auto-queue failed after saving the settings: %s", exc, exc_info=True)
             self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
             if "language" in data:
                 self.apply_engine_language()
@@ -1178,6 +1218,10 @@ class SentinelSupervisor:
             game = (data.get("game") or "").strip()
             if not game:
                 return web.json_response({"status": "error", "message": "Game name is required"}, status=400)
+            if reward_watch.is_reward_key(game):
+                problem = reward_campaigns.force_problem(STATE_BRIDGE, self.settings, reward_watch.reward_id(game))
+                if problem:
+                    return web.json_response({"status": "error", "message": problem}, status=400)
             logger.info(f"API Force Farm: Requesting manual farm override for '{game}'")
             STATE_BRIDGE.forced_game = game
             if self.twitch_client:
@@ -1349,6 +1393,7 @@ class SentinelSupervisor:
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, to_defaults, self.save_settings)
             self._schedule_module_sync(steam_idle_was_on, dimmer_was_on)
+            reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
             STATE_BRIDGE.add_log("INFO", "Настройки сброшены к заводским значениям. Список исключений античита Steam IDLE сохранён.")
             await self.broadcast_ws()
             return web.json_response({"status": "ok", "settings": self.settings})
@@ -1879,7 +1924,7 @@ class SentinelSupervisor:
         while self.is_running:
             try:
                 enabled = bool(self.settings.get("auto_shutdown_on_complete", False))
-                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []))
+                done = bool(self.twitch_client) and priority_drops_done(self.twitch_client.inventory, self.settings.get("priority_games", []), reward_campaigns.queue_pending(STATE_BRIDGE, self.settings))
                 was_counting = self.luna_countdown is not None
                 step = next_countdown(self.luna_countdown, enabled, done, self.luna_fired)
                 self.luna_countdown = step.countdown
