@@ -59,6 +59,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Найдено игр: (\d+)$/, 'Games found: $1'],
   [/^Не удалось получить диагностический отчет \(HTTP (\d+)\)\.$/, 'Could not get the diagnostic report (HTTP $1).'],
   [/^Ошибка проверки: (.+)$/, 'Check error: $1'],
+  [/^Доступно обновление v(.+) \(бета\)$/, 'Update available v$1 (beta)'],
   [/^Доступно обновление v(.+)$/, 'Update available v$1'],
   [/^Установлена актуальная версия v(.+)$/, 'You have the latest version v$1'],
   [/^Собрано: \+(.+) бонусных очков$/, 'Collected: +$1 bonus points'],

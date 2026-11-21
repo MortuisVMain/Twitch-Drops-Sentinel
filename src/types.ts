@@ -83,6 +83,7 @@ export interface SentinelSettings {
   pause_on_gaming: boolean;
   pause_on_battery: boolean;
   native_toasts: boolean;
+  update_channel?: 'stable' | 'beta'; // beta: pre-releases are offered too
   ui_sound_enabled?: boolean;
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
@@ -396,6 +397,8 @@ export interface UpdateCheckResult {
   download_url: string;
   asset_api_url?: string;
   html_url: string;
+  prerelease?: boolean; // the offered version is a GitHub pre-release (beta channel)
+  channel?: 'stable' | 'beta';
   /** Why the check failed; the other fields then hold the last known result */
   error?: string;
 }

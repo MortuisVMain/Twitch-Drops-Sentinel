@@ -35,6 +35,9 @@ CACHE_FILE = PROJECT_DIR / "data" / "update_check_cache.json"
 
 from version import __version__ as CURRENT_VERSION
 REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases/latest"
+# the beta channel reads the newest releases, pre-releases included (/releases/latest never returns a pre-release)
+REPO_RELEASES_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases?per_page=20"
+UPDATE_CHANNELS = ("stable", "beta")
 UPDATE_CACHE_SECONDS = 900
 # A caller waits this long for the check already in flight (its own request is capped at 8s plus the token lookup)
 CHECK_WAIT_SECONDS = 30.0
@@ -145,6 +148,32 @@ def parse_version(v: str) -> tuple[int, ...]:
         if digits:
             parts.append(int(digits))
     return tuple(parts) if parts else (0, 0, 0)
+
+def version_key(v: str) -> tuple:
+    """Sort key where a pre-release comes before its release: 3.9.0-beta.2 < 3.9.0 < 3.9.1.
+    parse_version alone would read 3.9.0-beta.2 as 3.9.0.2, newer than 3.9.0."""
+    clean = str(v).strip().lstrip("vV")
+    base, _, suffix = clean.partition("-")
+    numbers = parse_version(base)
+    numbers = numbers + (0,) * max(0, 3 - len(numbers))
+    if not suffix:
+        return (numbers, 1, ())
+    return (numbers, 0, parse_version(suffix) if any(ch.isdigit() for ch in suffix) else ())
+
+
+def pick_release(releases: Any, include_prerelease: bool) -> Optional[dict]:
+    """The newest published release from a GitHub /releases list; drafts are never picked, pre-releases only
+    when asked. None when nothing fits."""
+    best = None
+    for rel in releases if isinstance(releases, list) else []:
+        if not isinstance(rel, dict) or rel.get("draft") or not rel.get("tag_name"):
+            continue
+        if rel.get("prerelease") and not include_prerelease:
+            continue
+        if best is None or version_key(rel["tag_name"]) > version_key(best["tag_name"]):
+            best = rel
+    return best
+
 
 def get_optional_github_token() -> str:
     """Safely retrieves GitHub token if available (env, config, or git credential manager)."""
@@ -264,6 +293,7 @@ class GitHubUpdater:
         self._last_error: str = ""
         self._cached_result: Optional[dict[str, Any]] = None
         self._is_updating: bool = False
+        self.channel: str = "stable"  # set from config.json "update_channel"
         self._lock = threading.Lock()  # guards the fields above and the status; never held during a request
         self._check_lock = threading.Lock()  # one request to GitHub at a time
         self._attempts: int = 0  # finished requests, so a caller that waited can tell its answer arrived
@@ -306,11 +336,25 @@ class GitHubUpdater:
         except Exception as e:
             logger.debug(f"Could not save update cache: {e}")
 
+    def set_channel(self, channel: Any) -> None:
+        """'stable' or 'beta'; anything else is stable. A change drops the cached answer of the other channel."""
+        channel = channel if channel in UPDATE_CHANNELS else "stable"
+        with self._lock:
+            if channel == self.channel:
+                return
+            self.channel = channel
+            self._cached_result = None
+            self.last_check_time = 0.0
+            self._retry_not_before = 0.0
+        logger.info("Update channel: %s", channel)
+
     def check_for_updates(self, force: bool = False) -> dict[str, Any]:
         """Callers arriving while a request is in flight wait for its answer instead of sending their own."""
         now = time.time()
         # Cache for 15 minutes unless force refresh requested
         with self._lock:
+            if self._cached_result and self._cached_result.get("channel", "stable") != self.channel:
+                self._cached_result = None  # an answer saved for the other channel
             if not force and self._cached_result and (now - self.last_check_time) < UPDATE_CACHE_SECONDS:
                 return self._cached_result
             attempts_seen = self._attempts
@@ -365,15 +409,23 @@ class GitHubUpdater:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        req = urllib.request.Request(REPO_API_URL, headers=headers)
+        with self._lock:
+            channel = self.channel
+        beta = channel == "beta"
+        result["channel"] = channel
+        req = urllib.request.Request(REPO_RELEASES_URL if beta else REPO_API_URL, headers=headers)
         opener = urllib.request.build_opener(SafeAuthRedirectHandler)
 
         try:
             with opener.open(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+                if beta:
+                    data = pick_release(data, include_prerelease=True)
+                    if data is None:
+                        raise ValueError("GitHub returned no published release")
                 remote_tag = data["tag_name"]
-                remote_ver = parse_version(remote_tag)
-                local_ver = parse_version(live_current)
+                remote_ver = version_key(remote_tag)
+                local_ver = version_key(live_current)
 
                 update_avail = remote_ver > local_ver
                 assets = data.get("assets", [])
@@ -413,6 +465,7 @@ class GitHubUpdater:
                     "asset_api_url": chosen_api_asset,
                     "is_hot_patch": bool(patch_url),
                     "published_at": data.get("published_at", ""),
+                    "prerelease": bool(data.get("prerelease")),
                 })
                 with self._lock:
                     self._cached_result = result
