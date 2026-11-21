@@ -200,6 +200,7 @@ from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
 from updater import UPDATE_CHANNELS, UPDATER
+import farm_schedule
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import set_enabled as set_native_toasts
@@ -391,6 +392,7 @@ SUPERVISOR_DEFAULTS = {
     "pause_on_battery": True,
     "native_toasts": True,
     "update_channel": "stable",
+    "farm_schedule": dict(farm_schedule.DEFAULT_SCHEDULE),
     "ui_sound_enabled": True,
     "claim_channel_points": True,
     "auto_claim_drops": True,
@@ -1054,6 +1056,8 @@ class SentinelSupervisor:
             apply_disabled_tabs(data)
             if "update_channel" in data and data["update_channel"] not in UPDATE_CHANNELS:
                 data["update_channel"] = "stable"
+            if "farm_schedule" in data:
+                data["farm_schedule"] = farm_schedule.normalize(data["farm_schedule"])
             reward_campaigns.drop_invalid_setting(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
@@ -1531,7 +1535,7 @@ class SentinelSupervisor:
                 self.hardware_state["detected_game"] = None
                 self.hardware_state["is_gaming"] = False
                 on_battery = self.hardware_state.get("on_battery", False)
-                self.hardware_state["is_paused"] = self.force_paused or (on_battery and self.settings.get("pause_on_battery", True))
+                self.hardware_state["is_paused"] = self.force_paused or (on_battery and self.settings.get("pause_on_battery", True)) or bool(self.hardware_state.get("schedule_paused"))
                 if self.twitch_client and not self.hardware_state["is_paused"]:
                     self.twitch_client.sentinel_paused = False
                     logger.info(f"Hardware Guard: Process '{proc}' ignored by user. Resumed farming.")
@@ -1959,6 +1963,10 @@ class SentinelSupervisor:
                         break
 
                 is_gaming = detected_game is not None
+                schedule = farm_schedule.normalize(self.settings.get("farm_schedule"))
+                local_now = datetime.now()
+                outside_schedule = not farm_schedule.in_window(schedule, local_now)
+                schedule_next = farm_schedule.next_change(schedule, local_now)
                 try:  # any detected game suspends Steam IDLE, even with pause_on_gaming off: a held game blocks launching it
                     self.steam_idle.set_suspended(is_gaming)
                 except Exception:
@@ -1969,7 +1977,9 @@ class SentinelSupervisor:
                     "detected_game": detected_game,
                     "on_battery": on_battery,
                     "cpu_percent": round(cpu_pct),
-                    "is_paused": self.force_paused or (is_gaming and self.settings.get("pause_on_gaming", True)) or (on_battery and self.settings.get("pause_on_battery", True)),
+                    "is_paused": self.force_paused or (is_gaming and self.settings.get("pause_on_gaming", True)) or (on_battery and self.settings.get("pause_on_battery", True)) or outside_schedule,
+                    "schedule_paused": outside_schedule,
+                    "schedule_next": schedule_next.isoformat(timespec="minutes") if schedule_next else None,
                 })
 
                 # Pause/Resume twitch client if active
@@ -1978,9 +1988,18 @@ class SentinelSupervisor:
                     if should_pause != getattr(self.twitch_client, "sentinel_paused", False):
                         self.twitch_client.sentinel_paused = should_pause
                         if should_pause:
-                            logger.info(f"Hardware Guard: Paused farming (Reason: {detected_game or 'Battery'})")
-                            if self.settings.get("native_toasts", True):
-                                send_windows_toast("Twitch Drops Sentinel", f"Пауза: обнаружена игра {detected_game}")
+                            if detected_game and self.settings.get("pause_on_gaming", True):
+                                reason, toast = detected_game, f"Пауза: обнаружена игра {detected_game}"
+                            elif outside_schedule:
+                                resume = f" Фарм продолжится в {schedule_next.strftime('%H:%M')}." if schedule_next else ""
+                                reason, toast = "Schedule", f"Пауза по расписанию фарма.{resume}"
+                            elif self.force_paused:
+                                reason, toast = "User", None
+                            else:
+                                reason, toast = "Battery", "Пауза: ноутбук работает от батареи"
+                            logger.info(f"Hardware Guard: Paused farming (Reason: {reason})")
+                            if toast and self.settings.get("native_toasts", True):
+                                send_windows_toast("Twitch Drops Sentinel", toast)
                         else:
                             logger.info("Hardware Guard: Resumed farming.")
 

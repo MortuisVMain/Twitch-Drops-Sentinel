@@ -787,6 +787,31 @@ const filteredLogs = useMemo(() => {
         </div>
       )}
 
+      {/* 1b. FARM SCHEDULE PAUSE BANNER */}
+      {hardware.schedule_paused && !hardware.detected_game && (
+        <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in" role="status">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
+            <span className="led-dot amber" />
+            <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ПАУЗА ПО РАСПИСАНИЮ:</strong>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              {hardware.schedule_next
+                ? `Сейчас вне окна фарма. Фарм продолжится ${new Date(hardware.schedule_next).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`
+                : 'В расписании не выбран ни один день, фарм не начнётся.'}
+            </span>
+          </div>
+          {onUpdateSettings && settings.farm_schedule && (
+            <button
+              className="tactile-btn active-amber"
+              style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
+              onClick={() => { playClick(); onUpdateSettings({ farm_schedule: { ...settings.farm_schedule!, enabled: false } }); }}
+              title="Выключить расписание и фармить сейчас"
+            >
+              <Play className="ui-icon" aria-hidden="true" focusable="false" /> Фармить сейчас
+            </button>
+          )}
+        </div>
+      )}
+
       {/* 2. OAUTH DEVICE CODE BANNER */}
       {oauthCode && (
         <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in">

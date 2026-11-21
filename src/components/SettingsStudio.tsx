@@ -4,6 +4,7 @@ import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatu
 import { getLang, setLang, type Lang } from '../i18n';
 import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { FarmScheduleCard } from './FarmScheduleCard';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 import { rewardSwitches } from '../utils/rewardCampaigns.mjs';
@@ -723,6 +724,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </div>
             </div>
           </div>
+
+          <FarmScheduleCard schedule={settings.farm_schedule} onChange={(next) => onUpdateSettings({ farm_schedule: next })} playClick={playClick} />
 
           {/* Game Folders Island */}
           <div className="titanium-island" style={{ gap: '8px', display: 'flex', flexDirection: 'column' }}>
