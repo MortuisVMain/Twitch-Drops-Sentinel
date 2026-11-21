@@ -258,7 +258,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         await self.env.settle()
         state = ctl.state()
         self.assertEqual(set(state), {"available", "unavailableReason", "riskAcknowledged", "steam", "community", "farm", "library", "preview",
-                                      "achievements", "busy"})
+                                      "achievements", "denylist", "busy"})
         self.assertIs(state["busy"], False)
         self.assertEqual(set(state["steam"]), {"running", "signedIn"})
         self.assertEqual(set(state["community"]), {"session", "checkedAgeSeconds"})
@@ -438,8 +438,8 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_recent_game_is_held_back_until_released_by_hand(self):
         wall = [1_800_000_000.0]
         store = FirstSeenStore(None, lambda: wall[0])
-        store.observe([gd(100, 5)])
-        store.observe([gd(200, 2)])
+        store.observe([gd(100, 5)], ACCOUNT)
+        store.observe([gd(200, 2)], ACCOUNT)
         ctl = self.make(drops=[[gd(100, 5), gd(200, 6)]], first_seen=store)
         self.env.signed_in()
         ctl.start()
@@ -472,7 +472,8 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(ctl.scan())
             await self.env.settle()
             data = json.loads((Path(tmp) / FIRST_SEEN_FILE).read_text(encoding="utf-8"))
-            self.assertEqual(data["firstSeen"], {"100": 0, "200": wall[0]})
+            (bucket,) = data["accounts"].values()  # one bucket, keyed by a hash of the account
+            self.assertEqual(bucket["firstSeen"], {"100": 0, "200": wall[0]})
 
     async def test_release_held_without_a_run_is_not_held(self):
         self.assertEqual(self.make().release_held(5), "not_held")

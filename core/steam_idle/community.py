@@ -1,4 +1,5 @@
 """Reads the Steam Community `drops` and `library` commands of the browser script (one JSON line on stdout)."""
+import collections
 import json
 import logging
 import math
@@ -66,6 +67,56 @@ def _read_lines(stream, lines: "queue.Queue[str | None]") -> None:
         lines.put(None)
 
 
+_STDERR_LINES = 20
+_STDERR_LINE_CHARS = 200
+_STDERR_READ_CHARS = 65536  # a longer line is dropped whole: a secret must never be cut in half by the reader
+_STDERR_TOTAL_BYTES = 4096
+_KEYS = (r"(?:steamLoginSecure|steamLogin\w*|steamMachineAuth\w*|sessionid|steamid|cookie|token|authorization|secret"
+         r"|password|passwd|api[_-]?key)")
+_COOKIE_HEADER = re.compile(r"(?i)\b(set-cookie|cookie)\s*:.*$")
+_NAME_VALUE = re.compile(r"(?i)(\bname\s*[=:]\s*[\"']?" + _KEYS + r"[\"']?\s*,\s*[\"']?value[\"']?\s*[=:]\s*)[\"']?[^\"'\s,}]*[\"']?")
+_BEARER = re.compile(r"(?i)\b(bearer|basic)\s+\S+")
+_SECRET = re.compile(r"(?i)([\"']?\b" + _KEYS + r"\b[\"']?)(?:\s*[=:]\s*|\s+)[\"']?[^\s\"',;}]+[\"']?")
+_STEAM_ID64 = re.compile(r"(?<!\d)7656\d{13}(?!\d)")
+_STEAM_ID3 = re.compile(r"\[U:1:\d+\]")
+_ID_WORD_NUMBER = re.compile(r"(?i)(\b\w*(?:id|account|steam)\w*[\"']?)(\s*[=:]\s*|\s+)[\"']?\d{6,}")
+_HEX_RUN = re.compile(r"(?<![0-9A-Za-z])[0-9A-Fa-f]{24,}(?![0-9A-Za-z])")
+_LONG_TOKEN = re.compile(r"[A-Za-z0-9%_+/=-]{32,}")
+
+
+def _scrub(line: str) -> str:
+    """One stderr line with anything that looks like a cookie, token or account id replaced, then cut to size.
+    The replacing comes first: a secret that starts before the cut must not survive as a shortened piece."""
+    line = _COOKIE_HEADER.sub(r"\1: <hidden>", line)
+    line = _NAME_VALUE.sub(r"\1<hidden>", line)
+    line = _BEARER.sub(r"\1 <hidden>", line)
+    line = _SECRET.sub(r"\1=<hidden>", line)
+    line = _STEAM_ID64.sub("<id>", line)
+    line = _STEAM_ID3.sub("[U:1:<id>]", line)
+    line = _ID_WORD_NUMBER.sub(r"\1\2<id>", line)
+    line = _HEX_RUN.sub("<hidden>", line)
+    return _LONG_TOKEN.sub("<hidden>", line)[:_STDERR_LINE_CHARS]
+
+
+def _read_stderr(stream, tail: "collections.deque[str]") -> None:
+    """Keep the last scrubbed lines of the script's stderr (bounded memory); runs until the pipe closes."""
+    try:
+        while chunk := stream.readline(_STDERR_READ_CHARS):
+            if len(chunk) == _STDERR_READ_CHARS and not chunk.endswith("\n"):
+                while (rest := stream.readline(_STDERR_READ_CHARS)) and not rest.endswith("\n"):
+                    pass  # drop the rest of an over-long line
+                tail.append("<over-long line dropped>")
+            elif chunk.strip():
+                tail.append(_scrub(chunk.rstrip("\r\n")))
+    except (OSError, ValueError) as err:  # the pipe was closed under us after a kill
+        logger.debug("community stderr reader stopped: %s", err)
+
+
+def _stderr_tail(tail: "collections.deque[str]") -> str:
+    text = "\n".join(tail)
+    return text.encode("utf-8")[-_STDERR_TOTAL_BYTES:].decode("utf-8", errors="ignore")
+
+
 def _expect_args(expected_steam_id64: str | None) -> list[str]:
     """The script's `--expect=<id>` argument; an id that is not a valid SteamID64 is refused before anything runs."""
     if expected_steam_id64 is None:
@@ -82,7 +133,7 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
     """Run `<prefix> <verb>`, return its single JSON result line once it is a complete, successful result."""
     extra = _expect_args(expected_steam_id64)
     try:
-        proc = spawn(command(prefix, verb, *extra))
+        proc = spawn(command(prefix, verb, *extra), stderr=subprocess.PIPE)
     except OSError as error:
         logger.error("community %s start failed: %s", verb, error)
         raise CommunityError("start_failed") from error
@@ -91,18 +142,30 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
     lines: "queue.Queue[str | None]" = queue.Queue()
     reader = threading.Thread(target=_read_lines, args=(proc.stdout, lines), daemon=True)
     reader.start()
+    err_tail: "collections.deque[str]" = collections.deque(maxlen=_STDERR_LINES)
+    err_reader = threading.Thread(target=_read_stderr, args=(proc.stderr, err_tail), daemon=True)
+    err_reader.start()
+    failure: CommunityError | None = None
     try:
         proc.stdin.close()
         return _result(proc, lines, timeout, ok_status)
     except CommunityError as err:
         logger.error("community %s failed: %s", verb, err.code)
+        failure = err
         raise
     finally:
         kill_tree(proc)  # also reaps a browser the script may have left behind
         with _LIVE_LOCK:
             _LIVE.discard(proc)
         reader.join(timeout=2)
-        for stream in (proc.stdin, proc.stdout):
+        err_reader.join(timeout=2)
+        err_reader_alive = err_reader.is_alive()
+        if err_reader_alive:  # closing a pipe another thread is blocked on can hang; the process is already dead
+            logger.warning("community %s: the stderr reader is still running, its pipe is left open", verb)
+        if failure is not None:
+            logger.warning("community %s run failed: %s (exit %s); script stderr tail:\n%s", verb, failure.code,
+                           proc.returncode, _stderr_tail(err_tail) or "(empty)")
+        for stream in (proc.stdin, proc.stdout, None if err_reader_alive else proc.stderr):
             if stream is not None:
                 stream.close()
 

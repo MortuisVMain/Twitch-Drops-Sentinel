@@ -101,6 +101,8 @@ export const refusalText = (code: string | null, session = 'signed_out', giveawa
     case 'achievements_not_acknowledged': return 'Сначала включите выдачу достижений в их разделе.';
     case 'not_ready': return 'Список игр ещё не загружен. Загрузите его и повторите.';
     case 'protected_app': return 'Игра с античитом: достижения в ней не выдаются.';
+    case 'already_builtin': return 'Эта игра уже есть во встроенном списке античита.';
+    case 'denylist_full': return 'Список заполнен. Уберите ненужные игры и повторите.';
     case 'account_changed': return 'Сейчас в Steam другой аккаунт. Продолжить эту выдачу нельзя.';
     case 'not_held': return 'Эту игру уже не удерживают. Список обновится.';
     case 'no_interrupted_run': return 'Прерванной выдачи больше нет.';

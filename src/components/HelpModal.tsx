@@ -32,6 +32,8 @@ interface HelpModalProps {
   activeTab?: NavTab;
   /** False while the Dimmer tab is turned off in Settings: its hotkeys do nothing, so their rows are hidden. */
   dimmerEnabled?: boolean;
+  /** The digits that open tabs right now ('1–6'): they follow the visible tabs, so the label does too. */
+  digitRange?: string;
 }
 
 type HelpCategory = 'dashboard' | 'shelf' | 'giveaways' | 'dimmer' | 'settings' | 'hotkeys';
@@ -189,10 +191,10 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
   }
 };
 
-type HotkeyRow = { key: string; label: string; desc: string; dimmerOnly?: boolean; descWithoutDimmer?: string };
+type HotkeyRow = { key: string; label: string; desc: string; dimmerOnly?: boolean; descWithoutDimmer?: string; digits?: boolean };
 
 const HOTKEYS_LIST: HotkeyRow[] = [
-  { key: 'Цифры', label: 'Переключение вкладок', desc: 'Цифра открывает вкладку, если она не выключена в настройках' },
+  { key: 'Цифры', label: 'Переключение вкладок', desc: 'Цифра открывает вкладку по порядку слева направо; выключенные вкладки пропускаются', digits: true },
   { key: 'Ctrl + K', label: 'Палитра команд', desc: 'Открывает быстрый переход и поиск по играм' },
   { key: 'Ctrl + M', label: 'Режим PiP', desc: 'Переключает компактный режим окна' },
   { key: 'Alt + Backspace', label: 'Сброс ручного фокуса', desc: 'Возвращает фарм из выбранной вручную игры к обычной очереди. На вкладке «Диммер» — блэкаут экранов', descWithoutDimmer: 'Возвращает фарм из выбранной вручную игры к обычной очереди' },
@@ -205,7 +207,7 @@ const HOTKEYS_LIST: HotkeyRow[] = [
   { key: 'Колесо мыши', label: 'Лог консоли', desc: 'Скролл ленты реального времени в терминале активности' },
 ];
 
-export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab = 'dashboard', dimmerEnabled = true }) => {
+export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab = 'dashboard', dimmerEnabled = true, digitRange = '' }) => {
   const { playClick } = useTactileAudio();
   const [selectedCategory, setSelectedCategory] = useState<HelpCategory>('dashboard');
   const triggerElementRef = useRef<HTMLElement | null>(null);
@@ -391,7 +393,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
                       <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 leading-snug break-words">{!dimmerEnabled && hk.descWithoutDimmer ? hk.descWithoutDimmer : hk.desc}</div>
                     </div>
                     <kbd className="px-2 py-0.5 rounded-md bg-(--bg-well) border border-(--border-subtle) text-[length:var(--fs-xs)] tabular font-bold text-(--led-mint) shadow-inner shrink-0 select-none">
-                      {hk.key}
+                      {hk.digits && digitRange ? digitRange : hk.key}
                     </kbd>
                   </div>
                 ))}

@@ -45,9 +45,10 @@ class AchievementsRun:
                  session_error: Callable[[str], bool], is_closed: Callable[[], bool], steam_id: Callable[[int], str],
                  clock: Callable[[], float], uniform: Callable[[float, float], float],
                  sleep: Callable[[float], Awaitable[None]], protection: "ProtectionChecker",
-                 store: InterruptedStore, wall_clock: Callable[[], float] = time.time):
+                 store: InterruptedStore, wall_clock: Callable[[], float] = time.time,
+                 user_denied: Callable[[int], bool] = lambda app_id: False):
         self._gate, self._get_setting, self._set_setting = gate, get_setting, set_setting
-        self._protection = protection
+        self._protection, self._user_denied = protection, user_denied  # user_denied: the user's own anti-cheat games
         self._store, self._wall_clock = store, wall_clock
         self._interrupted: dict | None = store.load()  # a run the last session did not finish; never started by itself
         self._record: dict | None = None  # the record of the run in progress, rewritten whenever a game finishes
@@ -149,7 +150,7 @@ class AchievementsRun:
         expected = self._steam_id(client.account_id)
         if account_hash_required is not None and account_hash(expected) != account_hash_required:
             return "account_changed"
-        if not isinstance(plan, LibraryPlan) and self._protection.is_builtin(plan.app_id):
+        if not isinstance(plan, LibraryPlan) and (self._protection.is_builtin(plan.app_id) or self._user_denied(plan.app_id)):
             return "protected_app"
         self._tools, self._account, self._expected = tools, client.account_id, expected
         self._cancel, self._preparing, self._keep_record = False, False, False
@@ -229,7 +230,9 @@ class AchievementsRun:
 
     def _queue_classify(self, app_id: int) -> str:
         """Step thread: the anti-cheat verdict, asked of the checker on the event loop. Anything but an answer is unknown;
-        a shutdown or stop abandons the wait."""
+        a shutdown or stop abandons the wait. A game on the user's own list is protected without asking the store."""
+        if self._user_denied(app_id):
+            return "protected"
         future = asyncio.run_coroutine_threadsafe(self._protection.classify(app_id), self._event_loop)
         deadline = time.monotonic() + _CLASSIFY_WAIT_SECONDS
         while True:

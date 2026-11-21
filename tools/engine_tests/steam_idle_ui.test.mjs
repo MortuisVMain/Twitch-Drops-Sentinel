@@ -154,3 +154,22 @@ test('the finished-game facts always show the unlocked count and the other count
   ]);
   assert.deepEqual(finishedFacts({ unlocked: 1 }), [{ label: 'Выдано', count: 1 }]);
 });
+
+const { parseDenyTarget } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'denyParse.mjs')).href);
+
+test('the deny field takes an AppID or a store page address and nothing else', () => {
+  for (const text of ['730', ' 730 ', 'https://store.steampowered.com/app/730', 'https://store.steampowered.com/app/730/',
+    'https://store.steampowered.com/app/730/Counter-Strike_2/?l=russian#x', 'http://store.steampowered.com/app/730/X', 'store.steampowered.com/app/730/X']) {
+    assert.deepEqual(parseDenyTarget(text), { appId: 730 }, text);
+  }
+  assert.deepEqual(parseDenyTarget('4294967295'), { appId: 4294967295 });
+});
+test('an empty deny field is not an error, a bad one is', () => {
+  assert.deepEqual(parseDenyTarget('   '), { appId: null, bad: false });
+  for (const text of ['0', '007', '-5', '7x0', '730 440', '4294967296', 'https://store.steampowered.com/', 'https://store.steampowered.com/app/',
+    'https://store.steampowered.com/app/x', 'https://store.steampowered.com/app/730x', 'https://evil.example/app/730',
+    'https://store.steampowered.com.evil.example/app/730', 'https://steamcommunity.com/app/730', 'ftp://store.steampowered.com/app/730',
+    'https://store.steampowered.com/agecheck/app/730']) {
+    assert.deepEqual(parseDenyTarget(text), { appId: null, bad: true }, text);
+  }
+});

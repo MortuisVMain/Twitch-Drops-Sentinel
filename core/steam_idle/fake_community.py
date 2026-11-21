@@ -31,6 +31,14 @@ if mode == "hang":
         handle.write(f"{os.getpid()} {child.pid}")
     time.sleep(300)
 
+if mode == "noisy":
+    for number in range(1, 31):
+        print(f"diag line {number}", file=sys.stderr)
+    print("cookie steamLoginSecure=76561198000000000%7C%7CSECRETVALUE123 sessionid=abcDEF0123456789", file=sys.stderr)
+    print("Authorization: Bearer TOKENVALUE987 " + "x" * 600, file=sys.stderr, flush=True)
+    emit({"status": "failed", "error": "unparsed_row"})
+    sys.exit(4)
+
 if mode == "signed_out":
     emit({"status": "signed_out"})
     sys.exit(3)

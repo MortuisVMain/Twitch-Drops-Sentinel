@@ -79,10 +79,11 @@ def child_env() -> dict[str, str]:
     return {key: value for key, value in os.environ.items() if key.upper() != WRITE_GATE}
 
 
-def spawn(cmd: list[str], env: "dict[str, str] | None" = None) -> subprocess.Popen:
-    """Start a helper child. `env` defaults to `child_env()`; only the unlock path passes one that carries the gate."""
+def spawn(cmd: list[str], env: "dict[str, str] | None" = None, stderr: int = subprocess.DEVNULL) -> subprocess.Popen:
+    """Start a helper child. `env` defaults to `child_env()`; only the unlock path passes one that carries the gate.
+    `stderr` is DEVNULL unless the caller reads the pipe itself (the community reader does)."""
     proc = subprocess.Popen(cmd, shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                            stderr=stderr, text=True, encoding="utf-8", errors="replace",
                             env=child_env() if env is None else env,
                             creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
     try:

@@ -1,11 +1,15 @@
 """Offline checks for the community reader, driven by a fake script run through the current interpreter."""
+import collections
+import io
 import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from steam_idle import community
 from steam_idle.community import (CommunityError, GameDrops, OwnedGame, farmable, kill_in_flight, read_drops,
                                   read_library, read_status)
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
@@ -52,6 +56,76 @@ class CommunityTests(unittest.TestCase):
     def test_failed_line_carries_the_helper_code(self):
         self.assert_code(read_drops, "failed", "failed:unparsed_row")
         self.assert_code(read_library, "failed", "failed:unparsed_row")
+
+    def test_failed_read_logs_the_script_stderr_tail_without_secrets(self):
+        with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+            self.assert_code(read_drops, "noisy", "failed:unparsed_row")
+        warnings = [r.getMessage() for r in logged.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1, warnings)
+        text = warnings[0]
+        self.assertIn("drops", text)
+        self.assertIn("exit 4", text)
+        self.assertIn("failed:unparsed_row", text)
+        self.assertIn("diag line 30", text)
+        self.assertNotIn("diag line 1\n", text + "\n")
+        self.assertNotIn("diag line 10\n", text + "\n")  # older than the last ~20 lines
+        for secret in ("SECRETVALUE123", "abcDEF0123456789", "TOKENVALUE987", "76561198000000000"):
+            self.assertNotIn(secret, text)
+        self.assertLessEqual(len(text.encode("utf-8")), 4096 + 300)  # tail cap plus the fixed prefix
+
+    def test_scrub_hides_every_secret_shape(self):
+        samples = {
+            '"sessionid":"abc123DEF456ghi"': "abc123DEF456ghi",
+            "{ name: 'sessionid', value: 'ZZsecretvalue99' }": "ZZsecretvalue99",
+            "{ name: 'steamLoginSecure', value: 'JWTpart%7C%7Cmore' }": "JWTpart",
+            "Cookie: a=1; steamLoginSecure=XYZ789; b=2": "XYZ789",
+            "set-cookie: sessionid=QQQ555; Path=/; HttpOnly": "QQQ555",
+            "Cookie: theme=dark; lang=ru": "theme=dark",
+            "failed for deadbeefdeadbeefdeadbeef01 now": "deadbeefdeadbeefdeadbeef01",
+            "user 76561198012345678 refused": "76561198012345678",
+            "id76561198012345678x": "76561198012345678",
+            "profile [U:1:52079950] refused": "52079950",
+            "accountid=52079950 mismatch": "52079950",
+            "steam id 52079950 mismatch": "52079950",
+            "Authorization: Bearer TOK12345": "TOK12345",
+            "password: 'hunter2hunter2'": "hunter2hunter2",
+        }
+        for line, secret in samples.items():
+            with self.subTest(line=line):
+                scrubbed = community._scrub(line)
+                self.assertNotIn(secret, scrubbed)
+                self.assertLessEqual(len(scrubbed), 200)
+
+    def test_scrub_runs_before_the_line_is_cut(self):
+        line = "x" * 190 + " sessionid=SECRETTAILVALUE99"
+        self.assertNotIn("SECRETTAIL", community._scrub(line))
+        self.assertNotIn("SECRETTAIL", community._scrub(" " * 150 + "token=SECRETTAILVALUE99"))
+
+    def test_a_secret_split_by_a_long_line_never_reaches_the_tail(self):
+        stream = io.StringIO("a" * 70000 + " sessionid=SPLITSECRET123\nlast line\n")
+        tail = collections.deque(maxlen=20)
+        community._read_stderr(stream, tail)
+        self.assertNotIn("SPLITSECRET", "\n".join(tail))
+        self.assertEqual(tail[-1], "last line")
+        self.assertLessEqual(max(len(line) for line in tail), 200)
+
+    def test_a_stderr_reader_that_does_not_end_leaves_the_pipe_open(self):
+        gate, procs = threading.Event(), []
+        real_spawn = community.spawn
+
+        def spy(*args, **kwargs):
+            procs.append(real_spawn(*args, **kwargs))
+            return procs[-1]
+
+        with mock.patch.object(community, "spawn", spy), mock.patch.object(community, "_read_stderr", lambda s, t: gate.wait(10)):
+            with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+                read_drops(self.fake("ok"))
+        try:
+            self.assertFalse(procs[0].stderr.closed)
+            self.assertTrue(any("still running" in line for line in logged.output), logged.output)
+        finally:
+            gate.set()
+            procs[0].stderr.close()
 
     def test_garbage_is_a_protocol_error(self):
         self.assert_code(read_drops, "garbage", "protocol")

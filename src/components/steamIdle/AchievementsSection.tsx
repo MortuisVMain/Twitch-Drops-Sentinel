@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { SteamIdleAchievements, SteamIdleState } from '../../types';
 import { AchAllGames } from './AchAllGames';
+import { AchDenylist } from './AchDenylist';
 import { AchFinished } from './AchFinished';
 import { AchGate } from './AchGate';
 import { AchInterrupted } from './AchInterrupted';
@@ -24,6 +25,15 @@ const Workspace: React.FC<Props & { takeFocus: boolean }> = ({ s, ach, busy, sen
   const library = useLibraryGames(status === 'ready', scans);
   const runActive = achRunActive(ach.run.state);
   useBusyRetry(library, runActive);
+  // The anti-cheat labels of the game list come with it: read it again when the user's own list changes.
+  const denySig = s.denylist ? s.denylist.entries.map((e) => e.appId).join(',') : null;
+  const prevDeny = useRef(denySig);
+  const { reload } = library;
+  useEffect(() => {
+    if (prevDeny.current === denySig) return;
+    prevDeny.current = denySig;
+    if (status === 'ready') reload();
+  }, [denySig, status, reload]);
   return (
     <>
       <AchInterrupted interrupted={ach.interrupted} runActive={runActive} busy={busy} send={send} />
@@ -31,6 +41,7 @@ const Workspace: React.FC<Props & { takeFocus: boolean }> = ({ s, ach, busy, sen
       <AchOneGame s={s} ach={ach} library={library} busy={busy} send={send} />
       <AchPace saved={ach.settings} runActive={runActive} busy={busy} send={send} />
       <AchAllGames s={s} games={library.data} runActive={runActive} busy={busy} send={send} />
+      {s.denylist && <AchDenylist list={s.denylist} busy={busy} send={send} />}
       <AchFinished finished={ach.run.finished} />
     </>
   );

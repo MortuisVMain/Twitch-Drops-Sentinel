@@ -191,4 +191,6 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^день (\d+) из (\d+)$/, 'day $1 of $2'],
   [/^день (\d+)$/, 'day $1'],
   [/^#(\d+) в очереди$/, '#$1 in the queue'],
+  // tab tooltips carry their hotkey digit: 'Полка игр (2)'
+  [/^([^()]*[А-Яа-яЁё][^()]*) \((\d)\)$/, '$1 ($2)'],
 ];

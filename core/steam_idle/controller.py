@@ -22,9 +22,11 @@ from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
 from .community import CommunityError
 from .farm import CardFarm, FarmRules
 from .first_seen import FILE_NAME as FIRST_SEEN_FILE_NAME, FirstSeenStore
+from .node_locator import find_node
 from .interrupted import RECORD_FILE_NAME, InterruptedStore
 from .presence import Presence
-from .protection import CACHE_FILE_NAME, ProtectionChecker
+from .protection import (BUILTIN, CACHE_FILE_NAME, MAX_USER_DENYLIST, USER_DENYLIST_KEY, ProtectionChecker, clean_user_denylist,
+                         is_builtin)
 from .wake import Wake
 
 logger = logging.getLogger(__name__)
@@ -79,14 +81,15 @@ class Tools:
 
 
 def find_tools(app_root: Path, engine_root: Path, which: Callable[[str], str | None] = shutil.which,
-               platform_name: str = sys.platform) -> Tools:
-    """Installed helper first, then the dev build; node is found the way the giveaways controller finds it."""
+               platform_name: str = sys.platform, fallback: Callable[[], str | None] = lambda: None) -> Tools:
+    """Installed helper first, then the dev build; node is found the way the giveaways controller finds it, then by
+    `fallback` (a Node.js installed after the app started is not on this process's PATH yet)."""
     if platform_name != "win32":
         return Tools("unsupported")
     helper = next((path for path in (app_root / rel for rel in _HELPER_CANDIDATES) if path.is_file()), None)
     if helper is None:
         return Tools("helper_missing")
-    node, script = which("node"), engine_root / "steam-community.js"
+    node, script = which("node") or fallback(), engine_root / "steam-community.js"
     if node is None or not script.is_file():
         return Tools("node_missing")
     return Tools(None, helper, (node, str(script)))
@@ -166,6 +169,7 @@ class SteamIdleController:
         self._step_done.set()
         self._wake = Wake()
         self._first_seen = first_seen or FirstSeenStore(None, wall_clock)
+        self._first_seen.bind_account(lambda: self._run_account)  # the farm's holds follow the account it runs for
         self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard,
                               on_command=self._wake.set, refund=self._first_seen)
         self._achv = AchievementsRun(
@@ -177,7 +181,7 @@ class SteamIdleController:
             cached_games=self._cached_games, cached_preview=self._cached_preview, store_library=self._store_library,
             session_error=self._session_error,
             is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep,
-            protection=self._protection, wall_clock=wall_clock,
+            protection=self._protection, user_denied=lambda app_id: app_id in self._user_denylist(), wall_clock=wall_clock,
             store=InterruptedStore(None if data_dir is None else data_dir / RECORD_FILE_NAME))
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
@@ -195,6 +199,7 @@ class SteamIdleController:
         self._closed = False
         self._preview: tuple[int, list, float] | None = None  # account id, farmable games, read time
         self._preview_error: str | None = None
+        self._deny_cache: tuple[str, list[int]] | None = None  # repr of the stored list, its cleaned form
 
     # payload
     def state(self) -> dict:
@@ -218,6 +223,7 @@ class SteamIdleController:
             "library": self._library_payload(client.account_id),
             "preview": self._preview_payload(client.account_id),
             "achievements": self._achv.payload(),
+            "denylist": self._denylist_payload(),
             "busy": self._running() or self._achv.active(),
         }
 
@@ -270,7 +276,7 @@ class SteamIdleController:
 
     def _store_preview(self, account_id: int, drops: list) -> None:
         games = community.farmable(drops)
-        self._first_seen.observe(games)
+        self._first_seen.observe(games, account_id)
         self._preview, self._preview_error = (account_id, games, self._clock()), None
 
     # commands: None = accepted, otherwise a refusal code
@@ -349,7 +355,61 @@ class SteamIdleController:
         self._library_payload(self._client_state().account_id)  # applies the lazy drop
         if self._library is None:
             return None
-        return [{"appId": g.app_id, "name": g.name, "playtimeMinutes": g.playtime_minutes} for g in self._library[1]]
+        user = set(self._user_denylist())
+        return [{"appId": g.app_id, "name": g.name, "playtimeMinutes": g.playtime_minutes,
+                 "protected": is_builtin(g.app_id) or g.app_id in user, "userDenied": g.app_id in user}
+                for g in self._library[1]]
+
+    # the user's own anti-cheat games, merged with the built-in table
+    def _user_denylist(self) -> list[int]:
+        """The stored list, cleaned. Bad entries are warned about once per distinct stored value, not on every poll."""
+        raw = self._get_setting(USER_DENYLIST_KEY, [])
+        signature = repr(raw)
+        if self._deny_cache is None or self._deny_cache[0] != signature:
+            self._deny_cache = (signature, clean_user_denylist(raw))
+        return self._deny_cache[1]
+
+    def _game_name(self, app_id: int) -> str | None:
+        for cache in (self._library, self._preview):
+            if cache is not None:
+                for game in cache[1]:
+                    if game.app_id == app_id:
+                        return game.name
+        return BUILTIN.get(app_id)
+
+    def _denylist_payload(self) -> dict:
+        return {"max": MAX_USER_DENYLIST, "builtinCount": len(BUILTIN),
+                "entries": [{"appId": app_id, "name": self._game_name(app_id)} for app_id in self._user_denylist()]}
+
+    @staticmethod
+    def _valid_app_id(app_id: object) -> bool:
+        return type(app_id) is int and 1 <= app_id <= 0xFFFFFFFF
+
+    def deny_add(self, app_id: object) -> str | None:
+        """Never touch this game with achievements, on the user's word."""
+        if not self._module_enabled():
+            return "module_disabled"
+        if not self._valid_app_id(app_id):
+            return "invalid_request"
+        if is_builtin(app_id):
+            return "already_builtin"
+        current = self._user_denylist()
+        if app_id in current:
+            return None
+        if len(current) >= MAX_USER_DENYLIST:
+            return "denylist_full"
+        self._set_setting(USER_DENYLIST_KEY, [*current, app_id])
+        return None
+
+    def deny_remove(self, app_id: object) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
+        if not self._valid_app_id(app_id):
+            return "invalid_request"
+        current = self._user_denylist()
+        if app_id in current:
+            self._set_setting(USER_DENYLIST_KEY, [item for item in current if item != app_id])
+        return None
 
     async def achievements_of(self, app_id: int) -> list[dict] | str:
         """Live read of one game's achievements: a refusal code, or the list; AchievementsError when the read failed."""
@@ -693,6 +753,15 @@ def _kill_reads() -> None:
     achievements.kill_in_flight()
 
 
+def _active_account() -> int:
+    """The Steam account active now (0 when none or unreadable): the owner of an old first-seen record."""
+    try:
+        return read_steam_client().account_id
+    except Exception:  # registry or process lookup failed: the record then goes to the first account seen
+        logger.warning("active Steam account could not be read", exc_info=True)
+        return 0
+
+
 def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[..., object],
                       set_setting: Callable[[str, object], None], inert: bool = False,
                       module_enabled: Callable[[], bool] = lambda: True) -> SteamIdleController:
@@ -707,8 +776,8 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
     return SteamIdleController(
         module_enabled=module_enabled, engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
-        first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time),
-        get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root),
+        first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time, claimant=_active_account()),
+        get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root, fallback=find_node),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,
         kill_reads=_kill_reads, read_achievements=achievements.read_achievements, unlock=achievements.unlock_achievements)

@@ -10,6 +10,7 @@ clock and the sleep are injected, so tests never touch the network.
 import asyncio
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -69,9 +70,59 @@ BUILTIN: dict[int, str] = {
     1623730: "Palworld",
     2073850: "THE FINALS",
     1240440: "Halo Infinite",
+    1599340: "Lost Ark",
+    1824220: "Chivalry 2",
+    1063730: "New World: Aeternum",
+    2479810: "Gray Zone Warfare",
+    1144200: "Ready or Not",
+    304930: "Unturned",
+    513710: "SCUM",
+    2507950: "Delta Force",
+    2139460: "Once Human",
+    438100: "VRChat",
+    1874880: "Arma Reforger",
+    2399830: "ARK: Survival Ascended",
+    2622380: "ELDEN RING NIGHTREIGN",
+    1888160: "ARMORED CORE™ VI FIRES OF RUBICON™",
+    1361210: "Warhammer 40,000: Darktide",
+    2807960: "Battlefield™ 6",
+    1962663: "Call of Duty®: Warzone™",
+    2195250: "EA SPORTS FC™ 24",
+    2669320: "EA SPORTS FC™ 25",
+    1818750: "MultiVersus",
 }
 
 Fetch = Callable[[str], Awaitable[tuple[int, str]]]  # url -> (HTTP status, body text)
+
+USER_DENYLIST_KEY = "steam_idle_user_denylist"  # the user's own anti-cheat games, merged with BUILTIN by the controller
+MAX_USER_DENYLIST = 500
+_UINT32_MAX = 0xFFFFFFFF
+_PLAIN_ID = re.compile(r"[1-9][0-9]{0,9}")
+
+
+def clean_user_denylist(raw: object) -> list[int]:
+    """The valid app ids of a stored user list, in order, without repeats, at most MAX_USER_DENYLIST.
+    Anything else is ignored with one warning that carries the count only."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        logger.warning("%s is not a list and is ignored", USER_DENYLIST_KEY)
+        return []
+    unique: dict[int, None] = {}  # an insertion-ordered set
+    bad = 0
+    for item in raw:
+        if type(item) is str and _PLAIN_ID.fullmatch(item):
+            item = int(item)  # a hand-edited file: keeping the game is the safe reading
+        if type(item) is not int or not 1 <= item <= _UINT32_MAX:
+            bad += 1
+        else:
+            unique.setdefault(item)
+    ids = list(unique)
+    over = max(len(ids) - MAX_USER_DENYLIST, 0)
+    if bad or over:  # one warning with counts only; the valid entries are kept either way
+        logger.warning("%s: %d invalid entries and %d entries over the cap of %d ignored", USER_DENYLIST_KEY, bad, over,
+                       MAX_USER_DENYLIST)
+    return ids[:MAX_USER_DENYLIST]
 
 
 def is_builtin(app_id: int) -> bool:
