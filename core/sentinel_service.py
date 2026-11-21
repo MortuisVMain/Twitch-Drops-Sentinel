@@ -199,7 +199,7 @@ from profile_backup import BackupError, apply_pending_restore, profile_entries, 
 from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
-from updater import UPDATER
+from updater import UPDATE_CHANNELS, UPDATER
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import set_enabled as set_native_toasts
@@ -390,6 +390,7 @@ SUPERVISOR_DEFAULTS = {
     "pause_on_gaming": True,
     "pause_on_battery": True,
     "native_toasts": True,
+    "update_channel": "stable",
     "ui_sound_enabled": True,
     "claim_channel_points": True,
     "auto_claim_drops": True,
@@ -441,6 +442,7 @@ class SentinelSupervisor:
         reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
         STATE_BRIDGE.reward_auto_queue_hook = lambda: apply_reward_auto_queue(self)
         set_native_toasts(self.settings.get("native_toasts", True))
+        UPDATER.set_channel(self.settings.get("update_channel", "stable"))
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
         self.force_paused = False
@@ -547,6 +549,7 @@ class SentinelSupervisor:
 
         priority_mode_val = int(self.settings.get("priority_mode", 0))
         set_native_toasts(self.settings.get("native_toasts", True))
+        UPDATER.set_channel(self.settings.get("update_channel", "stable"))
 
         # 2-3. Supervisor config and DevilXD engine settings.json (full type serialization): both or neither
         def write_supervisor():
@@ -1049,6 +1052,8 @@ class SentinelSupervisor:
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             apply_disabled_tabs(data)
+            if "update_channel" in data and data["update_channel"] not in UPDATE_CHANNELS:
+                data["update_channel"] = "stable"
             reward_campaigns.drop_invalid_setting(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")

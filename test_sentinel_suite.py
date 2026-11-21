@@ -1243,7 +1243,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     # 2. Verify updater.py dynamic local version reading and cache invalidation
     updater_py = (SANDBOX / "core" / "updater.py").read_text(encoding="utf-8")
     assert "def get_live_local_version()" in updater_py, "updater.py must contain get_live_local_version"
-    assert "local_ver = parse_version(live_current)" in updater_py, "updater.py must compare against live_current"
+    assert "local_ver = version_key(live_current)" in updater_py, "updater.py must compare against live_current"
     assert "self._cached_result = None" in updater_py, "updater.py must invalidate cache on update apply"
 
     # 3. Verify GiveawaysView.tsx two-tier persistence
@@ -6317,7 +6317,7 @@ def test_reward_campaigns_unit_tests():
 
 
 # core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
-CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore"]
+CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel"]
 
 
 def test_core_feature_unit_tests():

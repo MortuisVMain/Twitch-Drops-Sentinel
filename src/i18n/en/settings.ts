@@ -141,4 +141,8 @@ export const SETTINGS: Record<string, string> = {
   'Восстановить': 'Restore',
   'Выбрать .zip бэкапа в другом месте, например с другого компьютера': 'Pick a backup .zip from elsewhere, for example from another computer',
   'Выбрать файл…': 'Pick a file…',
+  'Предлагать и pre-release версии с GitHub: новые функции раньше, но они могут быть сырыми': 'Offer GitHub pre-releases too: new features sooner, but they may be rough',
+  'Бета-версии: вкл': 'Beta versions: on',
+  'Бета-версии: выкл': 'Beta versions: off',
+  '(бета)': '(beta)',
 };

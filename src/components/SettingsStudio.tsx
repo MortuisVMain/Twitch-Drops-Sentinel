@@ -419,7 +419,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     : updateProgress && updateProgress.stage !== 'idle'
       ? updateProgress.error_message || updateStageNames[updateProgress.stage] || updateProgress.stage
       : updateInfo?.update_available
-        ? `Доступно обновление v${updateInfo.remote_version}`
+        ? `Доступно обновление v${updateInfo.remote_version}${updateInfo.prerelease ? ' (бета)' : ''}`
         : updateCheckFailure
           ? `Не удалось проверить обновления: ${updateCheckFailure}`
           : updateInfo
@@ -979,6 +979,20 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 />
               </div>
             </div>
+            <button
+              className="tactile-btn"
+              role="switch"
+              aria-checked={settings.update_channel === 'beta'}
+              onClick={() => {
+                playClick();
+                onUpdateSettings({ update_channel: settings.update_channel === 'beta' ? 'stable' : 'beta' });
+                // the service drops the other channel's answer; ask again once the setting has landed
+                if (onCheckUpdates) setTimeout(() => { void onCheckUpdates().catch((err) => console.error('SettingsStudio: update check after the channel switch failed', err)); }, 800);
+              }}
+              title="Предлагать и pre-release версии с GitHub: новые функции раньше, но они могут быть сырыми"
+            >
+              {settings.update_channel === 'beta' ? 'Бета-версии: вкл' : 'Бета-версии: выкл'}
+            </button>
             <button className="chunky-cta" onClick={handleCheckUpdates} disabled={isCheckingUpdates || !onCheckUpdates}>
               {isCheckingUpdates ? 'Проверка...' : 'Проверить обновления'}
             </button>
