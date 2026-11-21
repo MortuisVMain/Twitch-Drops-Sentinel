@@ -1,5 +1,5 @@
 // Steam Community web session in its own browser profile (not the giveaways one), used to read the badges pages.
-// Usage: node steam-community.js login | dump <outDir> | status|drops|library [--expect=<steamid64>]
+// Usage: node steam-community.js login|status|drops|library [--expect=<steamid64>] | dump <outDir>
 // Prints exactly one JSON line to stdout (diagnostics go to stderr); exit code 0 ok, 3 signed out, 4 failure,
 // 5 the signed-in account is not the expected one (status account_mismatch; the id is never printed).
 // Cookie values, tokens, the SteamID and the account name are never printed, logged or written.
@@ -23,7 +23,7 @@ export const parseArgs = argv => {
   const [command, ...rest] = argv;
   if (['login', 'status', 'drops', 'library'].includes(command) && rest.length == 0) return { command };
   const expect = /^--expect=(\d{17})$/.exec(rest[0] ?? '')?.[1];
-  if (['status', 'drops', 'library'].includes(command) && rest.length == 1 && expect) return { command, expect };
+  if (['login', 'status', 'drops', 'library'].includes(command) && rest.length == 1 && expect) return { command, expect };
   if (command == 'dump' && rest.length == 1 && rest[0]) return { command, outDir: rest[0] };
   return { error: 'usage' };
 };
@@ -56,30 +56,44 @@ class DumpError extends Error {
 
 const hasSessionCookie = async context => (await context.cookies(BASE)).some(c => c.name == 'steamLoginSecure');
 
-// the session cookie must exist and /my/badges must resolve to a profile badges page
-const isSignedIn = async context => {
-  if (!await hasSessionCookie(context)) return false;
+// null when signed out; otherwise the SteamID64 named by the badges page ('' when the page names none).
+// The session cookie must exist and /my/badges must resolve to a profile badges page.
+const signedInAs = async context => {
+  if (!await hasSessionCookie(context)) return null;
   const page = await context.newPage();
   try {
     await page.goto(`${BASE}/my/badges`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    return isBadgesUrl(page.url());
+    return isBadgesUrl(page.url()) ? extractSteamId(await page.content()) ?? '' : null;
   } finally {
     await page.close();
   }
 };
 
-const login = async (context, delay) => {
+const isSignedIn = async context => await signedInAs(context) !== null;
+
+// With `expect`, a session of another account is signed out (the profile is this script's own, so every cookie
+// goes: login.steampowered.com would sign the same account back in) and the sign-in page is shown again; the
+// window stays open until the expected account signs in, the user closes it or the time runs out.
+export const login = async (context, delay, expect) => {
   let closed = false;
   context.on('close', () => { closed = true; });
-  const page = context.pages()[0] ?? await context.newPage();
-  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(error => {
-    if (!closed) throw error;
-  });
+  const openLoginPage = async () => {
+    const page = context.pages()[0] ?? await context.newPage();
+    await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(error => {
+      if (!closed) throw error;
+    });
+  };
+  await openLoginPage();
   for (const deadline = Date.now() + LOGIN_TIMEOUT_MS; !closed && Date.now() < deadline;) {
     await delay(3000);
     if (closed) break;
     try {
-      if (await isSignedIn(context)) return { status: 'signed_in' };
+      const id = await signedInAs(context);
+      if (id === null) continue;
+      if (!expect || id === expect) return { status: 'signed_in' };
+      console.error('steam-community: signed in to another account than the Steam client; signing it out');
+      await context.clearCookies();
+      if (!closed) await openLoginPage();
     } catch (error) {
       if (!closed) console.error('steam-community: sign-in check failed, retrying: %s', error.message);
     }
@@ -202,7 +216,7 @@ const runCommand = async ({ command, outDir, expect }) => {
   const visible = command == 'login';
   const context = await launchContext(cfg, { channel: 'chrome', headless: !visible, viewport: visible ? null : { width: 1280, height: 900 }, args: [] });
   try {
-    if (command == 'login') return await login(context, delay);
+    if (command == 'login') return await login(context, delay, expect);
     if (command == 'dump') return await dump(context, outDir, delay);
     if (command == 'drops' || command == 'library' || (command == 'status' && expect)) {
       const page = await context.newPage();

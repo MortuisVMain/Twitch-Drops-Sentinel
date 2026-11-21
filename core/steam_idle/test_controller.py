@@ -71,7 +71,7 @@ class Env:
         self.library = [OwnedGame(1, "a", 0), OwnedGame(2, "b", 0), OwnedGame(3, "c", 0)]
         self.library_calls = self.drops_calls = 0
         self.expected_seen, self.status_calls, self.status_error = [], [], None
-        self.presences, self.login_commands, self.login_gate = [], [], None
+        self.presences, self.login_commands, self.login_expected, self.login_gate = [], [], [], None
         self.now, self.sleeps, self.on_sleep, self.freeze_at = 1000.0, [], None, None
         self.read_gate, self.read_entered, self.kills, self.start_error = None, threading.Event(), 0, None
         self.read_threads = []
@@ -149,8 +149,9 @@ class Env:
         self.presences.append(FakePresence(self, helper, steam_id))
         return self.presences[-1]
 
-    async def run_login(self, command):
+    async def run_login(self, command, expected_steam_id64=None):
         self.login_commands.append(tuple(command))
+        self.login_expected.append(expected_steam_id64)
         if self.login_gate is not None:
             await self.login_gate.wait()
 
@@ -675,6 +676,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctl.start(), "busy")
         await asyncio.sleep(0.05)
         self.assertEqual(self.env.login_commands, [("node", "steam-community.js")])
+        self.assertEqual(self.env.login_expected, [steam_id64(ACCOUNT)], "the window must not settle for another account")
         self.assertEqual(self.env.status_calls, [])
         gate.set()
         await self.env.settle()
@@ -687,8 +689,9 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         await self.env.settle()
         self.assertEqual(ctl.state()["community"]["session"], "unknown")
         self.assertEqual(self.env.status_calls, [])
+        self.assertEqual(self.env.login_expected, [None], "no client account: any account may sign in")
 
-        async def broken(command):
+        async def broken(command, expected_steam_id64=None):
             raise OSError("no node")
 
         self.env.client = SteamClient(True, ACCOUNT)

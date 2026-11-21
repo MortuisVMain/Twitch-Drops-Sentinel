@@ -134,9 +134,11 @@ class HeldPresence:
         return self._presence.is_running()
 
 
-async def run_login(prefix: Sequence[str]) -> int | None:
-    """Run `<node> steam-community.js login` (its browser window is the visible part) until it exits."""
-    proc = spawn(build_command(prefix, "login"))
+async def run_login(prefix: Sequence[str], expected_steam_id64: str | None = None) -> int | None:
+    """Run `<node> steam-community.js login [--expect=<id>]` (its browser window is the visible part) until it exits.
+
+    With an expected id the window signs out a session of another account instead of closing on it."""
+    proc = spawn(build_command(prefix, "login", *([f"--expect={expected_steam_id64}"] if expected_steam_id64 else [])))
     try:
         proc.stdin.close()
         return await asyncio.to_thread(proc.wait)
@@ -697,8 +699,9 @@ class SteamIdleController:
             self._store_library(account_id, games)
 
     async def _do_login(self, tools: Tools) -> None:
+        before = self._client_state()  # the account the web session has to match; none when the client is signed out
         try:
-            await self._run_login(tools.community)
+            await self._run_login(tools.community, steam_id64(before.account_id) if before.signed_in else None)
         except OSError:
             logger.error("sign-in window could not be started", exc_info=True)
             self._session = "error"
