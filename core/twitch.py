@@ -1638,6 +1638,9 @@ class Twitch:
             special = self._is_special_game(campaign.game)
             for drop in campaign.drops:
                 if drop.is_claimed:
+                    if link.drop_id is not None and drop.id == link.drop_id:
+                        self._reward_note_claim(drop)  # Twitch finished and claimed it between our reports: the day is done
+                        return
                     continue
                 if link.drop_id is not None and drop.id == link.drop_id:
                     self._reward_feed(drop, drop.real_current_minutes, drop.required_minutes, "inventory")

@@ -161,6 +161,28 @@ class InventoryPathTests(SourceBase):
         self.assertEqual(rw.REWARD_WATCH.ledger.twitch_today("a")["minutes"], 9)
         self.assertGreaterEqual(self.hero(), 9)
 
+    def test_a_refetch_that_brings_the_linked_drop_claimed_closes_the_day(self):
+        # Twitch counted the last minutes and claimed the drop itself between our reports: the day is done, not left at 55/60
+        special_inventory(self.engine, drops=(("dx", "GTA DVD Drops", 55, False),))
+        self.engine._reward_scan_inventory()
+        self.assertEqual(rw.REWARD_WATCH.ledger.twitch_today("a"), {"minutes": 55, "required": 60, "done": False})
+        self.engine._drops.clear()
+        self.engine.inventory.clear()
+        special_inventory(self.engine, drops=(("dx", "GTA DVD Drops", 60, True),))
+        self.engine._reward_scan_inventory()
+        self.assertEqual(rw.REWARD_WATCH.ledger.twitch_today("a"), {"minutes": 60, "required": 60, "done": True})
+        self.assertEqual(STATE_BRIDGE.reward_drop_id, "dx")
+        self.assertTrue(self.engine._reward_current_view()["doneToday"], "the watch beat sees the day as done and stops")
+
+    def test_a_claimed_drop_that_is_not_linked_still_does_not_link_or_close(self):
+        special_inventory(self.engine, drops=(("dx", "GTA DVD Drops", 5, False),))
+        self.engine._reward_scan_inventory()
+        self.engine._drops.clear()
+        self.engine.inventory.clear()
+        special_inventory(self.engine, drops=(("dx", "GTA DVD Drops", 5, False), ("dy", "Final Trophy", 60, True)))
+        self.engine._reward_scan_inventory()
+        self.assertEqual(rw.REWARD_WATCH.ledger.twitch_today("a"), {"minutes": 5, "required": 60, "done": False})
+
     def test_the_scan_without_a_reward_target_does_nothing(self):
         special_inventory(self.engine, drops=(("dx", "GTA DVD Drops", 5, False),))
         self.engine._set_reward_target(None)
