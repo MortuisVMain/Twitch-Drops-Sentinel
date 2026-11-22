@@ -3,16 +3,11 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
-- Code structure: the biggest files are split into modules (service helpers, game names, the Ctrl+K palette, the mini-window deck, the focus catalog dialog). Nothing changes for the user.
-- Telegram and Discord: Settings can send the app's notifications to a Telegram bot chat or a Discord webhook, with a Test button. Same events as the Windows notifications, whether or not those are on, plus a notification for each newly claimed free game. The bot token and webhook address are stored encrypted for your Windows account and are never shown again.
-- Lost sign-ins: when a sign-in the app relies on is gone (Twitch, a giveaways store, Steam Community for Steam IDLE), a notification says which one and what stopped, once, also if it ran out while the app was closed. The Twitch sign-in code notification now follows the Windows notifications switch.
-- History and stats (menu … or Ctrl+K): Twitch drops and claimed free games in one feed, totals for 7 days, 30 days and all time, a chart of the last 8 weeks, filters, and a CSV export for Excel.
-- Update rollback: an update now keeps the files it replaced. If the new version works worse, Settings has a "Roll back to v…" button that puts the previous version back and restarts; the version rolled back from is not offered again, a newer one is. Settings and sign-ins are never touched.
-- Verification suite: every gate runs now, a failure no longer hides the gates after it. The end lists passed, failed (with the reason), skipped and the five slowest gates; the exit code is 1 on any failure. `--fail-fast` (or SUITE_FAIL_FAST=1) keeps the old stop-at-first behavior, `-k NAME` runs a subset, `--list` prints the gates, SUITE_OFFLINE=1 skips the live Twitch search gate.
-- Profile restore: Settings, Danger zone, "Restore from backup" lists the backups in data/backups or takes a .zip from anywhere (for example from another PC). The archive is checked first, the current profile is saved as its own backup, and the files are put back at the next start, so the running app cannot save over them.
-- Beta channel: Settings has a "Beta versions" switch next to the update check. When it is on, GitHub pre-releases are offered too and marked as beta; a final release still beats its betas, and switching back to stable never offers a pre-release.
-- Farm schedule: Settings has a Farm schedule card (off by default): farming runs only inside a daily window on the chosen weekdays, for example 01:00 to 09:00. A window may run past midnight. Outside it farming pauses with a notification, and the dashboard says when it resumes, with a Farm now button that turns the schedule off.
-- Queue deadlines: a queued game whose campaign will close before the queue reaches and finishes it is marked in the queue ("won't make it in the queue") with the time left, and a Windows notification suggests moving it up. A campaign too short even when started now says so. An estimate from the watching still needed.
+
+## [3.9.0] - 2026-11-22
+- Notifications and safety: Telegram and Discord copies of the app's notifications (secrets stored encrypted), a notification when a sign-in is lost, a warning when a queued game's campaign will close before the queue reaches it, a "Roll back to v…" button after an update, restore of a profile backup, and an opt-in beta update channel.
+- Farming and stats: a daily farm schedule (quiet hours, may run past midnight) with a "Farm now" button, and a History and stats window with weekly totals and a CSV export.
+- Under the hood: the verification suite runs every gate and prints a summary, and the biggest source files are split into modules. Nothing changes for the user.
 
 ## [3.8.0] - 2026-11-21
 - Reward campaigns (opt-in, off by default): Sentinel fetches Twitch reward campaigns (quests and brand offers), shows them on the dashboard and the Game Shelf with their deadline and goal, can queue and watch their category in a daily slot, and follows Twitch's own progress. Drops Twitch already confirmed are no longer claimed again.
