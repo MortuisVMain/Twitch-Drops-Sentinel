@@ -309,7 +309,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
     if (!loginStore || !data?.runner || startedAt === null || Date.now() - startedAt < 6000) return;
     if (data.runner.state === 'running' || data.runner.state === 'aborting') return;
     if (!loginAttemptSucceeded(data.stores?.[loginStore], loginAttemptAtRef.current)) {
-      setActionError('Вход не завершён: окно браузера закрыто или вышло время. Нажмите «Войти в аккаунт» ещё раз.');
+      setActionError('Вход не завершён: окно браузера закрыто или вышло время. Нажмите «Войти» на карточке магазина ещё раз.');
     }
     setLoginStore(null);
     loginStartedAtRef.current = null;
@@ -532,7 +532,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               <div className="store-pod-header">
                 <div className="store-pod-title">
                   <span style={{ fontSize: 'var(--fs-sm)' }}><store.icon className="ui-icon" aria-hidden="true" focusable="false" /></span>
-                  <strong>{store.name}</strong>
+                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title={store.name}>{store.name}</strong>
                 </div>
                 <span className={`store-select-badge ${isSelected ? 'active' : ''}`}>
                   {isSelected ? 'ВКЛ' : 'ВЫКЛ'}
@@ -548,7 +548,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 </span>
               </div>
 
-              <div style={{ fontSize: 'var(--fs-xs)', display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
+              <div className="store-pod-row" style={{ fontSize: 'var(--fs-xs)', gap: '5px' }}>
                 <span className={`led-dot ${!isAuthed ? 'off' : ''}`}></span>
                 {isLoading ? (
                   <span className="sk-bar" aria-hidden="true" style={{ flex: 1, height: '0.9em' }} />
@@ -580,8 +580,8 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                 )}
               </div>
               {isAuthed && !isLoading && !noData && (
-                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }} title={`Вы вошли как ${accountName}`}>
-                  {accountName}
+                <div className="store-pod-row" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)' }} title={`Вы вошли как ${accountName}`}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{accountName}</span>
                 </div>
               )}
 
@@ -589,13 +589,16 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               {!isAuthed && !noData && (
                 <button
                   className="tactile-btn active-mint"
-                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%', justifyContent: 'center' }}
+                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', width: '100%', justifyContent: 'center', minWidth: 0, paddingInline: '4px', gap: '4px' }}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleStoreAuth(store.id);
                   }}
+                  title={`Войти в аккаунт ${store.name}`}
+                  aria-label={`Войти в аккаунт ${store.name}`}
                 >
-                  <KeyRound className="ui-icon" aria-hidden="true" focusable="false" /> Войти в аккаунт
+                  {/* short label: the full one does not fit a narrow pod on one line, and a second line would break the row grid */}
+                  <KeyRound className="ui-icon" aria-hidden="true" focusable="false" /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Войти</span>
                 </button>
               )}
             </div>

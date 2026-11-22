@@ -133,6 +133,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^ЗАБРАТЬ ВСЁ \((\d+) МАГАЗИНОВ\)$/, (n) => `CLAIM ALL (${n} ${Number(n) === 1 ? 'STORE' : 'STORES'})`],
   [/^Вы вошли как (.+)$/, 'Signed in as $1'],
   [/^Сменить аккаунт (.+)$/, 'Switch $1 account'],
+  [/^Войти в аккаунт (.+)$/, 'Sign in to $1'],
   [/^Магазин: (.+)$/, 'Store: $1'],
   [/^Получено: (.+)$/, 'Claimed: $1'],
   [/^Модуль раздач не найден по пути (.+)$/, 'Giveaways module not found at $1'],

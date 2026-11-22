@@ -1245,6 +1245,13 @@
   .box-thumb { width: 30px; height: 42px; border-radius: var(--radius-sm); object-fit: cover; border: 1px solid var(--border-main); flex-shrink: 0; }
 
   .queue-row .reorder-rocker { opacity: 0; transition: opacity 0.15s ease; }
+  /* rows outside the queue keep the rocker's width free, so their percentages line up with the queued rows */
+  .reorder-rocker-slot { width: 26px; flex-shrink: 0; }
+  .queue-thumb-slot {
+    width: 34px; height: 34px; flex-shrink: 0; overflow: hidden; display: inline-flex;
+    border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-well);
+  }
+  .queue-thumb-slot > img { width: 100%; height: 100%; object-fit: cover; }
   .queue-row:hover .reorder-rocker, .queue-row:focus-within .reorder-rocker { opacity: 1; }
   .campaign-sort { display: inline-flex; gap: 4px; margin-left: 6px; }
   .cartridge-card { position: relative; }
@@ -1264,7 +1271,7 @@
   .campaign-fact { font-size: var(--fs-xs); color: var(--text-secondary); white-space: nowrap; }
   .campaign-row-actions { display: flex; gap: 5px; flex-shrink: 0; }
   .new-campaign-chip {
-    position: absolute; top: 8px; left: 8px; z-index: 3; padding: 1px 7px; border-radius: var(--radius-sm);
+    position: absolute; top: 16px; left: 16px; z-index: 3; padding: 1px 7px; border-radius: var(--radius-sm);
     font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.04em;
     color: var(--cta-text); background: var(--led-mint); box-shadow: 0 0 0 1px var(--border-main);
   }
@@ -1575,6 +1582,8 @@
     transform: translateZ(0) translateY(-3px);
     border-color: var(--led-mint);
   }
+  /* Cards of one row are equally tall: their buttons sit at the bottom edge, not right under texts of different length */
+  .cartridge-card > div:has(+ .rocker-3p), .reward-card > .reward-actions { margin-top: auto; }
   .rocker-3p {
     display: flex; flex-wrap: wrap; background: var(--bg-well); border-radius: var(--radius-md); padding: 2px;
     box-shadow: var(--shadow-well); border: 1px solid var(--border-subtle);
@@ -2008,8 +2017,13 @@
   @container stage (max-width: 64em) or (max-width: 800px) {
     .dimmer-top-grid, .dimmer-bottom-grid { grid-template-columns: minmax(0, 1fr); }
   }
-  .store-pod-header { flex-wrap: wrap; gap: 2px 6px; }
-  .store-select-badge { white-space: nowrap; }
+  /* Every store pod has the same rows at the same heights, whatever the store name or sign-in state:
+     name / ВКЛ-ВЫКЛ badge / count / sign-in status / account or the sign-in button */
+  .store-pod { justify-content: flex-start; }
+  .store-pod-header { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; min-width: 0; }
+  .store-pod-title { max-width: 100%; }
+  .store-select-badge { white-space: nowrap; border: 1px solid transparent; }
+  .store-pod-row { min-height: 24px; display: flex; align-items: center; min-width: 0; }
 
   /* Exclude button: compact icon in the tile's meta row, always visible (not on the cover) */
   .cover-exclude-btn {
@@ -2073,9 +2087,8 @@
 .sidle-row-end { color: var(--text-secondary); flex-shrink: 0; }
 /* Game cards, the Game Shelf look: 3:4 cover on top, title and facts under it. A few cards keep a fixed width, many share the row. */
 .sidle-card-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); }
-.sidle-card-grid:not(:has(> :nth-child(5))) { grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 240px)); }
 .sidle-card-grid.compact { gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); }
-.sidle-card-grid.compact:not(:has(> :nth-child(5))) { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 180px)); }
+/* No wider variant for a short list: the queue and the held/failed lists under it keep one card width */
 .sidle-card-grid.scroll { max-height: 34rem; overflow-y: auto; overflow-x: hidden; }
 .sidle-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; background: var(--bg-island); border: 1px solid var(--border-island); border-radius: var(--radius-lg); box-shadow: var(--shadow-island-inset); transition: border-color 0.2s ease; }
 .sidle-card:hover, .sidle-card.selected { border-color: var(--led-mint); }
