@@ -85,6 +85,8 @@ export const parseState = (json: unknown): SteamIdleState | null => {
       count: isRec(json.library) && isNum(json.library.count) ? json.library.count : null,
       ...(isRec(json.library) && isLibraryStatus(json.library.status) ? { status: json.library.status } : {}),
       ...(isRec(json.library) && isNum(json.library.ageSeconds) ? { ageSeconds: json.library.ageSeconds } : {}),
+      ...(isRec(json.library) && typeof json.library.achievementsChecking === 'boolean' ? { achievementsChecking: json.library.achievementsChecking } : {}),
+      ...(isRec(json.library) && isNum(json.library.achievementsVersion) ? { achievementsVersion: json.library.achievementsVersion } : {}),
     },
   };
 };

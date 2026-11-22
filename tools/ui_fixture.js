@@ -318,7 +318,10 @@
     'Ironbark Dispatch', 'Sundial Heist', 'Fennel & Flint', 'Cinder Choir', 'Westerly', 'Halcyon Mine', 'Thistledown', 'Orrery', 'Nightjar Yard', 'Underhill Post'];
   function siDenied(id) { return si.denylist.entries.some(function (e) { return e.appId === id; }); }
   // game 5 (Pale Harbor) is on the built-in anti-cheat table; the user's own list marks the others
-  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { var id = 910100 + i, own = siDenied(id); return { appId: id, name: n, playtimeMinutes: (i * 137) % 2400, protected: own || i === 5, userDenied: own }; }); }
+  // hasAchievements: game 3 (none, like its list) and every 9th from 4 are false and hidden by the picker, the last one unknown;
+  // achievements (progress of the last read): game 1 12 of 40, every 4th from 2 all 8 of 8, every 4th from 4 none of 8
+  function siLibProgress(i) { return i === 0 ? { achieved: 12, total: 40 } : i % 4 === 1 ? { achieved: 8, total: 8 } : i % 4 === 3 ? { achieved: 0, total: 8 } : null; }
+  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { var id = 910100 + i, own = siDenied(id), none = i === 2 || i % 9 === 4; return { appId: id, name: n, playtimeMinutes: (i * 137) % 2400, protected: own || i === 5, userDenied: own, hasAchievements: none ? false : i === SI_LIB_NAMES.length - 1 ? null : true, achievements: none ? (i === 2 ? { achieved: 0, total: 0 } : null) : siLibProgress(i) }; }); }
   // POST /denylist/add|remove: the service's checks (one appId key, whole number, a built-in game is refused, 500 at most)
   function siDenyCommand(cmd, body) {
     var id = body && Object.keys(body).join(',') === 'appId' ? body.appId : null;

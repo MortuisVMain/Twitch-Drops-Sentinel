@@ -37,10 +37,12 @@ export interface AchListProps {
   runActive: boolean;
   disabled: boolean;
   onStart: (body: { names: string[] } | { all: true }) => void;
+  /** Hide the "получено X из Y" line when the panel above already shows the progress. */
+  hideCount?: boolean;
 }
 
 /** The achievements of one game with their selection and the two start buttons. Mounted per game, so a new game starts unselected. */
-export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, disabled, onStart }) => {
+export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, disabled, onStart, hideCount = false }) => {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const locked = items.filter((a) => !a.achieved);
   const count = picked.size;
@@ -69,7 +71,7 @@ export const AchList: React.FC<AchListProps> = ({ items, skipHidden, runActive, 
   return (
     <>
       <div className="sidle-ach-head">
-        <p className="sidle-meta"><span>получено <b className="tabular">{items.length - locked.length}</b> из <b className="tabular">{items.length}</b></span></p>
+        {!hideCount && <p className="sidle-meta"><span>получено <b className="tabular">{items.length - locked.length}</b> из <b className="tabular">{items.length}</b></span></p>}
         <div className="sidle-actions">
           <button type="button" className="sidle-textbtn" disabled={locked.length === 0} onClick={selectAll}>Выбрать все недостающие</button>
           <button type="button" className="sidle-textbtn" disabled={count === 0} onClick={() => setPicked(new Set())}>Снять выбор</button>

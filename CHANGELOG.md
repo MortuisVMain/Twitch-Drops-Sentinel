@@ -4,6 +4,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 - Giveaways: Epic Games now also claims paid games that are 100% off outside the weekly giveaway block (a publisher's own sale, e.g. "Contractor: The Clean Up Part II"). The store is searched at most every 6 hours; free-to-play games are never taken. GOG games at 100% off are listed in the log with their link (and in a notification, once each); they are not claimed automatically.
+- Steam IDLE, Achievements: the game list shows only games with achievements (the store is asked once per 100 games, answers are cached for weeks), with a search placeholder, Not finished / Finished filters and "Show more" instead of a hard cap of 50. Each game row shows its progress (X of Y, all unlocked, none yet) and an anti-cheat label. The chosen game opens in a panel next to the list with its progress and achievements; "Leave alone (anti-cheat)" became a clear switch "Never unlock achievements in this game". Run state and pace sit side by side at the top, with plain labels.
 
 ## [3.9.1] - 2026-11-22
 - Installer: refuses Program Files and the Windows folder even when run as administrator. The app always runs as the user and cannot write there, so such a copy failed on every start with "local service unavailable". The folder page now explains which folders work and why.
