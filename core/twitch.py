@@ -1109,14 +1109,14 @@ class Twitch:
             NOTIFIER.notify_new(
                 "campaign_started",
                 [(c.id, c.game.name) for c in queue_campaigns if c.linked],
-                "Twitch Drops Sentinel",
+                "Hell Harvest",
                 lambda game: f"Началась кампания для игры из очереди: {game}",
                 lambda games: f"Начались кампании для игр из очереди ({len(games)}): {', '.join(games[:3])} и другие",
             )
             NOTIFIER.notify_new(
                 "needs_link",
                 [(c.id, c.game.name) for c in queue_campaigns if not c.linked],
-                "Twitch Drops Sentinel",
+                "Hell Harvest",
                 lambda game: f"{game}: кампания ждёт привязки аккаунта игры",
                 lambda games: f"Кампании ждут привязки аккаунта ({len(games)}): {', '.join(games[:3])} и другие",
             )
@@ -1144,7 +1144,7 @@ class Twitch:
                 ahead = format_minutes_ru(risk["ahead_minutes"])
                 text = (f"{risk['game']}: кампания закроется через {left}, а игры выше в очереди займут {ahead}. "
                         f"Поднимите её выше, чтобы успеть.")
-            if NOTIFIER.notify("queue_late", risk["key"], "Twitch Drops Sentinel", text):
+            if NOTIFIER.notify("queue_late", risk["key"], "Hell Harvest", text):
                 logger.info("Queue deadline: %s", text)
 
     async def _watch_loop(self) -> NoReturn:
@@ -1934,7 +1934,7 @@ class Twitch:
         try:
             import notifications
             day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            notifications.NOTIFIER.notify("reward_daily_goal", f"{target['id']}:{day}", "Twitch Drops Sentinel", text)
+            notifications.NOTIFIER.notify("reward_daily_goal", f"{target['id']}:{day}", "Hell Harvest", text)
         except Exception as exc:
             logger.warning("[НАГРАДА] Уведомление о дневной цели не отправлено: %s", exc, exc_info=True)
 
@@ -2898,7 +2898,7 @@ class Twitch:
                 logger.debug(f"SlugRedirect fallback failed for {game.name}: {exc}")
 
         # If drops_enabled filter returned 0 streams, fallback without DROPS_ENABLED filter
-        # so Sentinel can discover live streams and validate drops capability individually
+        # so Hell Harvest can discover live streams and validate drops capability individually
         game_data = (response.get("data") or {}).get("game") if response else None
         streams_edges = (game_data.get("streams") or {}).get("edges", []) if game_data else []
         if not streams_edges and filters:

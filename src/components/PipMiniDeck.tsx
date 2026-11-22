@@ -120,8 +120,8 @@ export const PipMiniDeck: React.FC<PipMiniDeckProps> = ({
               <Radio className="ui-icon" aria-hidden="true" focusable="false" /> {watchingChannel ? `@${watchingChannel}` : 'ожидание стримера'}
             </span>
           </div>
-          <div className="pip-reward" title={activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}>
-            {activeDrop?.name || 'Twitch Drops Sentinel: фарм активен'}
+          <div className="pip-reward" title={activeDrop?.name || 'Hell Harvest: фарм активен'}>
+            {activeDrop?.name || 'Hell Harvest: фарм активен'}
           </div>
         </div>
       </div>

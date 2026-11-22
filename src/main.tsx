@@ -41,10 +41,10 @@ class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, R
             borderRadius: '16px', padding: '28px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)'
           }}>
             <h2 style={{ color: '#F87171', fontSize: 'var(--fs-lg)', margin: '0 0 10px', fontWeight: 800 }}>
-              Twitch Drops Sentinel — Сбой Инициализации UI
+              Hell Harvest — Сбой Инициализации UI
             </h2>
             <p style={{ color: '#9CA3B0', fontSize: 'var(--fs-sm)', margin: '0 0 16px', lineHeight: 1.5 }}>
-              Интерфейс Sentinel перехватил ошибку в React-дереве:
+              Интерфейс Hell Harvest перехватил ошибку в React-дереве:
             </p>
             <pre style={{
               backgroundColor: '#050608', padding: '12px', borderRadius: '8px', fontSize: 'var(--fs-xs)',

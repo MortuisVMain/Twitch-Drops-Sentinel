@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title Twitch Drops Sentinel
+title Hell Harvest
 cd /d "%~dp0"
 
 echo ========================================================
-echo   Twitch Drops Sentinel
+echo   Hell Harvest
 echo   Mortuis_V_Studio
 echo ========================================================
 echo Разблокировка файлов после распаковки (SmartScreen fix)...

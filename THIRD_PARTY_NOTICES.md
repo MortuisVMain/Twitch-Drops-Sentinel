@@ -1,6 +1,6 @@
 # Third-party notices
 
-Twitch Drops Sentinel builds on two open-source projects. Their licenses stay in force for the code taken from them.
+Hell Harvest builds on two open-source projects. Their licenses stay in force for the code taken from them.
 
 ## TwitchDropsMiner
 

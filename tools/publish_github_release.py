@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel — GitHub release publisher and asset uploader.
+Hell Harvest — GitHub release publisher and asset uploader.
 
 Usage: python tools/publish_github_release.py <release-notes.md>
 Mortuis_V_Studio
@@ -22,11 +22,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 from version import __version__
 
 WORKSPACE = Path(__file__).resolve().parent.parent
-FULL_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"
-PATCH_ZIP = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
+FULL_ZIP = WORKSPACE / f"Hell_Harvest_v{__version__}_Public_Release.zip"
+PATCH_ZIP = WORKSPACE / f"Hell_Harvest_Patch_v{__version__}.zip"
 
 TAG_NAME = f"v{__version__}"
-RELEASE_TITLE = f"Twitch Drops Sentinel v{__version__}"
+RELEASE_TITLE = f"Hell Harvest v{__version__}"
 if len(sys.argv) != 2:
     raise SystemExit("usage: python tools/publish_github_release.py <release-notes.md>")
 RELEASE_NOTES = Path(sys.argv[1]).read_text(encoding="utf-8")
@@ -143,8 +143,8 @@ def main():
 
     # 3. Upload assets
     assets_to_upload = [
-        (FULL_ZIP, f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"),
-        (PATCH_ZIP, f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"),
+        (FULL_ZIP, f"Hell_Harvest_v{__version__}_Public_Release.zip"),
+        (PATCH_ZIP, f"Hell_Harvest_Patch_v{__version__}.zip"),
     ]
 
     for file_path, asset_name in assets_to_upload:

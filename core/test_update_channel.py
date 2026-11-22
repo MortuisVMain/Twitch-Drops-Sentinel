@@ -11,7 +11,7 @@ from updater import GitHubUpdater, pick_release, version_key
 
 
 def rel(tag, prerelease=False, draft=False, packaged=True):
-    assets = [{"name": f"Twitch_Drops_Sentinel_{tag}.zip", "browser_download_url": f"https://github.com/x/releases/download/{tag}/full.zip",
+    assets = [{"name": f"Hell_Harvest_{tag}.zip", "browser_download_url": f"https://github.com/x/releases/download/{tag}/full.zip",
                "url": "https://api.github.com/repos/x/releases/assets/1"}] if packaged else []
     return {"tag_name": tag, "prerelease": prerelease, "draft": draft, "assets": assets, "html_url": f"https://github.com/x/{tag}"}
 

@@ -1,6 +1,6 @@
-# Twitch Drops Sentinel — Giveaways Subsystem
+# Hell Harvest — Giveaways Subsystem
 
-Встроенный модуль автоматического сбора бесплатных игр и раздач для **Twitch Drops Sentinel**.
+Встроенный модуль автоматического сбора бесплатных игр и раздач для **Hell Harvest**.
 Основан на [free-games-claimer](https://github.com/vogler/free-games-claimer) (Ralf Vogler) и распространяется по лицензии AGPL-3.0, см. [LICENSE](LICENSE).
 
 ## Поддерживаемые магазины:
@@ -15,4 +15,4 @@
 ## Архитектура
 - Модуль скомпилирован в автономные бандлы `dist/*.mjs` через `esbuild`.
 - Единая точка входа: `runner.js` (с обратной совместимостью через `ClaimGames.cmd`).
-- Прямая интеграция с Python REST API Sentinel (`core/giveaways_controller.py`).
+- Прямая интеграция с Python REST API Hell Harvest (`core/giveaways_controller.py`).

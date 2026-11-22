@@ -27,6 +27,7 @@ import { resolveGameBoxArt } from './utils/gameBoxArts';
 import { useTactileAudio } from './hooks/useTactileAudio';
 
 import { useSentinelState } from './hooks/useSentinelState';
+import appLogo from './assets/hell_harvest_logo.png';
 import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
 import { tabDigit, tabForDigit, digitRange, titleWithDigit, digitHotkeyAllowed } from './utils/tabHotkeys.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
@@ -115,7 +116,7 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
 
-    console.error("Sentinel TabErrorBoundary caught an error:", error, errorInfo);
+    console.error("Hell Harvest TabErrorBoundary caught an error:", error, errorInfo);
 
   }
 
@@ -183,7 +184,7 @@ class TabErrorBoundary extends React.Component<TabErrorBoundaryProps, TabErrorBo
 
 
 
-// Twitch Drops Sentinel • Author: Mortuis_V / Mortuis_V_Studio
+// Hell Harvest • Author: Mortuis_V / Mortuis_V_Studio
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
 
@@ -620,7 +621,7 @@ export const App: React.FC = () => {
 
     playClick();
 
-    showToast('Перезапуск Sentinel...');
+    showToast('Перезапуск Hell Harvest...');
 
     const wv = (window as any).chrome?.webview;
 
@@ -1073,11 +1074,7 @@ export const App: React.FC = () => {
 
           >
 
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-
-            </svg>
+            <img src={appLogo} width="24" height="24" alt="" draggable={false} />
 
             <div className="pulse-dot"></div>
 
@@ -1087,9 +1084,9 @@ export const App: React.FC = () => {
 
             <h1>
 
-              <span className="brand-name-full">Sentinel Field-Deck</span>
+              <span className="brand-name-full">Hell Harvest</span>
 
-              <span className="brand-name-short">Sentinel</span>
+              <span className="brand-name-short">Hell Harvest</span>
 
             </h1>
 
@@ -1187,7 +1184,7 @@ export const App: React.FC = () => {
             className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} 
 
             onClick={() => handleTabChange('settings')}
-            title={titleWithDigit('Настройки: 10 систем Sentinel', tabDigit(shownTabs, 'settings'))}
+            title={titleWithDigit('Настройки: 10 систем Hell Harvest', tabDigit(shownTabs, 'settings'))}
 
           >
 
@@ -1835,7 +1832,7 @@ export const App: React.FC = () => {
 
                 <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '3.11.0'}
+                  Текущая версия: v{sentinelState.version || '4.0.0'}
 
                 </p>
 

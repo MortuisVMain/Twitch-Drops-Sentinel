@@ -1,4 +1,4 @@
-; Twitch Drops Sentinel: per-user installer (Inno Setup 6.3 or newer).
+; Hell Harvest (formerly Twitch Drops Sentinel): per-user installer (Inno Setup 6.3 or newer).
 ; Build: ISCC.exe /DAppVersion=3.6.1 /DSourceDir="<staged release folder>" installer\TwitchDropsSentinel.iss
 ; Add /DTEST_BUILD for the check build (no single-instance mutex, so it can install while a copy of the app runs).
 ; This file is UTF-8 without a BOM: Inno Setup 6.3+ reads that natively and no longer recommends a BOM.
@@ -11,7 +11,7 @@
   #error Pass the staged release folder: /DSourceDir=...
 #endif
 
-#define AppName "Twitch Drops Sentinel"
+#define AppName "Hell Harvest"
 #define AppExe "TwitchDropsSentinel.exe"
 #define RepoUrl "https://github.com/MortuisVMain/Twitch-Drops-Sentinel"
 
@@ -26,7 +26,7 @@ AppSupportURL={#RepoUrl}/issues
 AppUpdatesURL={#RepoUrl}/releases
 VersionInfoVersion={#AppVersion}.0
 PrivilegesRequired=lowest
-DefaultDirName={localappdata}\Programs\Twitch Drops Sentinel
+DefaultDirName={localappdata}\Programs\Hell Harvest
 UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
@@ -37,7 +37,7 @@ UninstallDisplayIcon={app}\assets\app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 OutputDir=..
-OutputBaseFilename=Twitch_Drops_Sentinel_Setup_v{#AppVersion}
+OutputBaseFilename=Hell_Harvest_Setup_v{#AppVersion}
 CloseApplications=yes
 RestartApplications=no
 #ifndef TEST_BUILD
@@ -45,8 +45,9 @@ AppMutex=Global\TwitchDropsSentinel_v3_Mutex
 #endif
 
 [Languages]
-Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
+; The info pages are RTF with \uN escapes (plain ASCII): Inno reads a .txt as ANSI unless it has a BOM, and the studio rule is no BOM.
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"; InfoBeforeFile: "info_before_ru.rtf"; InfoAfterFile: "info_after_ru.rtf"
+Name: "english"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "info_before_en.rtf"; InfoAfterFile: "info_after_en.rtf"
 
 [CustomMessages]
 russian.UninstallAskData=Удалить настройки и вход в аккаунты? Если оставить, они вернутся при следующей установке.
@@ -61,22 +62,24 @@ russian.MigrateReplace=Заменить файлы, которые уже ест
 english.MigrateReplace=Replace files that already exist in the new folder
 russian.MigrateNote=Файлы копируются: старая папка остаётся как есть. Закройте старую копию программы, пока идёт установка.
 english.MigrateNote=Files are copied: the old folder stays as it is. Close the old copy of the app while setup runs.
-russian.MigratePick=Выберите папку со старой копией Twitch Drops Sentinel
-english.MigratePick=Pick the folder with the old copy of Twitch Drops Sentinel
+russian.MigratePick=Выберите папку со старой копией Hell Harvest (раньше Twitch Drops Sentinel)
+english.MigratePick=Pick the folder with the old copy of Hell Harvest (formerly Twitch Drops Sentinel)
 russian.MigrateBadFolder=В этой папке нет TwitchDropsSentinel.exe и config.json. Выберите папку, куда вы распаковали ZIP-архив.
 english.MigrateBadFolder=This folder has no TwitchDropsSentinel.exe and config.json. Pick the folder where you unpacked the ZIP.
 russian.DirNoAccess=Нет прав на запись в папку:%n%1%n%nУстановка идёт без прав администратора. Выберите папку в своём профиле, например:%n%2
 english.DirNoAccess=You cannot write to this folder:%n%1%n%nSetup runs without administrator rights. Pick a folder in your own profile, for example:%n%2
 russian.DirProtected=Папка защищена Windows:%n%1%n%nПрограмма работает без прав администратора и не сможет писать туда свои настройки и журнал, поэтому не запустится. Выберите папку в своём профиле, например:%n%2
 english.DirProtected=This folder is protected by Windows:%n%1%n%nThe app runs without administrator rights and could not write its settings and log there, so it would not start. Pick a folder in your own profile, for example:%n%2
-russian.DirHint=Лучше оставить предложенную папку в вашем профиле. Программа хранит рядом с собой настройки, входы в аккаунты и журнал и работает без прав администратора, поэтому папка должна быть доступна для записи. Подойдёт и своя папка, например D:\Programs\Twitch Drops Sentinel. Program Files и папка Windows не подойдут: туда программа писать не сможет и не запустится.
-english.DirHint=Best keep the suggested folder in your profile. The app keeps its settings, account sign-ins and log next to itself and runs without administrator rights, so the folder must be writable. A folder of your own works too, for example D:\Programs\Twitch Drops Sentinel. Program Files and the Windows folder will not work: the app could not write there and would not start.
+russian.DirHint=Лучше оставить предложенную папку в вашем профиле. Программа хранит рядом с собой настройки, входы в аккаунты и журнал и работает без прав администратора, поэтому папка должна быть доступна для записи. Подойдёт и своя папка, например D:\Programs\Hell Harvest. Program Files и папка Windows не подойдут: туда программа писать не сможет и не запустится.
+english.DirHint=Best keep the suggested folder in your profile. The app keeps its settings, account sign-ins and log next to itself and runs without administrator rights, so the folder must be writable. A folder of your own works too, for example D:\Programs\Hell Harvest. Program Files and the Windows folder will not work: the app could not write there and would not start.
 russian.MigrateSameFolder=Это папка, в которую ставится программа. Выберите старую папку.
 english.MigrateSameFolder=This is the folder the app is being installed into. Pick the old folder.
 russian.MigrateFailed=Не все файлы удалось скопировать (%1). Список файлов в журнале установки.
 english.MigrateFailed=Some files could not be copied (%1). The setup log lists them.
 russian.InstallNode=Установить Node.js LTS через winget (нужен для Раздач и Steam IDLE)
 english.InstallNode=Install Node.js LTS with winget (needed for Giveaways and Steam IDLE)
+russian.OpenGuide=Открыть подробную инструкцию в браузере
+english.OpenGuide=Open the full guide in your browser
 russian.OpenNodeSite=Открыть nodejs.org: там Node.js LTS (нужен для Раздач и Steam IDLE)
 english.OpenNodeSite=Open nodejs.org to get Node.js LTS (needed for Giveaways and Steam IDLE)
 
@@ -86,7 +89,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Everything of the staged release except the user-data templates and the portable launcher
 ; (the installer leaves no Mark-of-the-Web on installed files, so the launcher's unblock step is not needed).
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "config.json,Trophies.md,Запустить_Twitch_Drops_Sentinel.bat"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "config.json,Trophies.md,Запустить_Hell_Harvest.bat"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; User data: written only when absent and never removed by the uninstaller (the uninstall question decides).
 Source: "{#SourceDir}\config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#SourceDir}\Trophies.md"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
@@ -102,8 +105,14 @@ Filename: "{cmd}"; Parameters: "/v:on /c ""winget install --id OpenJS.NodeJS.LTS
 Filename: "{cmd}"; Parameters: "/v:on /c ""winget install --id OpenJS.NodeJS.LTS -e --scope user --accept-package-agreements --accept-source-agreements & set ""RC=!errorlevel!"" & echo winget with --scope user: exit code !RC!>>""%TEMP%\tds-winget.log"" & if !RC! neq 0 (echo. & echo Retrying without --scope: this installs for all users and Windows asks for permission. & winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements & set ""RC=!errorlevel!"" & echo winget without --scope: exit code !RC!>>""%TEMP%\tds-winget.log"") & exit /b !RC!"""; Flags: waituntilterminated; Check: NodeBySwitch
 Filename: "https://nodejs.org/en/download"; Description: "{cm:OpenNodeSite}"; Flags: postinstall shellexec skipifsilent unchecked; Check: OfferNodeLink
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+; The guide for the installer language, checked by default; opens in the default browser and never runs in a silent setup.
+Filename: "{#RepoUrl}/blob/main/docs/%D0%98%D0%9D%D0%A1%D0%A2%D0%A0%D0%A3%D0%9A%D0%A6%D0%98%D0%AF.md"; Description: "{cm:OpenGuide}"; Languages: russian; Flags: shellexec nowait postinstall skipifsilent
+Filename: "{#RepoUrl}/blob/main/docs/GUIDE.md"; Description: "{cm:OpenGuide}"; Languages: english; Flags: shellexec nowait postinstall skipifsilent
 
 [InstallDelete]
+; Shortcuts of the old product name: an upgrade must not leave a second, stale icon next to the new one.
+Type: files; Name: "{autoprograms}\Twitch Drops Sentinel.lnk"
+Type: files; Name: "{autodesktop}\Twitch Drops Sentinel.lnk"
 ; Leftovers of the built-in updater: a pending .update would replace the new exe with the old one at the next start.
 Type: files; Name: "{app}\TwitchDropsSentinel.update"
 Type: files; Name: "{app}\TwitchDropsSentinel.exe.old"

@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel v3.0 — Comprehensive Verification Suite
+Hell Harvest v3.0 — Comprehensive Verification Suite
 Mortuis_V_Studio
 
 Validates:
@@ -341,10 +341,10 @@ def test_prd_compliance():
     prd_path = WORKSPACE / "docs" / "internal" / "PRD_SENTINEL_V3.md"
     assert prd_path.exists(), "PRD_SENTINEL_V3.md missing!"
     content = prd_path.read_text(encoding="utf-8")
-    assert "Twitch Drops Sentinel" in content
+    assert "Twitch Drops Sentinel" in content  # the PRD is a historical document and keeps the old name
     assert "Mortuis_V" in content
     assert "E:\\Games Cracked" not in content, "Public PRD must not contain cracked tags!"
-    print("      Project: Twitch Drops Sentinel v3.1")
+    print("      Project: Hell Harvest v3.1")
     print("      Author: Mortuis_V / Mortuis_V_Studio")
     print("      PRD Structure: PASS [OK]")
 
@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.11.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.0.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -1158,7 +1158,7 @@ def test_game_scanner_deduplication_and_trophies_clear():
 
         assert trophies_file.exists(), "Trophies.md must exist after clearing"
         content = trophies_file.read_text(encoding="utf-8")
-        assert "# 🏆 Журнал Трофеев Twitch Drops Sentinel" in content
+        assert "# 🏆 Журнал Трофеев Hell Harvest" in content
         lines = [l for l in content.splitlines() if l.strip()]
         assert len(lines) <= 5, "Cleared Trophies.md must contain only the header table"
     finally:
@@ -1213,7 +1213,7 @@ def test_sleep_guard_watchdog_and_account_protection():
     assert "<TriangleAlert className=\"ui-icon\" aria-hidden=\"true\" focusable=\"false\" /> Требуется привязка" in shelf_tsx, "GameShelf must display the 'Требуется привязка' badge"
 
     # 6. SmartScreen Unblock in Launcher
-    launcher_bat = (WORKSPACE / "Запустить_Twitch_Drops_Sentinel.bat").read_text(encoding="utf-8")
+    launcher_bat = (WORKSPACE / "Запустить_Hell_Harvest.bat").read_text(encoding="utf-8")
     assert "Unblock-File" in launcher_bat, "Launcher must run Unblock-File to prevent SmartScreen popups"
 
     print("      Sleep Guard, WebSocket Watchdog, Log Rotation & Account Protection: ALL PASS [OK]")
@@ -1280,7 +1280,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     help_tsx = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
     assert "Sentinel v3.0" not in help_tsx, "HelpModal must not contain hardcoded Sentinel v3.0"
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
-    assert "Twitch Drops Sentinel v{" not in settings_tsx, "SettingsStudio header must not have hardcoded version string"
+    assert "Hell Harvest v{" not in settings_tsx, "SettingsStudio header must not have hardcoded version string"
 
     # 6. Verify live REST API /api/state returns dynamic version
     ensure_test_service()
@@ -8514,7 +8514,12 @@ def test_installer_script_keeps_its_promises():
     assert "AppId={{18419608-0A2A-4C0A-9B06-78DA6D8F921C}" in iss, "AppId is fixed forever: changing it breaks upgrades"
     assert re.search(r"(?m)^PrivilegesRequired=lowest$", iss), "per-user install"
     assert "PrivilegesRequiredOverridesAllowed" not in iss, "no switching to an all-users install"
-    assert r"DefaultDirName={localappdata}\Programs\Twitch Drops Sentinel" in iss
+    assert r"DefaultDirName={localappdata}\Programs\Hell Harvest" in iss and "UsePreviousAppDir=yes" in iss, "new installs go to Hell Harvest, upgrades stay in their folder"
+    assert '#define AppName "Hell Harvest"' in iss and "OutputBaseFilename=Hell_Harvest_Setup_v" in iss
+    assert '#define AppExe "TwitchDropsSentinel.exe"' in iss, "old updaters swap the exe by this name"
+    assert r'Type: files; Name: "{autoprograms}\Twitch Drops Sentinel.lnk"' in iss and r'Type: files; Name: "{autodesktop}\Twitch Drops Sentinel.lnk"' in iss, "an upgrade deletes the old product-name shortcuts"
+    assert iss.index("[InstallDelete]") < iss.index(r'{autoprograms}\Twitch Drops Sentinel.lnk') < iss.index("[UninstallDelete]")
+    assert "Запустить_Hell_Harvest.bat" in iss
     assert "UsePreviousAppDir=yes" in iss and "ArchitecturesAllowed=x64compatible" in iss
     assert r"AppMutex=Global\TwitchDropsSentinel_v3_Mutex" in iss and "#ifndef TEST_BUILD" in iss, "running app is detected unless it is the check build"
     assert "CloseApplications=yes" in iss
@@ -8539,6 +8544,19 @@ def test_installer_script_keeps_its_promises():
     assert "RunValue = 'TwitchDropsSentinel'" in iss and "RegDeleteValue" in iss
     service = src_text(WORKSPACE / "core" / "sentinel_service.py")
     assert 'winreg.QueryValueEx(key, "TwitchDropsSentinel")' in service, "autostart value name the installer removes"
+    # info pages: per-language RTF (ASCII with \\uN escapes, so no BOM is needed) and a checked-by-default "open the guide" box
+    for lang in ("ru", "en"):
+        for page in ("before", "after"):
+            name = f"info_{page}_{lang}.rtf"
+            assert f'Info{page.capitalize()}File: "{name}"' in iss, f"{name} must be wired into [Languages]"
+            raw = (WORKSPACE / "installer" / name).read_bytes()
+            assert raw.startswith(b"{\\rtf1") and raw.isascii(), f"{name} is an ASCII RTF"
+    assert "\\u1055?" in (WORKSPACE / "installer" / "info_before_ru.rtf").read_text(encoding="ascii"), "Cyrillic is written as RTF escapes"
+    guide_runs = [l for l in iss.splitlines() if l.startswith("Filename:") and "{cm:OpenGuide}" in l]
+    assert len(guide_runs) == 2 and all("shellexec nowait postinstall skipifsilent" in l and "unchecked" not in l for l in guide_runs), "the guide box is checked by default, never silent"
+    assert any("Languages: russian" in l and "%D0%98%D0%9D%D0%A1%D0%A2%D0%A0%D0%A3%D0%9A%D0%A6%D0%98%D0%AF.md" in l for l in guide_runs) and any("Languages: english" in l and "docs/GUIDE.md" in l for l in guide_runs)
+    for guide in ("GUIDE.md", "\u0418\u041d\u0421\u0422\u0420\u0423\u041a\u0426\u0418\u042f.md"):
+        assert (WORKSPACE / "docs" / guide).is_file(), f"docs/{guide} must exist for the installer link"
     print("      installer script static checks: PASS [OK]")
 
 
@@ -8707,7 +8725,7 @@ if __name__ == "__main__":
     # CI and in a fresh checkout, network gates skip with SUITE_OFFLINE=1; both say so, never silently.
     import argparse
     import traceback
-    parser = argparse.ArgumentParser(description="Twitch Drops Sentinel verification suite")
+    parser = argparse.ArgumentParser(description="Hell Harvest verification suite")
     parser.add_argument("-k", dest="only", action="append", default=[], help="run only gates whose name contains this (repeatable)")
     parser.add_argument("--fail-fast", action="store_true", default=os.environ.get("SUITE_FAIL_FAST") == "1")
     parser.add_argument("--list", action="store_true", help="print the gate names and exit")

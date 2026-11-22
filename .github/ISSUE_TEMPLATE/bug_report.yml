@@ -10,7 +10,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Sentinel version / Версия
+      label: Hell Harvest version / Версия
       description: Shown in Settings. / Указана в Настройках.
       placeholder: "3.5.1"
     validations:

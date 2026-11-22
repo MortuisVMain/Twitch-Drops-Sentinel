@@ -1,7 +1,7 @@
 {
   "name": "sentinel-giveaways-engine",
-  "version": "3.11.0",
-  "description": "Twitch Drops Sentinel Integrated Giveaways Subsystem",
+  "version": "4.0.0",
+  "description": "Hell Harvest Integrated Giveaways Subsystem",
   "author": "Mortuis_V / Mortuis_V_Studio",
   "private": true,
   "type": "module",

@@ -739,7 +739,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           {agoLabel(lastSyncAt, nowTick) && (
             <span
               style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
-              title="Когда Sentinel в последний раз успешно запросил кампании у Twitch"
+              title="Когда Hell Harvest в последний раз успешно запросил кампании у Twitch"
             >
               {agoLabel(lastSyncAt, nowTick)}
             </span>
@@ -825,7 +825,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
             </div>
             <div style={{ fontSize: 'var(--fs-xs)', maxWidth: '440px', margin: '0 auto', lineHeight: '1.6' }}>
               {activeFilter === 'claimed'
-                ? 'Sentinel автоматически фиксирует полученные трофеи в Trophies.md при каждом завершении кампании. Запустите фарм, и первые трофеи появятся здесь!'
+                ? 'Hell Harvest автоматически фиксирует полученные трофеи в Trophies.md при каждом завершении кампании. Запустите фарм, и первые трофеи появятся здесь!'
                 : activeFilter === 'removed'
                   ? 'Все игры из каталога сейчас активны и отображаются на полке.'
                   : activeFilter === 'rewards' && !searchQuery

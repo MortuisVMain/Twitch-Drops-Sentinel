@@ -30,9 +30,9 @@ interface GiveawaysReadinessProps {
 }
 
 const FAILURE_TEXT: Record<ReadinessFailure, string> = {
-  unreachable: 'Не удалось связаться с сервисом Sentinel. Проверка не выполнена',
-  http: 'Сервис Sentinel ответил ошибкой. Проверка не выполнена',
-  bad_answer: 'Сервис Sentinel ответил непонятно. Проверка не выполнена',
+  unreachable: 'Не удалось связаться с сервисом Hell Harvest. Проверка не выполнена',
+  http: 'Сервис Hell Harvest ответил ошибкой. Проверка не выполнена',
+  bad_answer: 'Сервис Hell Harvest ответил непонятно. Проверка не выполнена',
 };
 
 const STATUS_COLOR: Record<string, string> = {

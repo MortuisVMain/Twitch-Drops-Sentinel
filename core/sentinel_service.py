@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel — local service for the desktop app
+Hell Harvest — local service for the desktop app
 Mortuis_V / Mortuis_V_Studio
 
 Core Microservice & Asynchronous Engine:
@@ -113,8 +113,8 @@ def pick_zip_file() -> str:
     ps_script = (
         "Add-Type -AssemblyName System.Windows.Forms; "
         "$f = New-Object System.Windows.Forms.OpenFileDialog; "
-        "$f.Title = 'Выберите бэкап профиля Sentinel'; "
-        "$f.Filter = 'Бэкап Sentinel (*.zip)|*.zip'; "
+        "$f.Title = 'Выберите бэкап профиля Hell Harvest'; "
+        "$f.Filter = 'Бэкап Hell Harvest (*.zip)|*.zip'; "
         "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }"
     )
     res = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps_script], capture_output=True, text=True, timeout=300)
@@ -249,7 +249,7 @@ class SentinelSupervisor:
         self.startup_copies = startup_copies.StartupCopies(
             startup_copies.NullBackend() if TEST_MODE else startup_copies.SystemBackend(), PROJECT_DIR, GIVEAWAYS_TASK_NAME,
             PROJECT_DIR / "data" / "startup_cleanup_backup.json", set_autostart_status,
-            notify=lambda key, text: NOTIFIER.notify("startup_copies", key, "Twitch Drops Sentinel", text))
+            notify=lambda key, text: NOTIFIER.notify("startup_copies", key, "Hell Harvest", text))
         self.startup_copies_routes = StartupCopiesRoutes(
             self.startup_copies, PROJECT_DIR, self._config_defaults(), lambda: bool(self.settings.get("installer_hint_dismissed", False)),
             lambda: apply_change(self.settings, lambda current: current.__setitem__("installer_hint_dismissed", True), self.save_settings),
@@ -915,8 +915,8 @@ class SentinelSupervisor:
                                 await drop.generate_claim()
                             res = await drop.claim()
                             if not res:
-                                # If Twitch rejects or already claimed on web, mark as claimed in Sentinel to unblock queue
-                                logger.info(f"Drop '{drop.name}' marked completed in Sentinel.")
+                                # If Twitch rejects or already claimed on web, mark as claimed in Hell Harvest to unblock queue
+                                logger.info(f"Drop '{drop.name}' marked completed in Hell Harvest.")
                                 drop.is_claimed = True
                                 drop.display()
                             claimed_any = True
@@ -1533,7 +1533,7 @@ class SentinelSupervisor:
                 ps_script = (
                     "Add-Type -AssemblyName System.Windows.Forms; "
                     "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                    "$f.Description = 'Выберите папку с играми для Sentinel'; "
+                    "$f.Description = 'Выберите папку с играми для Hell Harvest'; "
                     "$f.ShowNewFolderButton = $false; "
                     "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"
                 )
@@ -1557,7 +1557,7 @@ class SentinelSupervisor:
         try:
             if not TROPHIES_FILE.exists():
                 with open(TROPHIES_FILE, "w", encoding="utf-8") as f:
-                    f.write("# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n")
+                    f.write("# 🏆 Журнал Трофеев Hell Harvest\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n")
             os.startfile(str(TROPHIES_FILE))
             return web.json_response({"status": "opened"})
         except Exception as e:
@@ -1567,7 +1567,7 @@ class SentinelSupervisor:
     async def handle_clear_trophies(self, request: web.Request) -> web.Response:
         try:
             clean_header = (
-                "# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n"
+                "# 🏆 Журнал Трофеев Hell Harvest\n\n"
                 "| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n"
                 "| :--- | :--- | :--- | :--- | :--- |\n"
             )
@@ -1858,7 +1858,7 @@ class SentinelSupervisor:
                                 reason, toast = "Battery", "Пауза: ноутбук работает от батареи"
                             logger.info(f"Hardware Guard: Paused farming (Reason: {reason})")
                             if toast and self.settings.get("native_toasts", True):
-                                send_windows_toast("Twitch Drops Sentinel", toast)
+                                send_windows_toast("Hell Harvest", toast)
                         else:
                             logger.info("Hardware Guard: Resumed farming.")
 
@@ -1936,7 +1936,7 @@ class SentinelSupervisor:
                     text = lost_text(source, account)
                     logger.warning("Sign-in lost: %s", text)
                     STATE_BRIDGE.add_log("WARN", text)
-                    NOTIFIER.notify("signin_lost", f"{source}:{account}:{int(time.time())}", "Twitch Drops Sentinel", text)
+                    NOTIFIER.notify("signin_lost", f"{source}:{account}:{int(time.time())}", "Hell Harvest", text)
             except Exception as exc:
                 logger.warning("Sign-in watch pass failed: %s", exc, exc_info=True)
             await asyncio.sleep(300)
@@ -2014,7 +2014,7 @@ class SentinelSupervisor:
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", DEFAULT_SERVICE_PORT)
         await site.start()
-        logger.info(f"Twitch Drops Sentinel API running on http://127.0.0.1:{DEFAULT_SERVICE_PORT}")
+        logger.info(f"Hell Harvest API running on http://127.0.0.1:{DEFAULT_SERVICE_PORT}")
 
         # Concurrently run hardware guard, luna, twitch client, and game rescan loop
         loops = [
@@ -2042,6 +2042,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(supervisor.start())
     except KeyboardInterrupt:
-        logger.info("Twitch Drops Sentinel shutting down gracefully.")
+        logger.info("Hell Harvest shutting down gracefully.")
 
 

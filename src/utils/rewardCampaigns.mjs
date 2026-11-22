@@ -97,7 +97,7 @@ export const rewardFarmAction = (campaign, forcedGame) => {
   if (campaign?.earned) return { mode: 'blocked', reason: 'Награда уже получена' };
   if (campaign?.doneToday) return { mode: 'blocked', reason: 'Цель на сегодня выполнена' };
   if (campaign?.farmable === true) return { mode: 'start', reason: '' };
-  if (!hasWatchGoal(campaign)) return { mode: 'blocked', reason: 'Только подписка — Sentinel платное не делает' };
+  if (!hasWatchGoal(campaign)) return { mode: 'blocked', reason: 'Только подписка — Hell Harvest платное не делает' };
   if (!campaign?.category) return { mode: 'blocked', reason: 'Нет категории для просмотра' };
   return { mode: 'blocked', reason: 'Эту кампанию сейчас нельзя фармить' };
 };

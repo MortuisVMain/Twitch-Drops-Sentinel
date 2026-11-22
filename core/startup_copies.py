@@ -348,7 +348,7 @@ class StartupCopies:
         hive, subkey, name, data = (record.get(k) for k in ("hive", "subkey", "name", "data"))
         if (hive != "HKCU" or subkey not in (RUN_SUBKEY, RUNONCE_SUBKEY) or not isinstance(name, str) or not _VALUE_NAME_RE.fullmatch(name)
                 or not isinstance(data, str) or extract_target(data) is None):
-            raise Refusal("запись резервной копии не похожа на автозапуск Sentinel")
+            raise Refusal("запись резервной копии не похожа на автозапуск Hell Harvest")
         current = next((d for h, s, n, d in self._backend.run_entries() if (h, s, n) == (hive, subkey, name)), None)
         if current is not None and current != data:
             self._append_backup({"kind": "run_value", "name": name, "target": extract_target(current), "copyDir": None, "hive": hive, "subkey": subkey, "data": current})
@@ -375,7 +375,7 @@ class StartupCopies:
         name, task_path, xml = record.get("name"), record.get("taskPath") or _TASK_ROOT, record.get("xml")
         if (not isinstance(name, str) or not _TASK_NAME_RE.fullmatch(name) or not isinstance(task_path, str) or not _TASK_PATH_RE.fullmatch(task_path)
                 or not _looks_like_task_xml(xml)):
-            raise Refusal("запись резервной копии не похожа на задание Sentinel")
+            raise Refusal("запись резервной копии не похожа на задание Hell Harvest")
         if any(t.get("name") == name and str(t.get("path") or _TASK_ROOT) == task_path for t in self._backend.scheduled_tasks()):
             raise Refusal("задание с таким именем уже есть, оно не перезаписывается")
         self._backend.register_task(name, task_path, xml)
@@ -476,7 +476,7 @@ class StartupCopies:
             remaining = self.rescan()["findings"]
             if remaining and self._notify is not None:
                 key = hashlib.sha1("|".join(sorted(f["id"] for f in remaining)).encode("utf-8")).hexdigest()[:12]
-                self._notify(key, f"Найдены другие копии Sentinel в автозапуске или в работе: {len(remaining)}. Откройте Настройки и уберите лишнее.")
+                self._notify(key, f"Найдены другие копии Hell Harvest в автозапуске или в работе: {len(remaining)}. Откройте Настройки и уберите лишнее.")
             return {"cleaned": cleaned, "remaining": len(remaining)}
 
 

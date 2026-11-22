@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Twitch Drops Sentinel — giveaways engine runner
+ * Hell Harvest — giveaways engine runner
  * Author: Mortuis_V / Mortuis_V_Studio
  *
  * Sequentially executes store giveaway claims with real-time streaming,

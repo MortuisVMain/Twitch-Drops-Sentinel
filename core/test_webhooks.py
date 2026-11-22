@@ -78,7 +78,7 @@ class WebhookSettings(unittest.TestCase):
         hooks = self.make()
         hooks.update({"telegram": {"token": TOKEN, "chat_id": "42", "enabled": False}, "discord": {"url": DISCORD, "enabled": True}})
         with mock.patch("constants.TEST_MODE", False):
-            hooks.deliver("Twitch Drops Sentinel", "Получен дроп: Skin (Rust)")
+            hooks.deliver("Hell Harvest", "Получен дроп: Skin (Rust)")
             deadline = time.time() + 5
             while not self.opener.sent and time.time() < deadline:
                 time.sleep(0.02)

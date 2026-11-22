@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel — portable Python runtime setup
+Hell Harvest — portable Python runtime setup
 Mortuis_V_Studio
 
 Ensures portable_runtime/python is present for packaging standalone releases.

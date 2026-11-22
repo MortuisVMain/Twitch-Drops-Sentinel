@@ -34,7 +34,7 @@ class SentinelStateBridge:
         self.user_id: str = ""
         self.username: str = ""
         self.active_drop: Optional[dict] = None
-        self.status_text: str = "Инициализация Sentinel..."
+        self.status_text: str = "Инициализация Hell Harvest..."
         self.tray_icon: str = "idle"
         self.watching_channel: Optional[str] = None
         self.available_channels: list[dict] = []
@@ -132,7 +132,7 @@ TOAST_SCRIPT = (
     "$n.Item(0).InnerText = $env:SENTINEL_TOAST_TITLE; "
     "$n.Item(1).InnerText = $env:SENTINEL_TOAST_MESSAGE; "
     "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
-    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Twitch Drops Sentinel').Show($toast);"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Hell Harvest').Show($toast);"
 )
 
 
@@ -198,7 +198,7 @@ class HeadlessTray:
         STATE_BRIDGE.tray_icon = icon_name
         logger.info(f"[TRAY] Icon: {icon_name}")
 
-    def notify(self, text: str, title: str = "Twitch Drops Sentinel"):
+    def notify(self, text: str, title: str = "Hell Harvest"):
         send_windows_toast(title, text)
 
     def stop(self):
@@ -403,7 +403,7 @@ class HeadlessLoginForm:
         STATE_BRIDGE.add_log("AUTH", _("sentinel", "login_code_log").format(code=code, uri=uri))
         try:  # through the gate: honours the notifications switch, reaches Telegram/Discord, once per code
             from notifications import NOTIFIER
-            NOTIFIER.notify("twitch_login", str(code), "Twitch Drops Sentinel — Авторизация",
+            NOTIFIER.notify("twitch_login", str(code), "Hell Harvest — Авторизация",
                             f"Нужен вход в Twitch. Код авторизации: {code}. Откройте Twitch в браузере для подтверждения")
         except Exception as exc:
             logger.warning("Twitch sign-in notification failed: %s", exc, exc_info=True)
@@ -447,7 +447,7 @@ class HeadlessMockWidget:
 
 class HeadlessGUIManager:
     """
-    Headless GUI Manager for Twitch Drops Sentinel.
+    Headless GUI Manager for Hell Harvest.
     Implements the exact interface required by TwitchDrops core without opening Tkinter.
     Provides live telemetry to the React UI.
     """
@@ -537,4 +537,4 @@ class HeadlessGUIManager:
 
     def grab_attention(self, sound=False):
         if sound:
-            send_windows_toast("Twitch Drops Sentinel", "Требуется внимание пользователя.")
+            send_windows_toast("Hell Harvest", "Требуется внимание пользователя.")

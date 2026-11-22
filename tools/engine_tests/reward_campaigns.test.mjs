@@ -96,7 +96,7 @@ test('Farm now: stop when forced, otherwise blocked with the reason or start', (
   assert.deepEqual(rewardFarmAction(watch({ doneToday: true, farmable: true }), null), { mode: 'blocked', reason: 'Цель на сегодня выполнена' });
   assert.deepEqual(rewardFarmAction(watch({ category: null, farmable: false }), null), { mode: 'blocked', reason: 'Нет категории для просмотра' });
   const subs = watch({ category: null, farmable: false, dailyGoal: null, groups: [{ goalKind: 'subs', minutes: 0, subs: 1, rewards: [] }] });
-  assert.deepEqual(rewardFarmAction(subs, null), { mode: 'blocked', reason: 'Только подписка — Sentinel платное не делает' });
+  assert.deepEqual(rewardFarmAction(subs, null), { mode: 'blocked', reason: 'Только подписка — Hell Harvest платное не делает' });
   assert.equal(rewardFarmAction(watch({ farmable: false }), null).mode, 'blocked');
 });
 
