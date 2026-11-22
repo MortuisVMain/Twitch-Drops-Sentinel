@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { writeRunReport } from './src/runsummary.js';
+import { GOG_CATALOG_URL, gogHundredOff } from './src/discounts.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'gog', ...a);
 
@@ -14,6 +15,26 @@ const pastelBlue = chalk.hex('#add8e6'); // color for URLs
 console.log(datetime(), 'started checking gog');
 
 const db = await jsonDb('gog.json', {});
+
+// Paid games at 100% off outside the frontpage giveaway are reported with their link, not claimed: their checkout is not automated
+try {
+  const res = await fetch(GOG_CATALOG_URL, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const found = gogHundredOff((await res.json())?.products);
+  if (!found.length) console.log('[GOG] No paid games at 100% off in the store.');
+  else {
+    console.log(`[GOG] Games at 100% off in the store (add them on their page):\n  ${found.map(g => `${lavender(g.title)} ${pastelBlue(g.url)}`).join('\n  ')}`);
+    const seen = await jsonDb('gog-hundred-off.json', {});
+    const fresh = found.filter(g => !seen.data[g.url]);
+    if (fresh.length) {
+      await notify(`gog: games at 100% off, add them on their page:<br>${fresh.map(g => `<a href="${g.url}">${g.title}</a>`).join('<br>')}`);
+      for (const g of fresh) seen.data[g.url] = datetime();
+      await seen.write();
+    }
+  }
+} catch (err) {
+  console.warn(`[GOG] Could not search the store for games at 100% off: ${err.message}`);
+}
 
 // Pre-flight check: check if GOG frontpage has an active giveaway before launching browser
 if (!cfg.show && !process.env.FGC_FORCE) {
