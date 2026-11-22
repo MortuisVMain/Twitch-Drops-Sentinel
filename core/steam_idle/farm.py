@@ -528,6 +528,8 @@ class CardFarm:
         held = self._held
         now = self._clock()
         current = next((g for g in drops if g.app_id == held.app_id), None)
+        logger.debug("Recheck %s: %s drops left (was %d)", _label(held),  # every recheck; the console shows only changes
+                    "none" if current is None else current.drops_remaining, held.drops_remaining)
         remaining = 0 if current is None else current.drops_remaining
         self._count_drops(held, remaining)
         self._note_first_drop(held, current, remaining, now)
