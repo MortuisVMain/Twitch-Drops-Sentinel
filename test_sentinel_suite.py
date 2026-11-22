@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.9.0", f"Version mismatch: {__version__}"
+    assert __version__ == "3.9.1", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
