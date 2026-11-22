@@ -26,6 +26,7 @@
 // POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
 // ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does. With it, hidden_reward_campaigns is ['rc6'] and reward_campaign_categories {}; POST /api/settings with those keys, priority_games ('reward:<id>' entries) and POST /api/farm/force|cancel-force behave like the service (force of rc2 (no category), rc3 (done today) answers 400 with a Russian message; rc1/rc4 are accepted and set forced_game and reward_watching); window.__fixturePosts lists every one of these POSTs. reward_daily_slot (default on) and reward_auto_queue (default off) are posted like any setting and held; rc4 shows day 3 of 6 and rc1 shows today's badge received. For the dashboard's watching branch use ?pip=idle (no active drop).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
+// ?copies=found|own|empty|hint|error serves the Settings block "Другие копии в автозапуске": found is five findings of three copies (an autostart value, a giveaways task, a shortcut to a deleted folder, a machine-wide value, a running exe; two copies can be imported); own is found with settings and a sign-in of this copy (the import asks first); empty has none; hint is empty with the installer hint; error answers 500. Default: empty without the hint. POSTs land in window.__copiesPosts and remove/close/move change the served state.
 (function () {
   var q = new URLSearchParams(location.search);
   if (q.get('host') === '1') {
@@ -553,12 +554,57 @@
     if (siMode === 'slow' && siCalls === 1) return new Promise(function (res) { setTimeout(function () { res(siReply(200, body)); }, SLOW_MS); });
     return siReply(200, body);
   }
+  // Settings block "other copies": GET/POST /api/startup-copies/* (see the header, ?copies=)
+  var copiesMode = q.get('copies') || 'empty';
+  window.__copiesPosts = [];
+  function W(p) { return p.split('/').join(String.fromCharCode(92)); }
+  var OLD_A = W('C:/Users/mortu/Downloads/Twitch Drops Sentinel 3.7.0 (старая копия с очень длинным названием папки)'), OLD_B = W('D:/Games/Tools/Sentinel 3.9.2'), GONE = W('E:/Temp/Sentinel 3.5.0');
+  var RUN_KEY = 'Software/Microsoft/Windows/CurrentVersion/Run';
+  function finding(id, kind, name, dir, version, over) {
+    return Object.assign({ id: id, kind: kind, name: name, target: dir + W('/TwitchDropsSentinel.exe'), copyDir: dir, version: version, dirExists: true, removable: true, closable: false, location: W('HKCU/' + RUN_KEY), pid: null, ownsAutostart: false }, over || {});
+  }
+  var copiesFindings = (copiesMode === 'found' || copiesMode === 'own') ? [
+    finding('aaaaaaaaaaa1', 'run_value', 'TwitchDropsSentinel', OLD_A, '3.7.0', { ownsAutostart: true }),
+    finding('aaaaaaaaaaa2', 'scheduler_task', 'FreeGamesClaimerStudio-8adcfd31', OLD_A, '3.7.0', { location: 'Task Scheduler' + String.fromCharCode(92) + 'FreeGamesClaimerStudio-8adcfd31' }),
+    finding('aaaaaaaaaaa3', 'startup_link', 'TwitchDropsSentinel.lnk', GONE, null, { dirExists: false, target: GONE + W('/start_sentinel_silent.bat'), location: W('C:/Users/mortu/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/TwitchDropsSentinel.lnk') }),
+    finding('aaaaaaaaaaa4', 'hklm_run', 'Sentinel for all', OLD_B, '3.9.2', { removable: false, location: W('HKLM/' + RUN_KEY) }),
+    finding('aaaaaaaaaaa5', 'process', 'TwitchDropsSentinel.exe', OLD_B, '3.9.2', { removable: false, closable: true, location: 'pid 4242', pid: 4242 }),
+  ] : [];
+  function copiesState() {
+    var owner = copiesFindings.filter(function (f) { return f.ownsAutostart; })[0] || null;
+    var dirs = {};
+    copiesFindings.forEach(function (f) { if (f.copyDir && !dirs[f.copyDir]) dirs[f.copyDir] = { dir: f.copyDir, version: f.version, running: false, exists: f.dirExists !== false, importable: false }; });
+    copiesFindings.forEach(function (f) { if (f.kind === 'process') dirs[f.copyDir].running = true; });
+    Object.keys(dirs).forEach(function (d) { dirs[d].importable = dirs[d].exists && !dirs[d].running; });
+    return { status: 'ok', findings: copiesFindings, autostartOwner: owner, copies: Object.keys(dirs).map(function (d) { return dirs[d]; }), scannedAt: 1, thisVersion: '3.10.0', thisDir: W('C:/Apps/Sentinel 3.10.0'),
+      ownData: { nonDefaultConfig: copiesMode === 'own', signedIn: copiesMode === 'own' }, installerHint: { show: copiesMode === 'hint' || copiesMode === 'found', url: 'https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest' } };
+  }
+  function copiesReply(status, body) { return Promise.resolve({ ok: status < 400, status: status, json: function () { return Promise.resolve(body); }, text: function () { return Promise.resolve(JSON.stringify(body)); } }); }
+  function copiesFetch(path, init) {
+    var sub = path.slice('/api/startup-copies'.length);
+    if (copiesMode === 'error') return copiesReply(500, { status: 'error', message: 'fixture: the service failed' });
+    if (!init || init.method !== 'POST') return copiesReply(200, copiesState());
+    var body = init.body ? JSON.parse(init.body) : {};
+    window.__copiesPosts.push({ path: sub, body: body });
+    if (sub === '/remove' && body.all) { copiesFindings = copiesFindings.filter(function (f) { return !f.removable; }); }
+    else if (sub === '/remove' || sub === '/close') {
+      var known = copiesFindings.some(function (f) { return f.id === body.id; });
+      if (!known) return copiesReply(404, { status: 'error', message: 'запись не найдена, обновите список' });
+      copiesFindings = copiesFindings.filter(function (f) { return f.id !== body.id; });
+    }
+    else if (sub === '/move-autostart') { copiesFindings = copiesFindings.map(function (f) { return Object.assign({}, f, { ownsAutostart: false }); }); }
+    else if (sub === '/import' && copiesMode === 'own' && body.confirm !== true) return copiesReply(409, { status: 'confirm_required', ownData: copiesState().ownData });
+    else if (sub === '/import') return copiesReply(200, { status: 'ok', restart_required: true });
+    else if (sub === '/dismiss-hint') { copiesMode = 'empty'; return copiesReply(200, { status: 'ok' }); }
+    return copiesReply(200, copiesState());
+  }
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init, url);
+    if (path.indexOf('/api/startup-copies') === 0) return copiesFetch(path, init);
     // Farm now: a reward target is refused with a Russian message like the service does (not farmable, done today, earned)
     if ((path === '/api/farm/force' || path === '/api/farm/cancel-force') && init && init.method === 'POST') {
       var farmBody = init.body ? JSON.parse(init.body) : {};
