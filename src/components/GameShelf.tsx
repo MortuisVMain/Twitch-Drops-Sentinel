@@ -92,7 +92,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const { playClick } = useTactileAudio();
 
   // 1. All useState hooks declared cleanly at the top to prevent TDZ errors
-  const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'drops' | 'priority' | 'claimed' | 'installed' | 'excluded' | 'removed' | 'rewards'>('all');
   const [removedKeys, setRemovedKeys] = useState<string[]>(ignoredGames || []);
   const [showTrophyVault, setShowTrophyVault] = useState<boolean>(() => {
     try {
@@ -415,7 +415,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     return activeFilter === 'all' ? sortCampaigns(list, sortMode, seenAtOpen) : list;
   }, [games, trophies, priorityList, excludedList, excludedSet, allRemovedLower, activeFilter, searchQuery, claimedTrophiesByGame, sortMode, seenAtOpen]);
 
-  // Reward campaigns sit in the same grid as the games: first on "Активные кампании", in queue order on "В моей очереди"
+  // Reward campaigns have their own tab "Кампании наград" (their long goal lists broke the game grid), and sit in queue order on "В моей очереди"
   const hiddenIds = useMemo(() => hiddenRewardIds(hiddenRewardList, rewardCampaigns), [hiddenRewardList, rewardCampaigns]);
   const rewardActions = useRewardActions({
     priorityList, hiddenList: hiddenRewardList ?? [], categories: rewardCategories, forcedGame, onUpdateSettings,
@@ -430,11 +430,10 @@ export const GameShelf: React.FC<GameShelfProps> = ({
   const queueCount = useMemo(() => queueItems(priorityList, rewardCampaigns, hiddenIds).length, [priorityList, rewardCampaigns, hiddenIds]);
   const shelfItems = useMemo<ShelfItem[]>(() => {
     const gameItems: ShelfItem[] = filteredGames.map((game) => ({ key: game.name, order: priorityList.indexOf(game.name), game }));
-    if (activeFilter === 'all') {
-      const rewards = visibleRewards
+    if (activeFilter === 'rewards') {
+      return visibleRewards
         .filter((campaign) => rewardMatchesQuery(campaign, searchQuery))
         .map((campaign): ShelfItem => ({ key: `reward:${campaign.id}`, order: -1, campaign, queueIndex: priorityList.indexOf(rewardQueueKey(campaign.id)) }));
-      return [...rewards, ...gameItems];
     }
     if (activeFilter === 'priority') {
       const rewards = queuedRewards
@@ -450,7 +449,11 @@ export const GameShelf: React.FC<GameShelfProps> = ({
     () => games.filter((g) => isCampaignRunning(g) && !excludedSet.has(g.name) && !excludedList.includes(g.name) && !allRemovedLower.has(g.name.toLowerCase())),
     [games, excludedSet, excludedList, allRemovedLower]
   );
-  const dropsCount = visibleRunning.length + visibleRewards.length;
+  const dropsCount = visibleRunning.length;
+  // the reward tab disappears when the setting is turned off: do not leave the shelf on an empty, unreachable tab
+  useEffect(() => {
+    if (!rewardCampaigns && filterMode === 'rewards') setFilterMode('all');
+  }, [rewardCampaigns, filterMode]);
   // remember what has been shown, so the next visit can mark newcomers
   useEffect(() => {
     if (visibleRunning.length === 0) return;
@@ -605,6 +608,15 @@ export const GameShelf: React.FC<GameShelfProps> = ({
           >
             <Flame className="ui-icon" aria-hidden="true" focusable="false" /> Активные кампании ({dropsCount})
           </button>
+          {rewardCampaigns && (
+            <button
+              className={`tactile-btn ${activeFilter === 'rewards' ? 'active-mint' : ''}`}
+              onClick={() => { playClick(); setActiveFilter('rewards'); }}
+              title="Кампании наград Twitch: квесты и предложения брендов"
+            >
+              <Gift className="ui-icon" aria-hidden="true" focusable="false" /> Кампании наград ({visibleRewards.length})
+            </button>
+          )}
           <button
             className={`tactile-btn ${activeFilter === 'priority' ? 'active-mint' : ''}`}
             onClick={() => { playClick(); setActiveFilter('priority'); }}
@@ -807,14 +819,18 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                 ? 'Наград пока не собрано'
                 : activeFilter === 'removed'
                   ? 'Список удалённых пуст'
-                  : 'Игры не найдены'}
+                  : activeFilter === 'rewards'
+                    ? 'Кампаний наград не найдено'
+                    : 'Игры не найдены'}
             </div>
             <div style={{ fontSize: 'var(--fs-xs)', maxWidth: '440px', margin: '0 auto', lineHeight: '1.6' }}>
               {activeFilter === 'claimed'
                 ? 'Sentinel автоматически фиксирует полученные трофеи в Trophies.md при каждом завершении кампании. Запустите фарм, и первые трофеи появятся здесь!'
                 : activeFilter === 'removed'
                   ? 'Все игры из каталога сейчас активны и отображаются на полке.'
-                  : 'Попробуйте сбросить поисковый запрос или выбрать другой фильтр.'}
+                  : activeFilter === 'rewards' && !searchQuery
+                    ? 'Сейчас на Twitch нет кампаний наград.'
+                    : 'Попробуйте сбросить поисковый запрос или выбрать другой фильтр.'}
             </div>
           </div>
         ) : viewMode === 'list' ? (
@@ -1151,7 +1167,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
         )}
       </div>
 
-      {activeFilter === 'all' && <RewardHiddenList campaigns={hiddenRewards} onRestore={rewardActions.restore} playClick={playClick} />}
+      {activeFilter === 'rewards' && <RewardHiddenList campaigns={hiddenRewards} onRestore={rewardActions.restore} playClick={playClick} />}
     </div>
   );
 };
