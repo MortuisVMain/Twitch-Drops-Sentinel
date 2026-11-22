@@ -2135,4 +2135,54 @@ button.sidle-card-body:focus-visible { outline: 2px solid var(--led-mint); outli
 .sidle-row-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 12px; }
 .sidle-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--led-amber); border-radius: 8px; }
 .sidle-root .sidle-danger:not(:disabled):not([aria-disabled='true']) { border-color: var(--led-amber); color: var(--led-amber); }
+/* Achievements: run state and pace side by side, then the game list on the left and the chosen game on the right */
+.sidle-ach-top { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.sidle-ach-top > .titanium-island { margin: 0; }
+.sidle-one-grid { display: grid; gap: 16px; grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr); align-items: start; }
+@container stage (max-width: 64em) { .sidle-ach-top, .sidle-one-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1000px) { .sidle-ach-top, .sidle-one-grid { grid-template-columns: minmax(0, 1fr); } }
+.sidle-picker { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sidle-search { position: relative; display: flex; align-items: center; }
+.sidle-search > .ui-icon { position: absolute; left: 14px; color: var(--text-muted); pointer-events: none; }
+.sidle-search .sidle-input { min-height: 48px; max-width: none; padding-left: 40px; font-size: var(--fs-md); }
+.sidle-search .sidle-input::placeholder { color: var(--text-muted); }
+.sidle-search .sidle-input:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 1px; }
+.sidle-picker .sidle-seg { width: 100%; }
+.sidle-picker .sidle-seg-btn { flex: 1; min-height: 40px; }
+.sidle-pick-list { list-style: none; margin: 0; padding: 2px; display: flex; flex-direction: column; gap: 6px; max-height: 40rem; overflow-y: auto; overflow-x: hidden; }
+.sidle-pick { display: flex; gap: 12px; align-items: center; width: 100%; min-height: 76px; padding: 8px 10px; border: 1px solid var(--border-island); border-radius: var(--radius-lg); background: var(--bg-island); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s ease, background-color 0.15s ease; }
+.sidle-pick:hover { border-color: var(--border-main); background: var(--bg-btn-hover); }
+.sidle-pick.selected { border-color: var(--led-mint); box-shadow: inset 3px 0 0 var(--led-mint); }
+.sidle-pick:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
+.sidle-pick-cover { flex: 0 0 45px; width: 45px; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--radius-sm); background: var(--bg-well); }
+.sidle-pick-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.sidle-pick-title { font-size: var(--fs-sm); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidle-pick-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--fs-xs); color: var(--text-secondary); }
+.sidle-pick-facts b { color: var(--text-primary); }
+.sidle-shield { display: inline-flex; align-items: center; gap: 4px; color: var(--led-amber); font-weight: 700; }
+.sidle-shield .ui-icon { width: 13px; height: 13px; }
+.sidle-prog { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sidle-prog-bar { display: block; height: 4px; border-radius: 999px; background: color-mix(in oklch, var(--text-muted) 28%, transparent); overflow: hidden; }
+.sidle-prog-bar > span { display: block; height: 100%; border-radius: inherit; background: color-mix(in oklch, var(--led-mint) 70%, transparent); }
+.sidle-prog-bar > span.full { background: var(--led-mint); }
+.sidle-prog.large .sidle-prog-bar { height: 8px; }
+.sidle-prog-text { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--text-secondary); }
+.sidle-prog-text b { color: var(--text-primary); }
+.sidle-prog-text .ui-icon { width: 13px; height: 13px; color: var(--led-mint); }
+.sidle-prog-text.muted { color: var(--text-muted); }
+.sidle-prog.large .sidle-prog-text { font-size: var(--fs-sm); }
+.sidle-one-grid > .sidle-ach-game { margin: 0; padding: 14px; border: 1px solid var(--border-island); border-top: 1px solid var(--border-island); border-radius: var(--radius-lg); background: var(--bg-well); position: sticky; top: 8px; min-width: 0; }
+.sidle-empty { margin: 0; padding: 48px 16px; text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
+.sidle-game-head { display: flex; gap: 14px; align-items: center; }
+.sidle-game-head .sidle-current-text { flex: 1; gap: 6px; }
+.sidle-game-head .sidle-subtitle { margin: 0; font-size: var(--fs-lg); color: var(--text-primary); }
+.sidle-game-cover { flex: 0 0 72px; width: 72px; margin: 0; }
+.sidle-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; min-height: 56px; padding: 10px 12px; border: 1px solid var(--border-main); border-radius: var(--radius-md); background: var(--bg-island); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.sidle-switch-row:hover:not([aria-disabled='true']) { border-color: var(--led-mint); }
+.sidle-switch-row[aria-disabled='true'] { cursor: not-allowed; }
+.sidle-switch-row:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
+.sidle-switch-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sidle-switch-title { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 700; }
+.sidle-switch-title .ui-icon { color: var(--led-amber); }
+.sidle-switch-hint { font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.4; }
 @media (prefers-reduced-motion: reduce) { .sidle-root, .sidle-root * { animation: none !important; transition: none !important; } }

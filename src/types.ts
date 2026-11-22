@@ -326,7 +326,7 @@ export interface SteamIdleState {
     suspended: boolean;
     refundHeld: SteamIdleHeldGame[];
   };
-  library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null };
+  library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null; achievementsChecking?: boolean; achievementsVersion?: number };
   preview?: SteamIdlePreview;
   /** Absent when the service is older than achievements: the Achievements switch item is then hidden. */
   achievements?: SteamIdleAchievements;
@@ -365,6 +365,10 @@ export interface SteamIdleLibraryGame {
   protected?: boolean;
   /** On the user's own list; absent in an older service. */
   userDenied?: boolean;
+  /** Whether the game has Steam achievements (store data); null while unknown, absent in an older service. */
+  hasAchievements?: boolean | null;
+  /** The account's progress from the last time the game's list was read; null when it was never read. */
+  achievements?: { achieved: number; total: number } | null;
 }
 /** One achievement from GET /achievements. */
 export interface SteamIdleAchievement { apiName: string; name: string; description: string; hidden: boolean; achieved: boolean; unlockTime: number | null }

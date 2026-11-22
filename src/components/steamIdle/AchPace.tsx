@@ -37,10 +37,10 @@ const PaceForm: React.FC<{ saved: SteamIdleAchSettings; runActive: boolean; busy
   return (
     <>
       <div className="sidle-fields">
-        <Field id="sidle-pace-min" label="пауза от" value={min} error={minError} disabled={runActive} onChange={setMin} />
-        <Field id="sidle-pace-max" label="до" value={max} error={maxError} disabled={runActive} onChange={setMax} />
+        <Field id="sidle-pace-min" label="от, мин" value={min} error={minError} disabled={runActive} onChange={setMin} />
+        <Field id="sidle-pace-max" label="до, мин" value={max} error={maxError} disabled={runActive} onChange={setMax} />
       </div>
-      <p id="sidle-pace-help" className="sidle-meta"><span>В минутах.</span><span>Если оба значения 0, пауз нет.</span>{runActive && <span>Темп меняется между запусками.</span>}</p>
+      <p id="sidle-pace-help" className="sidle-meta"><span>Пауза выбирается случайно в этом диапазоне.</span><span>0 и 0: без пауз.</span>{runActive && <span>Темп меняется между запусками.</span>}</p>
       <label className="sidle-check">
         <input type="checkbox" checked={skipHidden} disabled={runActive} onChange={(e) => setSkipHidden(e.target.checked)} />
         <span>Пропускать скрытые достижения</span>
@@ -57,7 +57,8 @@ const PaceForm: React.FC<{ saved: SteamIdleAchSettings; runActive: boolean; busy
 
 export const AchPace: React.FC<{ saved: SteamIdleAchSettings; runActive: boolean; busy: SteamIdleCommand | null; send: SendCommand }> = ({ saved, runActive, busy, send }) => (
   <section className="titanium-island" aria-labelledby="sidle-pace-title">
-    <h2 id="sidle-pace-title" className="sidle-title">Темп</h2>
+    <h2 id="sidle-pace-title" className="sidle-title">Темп выдачи</h2>
+    <p className="sidle-text">Пауза между двумя достижениями, чтобы выдача выглядела как обычная игра.</p>
     <PaceForm saved={saved} runActive={runActive} busy={busy} send={send} />
   </section>
 );

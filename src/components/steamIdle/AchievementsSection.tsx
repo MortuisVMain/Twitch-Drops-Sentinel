@@ -22,7 +22,9 @@ const Workspace: React.FC<Props & { takeFocus: boolean }> = ({ s, ach, busy, sen
   const status = s.library.status ?? (s.library.count !== null ? 'ready' : 'none');
   // A finished scan makes the list we hold out of date: read it again.
   const scans = useArrivals<string>(status, isReady);
-  const library = useLibraryGames(status === 'ready', scans);
+  // The service finished asking which games have achievements: the labels in the list we hold are out of date.
+  const checks = s.library.achievementsVersion ?? 0;
+  const library = useLibraryGames(status === 'ready', scans + checks);
   const runActive = achRunActive(ach.run.state);
   useBusyRetry(library, runActive);
   // The anti-cheat labels of the game list come with it: read it again when the user's own list changes.
@@ -37,9 +39,11 @@ const Workspace: React.FC<Props & { takeFocus: boolean }> = ({ s, ach, busy, sen
   return (
     <>
       <AchInterrupted interrupted={ach.interrupted} runActive={runActive} busy={busy} send={send} />
-      <AchRunPanel s={s} run={ach.run} busy={busy} takeFocus={takeFocus} send={send} />
+      <div className="sidle-ach-top">
+        <AchRunPanel s={s} run={ach.run} busy={busy} takeFocus={takeFocus} send={send} />
+        <AchPace saved={ach.settings} runActive={runActive} busy={busy} send={send} />
+      </div>
       <AchOneGame s={s} ach={ach} library={library} busy={busy} send={send} />
-      <AchPace saved={ach.settings} runActive={runActive} busy={busy} send={send} />
       <AchAllGames s={s} games={library.data} runActive={runActive} busy={busy} send={send} />
       {s.denylist && <AchDenylist list={s.denylist} busy={busy} send={send} />}
       <AchFinished finished={ach.run.finished} />

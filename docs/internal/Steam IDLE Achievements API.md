@@ -50,7 +50,7 @@ Working contract between the service (`core/steam_idle`) and the UI tab. All rou
 - `run.finished` notes also include `protected_app` (the game has anti-cheat; nothing of it was read or written) and `protection_unknown` (the anti-cheat check gave no answer; the game is skipped the same way). The check runs for every game of every plan kind, right before its achievements are read (see "Anti-cheat" below). After 5 games in a row noted `protection_unknown` the run stops with `lastError` `protection_unavailable` (the store is not answering).
 - `achievements.interrupted`: `null`, or `{"kind": "game"|"selected"|"library", "startedAt": epochSeconds, "gamesDone", "gamesTotal", "unlocked"}`, the summary of a run the last session did not finish (see "Interrupted run" below). It is `null` while a run is active and after any new start.
 - `state.busy`: true while the card farm or an achievements run is active (the farm loop or the achievements loop is live, paused included), otherwise false. The Settings block reads it to decide whether turning the Steam IDLE tab off needs a confirmation: "Выключить Steam IDLE? Фарм и выдача остановятся, прерванную выдачу можно будет продолжить."
-- `state.library` becomes `{"count": number|null, "status": "none"|"scanning"|"ready"|"failed", "ageSeconds": number|null}`.
+- `state.library` becomes `{"count": number|null, "status": "none"|"scanning"|"ready"|"failed", "ageSeconds": number|null, "achievementsChecking": bool, "achievementsVersion": number}`. `achievementsChecking` is true while the service asks the store which listed games have achievements (see "Achievement index" below); `achievementsVersion` goes up each time such a lookup ends, and the page reads `GET /library` again when it changes.
 
 ## Routes
 
@@ -59,7 +59,7 @@ Working contract between the service (`core/steam_idle`) and the UI tab. All rou
 | `POST /achievements/ack` | `{"accepted": true}` | 200 `{"ok": true}` | `accepted: false` withdraws it and stops a running achievements run |
 | `POST /achievements/settings` | `{"minMinutes": n, "maxMinutes": n, "skipHidden": bool}` | 200 `{"ok": true}` | integers 0..1440, min <= max, stored in settings |
 | `POST /library/scan` | none | 202 `{"ok": true}` | reads the owned games list |
-| `GET /library` | none | 200 `{"games": [{"appId", "name", "playtimeMinutes"}]}` | 409 `not_ready` when no list is cached |
+| `GET /library` | none | 200 `{"games": [{"appId", "name", "playtimeMinutes", "protected", "userDenied", "hasAchievements", "achievements"}]}` | 409 `not_ready` when no list is cached; `hasAchievements` is true, false or null (unknown); `achievements` is `{"achieved", "total"}` from the last live read of that game, or null |
 | `GET /achievements?appId=N` | none | 200 `{"appId", "achievements": [{"apiName", "name", "description", "hidden", "achieved", "unlockTime"}]}` | reads live through the helper; can take a few seconds |
 | `POST /achievements/start` | one of the three shapes below | 200 `{"ok": true}` | |
 | `POST /achievements/resume-interrupted` | none, `{}` or `{"confirm": "ALL"}` | 200 `{"ok": true}` | starts the interrupted run again minus its finished games; a library run needs `{"confirm": "ALL"}` (otherwise 400 `invalid_request`); refusals: the normal start ones, `account_changed`, `no_interrupted_run` |
@@ -113,3 +113,7 @@ A game is held while `now - firstSeen < 14 days` and `playtimeHours < 2` (a miss
 | Method and path | Body | Success | Notes |
 |---|---|---|---|
 | `POST /farm/release` | `{"appId": N}` (exact key set) | 200 `{"ok": true}` | stores the release, rebuilds the queue; 409 `not_held` for an unknown app id or a game that is not in `refundHeld`; 400 `invalid_request` for a bad body |
+
+## Achievement index
+
+`GET /library` labels each game with `hasAchievements`, so the picker can leave out games without achievements. The answer comes from the public store (`IStoreBrowseService/GetItems`, no key, app ids only, up to 100 per request, 1 s between requests): feature category 22 "Steam Achievements". It is cached in `steam_idle_achievement_index.json` next to the app: true for 90 days, false for 14 days. An app the store does not answer for stays `null` and is shown; it is not asked again until the service restarts. A `GET /library` with unanswered games starts the lookup in the background (`state.library.achievementsChecking`). A live `GET /achievements` read overrides the store: an empty list records false, a non-empty one true, and it stores the achieved and total counts the cards show (kept when the store answer is refreshed).

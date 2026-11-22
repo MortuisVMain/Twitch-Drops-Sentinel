@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import achievements, community
+from .achievement_index import CACHE_FILE_NAME as ACH_INDEX_FILE_NAME, AchievementIndex
 from ._helper import command as build_command, kill_tree, spawn
 from .achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from .achievements import AchievementsError
@@ -160,7 +161,10 @@ class SteamIdleController:
                  uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None,
                  data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time,
                  first_seen: FirstSeenStore | None = None, engine_installed: Callable[[], bool] = lambda: True,
-                 module_enabled: Callable[[], bool] = lambda: True):
+                 module_enabled: Callable[[], bool] = lambda: True, achievement_index: AchievementIndex | None = None):
+        self._index = achievement_index  # without one every game counts as unknown and nothing is asked
+        self._index_task = None
+        self._index_version = 0  # goes up when a lookup ends, so the page reads the list again even if it never saw it run
         self._get_setting, self._set_setting, self._module_enabled = get_setting, set_setting, module_enabled
         self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
         self._find_tools, self._client_state, self._engine_installed = find_tools, client_state, engine_installed
@@ -243,7 +247,8 @@ class SteamIdleController:
         else:
             status = "failed" if self._library_error else "ready" if library else "none"
         return {"count": len(library[1]) if library else None, "status": status,
-                "ageSeconds": None if library is None else self._clock() - library[2]}
+                "ageSeconds": None if library is None else self._clock() - library[2],
+                "achievementsChecking": self._index_running(), "achievementsVersion": self._index_version}
 
     def _store_library(self, account_id: int, games: list) -> None:
         self._library, self._library_error = (account_id, games, self._clock()), None
@@ -362,9 +367,29 @@ class SteamIdleController:
         if self._library is None:
             return None
         user = set(self._user_denylist())
+        index = self._index
+        self._start_index_fill([g.app_id for g in self._library[1]])
         return [{"appId": g.app_id, "name": g.name, "playtimeMinutes": g.playtime_minutes,
-                 "protected": is_builtin(g.app_id) or g.app_id in user, "userDenied": g.app_id in user}
+                 "protected": is_builtin(g.app_id) or g.app_id in user, "userDenied": g.app_id in user,
+                 "hasAchievements": None if index is None else index.known(g.app_id),
+                 "achievements": None if index is None else index.progress(g.app_id)}
                 for g in self._library[1]]
+
+    def _index_running(self) -> bool:
+        return self._index_task is not None and not self._index_task.done()
+
+    def _start_index_fill(self, app_ids: list[int]) -> None:
+        """Ask the store, in the background, which listed games have achievements; the page reads the list again once
+        `achievementsChecking` turns false. Runs from a request handler, so a loop is running."""
+        if self._index is None or self._closed or self._index_running() or not self._index.missing(app_ids):
+            return
+        self._index_task = asyncio.get_running_loop().create_task(self._fill_index(app_ids))
+
+    async def _fill_index(self, app_ids: list[int]) -> None:
+        try:
+            await self._index.fill(app_ids)
+        finally:
+            self._index_version += 1
 
     # the user's own anti-cheat games, merged with the built-in table
     def _user_denylist(self) -> list[int]:
@@ -419,7 +444,11 @@ class SteamIdleController:
 
     async def achievements_of(self, app_id: int) -> list[dict] | str:
         """Live read of one game's achievements: a refusal code, or the list; AchievementsError when the read failed."""
-        return await self._achv.read(app_id)
+        result = await self._achv.read(app_id)
+        if self._index is not None and isinstance(result, list):
+            # the game's own list beats the store's category and gives the card its progress
+            self._index.record(app_id, sum(1 for a in result if a["achieved"]), len(result))
+        return result
 
     def start_achievements(self, plan: SelectedPlan | GamePlan | LibraryPlan) -> str | None:
         return self._achv.start(plan)
@@ -540,7 +569,7 @@ class SteamIdleController:
 
     def _tasks(self) -> list:
         return [task for task in (self._task, self._login_task, self._check_task, self._scan_task, self._library_task,
-                                  self._achv.task) if task is not None]
+                                  self._index_task, self._achv.task) if task is not None]
 
     async def shutdown(self) -> None:
         """Close the farm and the achievements queue for good (nothing new is written), end the tasks and any read in
@@ -783,6 +812,7 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
     return SteamIdleController(
         module_enabled=module_enabled, engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
+        achievement_index=AchievementIndex(app_root / ACH_INDEX_FILE_NAME),
         first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time, claimant=_active_account()),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root, fallback=find_node),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
