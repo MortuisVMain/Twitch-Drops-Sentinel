@@ -1320,6 +1320,7 @@
   .reward-goals { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-xs); color: var(--text-secondary); }
   .reward-goal.muted { color: var(--text-muted); }
   .reward-goal-rewards { color: var(--text-muted); overflow-wrap: anywhere; }
+  .reward-goals-toggle { margin-top: 4px; min-height: 24px; gap: 4px; font-size: var(--fs-xs); }
   .reward-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
   .reward-actions .reward-link { margin-left: 0; }
   .reward-actions > * { max-width: 100%; }

@@ -31,6 +31,8 @@ interface RewardCampaignCardProps {
 }
 
 const BTN = { minHeight: '24px', fontSize: 'var(--fs-xs)' } as const;
+/** Goals shown before "Ещё N": long lists (Pokémon, GTA VI) would stretch the card far past its neighbours. */
+const GOALS_PREVIEW = 2;
 
 /** The campaign picture, or its initials when there is none or it does not load. */
 function RewardCover({ image, name }: { image: string | null | undefined; name: string }) {
@@ -74,12 +76,16 @@ function CategoryEditor({ campaign, initial, onSave, onClose }: { campaign: Rewa
 /** A Twitch reward campaign drawn like a game: the same card shell on the shelf (tile or list row) and the same buttons. */
 export function RewardCampaignCard({ campaign: c, layout, queueIndex, queueLength, forcedGame, watching, userCategory, actions, playClick }: RewardCampaignCardProps) {
   const [editing, setEditing] = useState(false);
+  const [goalsOpen, setGoalsOpen] = useState(false);
   const categoryButton = useRef<HTMLButtonElement>(null);
   const farm = rewardFarmAction(c, forcedGame);
   const queued = queueIndex >= 0;
   const until = rewardUntilText(c.endsAt, uiLocale());
   const meta = [until, c.brand, rewardDayText(c), queued && `#${queueIndex + 1} в очереди`].filter(Boolean) as string[];
   const dailyReward = rewardDailyRewardText(c);
+  const goals = rewardGroupLines(c);
+  const shownGoals = goalsOpen ? goals : goals.slice(0, GOALS_PREVIEW);
+  const moreGoals = goals.length - GOALS_PREVIEW;
   const closeEditor = () => {
     setEditing(false);
     categoryButton.current?.focus();
@@ -102,14 +108,25 @@ export function RewardCampaignCard({ campaign: c, layout, queueIndex, queueLengt
         </div>
       )}
       <div className="reward-meta">{rewardCategoryLine(c)}</div>
-      <ul className="reward-goals">
-        {rewardGroupLines(c).map((line, i) => (
+      <ul className="reward-goals" id={`reward-goals-${c.id}`}>
+        {shownGoals.map((line, i) => (
           <li key={i} className={`reward-goal ${line.muted ? 'muted' : ''}`}>
             {line.text}
             {line.rewards.length > 0 && <div className="reward-goal-rewards">{line.rewards.join(', ')}</div>}
           </li>
         ))}
       </ul>
+      {moreGoals > 0 && (
+        <button
+          className="node-chip reward-goals-toggle"
+          aria-expanded={goalsOpen}
+          aria-controls={`reward-goals-${c.id}`}
+          onClick={run(() => setGoalsOpen((open) => !open))}
+        >
+          {goalsOpen ? <ChevronUp className="ui-icon" aria-hidden="true" focusable="false" /> : <ChevronDown className="ui-icon" aria-hidden="true" focusable="false" />}
+          {goalsOpen ? 'Свернуть' : <>Ещё условий: {moreGoals}</>}
+        </button>
+      )}
     </div>
   );
 
