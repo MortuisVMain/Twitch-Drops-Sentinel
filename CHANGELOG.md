@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Giveaways: Epic Games now also claims paid games that are 100% off outside the weekly giveaway block (a publisher's own sale, e.g. "Contractor: The Clean Up Part II"). The store is searched at most every 6 hours; free-to-play games are never taken. GOG games at 100% off are listed in the log with their link (and in a notification, once each); they are not claimed automatically.
 
 ## [3.9.1] - 2026-11-22
 - Installer: refuses Program Files and the Windows folder even when run as administrator. The app always runs as the user and cannot write there, so such a copy failed on every start with "local service unavailable". The folder page now explains which folders work and why.

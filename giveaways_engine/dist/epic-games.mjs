@@ -7130,6 +7130,63 @@ var writeRunReport = (games, extra = {}) => {
   }
 };
 
+// src/discounts.js
+var EPIC_SEARCH_HASH = "7d58e12d9dd8cb14c84a3ff18d360bf9f0caa96bf218f2c5fda68ba88d68a437";
+var EPIC_BROWSE_URL = "https://store.epicgames.com/en-US/browse?sortBy=currentPrice&sortDir=ASC&priceTier=tierDiscouted&category=Game&count=40";
+var SCAN_INTERVAL_MS = 6 * 60 * 60 * 1e3;
+var cleanSlug = (s) => String(s ?? "").split(/[/?#]/)[0].trim().toLowerCase();
+var epicHundredOff = (elements) => {
+  const found = [];
+  for (const el of Array.isArray(elements) ? elements : []) {
+    const price = el?.price?.totalPrice;
+    if (price?.discountPrice !== 0 || !(price?.originalPrice > 0)) continue;
+    const pages = [...el.offerMappings ?? [], ...el.catalogNs?.mappings ?? []];
+    const slug = cleanSlug((pages.find((m) => m?.pageType === "productHome") ?? pages[0])?.pageSlug || el.productSlug);
+    if (slug && !found.some((g) => g.slug === slug)) found.push({ title: el.title, slug });
+  }
+  return found;
+};
+var epicHundredOffCards = (cards) => {
+  const slugs = [];
+  for (const { href, text } of Array.isArray(cards) ? cards : []) {
+    const lines = String(text ?? "").split(/\r?\n/).map((l) => l.trim());
+    if (!lines.some((l) => /^-\s?100\s?%$/.test(l)) || !lines.some((l) => /^(free|бесплатно)$/i.test(l))) continue;
+    const m = String(href ?? "").match(/\/p\/([^/?#]+)/);
+    const slug = m && cleanSlug(m[1]);
+    if (slug && !slugs.includes(slug)) slugs.push(slug);
+  }
+  return slugs;
+};
+var scanDue = (lastScan, now = Date.now(), interval = SCAN_INTERVAL_MS) => {
+  const t = Date.parse(lastScan);
+  return !Number.isFinite(t) || now - t >= interval || t > now;
+};
+var findEpicHundredOff = async (page2) => {
+  const vars = { allowCountries: "US", category: "games/edition/base|bundles/games", count: 40, country: "US", locale: "en-US", onSale: true, sortBy: "currentPrice", sortDir: "ASC", start: 0, withPrice: true };
+  const query = `/graphql?operationName=searchStoreQuery&variables=${encodeURIComponent(JSON.stringify(vars))}&extensions=${encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash: EPIC_SEARCH_HASH } }))}`;
+  let apiError;
+  try {
+    const body = await page2.evaluate(async (q) => {
+      const r = await fetch(q, { credentials: "include" });
+      return { status: r.status, json: r.ok ? await r.json() : null };
+    }, query);
+    const elements = body.json?.data?.Catalog?.searchStore?.elements;
+    if (!Array.isArray(elements)) throw new Error(`HTTP ${body.status}${body.json?.errors ? `, ${body.json.errors[0]?.message}` : ""}`);
+    return epicHundredOff(elements).map((g) => ({ ...g, url: `https://store.epicgames.com/en-US/p/${g.slug}` }));
+  } catch (err) {
+    apiError = err;
+  }
+  console.warn(`  Epic's search API did not answer (${apiError.message}): reading the browse page instead.`);
+  await page2.goto(EPIC_BROWSE_URL, { waitUntil: "domcontentloaded" });
+  await page2.locator('a[href*="/p/"]').first().waitFor({ timeout: 2e4 });
+  const cards = await page2.evaluate(() => [...document.querySelectorAll('a[href*="/p/"]')].map((a) => {
+    let el = a;
+    for (let i = 0; el && i < 4 && !/%/.test(el.innerText); i++) el = el.parentElement;
+    return { href: a.getAttribute("href"), text: el?.innerText ?? "" };
+  }));
+  return epicHundredOffCards(cards).map((slug) => ({ title: slug, slug, url: `https://store.epicgames.com/en-US/p/${slug}` }));
+};
+
 // epic-games.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "epic-games", ...a);
 var URL_CLAIM = "https://store.epicgames.com/en-US/free-games";
@@ -7139,6 +7196,7 @@ var pastelGreen = source_default.hex("#77dd77");
 var pastelBlue = source_default.hex("#add8e6");
 console.log(datetime(), "started checking epic-games");
 var db = await jsonDb("epic-games.json", {});
+var scanDb = await jsonDb("epic-games-scan.json", {});
 if (!cfg.show && !process.env.FGC_FORCE) {
   try {
     const promoRes = await fetch("https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US", {
@@ -7162,8 +7220,11 @@ if (!cfg.show && !process.env.FGC_FORCE) {
           });
           if (allClaimed) {
             console.log(`[Pre-Flight] All ${activeFreeGames.length} active Epic Games freebies already in library: ${activeFreeGames.map((g) => `"${g.title}"`).join(", ")}.`);
-            console.log("[Pre-Flight] Skipping browser launch (fast exit in <500ms).");
-            process.exit(0);
+            if (!scanDue(scanDb.data.lastScan)) {
+              console.log("[Pre-Flight] Store searched for other 100%-off games less than 6 h ago. Skipping browser launch (fast exit in <500ms).");
+              process.exit(0);
+            }
+            console.log("[Pre-Flight] Searching the store for other games at 100% off...");
           }
         }
       }
@@ -7317,9 +7378,26 @@ try {
     console.error("Seems like currently there are no free games available in your region...");
   });
   const urlSlugs = await Promise.all((await game_loc.elementHandles()).map((a) => a.getAttribute("href")));
-  const urls = urlSlugs.map((s) => "https://store.epicgames.com" + s);
+  const giveawayUrls = urlSlugs.map((s) => "https://store.epicgames.com" + s);
   console.log(`Free games:
-  ${urls.map((u) => pastelBlue(u)).join("\n  ")}`);
+  ${giveawayUrls.map((u) => pastelBlue(u)).join("\n  ")}`);
+  let hundredOffUrls = [];
+  try {
+    const hundredOff = await findEpicHundredOff(page);
+    scanDb.data.lastScan = (/* @__PURE__ */ new Date()).toISOString();
+    await scanDb.write();
+    const known = new Set(giveawayUrls.map(slugFromUrl));
+    const owned = (g) => ["claimed", "existed", "manual"].includes(db.data[user][g.slug]?.status);
+    const extra = hundredOff.filter((g) => !known.has(g.slug) && !owned(g));
+    const ownedCount = hundredOff.filter((g) => !known.has(g.slug) && owned(g)).length;
+    if (extra.length) console.log(`Other games at 100% off:
+  ${extra.map((g) => `${lavender(g.title)} ${pastelBlue(g.url)}`).join("\n  ")}`);
+    else console.log(`No other games at 100% off${ownedCount ? ` (${ownedCount} already in library)` : ""}.`);
+    hundredOffUrls = extra.map((g) => g.url);
+  } catch (err) {
+    console.error(`Could not search the store for other games at 100% off: ${err.message}`);
+  }
+  const urls = [...giveawayUrls, ...hundredOffUrls];
   const promoSlugs = await fetchFreePromoSlugs();
   const retriedAfterConfirm = /* @__PURE__ */ new Set();
   for (const url of urls) {
