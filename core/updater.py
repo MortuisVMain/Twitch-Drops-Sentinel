@@ -44,6 +44,8 @@ REPO_API_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/
 REPO_RELEASES_URL = "https://api.github.com/repos/MortuisVMain/Twitch-Drops-Sentinel/releases?per_page=20"
 UPDATE_CHANNELS = ("stable", "beta")
 UPDATE_CACHE_SECONDS = 900
+# A newer release without its ZIP yet (the release workflow uploads it minutes after the tag) is asked about again this soon
+ASSETS_PENDING_RECHECK_SECONDS = 120
 # A caller waits this long for the check already in flight (its own request is capped at 8s plus the token lookup)
 CHECK_WAIT_SECONDS = 30.0
 
@@ -425,7 +427,8 @@ class GitHubUpdater:
                 # An answer from before an update still names the old version and offers the update just installed
                 if isinstance(result, dict) and result.get("local_version") != get_live_local_version():
                     return
-                self.last_check_time = float(data.get("time", 0))
+                # a release that was still building its ZIP is asked about again at once
+                self.last_check_time = 0.0 if isinstance(result, dict) and result.get("assets_pending") else float(data.get("time", 0))
                 self._cached_result = result
             except Exception as exc:
                 logger.debug("Failed loading update cache: %s", exc)
@@ -555,6 +558,12 @@ class GitHubUpdater:
                         full_url = url
                         full_api_url = api_url
 
+                # Without a ZIP the Install button has nothing to install: offer the release once its package is there
+                assets_pending = update_avail and not (patch_url or full_url)
+                update_avail = update_avail and not assets_pending
+                if assets_pending:
+                    logger.info("Release %s has no ZIP yet (still building); asking again in %ds", remote_tag, ASSETS_PENDING_RECHECK_SECONDS)
+
                 rel_ver = remote_tag.lstrip("vV")
                 body_notes = data.get("body", "") or "Регулярное обновление Twitch Drops Sentinel."
 
@@ -570,6 +579,7 @@ class GitHubUpdater:
                     "release_notes": body_notes,
                     "changelog": body_notes,
                     "update_available": update_avail,
+                    "assets_pending": assets_pending,
                     "html_url": data.get("html_url", result["html_url"]),
                     "download_url": chosen_download,
                     "asset_api_url": chosen_api_asset,
@@ -579,7 +589,7 @@ class GitHubUpdater:
                 })
                 with self._lock:
                     self._cached_result = result
-                    self.last_check_time = now
+                    self.last_check_time = now - UPDATE_CACHE_SECONDS + ASSETS_PENDING_RECHECK_SECONDS if assets_pending else now
                     self._retry_not_before = 0.0
                     self._rate_limited_until = 0.0
                     self._last_error = ""

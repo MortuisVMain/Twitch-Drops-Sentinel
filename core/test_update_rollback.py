@@ -72,7 +72,7 @@ class Rollback(unittest.TestCase):
     def test_a_skipped_version_is_not_offered_but_a_newer_one_is(self):
         self.skip.parent.mkdir(parents=True, exist_ok=True)
         self.skip.write_text(json.dumps({"skip": "3.9.0"}), encoding="utf-8")
-        payloads = {updater.REPO_API_URL: {"tag_name": "v3.9.0", "assets": []}}
+        payloads = {updater.REPO_API_URL: {"tag_name": "v3.9.0", "assets": [{"name": "full.zip", "browser_download_url": "https://github.com/x/full.zip", "url": ""}]}}
 
         class Opener:
             def open(self, req, timeout=None):
@@ -85,7 +85,7 @@ class Rollback(unittest.TestCase):
              mock.patch.object(updater.urllib.request, "build_opener", lambda *a: Opener()):
             up = updater.GitHubUpdater()
             self.assertFalse(up.check_for_updates(force=True)["update_available"])
-            payloads[updater.REPO_API_URL] = {"tag_name": "v3.9.1", "assets": []}
+            payloads[updater.REPO_API_URL] = {"tag_name": "v3.9.1", "assets": [{"name": "full.zip", "browser_download_url": "https://github.com/x/full.zip", "url": ""}]}
             self.assertTrue(up.check_for_updates(force=True)["update_available"])
 
 

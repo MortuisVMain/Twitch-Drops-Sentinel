@@ -10,8 +10,10 @@ import updater
 from updater import GitHubUpdater, pick_release, version_key
 
 
-def rel(tag, prerelease=False, draft=False):
-    return {"tag_name": tag, "prerelease": prerelease, "draft": draft, "assets": [], "html_url": f"https://github.com/x/{tag}"}
+def rel(tag, prerelease=False, draft=False, packaged=True):
+    assets = [{"name": f"Twitch_Drops_Sentinel_{tag}.zip", "browser_download_url": f"https://github.com/x/releases/download/{tag}/full.zip",
+               "url": "https://api.github.com/repos/x/releases/assets/1"}] if packaged else []
+    return {"tag_name": tag, "prerelease": prerelease, "draft": draft, "assets": assets, "html_url": f"https://github.com/x/{tag}"}
 
 
 class VersionKey(unittest.TestCase):
@@ -90,6 +92,20 @@ class Channel(unittest.TestCase):
             up.set_channel("beta")
             with self._serve({updater.REPO_RELEASES_URL: [rel("v3.9.0"), rel("v3.9.0-beta.2", prerelease=True)]}):
                 self.assertTrue(up.check_for_updates(force=True)["update_available"])
+
+    def test_a_release_still_building_its_zip_is_not_offered_and_is_checked_again_soon(self):
+        # gh release create publishes the release at once; the workflow uploads the ZIPs minutes later
+        up = GitHubUpdater()
+        with mock.patch.object(updater.time, "time", lambda: 1000.0), self._serve({updater.REPO_API_URL: rel("v3.9.0", packaged=False)}):
+            pending = up.check_for_updates(force=True)
+        self.assertFalse(pending["update_available"], "no ZIP yet: the Install button would have nothing to install")
+        self.assertTrue(pending["assets_pending"])
+        with mock.patch.object(updater.time, "time", lambda: 1000.0 + updater.ASSETS_PENDING_RECHECK_SECONDS + 1):
+            with self._serve({updater.REPO_API_URL: rel("v3.9.0")}):
+                ready = up.check_for_updates()  # not forced: the pending answer is not cached for the usual 15 minutes
+        self.assertTrue(ready["update_available"])
+        self.assertFalse(ready["assets_pending"])
+        self.assertTrue(ready["download_url"].endswith(".zip"))
 
 
 if __name__ == "__main__":
