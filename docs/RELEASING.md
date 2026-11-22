@@ -6,6 +6,7 @@
 3. Add the release to `CHANGELOG.md` (English, one to three lines).
 4. Push to `main` and create the release with `gh release create vX.Y.Z --target main --title "Twitch Drops Sentinel vX.Y.Z" --notes-file <notes>`.
    The tag starts `.github/workflows/release.yml`: CI runs the tests, builds a self-contained executable and uploads both archives to the release (replacing any you attached). Local archives from step 2 are for checking only.
+   To skip the CI test suite (about 2.5 of 5 minutes) when `python test_sentinel_suite.py` already passed locally on exactly the commit being tagged, push an annotated tag whose message contains `[skip tests]` and create the release on it: `git tag -a vX.Y.Z -m "vX.Y.Z [skip tests]" origin/main`, `git push origin vX.Y.Z`, then `gh release create vX.Y.Z --verify-tag ...`. A plain tag (what `gh release create --target` makes) and manual runs always run the suite.
 
 Verify the archives: both the full ZIP and the patch ZIP contain `steam_idle/SteamIdleProbe.exe` and no `.pdb`; on a clean copy `steam_idle\SteamIdleProbe.exe apps 76561197960265770 < NUL` prints one JSON line with `"status":"complete","count":0` and exits 0, and `SteamIdleProbe.exe nonsense` exits 2.
 
