@@ -3,6 +3,10 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+
+## [3.9.2] - 2026-11-22
+- Game Shelf: reward campaigns get their own "Reward campaigns" tab, so long condition lists no longer stretch the game grid; a card shows two conditions and a "More conditions" toggle.
+- Interface: cards of one kind line up on every tab (badges, statuses and buttons at the same height whatever the title length): giveaways, dashboard, queue, shelf, Dimmer and Steam IDLE.
 - Giveaways: Epic Games now also claims paid games that are 100% off outside the weekly giveaway block (a publisher's own sale, e.g. "Contractor: The Clean Up Part II"). The store is searched at most every 6 hours; free-to-play games are never taken. GOG games at 100% off are listed in the log with their link (and in a notification, once each); they are not claimed automatically.
 - Steam IDLE, Achievements: the game list shows only games with achievements (the store is asked once per 100 games, answers are cached for weeks), with a search placeholder, Not finished / Finished filters and "Show more" instead of a hard cap of 50. Each game row shows its progress (X of Y, all unlocked, none yet) and an anti-cheat label. The chosen game opens in a panel next to the list with its progress and achievements; "Leave alone (anti-cheat)" became a clear switch "Never unlock achievements in this game". Run state and pace sit side by side at the top, with plain labels.
 
