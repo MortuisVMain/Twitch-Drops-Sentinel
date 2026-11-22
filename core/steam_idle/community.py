@@ -2,7 +2,6 @@
 import collections
 import json
 import logging
-import math
 import queue
 import re
 import subprocess
@@ -19,6 +18,7 @@ logger = logging.getLogger(__name__)
 _ERROR_CODE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 _SIGNED_OUT_EXIT = 3
 _MISMATCH_EXIT = 5
+_MAX_HOURS = 1e9  # far above any real playtime; a bigger value is a protocol error
 
 
 @dataclass(frozen=True)
@@ -129,13 +129,13 @@ def _expect_args(expected_steam_id64: str | None) -> list[str]:
 
 
 def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: str | None = None,
-         ok_status: str = "complete") -> dict:
-    """Run `<prefix> <verb>`, return its single JSON result line once it is a complete, successful result."""
+         ok_status: str = "complete", args: Sequence[object] = ()) -> dict:
+    """Run `<prefix> <verb> [args]`, return its single JSON result line once it is a complete, successful result."""
     extra = _expect_args(expected_steam_id64)
     try:
-        proc = spawn(command(prefix, verb, *extra), stderr=subprocess.PIPE)
+        proc = spawn(command(prefix, verb, *args, *extra), stderr=subprocess.PIPE)
     except OSError as error:
-        logger.error("community %s start failed: %s", verb, error)
+        logger.error("community %s start failed: %s", verb, error.strerror or type(error).__name__)
         raise CommunityError("start_failed") from error
     with _LIVE_LOCK:
         _LIVE.add(proc)
@@ -222,7 +222,7 @@ def _games(value: dict, build) -> list:
 def _drops_entry(entry: dict) -> GameDrops:
     app_id, name, drops, hours = entry["appId"], entry["name"], entry["dropsRemaining"], entry["playtimeHours"]
     if (not _is_int(app_id, 1) or type(name) is not str or not _is_int(drops, 0)
-            or type(hours) not in (int, float) or not math.isfinite(hours) or hours < 0):
+            or type(hours) not in (int, float) or not 0 <= hours <= _MAX_HOURS):  # range first: 10**400 overflows float()
         raise ValueError("bad drops entry")
     return GameDrops(app_id, name, drops, float(hours))
 
@@ -238,6 +238,21 @@ def read_drops(command: Sequence[str], timeout: float = 300.0,
                expected_steam_id64: str | None = None) -> list[GameDrops]:
     """Every game badge with its remaining card drops; all-or-nothing."""
     return _games(_run(command, "drops", timeout, expected_steam_id64), _drops_entry)
+
+
+def read_games(command: Sequence[str], app_ids: Sequence[int], timeout: float | None = None,
+               expected_steam_id64: str | None = None) -> list[GameDrops]:
+    """Remaining drops and playtime of just these games (their card pages, not every badge page), in the order
+    asked; all-or-nothing, and an answer for any other set of games is a protocol error."""
+    ids = list(dict.fromkeys(app_ids))
+    if not ids:
+        return []
+    if not all(_is_int(app_id, 1) for app_id in ids):
+        raise CommunityError("invalid_app_id")
+    games = _games(_run(command, "cards", timeout or 60.0 + 20.0 * len(ids), expected_steam_id64, args=ids), _drops_entry)
+    if [game.app_id for game in games] != ids:
+        raise CommunityError("protocol")
+    return games
 
 
 def read_status(command: Sequence[str], timeout: float = 120.0, expected_steam_id64: str | None = None) -> None:

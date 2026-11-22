@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { failureText, hasStaleData } from '../utils/dataLoad';
+import { ActivityConsole } from './steamIdle/ActivityConsole';
 import { AchievementsSection } from './steamIdle/AchievementsSection';
 import { SectionSwitch, SteamIdleSection } from './steamIdle/SectionSwitch';
-import { FarmPanel, Lists, PreviewPanel, Readiness, RiskGate, Skeleton, UnavailablePanel } from './steamIdle/SteamIdleParts';
+import { FarmHours } from './steamIdle/FarmHours';
+import { ACTIVE_STATES, FarmPanel, Lists, PreviewPanel, Readiness, RiskGate, Skeleton, UnavailablePanel } from './steamIdle/SteamIdleParts';
 import { refusalText } from './steamIdle/steamIdleText';
 import { useSteamIdle } from './steamIdle/useSteamIdle';
 
 /** The Steam IDLE tab: readiness, a Cards / Achievements switch (the latter only when the service has achievements),
  * then the section chosen. Cards: the risk gate until it is accepted, then the farm and its queue. */
 // onOpenGiveawaysReadiness is missing exactly when the Giveaways tab is turned off
-export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void }> = ({ onOpenGiveawaysReadiness }) => {
+export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void; appVersion?: string }> = ({ onOpenGiveawaysReadiness, appVersion }) => {
   const { load, busy, refusal, send, retry } = useSteamIdle();
   const s = load.data;
   const stale = hasStaleData(load);
@@ -50,10 +52,12 @@ export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void }> 
             : (
               <>
                 <FarmPanel s={s} busy={busy} takeFocus={gateSeen.current} send={send} />
+                {s.farm.hoursUntilDrops !== undefined && <FarmHours saved={s.farm.hoursUntilDrops} locked={ACTIVE_STATES.has(s.farm.state) || s.farm.state === 'paused'} busy={busy} send={send} farm={s.farm} />}
                 <PreviewPanel s={s} busy={busy} send={send} />
                 <Lists s={s} busy={busy} send={send} />
               </>
             )}
+          <ActivityConsole s={s} appVersion={appVersion} />
         </>
       )}
     </div>

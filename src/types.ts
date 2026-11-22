@@ -285,11 +285,13 @@ export interface GiveawaysStateResponse {
 
 export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'steamidle' | 'dimmer' | 'settings';
 
-export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped';
+export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped' | 'batching';
 export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | 'signed_out' | 'login_open' | 'account_mismatch' | 'engine_missing' | 'error';
 
 export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaining: number }
 export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }
+/** A game collecting playtime in the hours phase: playtimeHours counts toward the stored hoursUntilDrops. */
+export interface SteamIdleBatchGame { appId: number; name: string; dropsRemaining: number; playtimeHours: number }
 export interface SteamIdleFailedGame { appId: number; name: string; reason: string }
 /** A game kept out of the queue because it may still be refundable. */
 export interface SteamIdleHeldGame { appId: number; name: string; reason: 'refund_window'; daysLeft: number }
@@ -325,6 +327,25 @@ export interface SteamIdleState {
     paused: boolean;
     suspended: boolean;
     refundHeld: SteamIdleHeldGame[];
+    /** 'hours' while batching, 'cards' while farming one game. Absent in an older service. */
+    phase?: 'hours' | 'cards' | null;
+    batch?: SteamIdleBatchGame[];
+    /** Playtime a game needs before cards drop (0..10, 0 = the hours phase is off). Absent in an older service: the setting is then hidden. */
+    hoursUntilDrops?: number;
+    /** 'no_hours': Steam did not count playtime, the run switched to one game at a time. */
+    batchDisabled?: string | null;
+    /** Cards left and a rough time to farm them (half an hour a card plus the playtime still needed). Absent in an older service. */
+    estimate?: { dropsRemaining: number; hours: number };
+    /** Cards that dropped today for this account, and in the current run. Absent in an older service. */
+    droppedToday?: number;
+    droppedThisRun?: number;
+    /** What the first card drops say about the account: set this many hours (0 = no restriction). Null/absent: nothing to suggest. */
+    thresholdSuggestion?: { kind: 'restricted' | 'unrestricted'; suggestedHours: number; samples: number } | null;
+    /** The farm paused itself because the user plays a game; it resumes when that game closes. Null/absent: not paused by the watch. */
+    autoPause?: { reason: 'user_playing'; appId: number; since: number } | null;
+    /** The two switches of the farm settings. Absent in an older service: the switches are then hidden. */
+    pauseWhilePlaying?: boolean;
+    notify?: boolean;
   };
   library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null; achievementsChecking?: boolean; achievementsVersion?: number };
   preview?: SteamIdlePreview;

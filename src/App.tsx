@@ -1638,7 +1638,7 @@ export const App: React.FC = () => {
 
 
 
-          {activeTab === 'steamidle' && <SteamIdleView onOpenGiveawaysReadiness={shownTabs.includes('giveaways') ? () => { handleTabChange('giveaways'); setGiveawaysReadinessRequested(true); } : undefined} />}
+          {activeTab === 'steamidle' && <SteamIdleView appVersion={sentinelState.version || updateInfo?.local_version} onOpenGiveawaysReadiness={shownTabs.includes('giveaways') ? () => { handleTabChange('giveaways'); setGiveawaysReadinessRequested(true); } : undefined} />}
 
 
 

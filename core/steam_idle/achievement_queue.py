@@ -25,6 +25,8 @@ _RESULT_TOTAL = {"unlocked": "unlocked", "already": "already", "unknown": "rejec
 _LIST_CAP = 200
 _IDLE_SECONDS = 5.0
 _MAX_UNKNOWN_IN_A_ROW = 5
+_QUIET_NOTES = frozenset({None, "no_achievements", "nothing_missing", "only_hidden", "skipped_by_user"})
+_SKIP_REASONS = {"protected_app": "anti-cheat protected", "protection_unknown": "anti-cheat status unknown"}
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,10 @@ class _Game:
     already: int = 0
     rejected: int = 0
     checked: bool = False  # the anti-cheat verdict was asked for this game
+
+
+def _label(game: "_Game") -> str:
+    return f"{game.name} ({game.app_id})"
 
 
 @dataclass(frozen=True)
@@ -261,6 +267,14 @@ class AchievementQueue:
         else:
             self._mode, self._queue = "game", [(plan.app_id, plan.name)]
         self._phase = "scanning"
+        logger.info("Achievements run started: %s", self._describe_plan(plan))
+
+    def _describe_plan(self, plan) -> str:
+        if self._mode == "library":
+            return f"library, {len(self._queue)} games"
+        if self._mode == "selected":
+            return f"{len(self._requested)} selected in {plan.name or 'app'} ({plan.app_id})"
+        return f"game {plan.name or 'app'} ({plan.app_id})"
 
     def _do_stop(self) -> None:
         self._halt(None)
@@ -271,6 +285,11 @@ class AchievementQueue:
             self._finish("skipped_by_user")
 
     def _halt(self, code: str | None) -> None:
+        if self._phase in _ACTIVE:
+            if code:
+                logger.warning("Achievements run halted: %s", code)
+            else:
+                logger.info("Achievements run stopped")
         if self._cur is not None:  # keep what was already done in the interrupted game
             self._finish("stopped")
         self._queue, self._cur, self._wait_until, self._phase = [], None, None, "stopped"
@@ -285,11 +304,24 @@ class AchievementQueue:
                             game.rejected, note)] + self._finished)[:_LIST_CAP]
         self._cur = None
         self._phase = "scanning" if self._queue else "done"
+        self._log_finished(game, note)
         if self._on_finished is not None:
             try:
                 self._on_finished(game.app_id, note, self._totals["unlocked"])
             except Exception:
                 logger.error("achievements finish hook failed for app %s", game.app_id, exc_info=True)
+
+    def _log_finished(self, game: _Game, note: str | None) -> None:
+        if note == "stopped":
+            return
+        if note in _SKIP_REASONS:
+            logger.warning("Skipped %s: %s", _label(game), _SKIP_REASONS[note])
+        else:
+            tail = "" if note is None else f" ({note})"
+            counts = f"{game.unlocked} unlocked, {game.skipped} skipped, {game.failed} failed{tail}"
+            (logger.info if note in _QUIET_NOTES else logger.warning)("Achievements finished: %s, %s", _label(game), counts)
+        if self._phase == "done" and (note in _QUIET_NOTES or note in _SKIP_REASONS):  # an error is halted next, not finished
+            logger.info("Achievements run finished: %d unlocked", self._totals["unlocked"])
 
     # writing is allowed only through here
     def _refusal(self) -> str | None:
@@ -425,6 +457,8 @@ class AchievementQueue:
             setattr(game, key, getattr(game, key) + 1)
         game.failed += failed
         self._totals["failed"] += failed
+        if (unlocked := sum(_RESULT_TOTAL.get(item.result) == "unlocked" for item in outcome.results)):
+            logger.info("Unlocked %d achievements in %s", unlocked, _label(game))
         game.done += len(batch)
         del game.targets[:len(batch)]
         if outcome.changed and self._on_written is not None:

@@ -118,7 +118,7 @@ def kill_tree(proc: subprocess.Popen) -> None:
             if result.returncode not in (0, TASKKILL_NOT_FOUND):
                 logger.warning("taskkill returned %s for helper tree", result.returncode)
         except (OSError, subprocess.SubprocessError) as err:
-            logger.error("taskkill failed for helper tree: %s", err)
+            logger.error("taskkill failed for helper tree: %s", getattr(err, "strerror", None) or type(err).__name__)
     if proc.poll() is None:
         try:
             proc.kill()

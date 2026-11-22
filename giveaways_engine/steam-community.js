@@ -1,12 +1,12 @@
 // Steam Community web session in its own browser profile (not the giveaways one), used to read the badges pages.
-// Usage: node steam-community.js login|status|drops|library [--expect=<steamid64>] | dump <outDir>
+// Usage: node steam-community.js login|status|drops|library [--expect=<steamid64>] | cards <appid>... [--expect=<steamid64>] | dump <outDir>
 // Prints exactly one JSON line to stdout (diagnostics go to stderr); exit code 0 ok, 3 signed out, 4 failure,
 // 5 the signed-in account is not the expected one (status account_mismatch; the id is never printed).
 // Cookie values, tokens, the SteamID and the account name are never printed, logged or written.
 import path from 'node:path';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { extractSteamId, hasNextPage, parseBadgesPage, parseLibrary } from './src/steam_community_parse.js';
+import { extractSteamId, hasNextPage, parseBadgesPage, parseGameCardsPage, parseLibrary } from './src/steam_community_parse.js';
 
 const ENGINE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BASE = 'https://steamcommunity.com';
@@ -19,12 +19,26 @@ const EXIT = { signed_in: 0, complete: 0, signed_out: 3, closed: 3, account_mism
 
 export const exitCode = status => EXIT[status] ?? 4;
 
+const MAX_CARD_GAMES = 64;
+
+// `cards <appid>... [--expect=<steamid64>]`: 1..64 distinct positive integer ids
+const parseCardsArgs = rest => {
+  const last = rest[rest.length - 1] ?? '';
+  const expect = /^--expect=(\d{17})$/.exec(last)?.[1];
+  const ids = (expect || last.startsWith('--') ? rest.slice(0, -1) : rest);
+  if (ids.length == 0 || ids.length > MAX_CARD_GAMES || !ids.every(id => /^[1-9]\d{0,9}$/.test(id))) return { error: 'usage' };
+  const appIds = ids.map(Number);
+  if (new Set(appIds).size != appIds.length || (last.startsWith('--') && !expect)) return { error: 'usage' };
+  return expect ? { command: 'cards', appIds, expect } : { command: 'cards', appIds };
+};
+
 export const parseArgs = argv => {
   const [command, ...rest] = argv;
   if (['login', 'status', 'drops', 'library'].includes(command) && rest.length == 0) return { command };
   const expect = /^--expect=(\d{17})$/.exec(rest[0] ?? '')?.[1];
   if (['login', 'status', 'drops', 'library'].includes(command) && rest.length == 1 && expect) return { command, expect };
   if (command == 'dump' && rest.length == 1 && rest[0]) return { command, outDir: rest[0] };
+  if (command == 'cards') return parseCardsArgs(rest);
   return { error: 'usage' };
 };
 
@@ -191,6 +205,25 @@ export const collectDrops = async (pageFetch, delay, expect) => {
   }
 };
 
+// The card pages of the given games only (a cheap recheck): one request per game, in order, the gap between pages.
+export const collectCards = async (pageFetch, delay, expect, appIds) => {
+  const fetch = matching(pageFetch, expect);
+  const games = [];
+  let where = 1;
+  try {
+    for (const appId of appIds) {
+      if (games.length) await delay(PAGE_GAP_MS);
+      const html = await fetch(`${BASE}/my/gamecards/${appId}/?l=english`);
+      if (html === null) return { status: 'signed_out' };
+      games.push(parseGameCardsPage(html, appId));
+      where++;
+    }
+    return { status: 'complete', games };
+  } catch (error) {
+    return failure(error, where);
+  }
+};
+
 export const collectLibrary = async (pageFetch, expect) => {
   const fetch = matching(pageFetch, expect);
   try {
@@ -203,7 +236,7 @@ export const collectLibrary = async (pageFetch, expect) => {
   }
 };
 
-const runCommand = async ({ command, outDir, expect }) => {
+const runCommand = async ({ command, outDir, expect, appIds }) => {
   // the shared launcher would otherwise hide the window or clear cookies when these are set for the giveaways run
   delete process.env.FGC_MINIMIZE;
   delete process.env.FGC_SWITCH_ACCOUNT;
@@ -218,10 +251,11 @@ const runCommand = async ({ command, outDir, expect }) => {
   try {
     if (command == 'login') return await login(context, delay, expect);
     if (command == 'dump') return await dump(context, outDir, delay);
-    if (command == 'drops' || command == 'library' || (command == 'status' && expect)) {
+    if (command == 'drops' || command == 'library' || command == 'cards' || (command == 'status' && expect)) {
       const page = await context.newPage();
       const fetch = url => fetchHtml(page, url);
       if (command == 'status') return await collectStatus(fetch, expect);
+      if (command == 'cards') return await collectCards(fetch, delay, expect, appIds);
       return command == 'drops' ? await collectDrops(fetch, delay, expect) : await collectLibrary(fetch, expect);
     }
     return { status: await isSignedIn(context) ? 'signed_in' : 'signed_out' };

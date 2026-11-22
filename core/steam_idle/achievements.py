@@ -197,7 +197,7 @@ def read_achievements(helper_exe: "Path | str | Sequence[str]", steam_id64: str,
     try:
         proc = spawn(command(helper_exe, "achievements", steam_id64, app_id))
     except OSError as error:
-        logger.error("achievements start failed: %s", error)
+        logger.error("achievements start failed: %s", error.strerror or type(error).__name__)
         raise AchievementsError("start_failed") from error
     with _LIVE_READS_LOCK:
         _LIVE_READS.add(proc)
@@ -362,7 +362,7 @@ def _start_unlock(helper_exe, steam_id64: str, app_id: int) -> subprocess.Popen:
     try:
         proc = spawn(command(helper_exe, "unlock", steam_id64, app_id), env={**child_env(), WRITE_GATE: "1"})
     except OSError as error:
-        logger.error("unlock start failed: %s", error)
+        logger.error("unlock start failed: %s", error.strerror or type(error).__name__)
         raise AchievementsError("start_failed") from error
     if os.name == "nt" and proc.job is None:  # without the job a killed helper could leave a worker behind
         kill_tree(proc)
