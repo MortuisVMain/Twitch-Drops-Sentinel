@@ -1,5 +1,5 @@
 @echo off
-rem Twitch Drops Sentinel Giveaways Subsystem Proxy
+rem Hell Harvest Giveaways Subsystem Proxy
 setlocal
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"

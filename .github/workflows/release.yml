@@ -86,16 +86,16 @@ jobs:
       - name: Package Release Archives
         run: |
           python tools/create_clean_release.py
-          if (-not (Test-Path Twitch_Drops_Sentinel_Setup_v*.exe)) { throw 'The installer was not built' }
+          if (-not (Test-Path Hell_Harvest_Setup_v*.exe)) { throw 'The installer was not built' }
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            Twitch_Drops_Sentinel_*_Public_Release.zip
-            Twitch_Drops_Sentinel_Setup_v*.exe
-            Twitch_Drops_Sentinel_Patch_*.zip
+            Hell_Harvest_*_Public_Release.zip
+            Hell_Harvest_Setup_v*.exe
+            Hell_Harvest_Patch_*.zip
           draft: false
           prerelease: false
           generate_release_notes: true

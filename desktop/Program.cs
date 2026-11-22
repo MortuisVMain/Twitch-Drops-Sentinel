@@ -103,7 +103,7 @@ namespace TwitchDropsSentinel
             };
             owner.Show();
             owner.Activate();
-            return MessageBox.Show(owner, text, "Twitch Drops Sentinel", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+            return MessageBox.Show(owner, text, "Hell Harvest", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2) == DialogResult.Yes;
         }
 

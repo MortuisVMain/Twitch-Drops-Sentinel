@@ -1,12 +1,16 @@
 <div align="center">
 
-<img src="assets/app_icon.png" width="96" height="96" alt="Twitch Drops Sentinel icon">
+<img src="assets/app_icon.png" width="96" height="96" alt="Hell Harvest icon">
 
-# Twitch Drops Sentinel
+# Hell Harvest
 
 **Farm Twitch Drops in the background on Windows, without playing the video.**
 
+Formerly Twitch Drops Sentinel.
+
 **English** · [Русский](README.ru.md)
+
+[**User guide**](docs/GUIDE.md) · [Инструкция на русском](docs/%D0%98%D0%9D%D0%A1%D0%A2%D0%A0%D0%A3%D0%9A%D0%A6%D0%98%D0%AF.md)
 
 [![Latest release](https://img.shields.io/github/v/release/MortuisVMain/Twitch-Drops-Sentinel?color=3AD29F&label=release)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/MortuisVMain/Twitch-Drops-Sentinel/total?color=3AD29F)](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases)
@@ -18,18 +22,18 @@
 
 </div>
 
-![Sentinel dashboard](docs/screenshots/en/dashboard.webp)
+![Hell Harvest dashboard](docs/screenshots/en/dashboard.webp)
 
-Sentinel is a desktop app that collects Twitch Drops for you. Pick the games you care about, and it finds live channels with drops enabled, keeps your watch progress going and claims the rewards. No browser tab, no video stream: Twitch sees the same "minute watched" signals a player sends, so your GPU stays free for games and the traffic stays small.
+Hell Harvest is a desktop app that collects Twitch Drops for you. Pick the games you care about, and it finds live channels with drops enabled, keeps your watch progress going and claims the rewards. No browser tab, no video stream: Twitch sees the same "minute watched" signals a player sends, so your GPU stays free for games and the traffic stays small.
 
 ## Features
 
-- **Drops without the video.** Sentinel never downloads or decodes the stream. It sends watch signals and checks the stream playlist, which is enough for drop progress.
+- **Drops without the video.** Hell Harvest never downloads or decodes the stream. It sends watch signals and checks the stream playlist, which is enough for drop progress.
 - **Priority queue.** Put games in the order you want. Three modes: your list only, your list first and then any other campaign, or rare and soon-ending drops first.
 - **Automatic claiming.** Rewards are claimed as soon as they are ready and land in your trophy log. Channel points bonus chests are collected on the way.
 - **Game Shelf.** All active campaigns with covers, rewards, deadlines and progress. Installed games from Steam, Epic Games and GOG Galaxy (and your own folders) are detected automatically.
-- **Stays out of your way.** Farming pauses while you play a heavy game or run on battery, and resumes afterwards. When everything is collected, Sentinel can put the PC to sleep or shut it down.
-- **Reward campaigns (opt-in).** A Settings switch, off by default, shows Twitch reward campaigns (quests and brand offers) in a collapsed group on the dashboard, with their deadline, goal and a link to Twitch. Display only: Sentinel does not farm them yet.
+- **Stays out of your way.** Farming pauses while you play a heavy game or run on battery, and resumes afterwards. When everything is collected, Hell Harvest can put the PC to sleep or shut it down.
+- **Reward campaigns (opt-in).** A Settings switch, off by default, shows Twitch reward campaigns (quests and brand offers) in a collapsed group on the dashboard, with their deadline, goal and a link to Twitch. Display only: Hell Harvest does not farm them yet.
 - **Free games.** An optional claimer picks up weekly giveaways on Epic Games, GOG, Steam, Fab, Unity Asset Store, itch.io and Prime Gaming on a schedule.
 - **Screen dimmer.** Dim one or all monitors below the hardware minimum, with a blackout mode for night farming.
 - **Looks the way you like.** 11 themes, 29 backdrops (including 17 photoreal ones that recolor to the theme), English and Russian interface, text size from 70 to 130 %.
@@ -45,21 +49,21 @@ Sentinel is a desktop app that collects Twitch Drops for you. Pick the games you
 
 ## Install
 
-**Recommended:** download `Twitch_Drops_Sentinel_Setup_v….exe` from the [latest release](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest) and run it. It installs for your account only (no administrator rights), adds a Start menu entry, and on uninstall asks whether to keep your settings and account sign-ins. Reinstalling or updating keeps them.
+**Recommended:** download `Hell_Harvest_Setup_v….exe` from the [latest release](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest) and run it. It installs for your account only (no administrator rights), adds a Start menu entry, and on uninstall asks whether to keep your settings and account sign-ins. Reinstalling or updating keeps them.
 
-**Portable:** download `Twitch_Drops_Sentinel_v…_Public_Release.zip` and use it without installing:
+**Portable:** download `Hell_Harvest_v…_Public_Release.zip` and use it without installing:
 
-1. Unzip it into any folder you can write to, for example `C:\Games\Sentinel`.
+1. Unzip it into any folder you can write to, for example `C:\Games\Hell Harvest`.
 2. Run `TwitchDropsSentinel.exe`.
 
 Then, with either option:
 
-3. Sign in: Sentinel opens [twitch.tv/activate](https://www.twitch.tv/activate) with a one-time code. Confirm it in your browser; your password never goes through the app.
+3. Sign in: Hell Harvest opens [twitch.tv/activate](https://www.twitch.tv/activate) with a one-time code. Confirm it in your browser; your password never goes through the app.
 
-**Requirements:** Windows 10 or 11 (64-bit) and the Microsoft Edge WebView2 Runtime, which Windows 11 already has (Sentinel offers the download if it is missing). Python is bundled. The Giveaways tab additionally needs [Node.js](https://nodejs.org/) 20 or newer; it is not included in the download, and nothing else in the app needs it. The tab's browser engine installs itself on first use.
+**Requirements:** Windows 10 or 11 (64-bit) and the Microsoft Edge WebView2 Runtime, which Windows 11 already has (Hell Harvest offers the download if it is missing). Python is bundled. The Giveaways tab additionally needs [Node.js](https://nodejs.org/) 20 or newer; it is not included in the download, and nothing else in the app needs it. The tab's browser engine installs itself on first use.
 
 > [!TIP]
-> To get drops for a game, your Twitch account usually has to be linked to the game's account. Sentinel marks such campaigns with "link your account".
+> To get drops for a game, your Twitch account usually has to be linked to the game's account. Hell Harvest marks such campaigns with "link your account".
 
 ## FAQ
 
@@ -72,7 +76,7 @@ The executable is not code-signed, so SmartScreen warns on first launch. Click *
 <details>
 <summary><b>Do I need to keep the stream or a browser open?</b></summary>
 
-No. Sentinel works on its own; you can minimize it to the tray. Closing the window asks whether to keep farming in the tray or quit.
+No. Hell Harvest works on its own; you can minimize it to the tray. Closing the window asks whether to keep farming in the tray or quit.
 </details>
 
 <details>
@@ -84,13 +88,13 @@ Only on your PC, next to the executable: the session (`cookies.jar`), settings (
 <details>
 <summary><b>Is this allowed by Twitch?</b></summary>
 
-Automated watching is a grey area of the Twitch Terms of Service. Sentinel signs in with Twitch's official device login and behaves like a normal viewer, but use it at your own risk.
+Automated watching is a grey area of the Twitch Terms of Service. Hell Harvest signs in with Twitch's official device login and behaves like a normal viewer, but use it at your own risk.
 </details>
 
 <details>
 <summary><b>How do updates work?</b></summary>
 
-Sentinel checks GitHub Releases and offers a small patch archive. It swaps the files in place and restarts; your session, settings and trophies stay. You can always download the full archive from Releases instead.
+Hell Harvest checks GitHub Releases and offers a small patch archive. It swaps the files in place and restarts; your session, settings and trophies stay. You can always download the full archive from Releases instead.
 </details>
 
 ## Build from source
@@ -125,4 +129,4 @@ The Twitch farming core is based on [TwitchDropsMiner](https://github.com/DevilX
 
 MIT, see [LICENSE](LICENSE). The `giveaways_engine/` directory is AGPL-3.0, see [giveaways_engine/LICENSE](giveaways_engine/LICENSE).
 
-Sentinel is not affiliated with or endorsed by Twitch, Amazon or any game store. All trademarks belong to their owners.
+Hell Harvest is not affiliated with or endorsed by Twitch, Amazon or any game store. All trademarks belong to their owners.

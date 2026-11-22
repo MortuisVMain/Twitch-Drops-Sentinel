@@ -39,6 +39,6 @@ export function farmStateLine(farm, achievementsRun) {
 /** The text Copy puts on the clipboard: a header, the state line and every entry as `HH:MM:SS LEVEL text`. */
 export function copyReport({ appVersion, now, state, entries }) {
   const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  const header = `Twitch Drops Sentinel${appVersion ? ` v${appVersion}` : ''} — Steam IDLE log — ${stamp}`;
+  const header = `Hell Harvest${appVersion ? ` v${appVersion}` : ''} — Steam IDLE log — ${stamp}`;
   return [header, state, ...entries.map((e) => `${clockTime(e.ts)} ${e.level.toUpperCase()} ${e.text}`)].join('\n');
 }

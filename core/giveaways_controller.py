@@ -1,6 +1,6 @@
 """
 Free Games Claimer Orchestrator & Bridge Controller
-Twitch Drops Sentinel — giveaways integration
+Hell Harvest — giveaways integration
 Architected by Argon Reasoning Engine & Mortuis_V_Studio
 """
 
@@ -132,7 +132,7 @@ def notify_new_claims(inventory: List[dict]) -> None:
             "giveaway_claimed",
             [(item["id"], f"{item['title']} ({STORE_DISPLAY_NAMES.get(item['store'], item['store'])})")
              for item in inventory if item["status"] == "claimed"],
-            "Twitch Drops Sentinel",
+            "Hell Harvest",
             lambda game: f"Забрана бесплатная игра: {game}",
             lambda games: f"Забрано бесплатных игр: {len(games)} ({', '.join(games[:3])}…)",
         )

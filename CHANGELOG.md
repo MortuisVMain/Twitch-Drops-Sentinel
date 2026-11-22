@@ -4,6 +4,10 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-22
+- The app is now called Hell Harvest, with new icons. Updates, settings and sign-ins carry over.
+- A full user guide in Russian (docs/ИНСТРУКЦИЯ.md) and English (docs/GUIDE.md); the in-app help gains a Steam IDLE tab and a link to the guide; the installer explains what the app does and the first steps, and can open the guide when it finishes.
+
 ## [3.11.0] - 2026-11-22
 - Settings: a new block "Other copies in autostart" finds old copies of the app that still start with Windows, run, hold the giveaways task or leave a v2 Startup shortcut; remove their entries (each one is backed up first), close a running old copy, move the autostart to this copy or import the data of an old copy. Entries of copies whose folder is gone are removed automatically at start.
 - Starting a second copy now offers to close an older copy running from another folder; Settings hints at the installer, which updates in place, when this copy sits in Downloads or has left others behind.

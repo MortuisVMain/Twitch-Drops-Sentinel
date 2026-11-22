@@ -1,5 +1,5 @@
 """
-Box Art Resolver for Twitch Drops Sentinel
+Box Art Resolver for Hell Harvest
 Automated Steam Store Search & AppDetails asset hydrator.
 Verifies AppIDs, resolves V2 SHA-1 URLs, and populates box_art_cache.json & installed_games.json.
 """

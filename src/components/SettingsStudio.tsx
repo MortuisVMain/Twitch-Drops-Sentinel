@@ -183,7 +183,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     setPendingDanger(null);
     const action = {
       trophies: { path: '/api/trophies/clear', done: 'Журнал Trophies.md очищен!', failed: 'Не удалось очистить журнал: ошибка сервиса' },
-      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Sentinel.', failed: 'Не удалось сбросить сессию: ошибка сервиса' },
+      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Hell Harvest.', failed: 'Не удалось сбросить сессию: ошибка сервиса' },
       cache: { path: '/api/game-directories/clear-cache', done: 'Кэш распознавания игр очищен!', failed: 'Не удалось очистить кэш: ошибка сервиса' },
     }[type];
     try {
@@ -490,7 +490,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       key: 'hardwareGuard',
       title: 'Пауза, когда вы играете',
       hint: 'Фарм встаёт на паузу, пока запущена игра',
-      tooltip: 'Чтобы фарм не отнимал FPS: пока Sentinel видит запущенную игру, он ничего не смотрит',
+      tooltip: 'Чтобы фарм не отнимал FPS: пока Hell Harvest видит запущенную игру, он ничего не смотрит',
       onToggle: () => { playClick(); onUpdateSettings({ hardware_guard_enabled: !moduleOn.hardwareGuard }); },
     },
     {
@@ -515,7 +515,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       key: 'powerCascade',
       title: 'Выключить или усыпить ПК после очереди',
       hint: moduleOn.powerCascade ? `Когда очередь закончится, ПК ${powerModeWord}` : 'Сон, выключение или блокировка после очереди',
-      tooltip: 'Включено: Sentinel выполнит выбранное действие с ПК, когда все дропы очереди получены (за 60 секунд до этого покажет предупреждение)',
+      tooltip: 'Включено: Hell Harvest выполнит выбранное действие с ПК, когда все дропы очереди получены (за 60 секунд до этого покажет предупреждение)',
       onToggle: () => { playClick(); onUpdateSettings({ auto_shutdown_on_complete: !moduleOn.powerCascade }); },
     },
     {
@@ -581,7 +581,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div>
             <div className="engraved-header">
               <span className="tag">
-                <span className="led-dot"></span> <span title="Управление модулями и автоматизация (все 10 систем Sentinel)">МОДУЛИ</span>
+                <span className="led-dot"></span> <span title="Управление модулями и автоматизация (все 10 систем Hell Harvest)">МОДУЛИ</span>
               </span>
               <span className="version-chip" title="Сколько из десяти модулей сейчас включено">{modulesLabel(moduleOn)}</span>
             </div>
@@ -865,7 +865,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           >
             <span style={{ minWidth: 0 }}>
               <span className="module-switch-title">Кампании наград</span>
-              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Время просмотра набирает Sentinel, платные условия только вручную.</span>
+              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Время просмотра набирает Hell Harvest, платные условия только вручную.</span>
             </span>
             <span className={`cnc-switch ${rewardsOn ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
           </button>
@@ -880,7 +880,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           >
             <span style={{ minWidth: 0 }}>
               <span className="module-switch-title">Дневной слот для наград</span>
-              <span className="module-switch-hint">Кампания из очереди сначала добирает дневную цель, потом Sentinel возвращается к дропам. Около часа в день.</span>
+              <span className="module-switch-hint">Кампания из очереди сначала добирает дневную цель, потом Hell Harvest возвращается к дропам. Около часа в день.</span>
             </span>
             <span className={`cnc-switch ${rewardSwitch.slot && !rewardSwitch.disabled ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
           </button>

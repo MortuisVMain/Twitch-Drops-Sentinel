@@ -549,7 +549,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                       Добавить «<span className="text-[var(--accent)]">{liveVerification.data?.canonical_name || query.trim()}</span>»
                     </p>
                     <p className="text-[length:var(--fs-xs)] text-[var(--muted)] mt-0.5 truncate">
-                      {liveVerification.data?.message || 'Sentinel начнет автоматический поиск подходящих трансляций'}
+                      {liveVerification.data?.message || 'Hell Harvest начнет автоматический поиск подходящих трансляций'}
                     </p>
                   </div>
                 </div>

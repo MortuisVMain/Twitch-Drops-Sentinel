@@ -70,7 +70,7 @@ def read_backup(zip_path: Path, entries: List[Entry]) -> dict:
             try:
                 manifest = json.loads(zf.read("manifest.json"))
             except KeyError:
-                raise BackupError("в архиве нет manifest.json: это не бэкап Sentinel") from None
+                raise BackupError("в архиве нет manifest.json: это не бэкап Hell Harvest") from None
             except ValueError as exc:
                 raise BackupError(f"manifest.json повреждён: {exc}") from exc
             if not isinstance(manifest, dict) or manifest.get("format") != 1:

@@ -261,7 +261,7 @@ class BaseDrop:
             NOTIFIER.notify(
                 "drop_claimed",
                 instance,
-                "Twitch Drops Sentinel",
+                "Hell Harvest",
                 f"Получен дроп: {self.rewards_text()} ({self.campaign.game.name})",
             )
         except Exception as exc:

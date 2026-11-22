@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("StartConflictCheck")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c47a21fb0153bc99ff5789aececa4b393275d246")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dfcfa323f189f94152030ace89bd078170d59ff1")]
 [assembly: System.Reflection.AssemblyProductAttribute("StartConflictCheck")]
 [assembly: System.Reflection.AssemblyTitleAttribute("StartConflictCheck")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

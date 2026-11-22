@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel — GitHub auto-updater
+Hell Harvest — GitHub auto-updater
 Mortuis_V_Studio
 
 Handles:
@@ -64,7 +64,8 @@ PROTECTED_PATHS = {
     "data/ignored_games.json",
 }
 
-TRUSTED_RELEASE_REPO = "MortuisVMain/Twitch-Drops-Sentinel"
+TRUSTED_RELEASE_REPO = "MortuisVMain/Twitch-Drops-Sentinel"  # current repo: API and page URLs are built from it
+TRUSTED_RELEASE_REPOS = (TRUSTED_RELEASE_REPO, "MortuisVMain/Hell-Harvest")  # the second one is ready for a future rename
 PROTECTED_FOLDERS = ("data/", "giveaways_engine/data/")
 PROTECTED_SUFFIXES = (".jar", ".log")
 
@@ -84,16 +85,17 @@ def is_trusted_release_url(url: Any) -> bool:
     if "%" in parsed.path or "?" in url or "#" in url or "/../" in parsed.path or parsed.path.endswith("/.."):
         return False  # an encoded dot is a dot, and a release asset address has no query or fragment
     if host == "github.com":
-        return parsed.path.startswith(f"/{TRUSTED_RELEASE_REPO}/releases/download/")
+        return any(parsed.path.startswith(f"/{repo}/releases/download/") for repo in TRUSTED_RELEASE_REPOS)
     if host == "api.github.com":
-        return parsed.path.startswith(f"/repos/{TRUSTED_RELEASE_REPO}/releases/assets/")
+        return any(parsed.path.startswith(f"/repos/{repo}/releases/assets/") for repo in TRUSTED_RELEASE_REPOS)
     return False
 
 
 RELEASES_PAGE_URL = f"https://github.com/{TRUSTED_RELEASE_REPO}/releases/latest"
 _SHA256_RE = re.compile(r"[0-9a-fA-F]{64}")
-_ASSET_API_PATH_RE = re.compile(rf"/repos/{re.escape(TRUSTED_RELEASE_REPO)}/releases/assets/[0-9]+")
-_ASSET_DOWNLOAD_PATH_RE = re.compile(rf"/{re.escape(TRUSTED_RELEASE_REPO)}/releases/download/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)")
+_REPOS_PATTERN = "(?:" + "|".join(re.escape(repo) for repo in TRUSTED_RELEASE_REPOS) + ")"
+_ASSET_API_PATH_RE = re.compile(rf"/repos/{_REPOS_PATTERN}/releases/assets/[0-9]+")
+_ASSET_DOWNLOAD_PATH_RE = re.compile(rf"/{_REPOS_PATTERN}/releases/download/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)")
 DIGEST_UNAVAILABLE_MESSAGE = ("Не удалось получить контрольную сумму обновления от GitHub, поэтому установка отменена, файлы не изменены. "
                               f"Скачайте обновление вручную: {RELEASES_PAGE_URL}")
 DIGEST_MISMATCH_MESSAGE = ("Контрольная сумма скачанного архива не совпадает с опубликованной на GitHub, поэтому установка отменена, файлы не изменены. "
@@ -132,8 +134,8 @@ def archive_member_target(root: Path, member: str) -> Optional[Path]:
             parts.append(part)
     if text.endswith("/") or not parts:
         return None
-    # The whole release may sit in one folder, e.g. "Twitch Drops Sentinel v3.0/core/..."
-    if len(parts) > 1 and ("twitch" in parts[0].lower() or "sentinel" in parts[0].lower()):
+    # The whole release may sit in one folder, e.g. "Hell Harvest v3.0/core/..."
+    if len(parts) > 1 and any(word in parts[0].lower() for word in ("twitch", "sentinel", "hell harvest")):
         parts = parts[1:]
     if _is_protected("/".join(parts)):
         return None
@@ -332,7 +334,7 @@ def apply_rollback(root: Optional[Path] = None, rollback_dir: Optional[Path] = N
     skip_file.write_text(json.dumps({"skip": info["to_version"]}), encoding="utf-8")
     shutil.rmtree(rollback_dir, ignore_errors=True)
     logger.info("Rolled back from v%s to v%s", info["to_version"], info["from_version"])
-    return True, f"Возвращена версия {info['from_version']}. Перезапустите Sentinel."
+    return True, f"Возвращена версия {info['from_version']}. Перезапустите Hell Harvest."
 
 
 def skipped_version(skip_file: Optional[Path] = None) -> str:
@@ -491,7 +493,7 @@ class GitHubUpdater:
             "latest_version": live_current,
             "local_version": live_current,
             "remote_version": live_current,
-            "release_name": f"Twitch Drops Sentinel v{live_current}",
+            "release_name": f"Hell Harvest v{live_current}",
             "release_notes": "",
             "update_available": False,
             "changelog": "",
@@ -565,7 +567,7 @@ class GitHubUpdater:
                     logger.info("Release %s has no ZIP yet (still building); asking again in %ds", remote_tag, ASSETS_PENDING_RECHECK_SECONDS)
 
                 rel_ver = remote_tag.lstrip("vV")
-                body_notes = data.get("body", "") or "Регулярное обновление Twitch Drops Sentinel."
+                body_notes = data.get("body", "") or "Регулярное обновление Hell Harvest."
 
                 chosen_download = patch_url or full_url or data.get("html_url", "")
                 chosen_api_asset = patch_api_url or full_api_url or ""
@@ -575,7 +577,7 @@ class GitHubUpdater:
                     "remote_version": rel_ver,
                     "local_version": live_current,
                     "current_version": live_current,
-                    "release_name": data.get("name") or f"Twitch Drops Sentinel v{rel_ver}",
+                    "release_name": data.get("name") or f"Hell Harvest v{rel_ver}",
                     "release_notes": body_notes,
                     "changelog": body_notes,
                     "update_available": update_avail,
@@ -617,7 +619,7 @@ class GitHubUpdater:
         urls = [download_url] + ([asset_api_url] if asset_api_url and asset_api_url != download_url else [])
         untrusted = [u for u in urls if not is_trusted_release_url(u)]
         if untrusted:
-            logger.warning(f"Update refused, not a release of {TRUSTED_RELEASE_REPO}: {untrusted}")
+            logger.warning(f"Update refused, not a release of {TRUSTED_RELEASE_REPOS}: {untrusted}")
             return False, "Некорректная ссылка на скачивание обновления."
         token = get_optional_github_token()
         opener = urllib.request.build_opener(SafeAuthRedirectHandler)
@@ -839,7 +841,7 @@ class GitHubUpdater:
                     "is_updating": False,
                     "error_message": "",
                 })
-            return True, f"Успешно обновлено ({extracted_count} файлов заменено). Перезапустите Sentinel."
+            return True, f"Успешно обновлено ({extracted_count} файлов заменено). Перезапустите Hell Harvest."
 
         except Exception as e:
             logger.error(f"Error applying update: {e}", exc_info=True)

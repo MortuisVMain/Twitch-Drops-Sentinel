@@ -68,7 +68,7 @@ function CategoryEditor({ campaign, initial, onSave, onClose }: { campaign: Rewa
         aria-label={`Категория для кампании: ${campaign.name}`}
       />
       <button type="submit" className="tactile-btn active-mint" style={BTN}>Сохранить</button>
-      <button type="button" className="tactile-btn" style={BTN} onClick={() => onSave('')} title="Убрать свою категорию: Sentinel найдёт её сам">Сброс</button>
+      <button type="button" className="tactile-btn" style={BTN} onClick={() => onSave('')} title="Убрать свою категорию: Hell Harvest найдёт её сам">Сброс</button>
     </form>
   );
 }

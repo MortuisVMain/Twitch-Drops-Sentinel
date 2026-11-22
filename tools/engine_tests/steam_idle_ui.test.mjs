@@ -216,12 +216,12 @@ test('the copy text is a header, the state line and one HH:MM:SS LEVEL line per 
   const now = new Date(2026, 10, 22, 13, 5, 9);
   const text = copyReport({ appVersion: '3.9.2', now, state: 'Farm: idle', entries: [entry(1, 'info', 'a'), entry(2, 'warning', 'b'), entry(3, 'error', 'c')] });
   const lines = text.split('\n');
-  assert.match(lines[0], /^Twitch Drops Sentinel v3\.9\.2 — Steam IDLE log — 2026-11-22 13:05:09$/);
+  assert.match(lines[0], /^Hell Harvest v3\.9\.2 — Steam IDLE log — 2026-11-22 13:05:09$/);
   assert.equal(lines[1], 'Farm: idle');
   assert.match(lines[2], /^\d\d:\d\d:\d\d INFO a$/);
   assert.match(lines[3], /^\d\d:\d\d:\d\d WARNING b$/);
   assert.match(lines[4], /^\d\d:\d\d:\d\d ERROR c$/);
-  assert.equal(copyReport({ appVersion: undefined, now, state: 'Farm: idle', entries: [] }).split('\n')[0], 'Twitch Drops Sentinel — Steam IDLE log — 2026-11-22 13:05:09');
+  assert.equal(copyReport({ appVersion: undefined, now, state: 'Farm: idle', entries: [] }).split('\n')[0], 'Hell Harvest — Steam IDLE log — 2026-11-22 13:05:09');
 });
 
 test('etaText: minutes, hours with minutes, and days with hours beyond 48 h', () => {

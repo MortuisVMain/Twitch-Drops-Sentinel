@@ -19,7 +19,7 @@ const INITIAL_STATE: FullSentinelState = {
   connected: false,
   user_id: '',
   username: '',
-  status_text: 'Подключение к локальному сервису Sentinel...',
+  status_text: 'Подключение к локальному сервису Hell Harvest...',
   watching_channel: null,
   active_drop: null,
   forced_game: null,
@@ -151,7 +151,7 @@ export function useSentinelState(
           setSentinelState((prev) => ({
             ...prev,
             connected: false,
-            status_text: 'Локальный сервис Sentinel недоступен',
+            status_text: 'Локальный сервис Hell Harvest недоступен',
           }));
         }
       }
@@ -402,7 +402,7 @@ export function useSentinelState(
   // Claim Drop
   const handleClaimNow = async (dropId?: string) => {
     if (!sentinelState.active_drop) {
-      showToast('В данный момент нет готовых к зачислению дропов. Sentinel автоматически заберет дроп при достижении 100%.');
+      showToast('В данный момент нет готовых к зачислению дропов. Hell Harvest автоматически заберет дроп при достижении 100%.');
       return;
     }
 

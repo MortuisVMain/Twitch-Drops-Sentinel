@@ -382,7 +382,7 @@ class SlotEngineTests(base.TempDir):
             rw.REWARD_WATCH.ledger.add_seconds("a", 3600, datetime.now(timezone.utc) - timedelta(days=d))
         with self.assertLogs("TwitchDrops", level="INFO") as logs:
             self.reach_goal(1.0)
-        self.assertEqual(sent, [("Twitch Drops Sentinel", "Alpha: дневная цель выполнена (день 3 из 6)")])
+        self.assertEqual(sent, [("Hell Harvest", "Alpha: дневная цель выполнена (день 3 из 6)")])
         self.assertIn("день 3 из 6", "\n".join(logs.output))
 
     def test_the_total_is_left_out_when_the_summary_has_none(self):

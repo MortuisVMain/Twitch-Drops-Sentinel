@@ -740,12 +740,12 @@ const filteredLogs = useMemo(() => {
     <div id="view-dashboard" className="view-tab active">
       {starting && (
         <div className="ending-soon-radar mb-2.5" role="status" style={{ borderColor: 'var(--border-main)', justifyContent: 'flex-start', color: 'var(--text-secondary)' }}>
-          Запускаем службу Sentinel…
+          Запускаем службу Hell Harvest…
         </div>
       )}
       {!connected && !starting && (
         <div className="ending-soon-radar mb-2.5 border-rose-500/40" role="status">
-          <strong style={{ color: 'var(--led-rose)' }}>Локальный сервис Sentinel недоступен.</strong>
+          <strong style={{ color: 'var(--led-rose)' }}>Локальный сервис Hell Harvest недоступен.</strong>
           <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
             Данные и действия обновятся после подключения.
           </span>

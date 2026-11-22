@@ -104,7 +104,7 @@ def stage_import(project: Path, source: Path) -> dict:
     if source == project:
         raise ImportRefused("это текущая копия")
     if not is_sentinel_copy(source):
-        raise ImportRefused("в этой папке нет копии Sentinel")
+        raise ImportRefused("в этой папке нет копии Hell Harvest")
     marker = {"source": str(source), "time": datetime.now().isoformat(timespec="seconds")}
     atomic_write_json(project / "data" / MARKER_NAME, marker)
     return marker
@@ -165,7 +165,7 @@ def apply_pending_import(project: Path, now: Callable[[], str] = lambda: datetim
         if source == project:
             problem = "the source is this copy"
         elif not is_sentinel_copy(source):
-            problem = f"{source} is gone or is not a Sentinel copy any more"
+            problem = f"{source} is gone or is not a Hell Harvest copy any more"
         elif any(is_within(exe, source) for exe in running_exes()):
             problem = f"the copy at {source} is running"
     if problem:

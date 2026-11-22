@@ -629,7 +629,7 @@ namespace TwitchDropsSentinel
 
             _startMinimized = startMinimized;
 
-            Text = "Twitch Drops Sentinel";
+            Text = "Hell Harvest";
 
             MinimumSize = new Size(1180, 750);
 
@@ -762,7 +762,7 @@ namespace TwitchDropsSentinel
 
                     {
 
-                        Debug.WriteLine("Sentinel Watchdog: Backend unreachable. Auto-reviving Python service...");
+                        Debug.WriteLine("Hell Harvest Watchdog: Backend unreachable. Auto-reviving Python service...");
 
                         EnsurePythonBackendRunning();
 
@@ -774,7 +774,7 @@ namespace TwitchDropsSentinel
 
                 {
 
-                    Debug.WriteLine($"Sentinel Watchdog Tick error: {ex.Message}");
+                    Debug.WriteLine($"Hell Harvest Watchdog Tick error: {ex.Message}");
 
                 }
 
@@ -808,11 +808,11 @@ namespace TwitchDropsSentinel
                         string json = await res.Content.ReadAsStringAsync();
                         using var doc = JsonDocument.Parse(json);
                         var root = doc.RootElement;
-                        string tip = "Twitch Drops Sentinel";
+                        string tip = "Hell Harvest";
                         if (root.TryGetProperty("hardware", out var hw) && hw.ValueKind == JsonValueKind.Object &&
                             hw.TryGetProperty("is_paused", out var pausedProp) && pausedProp.ValueKind == JsonValueKind.True)
                         {
-                            tip = "Sentinel • На паузе";
+                            tip = "Hell Harvest • На паузе";
                         }
                         else if (root.TryGetProperty("active_drop", out var drop) && drop.ValueKind == JsonValueKind.Object)
                         {
@@ -820,12 +820,12 @@ namespace TwitchDropsSentinel
                             int pct = drop.TryGetProperty("progress_percent", out var pProp) && pProp.ValueKind == JsonValueKind.Number ? pProp.GetInt32() : 0;
                             if (!string.IsNullOrWhiteSpace(game))
                             {
-                                tip = $"Sentinel • {game} ({pct}%)";
+                                tip = $"Hell Harvest • {game} ({pct}%)";
                             }
                         }
                         else
                         {
-                            tip = "Sentinel • Ожидание дропов";
+                            tip = "Hell Harvest • Ожидание дропов";
                         }
                         if (tip.Length > 63) tip = tip.Substring(0, 62) + "…";
                         if (_trayIcon.Text != tip) _trayIcon.Text = tip;
@@ -1376,6 +1376,21 @@ namespace TwitchDropsSentinel
 
 
 
+        // The tray shows the imp head without the plate: it stays readable at 16 px.
+        private static Icon? LoadTrayIcon()
+        {
+            try
+            {
+                using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("TwitchDropsSentinel.tray.ico");
+                return stream != null ? new Icon(stream) : null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Tray icon load failed: {ex.Message}");
+                return null;
+            }
+        }
+
         protected override void OnHandleDestroyed(EventArgs e)
         {
             _dimmerModule?.Shutdown(); // the hotkeys belong to this handle: release them while it is still valid
@@ -1654,7 +1669,7 @@ namespace TwitchDropsSentinel
 
                         // This last fallback cannot use the token: its origin is not the app's, so the page script stays inert and the page cannot talk to the service (it only shows this message)
                         _allowInlineNavigation = true; // NavigateToString arrives as a data: navigation; OnNavigationStarting lets this one through
-                        _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Twitch Drops Sentinel v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
+                        _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Hell Harvest v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
 
                     }
 
@@ -1670,9 +1685,9 @@ namespace TwitchDropsSentinel
                 if (ex is WebView2RuntimeNotFoundException)
                 {
                     var answer = MessageBox.Show(
-                        "Для работы окна Sentinel нужен Microsoft Edge WebView2 Runtime, он не найден на этом компьютере.\n\n" +
-                        "Открыть страницу загрузки? Установите «Evergreen Bootstrapper» и запустите Sentinel снова.",
-                        "Twitch Drops Sentinel", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        "Для работы окна Hell Harvest нужен Microsoft Edge WebView2 Runtime, он не найден на этом компьютере.\n\n" +
+                        "Открыть страницу загрузки? Установите «Evergreen Bootstrapper» и запустите Hell Harvest снова.",
+                        "Hell Harvest", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                     if (answer == DialogResult.Yes)
                     {
                         Process.Start(new ProcessStartInfo("https://developer.microsoft.com/microsoft-edge/webview2/") { UseShellExecute = true });
@@ -1680,7 +1695,7 @@ namespace TwitchDropsSentinel
                 }
                 else
                 {
-                    MessageBox.Show($"Не удалось запустить окно интерфейса (WebView2):\n{ex.Message}", "Twitch Drops Sentinel", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($"Не удалось запустить окно интерфейса (WebView2):\n{ex.Message}", "Hell Harvest", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
 
             }
@@ -1811,7 +1826,7 @@ namespace TwitchDropsSentinel
 
                         {
 
-                            Description = "Выберите папку с установленными играми для Sentinel",
+                            Description = "Выберите папку с установленными играми для Hell Harvest",
 
                             UseDescriptionForTitle = true,
 
@@ -2031,7 +2046,7 @@ namespace TwitchDropsSentinel
 
                         {
 
-                            File.WriteAllText(vaultPath, "# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n");
+                            File.WriteAllText(vaultPath, "# 🏆 Журнал Трофеев Hell Harvest\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n");
 
                         }
 
@@ -2314,11 +2329,11 @@ namespace TwitchDropsSentinel
 
                 var trayMenu = new ContextMenuStrip();
 
-                var showItem = new ToolStripMenuItem("Показать Sentinel", null, (s, e) => RestoreFromTray());
+                var showItem = new ToolStripMenuItem("Показать Hell Harvest", null, (s, e) => RestoreFromTray());
 
                 showItem.Font = new Font(showItem.Font, FontStyle.Bold);
 
-                var exitItem = new ToolStripMenuItem("Выход из Sentinel", null, (s, e) => ExitApplication());
+                var exitItem = new ToolStripMenuItem("Выход из Hell Harvest", null, (s, e) => ExitApplication());
 
 
 
@@ -2334,9 +2349,9 @@ namespace TwitchDropsSentinel
 
                 {
 
-                    Text = "Twitch Drops Sentinel",
+                    Text = "Hell Harvest",
 
-                    Icon = this.Icon ?? SystemIcons.Application,
+                    Icon = LoadTrayIcon() ?? this.Icon ?? SystemIcons.Application,
 
                     ContextMenuStrip = trayMenu,
 
@@ -3289,7 +3304,7 @@ else
         {
             if (_trayHintShown) return;
             _trayHintShown = true;
-            _trayIcon?.ShowBalloonTip(5000, "Twitch Drops Sentinel", "Окно скрыто, фарм продолжается в трее. Открыть: клик по значку. Выйти полностью: правый клик по значку → «Выход из Sentinel».", ToolTipIcon.Info);
+            _trayIcon?.ShowBalloonTip(5000, "Hell Harvest", "Окно скрыто, фарм продолжается в трее. Открыть: клик по значку. Выйти полностью: правый клик по значку → «Выход из Hell Harvest».", ToolTipIcon.Info);
         }
 
         private void HideToTray()
@@ -3342,7 +3357,7 @@ else
                 var remember = new TaskDialogVerificationCheckBox("Запомнить мой выбор");
                 var page = new TaskDialogPage
                 {
-                    Caption = "Twitch Drops Sentinel",
+                    Caption = "Hell Harvest",
                     Heading = "Что сделать при закрытии окна?",
                     Text = "В трее фарм дропов продолжается, а окно можно открыть кликом по значку. При полном выходе фарм остановится. Выбор можно изменить в Настройках.",
                     Icon = TaskDialogIcon.Information,

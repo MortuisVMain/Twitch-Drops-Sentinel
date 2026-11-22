@@ -28,7 +28,7 @@ TELEGRAM_TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
 TELEGRAM_CHAT_RE = re.compile(r"^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$")
 DISCORD_HOSTS = {"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
 SEND_TIMEOUT = 10
-APP_NAME = "Twitch Drops Sentinel"
+APP_NAME = "Hell Harvest"
 
 
 class WebhookError(ValueError):
