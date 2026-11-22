@@ -4,6 +4,10 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-11-22
+- Settings: a new block "Other copies in autostart" finds old copies of the app that still start with Windows, run, hold the giveaways task or leave a v2 Startup shortcut; remove their entries (each one is backed up first), close a running old copy, move the autostart to this copy or import the data of an old copy. Entries of copies whose folder is gone are removed automatically at start.
+- Starting a second copy now offers to close an older copy running from another folder; Settings hints at the installer, which updates in place, when this copy sits in Downloads or has left others behind.
+
 ## [3.10.0] - 2026-11-22
 - Steam IDLE, card farm: a playtime phase for restricted accounts (new, or after refunds), which get no cards from a game before it has a few hours. Games under the threshold are idled together, up to 32 at once, until each has the hours, then farmed one at a time as before. New setting "Hours before first card drop" (default 3, 0 turns the phase off). If Steam counts no playtime for an hour, the run falls back to one game at a time and says so.
 - Steam IDLE: a Log panel shows what the module is doing (games idled, drops, playtime, errors) with Copy for bug reports and Clear; Steam IDs and file paths are masked.

@@ -217,4 +217,8 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^#(\d+) в очереди$/, '#$1 in the queue'],
   // tab tooltips carry their hotkey digit: 'Полка игр (2)'
   [/^([^()]*[А-Яа-яЁё][^()]*) \((\d)\)$/, '$1 ($2)'],
+  [/^Автозапуск сейчас у (.+) из (.+)$/, 'Autostart is now with $1 from $2'],
+  [/^Копия (.+): (.+)$/, 'Copy $1: $2'],
+  [/^Убрано (\d+) из (\d+); не удалось убрать остальные, подробности в журнале$/, 'Removed $1 of $2; the rest could not be removed, details are in the log'],
+  [/^Не удалось (убрать|закрыть|перенести автозапуск|перенести данные|проверить другие копии)(?:: (.+))?$/, (what, why) => `Could not ${({ 'убрать': 'remove', 'закрыть': 'close', 'перенести автозапуск': 'move autostart', 'перенести данные': 'import data', 'проверить другие копии': 'check other copies' } as Record<string, string>)[what] ?? what}${why ? `: ${why}` : ''}`],
 ];

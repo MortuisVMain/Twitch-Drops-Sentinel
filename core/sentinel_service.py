@@ -80,6 +80,11 @@ from dimmer_controller import DimmerController
 from notifications import NOTIFIER, set_enabled as set_native_toasts
 from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
+import copy_import
+import startup_copies
+from startup_copies_routes import StartupCopiesRoutes
+from updater import RELEASES_PAGE_URL
+from giveaways_controller import TASK_NAME as GIVEAWAYS_TASK_NAME
 
 from service_system import (LOG_FILE_BACKUPS, LOG_FILE_MAX_BYTES, LiveLogCaptureHandler, generate_sanitized_diagnostic_report,
                             get_autostart_status, make_file_log_handler, report_log_tail, set_autostart_status, set_sleep_guard)
@@ -114,6 +119,16 @@ def pick_zip_file() -> str:
     )
     res = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps_script], capture_output=True, text=True, timeout=300)
     return res.stdout.strip()
+
+
+def apply_import_at_start() -> None:
+    """An import of an old copy's data, staged before the restart, is applied before settings, cookies or the engine load."""
+    try:
+        copied = copy_import.apply_pending_import(PROJECT_DIR)
+        if copied:
+            logger.info("Data of another copy imported at start: %d files", len(copied))
+    except Exception as e:
+        logger.error("Applying the staged import failed; this copy keeps its own data: %s", e, exc_info=True)
 
 
 def apply_restore_at_start() -> None:
@@ -162,6 +177,7 @@ SUPERVISOR_DEFAULTS = {
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
     "giveaways_browser": "auto",
+    "installer_hint_dismissed": False,  # the "use the installer" hint in Settings was closed
     "steam_idle_risk_ack": False,
     "steam_idle_achievements_ack": False,
     "steam_idle_hours_until_drops": 3.0,  # hours of playtime before a restricted account gets card drops; 0 = off
@@ -229,8 +245,35 @@ class SentinelSupervisor:
             inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert",
             module_enabled=lambda: tab_enabled(self.settings, "steamidle"), notify=NOTIFIER.notify)
         self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
+        (PROJECT_DIR / "data").mkdir(exist_ok=True)
+        self.startup_copies = startup_copies.StartupCopies(
+            startup_copies.NullBackend() if TEST_MODE else startup_copies.SystemBackend(), PROJECT_DIR, GIVEAWAYS_TASK_NAME,
+            PROJECT_DIR / "data" / "startup_cleanup_backup.json", set_autostart_status,
+            notify=lambda key, text: NOTIFIER.notify("startup_copies", key, "Twitch Drops Sentinel", text))
+        self.startup_copies_routes = StartupCopiesRoutes(
+            self.startup_copies, PROJECT_DIR, self._config_defaults(), lambda: bool(self.settings.get("installer_hint_dismissed", False)),
+            lambda: apply_change(self.settings, lambda current: current.__setitem__("installer_hint_dismissed", True), self.save_settings),
+            startup_copies.downloads_dir(), APP_VERSION, RELEASES_PAGE_URL)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
+
+    @staticmethod
+    def _config_defaults() -> dict:
+        """What a fresh config.json holds: the built-in defaults over config.default.json (to tell the user's choices from untouched ones)."""
+        defaults = copy.deepcopy(SUPERVISOR_DEFAULTS)
+        try:
+            defaults.update(json.loads((PROJECT_DIR / "config.default.json").read_text(encoding="utf-8-sig")))
+        except (OSError, ValueError) as exc:
+            logger.warning("config.default.json is not readable; every setting counts as the user's: %s", exc)
+        return defaults
+
+    async def startup_copies_check(self) -> None:
+        """Once per start: dead autostart entries of other copies are removed, live ones are announced."""
+        try:
+            outcome = await asyncio.to_thread(self.startup_copies.startup_check)
+            logger.info("Other copies check: %d dead entries removed, %d findings left", len(outcome["cleaned"]), outcome["remaining"])
+        except Exception as exc:
+            logger.error("Checking for other copies failed: %s", exc, exc_info=True)
 
     def load_settings(self) -> dict:
         default_settings = copy.deepcopy(SUPERVISOR_DEFAULTS)
@@ -430,6 +473,13 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/autostart", self.handle_get_autostart)
         self.app.router.add_post("/api/autostart", self.handle_post_autostart)
         self.app.router.add_get("/api/diagnostic-report", self.handle_get_diagnostic_report)
+        copies = self.startup_copies_routes
+        self.app.router.add_get("/api/startup-copies", copies.get_state)
+        self.app.router.add_post("/api/startup-copies/remove", copies.remove)
+        self.app.router.add_post("/api/startup-copies/move-autostart", copies.move_autostart)
+        self.app.router.add_post("/api/startup-copies/close", copies.close)
+        self.app.router.add_post("/api/startup-copies/import", copies.import_data)
+        self.app.router.add_post("/api/startup-copies/dismiss-hint", copies.dismiss_hint)
         self.app.router.add_post("/api/clipboard/copy", self.handle_clipboard_copy)
         self.app.router.add_get("/api/updates/check", self.handle_check_updates)
         self.app.router.add_post("/api/updates/apply", self.handle_apply_update)
@@ -1972,6 +2022,7 @@ class SentinelSupervisor:
             self.luna_autoshutdown_loop(),
             self.games_folder_rescan_loop(),
             self.signin_watch_loop(),
+            self.startup_copies_check(),
         ]
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
@@ -1985,6 +2036,7 @@ if __name__ == "__main__":
         check_and_apply_pending_exe_update()
     except Exception as e:
         logger.warning(f"Error checking pending exe update: {e}")
+    apply_import_at_start()
     apply_restore_at_start()
     supervisor = SentinelSupervisor()
     try:

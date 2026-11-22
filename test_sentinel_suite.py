@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.10.0", f"Version mismatch: {__version__}"
+    assert __version__ == "3.11.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -8428,6 +8428,85 @@ def test_steam_idle_package_unit_tests():
     print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
 
 
+def test_other_copies_cleanup_unit_tests_and_service_wiring():
+    print("[startup copies] Finder, cleanup, import and routes: unit modules, live API in test mode, source wiring...")
+    import io
+    import unittest
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    try:
+        suite = unittest.TestSuite()
+        for pattern in ("test_startup_copies.py", "test_startup_copies_routes.py", "test_copy_import.py"):
+            suite.addTests(unittest.defaultTestLoader.discover(str(core_dir), pattern=pattern, top_level_dir=str(core_dir)))
+        assert suite.countTestCases() >= 40, f"only {suite.countTestCases()} startup-copies tests were discovered"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in ("startup_copies", "startup_copies_routes", "copy_import", "test_startup_copies", "test_startup_copies_routes", "test_copy_import"):
+            sys.modules.pop(name, None)
+    assert result.wasSuccessful(), f"startup-copies unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      startup-copies unit tests ({result.testsRun} run): PASS [OK]")
+
+    ensure_test_service()
+
+    def call(method, path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(BASE_URL + path, data=data, method=method, headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    status, state = call("GET", "/api/startup-copies?rescan=1")
+    assert status == 200 and state["status"] == "ok" and state["findings"] == [], "test mode sees nothing on the machine (the null backend)"
+    assert {"copies", "installerHint", "ownData", "thisVersion", "autostartOwner"} <= set(state), sorted(state)
+    assert call("POST", "/api/startup-copies/remove", {"id": "not-an-id"})[0] == 400
+    assert call("POST", "/api/startup-copies/remove", {"id": "0" * 12})[0] == 404, "an unknown id is a 404, never an action"
+    assert call("POST", "/api/startup-copies/close", {"id": "0" * 12})[0] == 404
+    assert call("POST", "/api/startup-copies/import", {"dir": str(SANDBOX / "nowhere")})[0] == 404
+    print("      Live /api/startup-copies in test mode: PASS [OK]")
+
+    service = src_text(WORKSPACE / "core" / "sentinel_service.py")
+    for route in ("/api/startup-copies", "/api/startup-copies/remove", "/api/startup-copies/move-autostart", "/api/startup-copies/close",
+                  "/api/startup-copies/import", "/api/startup-copies/dismiss-hint"):
+        assert f'"{route}"' in service, f"{route} is registered"
+    assert "startup_copies.NullBackend() if TEST_MODE else startup_copies.SystemBackend()" in service, "a test run never touches the real machine"
+    assert "apply_import_at_start()" in service and service.index("    apply_import_at_start()") < service.index("    apply_restore_at_start()"), "the import is applied before settings load"
+    assert "self.startup_copies_check()" in service, "the start check runs once per start"
+    print("      Service wiring: PASS [OK]")
+
+    sdks = ""
+    if shutil.which("dotnet"):
+        sdks = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True, timeout=60).stdout
+    if not any(line.startswith("10.") for line in sdks.splitlines()):
+        print("      SKIP: the start-conflict check needs the .NET SDK 10 (dotnet run); the source checks below still run")
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="start_conflict_check_", dir=SANDBOX))
+        proj = WORKSPACE / "tools" / "start_conflict_check" / "StartConflictCheck.csproj"
+        res = subprocess.run(
+            ["dotnet", "run", "--project", str(proj), "-c", "Release", "-o", str(out_dir / "bin"),
+             f"-p:BaseIntermediateOutputPath={out_dir / 'obj'}{os.sep}", f"-p:MSBuildProjectExtensionsPath={out_dir / 'obj'}{os.sep}"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        assert res.returncode == 0, (res.stdout + res.stderr)[-1500:]
+        assert "ALL START CONFLICT CHECKS PASSED" in res.stdout, res.stdout[-800:]
+        print("      Start-conflict logic check (dotnet run): PASS [OK]")
+    program = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    start = program.split("public static void Main", 1)[1]
+    assert "!isNewInstance && !TryReplaceOlderCopy()" in start and "PostMessage(HWND_BROADCAST, WM_SENTINEL_SHOW" in start, "a refused start still wakes the running copy unless it replaced it"
+    assert "StartConflict.Resolve(" in program and "StartConflict.CloseVerified(" in program and "Kill(entireProcessTree: true)" in program, "the shell uses the tested logic"
+    assert "WM_CLOSE" in program and ".CloseMainWindow()" not in program, "the polite close reaches hidden windows too (a tray copy has no main window)"
+    assert start.index("ApplicationConfiguration.Initialize()") < start.index("TryReplaceOlderCopy()"), "visual styles and DPI are set up before the question is shown"
+    assert "MessageBoxDefaultButton.Button2" in program, "the question defaults to No"
+    assert "StartConflict.AcquireAfter(_singleInstanceMutex" in program, "the mutex is taken over after the old copy is gone"
+    print("      Program.cs uses the start-conflict logic: PASS [OK]")
+
+
 def test_installer_script_keeps_its_promises():
     print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
     iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
@@ -8612,6 +8691,7 @@ if __name__ == "__main__":
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_other_copies_cleanup_unit_tests_and_service_wiring,
         test_reward_campaigns_unit_tests,
         test_core_feature_unit_tests,
         test_profile_restore_api_stages_a_checked_backup,
