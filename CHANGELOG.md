@@ -3,6 +3,8 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+
+## [3.10.0] - 2026-11-22
 - Steam IDLE, card farm: a playtime phase for restricted accounts (new, or after refunds), which get no cards from a game before it has a few hours. Games under the threshold are idled together, up to 32 at once, until each has the hours, then farmed one at a time as before. New setting "Hours before first card drop" (default 3, 0 turns the phase off). If Steam counts no playtime for an hour, the run falls back to one game at a time and says so.
 - Steam IDLE: a Log panel shows what the module is doing (games idled, drops, playtime, errors) with Copy for bug reports and Clear; Steam IDs and file paths are masked.
 - Steam IDLE: rechecks read only the farmed games' card pages (a full badge scan runs at start and hourly), far fewer requests on big libraries; the farm panel shows cards left, an estimated time and cards dropped today.
