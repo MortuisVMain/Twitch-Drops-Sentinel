@@ -1782,6 +1782,9 @@
   .history-row-date { color: var(--text-secondary); white-space: nowrap; }
   .history-empty { font-size: var(--fs-xs); color: var(--text-muted); padding: 8px 0; }
   .danger-zone-question { font-size: var(--fs-xs); font-weight: 700; color: var(--text-primary); }
+  /* The toast had no rules: it sat static at the end of the page, under any open dialog, so errors went unseen. */
+  .hud-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 200; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; max-width: min(560px, calc(100vw - 32px)); padding: 6px 8px 6px 16px; border-radius: 12px; background: var(--bg-chassis-base); border: 1px solid color-mix(in oklch, var(--led-mint) 45%, transparent); box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6); color: var(--text-primary); font-size: var(--fs-sm); font-weight: 600; pointer-events: auto; }
+  .hud-toast > button { min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; }
 
   .modal-backdrop { position: fixed; inset: 0; background: rgba(3, 4, 6, 0.78); backdrop-filter: blur(14px); z-index: 150; display: none; align-items: center; justify-content: center; padding: 20px; }
   .modal-backdrop.open { display: flex; }

@@ -1720,7 +1720,8 @@ def test_update_check_failure_is_visible_and_retried():
         headers["X-RateLimit-Reset"] = str(int(clock["now"] + reset_in))
         return urllib.error.HTTPError(updater.REPO_API_URL, 403, "rate limit exceeded", headers, None)
 
-    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "html_url": "https://example.test/r",
+               "assets": [{"name": "full.zip", "browser_download_url": "https://example.test/full.zip", "url": ""}]}  # a release is offered once its ZIP is up
     saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time)
     capture = _Capture()
     updater.logger.addHandler(capture)
@@ -5612,7 +5613,8 @@ def test_concurrent_update_checks_share_one_request():
             thread.start()
         return threads, results
 
-    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "html_url": "https://example.test/r",
+               "assets": [{"name": "full.zip", "browser_download_url": "https://example.test/full.zip", "url": ""}]}  # a release is offered once its ZIP is up
     saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time,
              getattr(updater, "CHECK_WAIT_SECONDS", None))
     updater.CACHE_FILE = work / "cache.json"
