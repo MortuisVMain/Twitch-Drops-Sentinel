@@ -69,6 +69,8 @@ russian.DirNoAccess=Нет прав на запись в папку:%n%1%n%nУс
 english.DirNoAccess=You cannot write to this folder:%n%1%n%nSetup runs without administrator rights. Pick a folder in your own profile, for example:%n%2
 russian.DirProtected=Папка защищена Windows:%n%1%n%nПрограмма работает без прав администратора и не сможет писать туда свои настройки и журнал, поэтому не запустится. Выберите папку в своём профиле, например:%n%2
 english.DirProtected=This folder is protected by Windows:%n%1%n%nThe app runs without administrator rights and could not write its settings and log there, so it would not start. Pick a folder in your own profile, for example:%n%2
+russian.DirHint=Лучше оставить предложенную папку в вашем профиле. Программа хранит рядом с собой настройки, входы в аккаунты и журнал и работает без прав администратора, поэтому папка должна быть доступна для записи. Подойдёт и своя папка, например D:\Programs\Twitch Drops Sentinel. Program Files и папка Windows не подойдут: туда программа писать не сможет и не запустится.
+english.DirHint=Best keep the suggested folder in your profile. The app keeps its settings, account sign-ins and log next to itself and runs without administrator rights, so the folder must be writable. A folder of your own works too, for example D:\Programs\Twitch Drops Sentinel. Program Files and the Windows folder will not work: the app could not write there and would not start.
 russian.MigrateSameFolder=Это папка, в которую ставится программа. Выберите старую папку.
 english.MigrateSameFolder=This is the folder the app is being installed into. Pick the old folder.
 russian.MigrateFailed=Не все файлы удалось скопировать (%1). Список файлов в журнале установки.
@@ -184,6 +186,7 @@ var
   MigrateEdit: TNewEdit;
   MigrateBrowse: TNewButton;
   MigrateNote: TNewStaticText;
+  DirHint: TNewStaticText;
   MigrateFresh: Boolean;
   MigrateOverwrite: Boolean;
   MigrateCopied, MigrateSkipped, MigrateFailed: Integer;
@@ -419,6 +422,17 @@ begin
     if (Found = '') and not WizardSilent then
       Found := FindOldCopy;
   end;
+
+  { why the folder matters: the app writes next to itself and runs without admin rights }
+  DirHint := TNewStaticText.Create(WizardForm);
+  DirHint.Parent := WizardForm.SelectDirPage;
+  DirHint.Left := WizardForm.DirEdit.Left;
+  DirHint.Top := WizardForm.DirEdit.Top + WizardForm.DirEdit.Height + ScaleY(14);
+  DirHint.Width := WizardForm.DirBrowseButton.Left + WizardForm.DirBrowseButton.Width - WizardForm.DirEdit.Left;
+  DirHint.AutoSize := False;
+  DirHint.WordWrap := True;
+  DirHint.Height := WizardForm.DiskSpaceLabel.Top - DirHint.Top - ScaleY(6);
+  DirHint.Caption := CustomMessage('DirHint');
 
   MigratePage := CreateCustomPage(wpSelectDir, CustomMessage('MigrateTitle'), CustomMessage('MigrateDesc'));
 
