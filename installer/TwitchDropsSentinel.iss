@@ -67,6 +67,8 @@ russian.MigrateBadFolder=В этой папке нет TwitchDropsSentinel.exe �
 english.MigrateBadFolder=This folder has no TwitchDropsSentinel.exe and config.json. Pick the folder where you unpacked the ZIP.
 russian.DirNoAccess=Нет прав на запись в папку:%n%1%n%nУстановка идёт без прав администратора. Выберите папку в своём профиле, например:%n%2
 english.DirNoAccess=You cannot write to this folder:%n%1%n%nSetup runs without administrator rights. Pick a folder in your own profile, for example:%n%2
+russian.DirProtected=Папка защищена Windows:%n%1%n%nПрограмма работает без прав администратора и не сможет писать туда свои настройки и журнал, поэтому не запустится. Выберите папку в своём профиле, например:%n%2
+english.DirProtected=This folder is protected by Windows:%n%1%n%nThe app runs without administrator rights and could not write its settings and log there, so it would not start. Pick a folder in your own profile, for example:%n%2
 russian.MigrateSameFolder=Это папка, в которую ставится программа. Выберите старую папку.
 english.MigrateSameFolder=This is the folder the app is being installed into. Pick the old folder.
 russian.MigrateFailed=Не все файлы удалось скопировать (%1). Список файлов в журнале установки.
@@ -491,11 +493,32 @@ begin
     Log('Could not delete the write check file ' + Probe);
 end;
 
+function UnderFolder(Dir, Root: String): Boolean;
+begin
+  Root := AddBackslash(Lowercase(Root));
+  Result := (Root <> '\') and (Pos(Root, AddBackslash(Lowercase(Dir))) = 1);
+end;
+
+function ProtectedDir(Dir: String): Boolean;
+begin
+  { an elevated setup can write here, but the app always runs as the user and could not: it would fail on every start }
+  Result := UnderFolder(Dir, ExpandConstant('{commonpf64}')) or UnderFolder(Dir, ExpandConstant('{commonpf32}'))
+    or UnderFolder(Dir, ExpandConstant('{win}'));
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Problem: String;
 begin
   Result := True;
+  if (CurPageID = wpSelectDir) and ProtectedDir(WizardDirValue) then
+  begin
+    Log('Folder protected by Windows, the app could not write there: ' + WizardDirValue);
+    if not WizardSilent then
+      MsgBox(FmtMessage(CustomMessage('DirProtected'), [WizardDirValue, ExpandConstant('{localappdata}\Programs\{#AppName}')]), mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
   if (CurPageID = wpSelectDir) and not IsAdminInstallMode and not DirWritable(WizardDirValue) then
   begin
     { without this the copy step fails with a bare "Access denied" after the user has clicked through every page }
