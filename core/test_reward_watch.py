@@ -1104,5 +1104,22 @@ class PriorityConsumersTests(unittest.TestCase):
         self.assertEqual([t["name"] for t in cover_keeper.cover_targets([], ["Rust", "reward:abc"])], ["Rust"])
 
 
+class QueueNotificationsRun(unittest.TestCase):
+    def test_queue_toasts_run_when_called_from_the_sync_state_machine(self):
+        """The state machine calls _notify_queue_events without await: it must run there, not build a coroutine."""
+        import notifications
+        sent = []
+        fake = SimpleNamespace(notify_new=lambda kind, items, *rest: sent.append((kind, items)) or 0)
+        engine = SimpleNamespace(inventory=[], _notify_queue_deadlines=lambda *a: sent.append(("deadlines", a[1])))
+        saved = notifications.NOTIFIER
+        notifications.NOTIFIER = fake
+        try:
+            result = twitch.Twitch._notify_queue_events(engine, ["Rust"], set())
+        finally:
+            notifications.NOTIFIER = saved
+        self.assertFalse(asyncio.iscoroutine(result), "a coroutine nobody awaits never sends a toast")
+        self.assertEqual([k for k, _ in sent], ["campaign_started", "needs_link", "deadlines"])
+
+
 if __name__ == "__main__":
     unittest.main()
