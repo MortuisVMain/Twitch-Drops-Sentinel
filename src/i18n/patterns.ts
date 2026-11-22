@@ -65,6 +65,13 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^не успеть: закроется через (.+)$/, "won't make it: ends in $1"],
   [/^не успеет в очереди · закроется через (.+)$/, "won't make it in the queue · ends in $1"],
   // SettingsStudio
+  [/^Первая карточка падает примерно через (.+) ч — поставить (.+)\?$/, (a, b) => `The first card drops after about ${a.replace(',', '.')} h: set ${b.replace(',', '.')}?`],
+  [/^Набор часов: (\d+) (?:игра|игры|игр)$/, (n) => `Collecting playtime: ${n} ${plural(n, 'game', 'games')}`],
+  [/^Осталось ~(\d+) (?:карточка|карточки|карточек)$/, (n) => `~${n} ${plural(n, 'card', 'cards')} left`],
+  [/^≈ (.+)$/, (t) => `≈ ${t.replace(/(\d+) дн/, '$1 d').replace(/(\d+) мин/, '$1 min').replace(/(\d+) ч/, '$1 h')}`],
+  [/^сегодня выпало (\d+)(?: \(за запуск (\d+)\))?$/, (today, run) => (run === undefined ? `${today} dropped today` : `${today} dropped today (${run} this run)`)],
+  [/^за запуск выпало (\d+)$/, '$1 dropped this run'],
+  [/^Карточки начнут падать после (.+) ч в каждой игре$/, 'Cards start dropping after $1 h in each game'],
   [/^Найдено игр: (\d+)$/, 'Games found: $1'],
   [/^Не удалось получить диагностический отчет \(HTTP (\d+)\)\.$/, 'Could not get the diagnostic report (HTTP $1).'],
   [/^Ошибка проверки: (.+)$/, 'Check error: $1'],

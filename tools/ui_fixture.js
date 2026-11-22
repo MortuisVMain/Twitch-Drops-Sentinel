@@ -14,8 +14,12 @@
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
 // ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch|enginemissing serves the Steam IDLE tab in that scenario (default farming; enginemissing has community.session "engine_missing": the browser engine of the giveaways is not installed); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
+// ?steamidle=batching is the hours phase: five games collecting playtime toward hoursUntilDrops (3 h), farm.state "batching", phase "hours"; batchingmore has eight games, batchingdisabled has batchDisabled "no_hours" while one game is farmed. Every scenario serves hoursUntilDrops (default 3); POST /farm/settings validates {hoursUntilDrops} 0..10 like the service.
+// ?steamidle=suggest|suggestzero serve the idle farm with the hint under the hours setting (restricted: set 1,5; unrestricted: set 0) and its Apply button; autopause is the paused farm that stopped itself because the user plays a game (farm.autoPause). Every scenario serves the two switches pauseWhilePlaying and notify (both on); POST /farm/settings takes any subset of {hoursUntilDrops, pauseWhilePlaying, notify}.
+// ?steamidle=farmingdays serves a long estimate (104 cards, 52.4 h: days and hours); nostats serves the farming scenario without estimate, droppedToday and droppedThisRun (an older service).
 // ?steamidle=farmingmore is the farming scenario plus two refund-held games (card with the "Фармить всё равно" button) and two failed ones (reasons no_progress and presence_lost).
 // ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch); achdeny is achidle with three entries on the user's own anti-cheat list (Pale Harbor is always on the built-in table; POST /denylist/add|remove work).
+// The Log panel (collapsed until opened; the choice lives in localStorage sentinel_steamidle_log_open) is served by GET /log?after=<seq> and POST /log/clear: ?steamidlelog=empty serves no entries, live adds one entry per poll, fail answers 500; the default is 14 sample entries of all three levels.
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
@@ -281,7 +285,7 @@
   var si = {
     available: true, unavailableReason: null, riskAcknowledged: true, steam: { running: true, signedIn: true },
     community: { session: 'signed_in', checkedAgeSeconds: 40 },
-    farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false },
+    farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false, phase: null, batch: [], hoursUntilDrops: 3, batchDisabled: null, estimate: { dropsRemaining: 0, hours: 0 }, droppedToday: 12, droppedThisRun: 0, thresholdSuggestion: null, autoPause: null, pauseWhilePlaying: true, notify: true },
     library: { count: 30, status: 'ready', ageSeconds: 120 },
     achievements: {
       acknowledged: true, settings: { minMinutes: 0, maxMinutes: 0, skipHidden: true },
@@ -301,12 +305,14 @@
   function siTotal() {
     var f = si.farm;
     f.totalDropsRemaining = f.queue.reduce(function (n, g) { return n + g.dropsRemaining; }, 0) + (f.current ? f.current.dropsRemaining : 0);
+    f.estimate = { dropsRemaining: f.totalDropsRemaining, hours: Math.round((f.totalDropsRemaining * 0.5 + (f.phase === 'hours' ? 2.4 : 0)) * 10) / 10 };
+    f.droppedThisRun = f.state === 'idle' ? 0 : 3;
   }
   function siHold() {
     var f = si.farm;
     if (!f.queue.length) { f.current = null; f.state = 'done'; siTotal(); return; }
     f.current = Object.assign({ heldSeconds: 0 }, f.queue.shift());
-    f.state = 'farming'; f.paused = false; f.suspended = false; f.lastError = null; siTotal();
+    f.state = 'farming'; f.phase = 'cards'; f.batch = []; f.paused = false; f.suspended = false; f.lastError = null; siTotal();
   }
   function siFill() {
     var f = si.farm;
@@ -399,6 +405,15 @@
   else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null, status: 'none', ageSeconds: null }; }
   else if (siMode === 'badstate') { siFill(); si.farm.state = 'exploding'; siTotal(); }
   else if (siMode === 'farming' || siMode === 'slow' || siMode === 'hang' || siMode === 'nolibrary') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
+  else if (siMode === 'batching' || siMode === 'batchingmore') {
+    siFill(); si.farm.state = 'batching'; si.farm.phase = 'hours'; si.farm.current = null;
+    si.farm.queue = (siMode === 'batchingmore' ? [0, 1, 2, 3, 4, 5, 6, 3] : [0, 1, 2, 3, 4]).map(function (i, n) { return Object.assign(siGame(i, 2 + n % 3), { appId: 910000 + n }); });
+    si.farm.batch = si.farm.queue.map(function (g, n) { return { appId: g.appId, name: g.name, dropsRemaining: g.dropsRemaining, playtimeHours: [0.5, 1.2, 2.4, 3, 0][n % 5] }; });
+    siTotal();
+  }
+  else if (siMode === 'farmingdays') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal(); si.farm.estimate = { dropsRemaining: 104, hours: 52.4 }; si.farm.totalDropsRemaining = 104; si.farm.droppedToday = 1; si.farm.droppedThisRun = 1; }
+  else if (siMode === 'nostats') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal(); delete si.farm.estimate; delete si.farm.droppedToday; delete si.farm.droppedThisRun; }
+  else if (siMode === 'batchingdisabled') { siFill(); siHold(); si.farm.batchDisabled = 'no_hours'; si.farm.current.heldSeconds = 600; siTotal(); }
   else if (siMode === 'farmingmore') {
     siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal();
     si.farm.refundHeld = [{ appId: 910007, name: 'Tidewrack', reason: 'refund_window', daysLeft: 1.4 }, { appId: 910008, name: SI_NAMES[3], reason: 'refund_window', daysLeft: 6 }];
@@ -406,6 +421,9 @@
   }
   else if (siMode === 'suspended') { siFill(); si.farm.state = 'suspended'; si.farm.suspended = true; siTotal(); }
   else if (siMode === 'paused') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; siTotal(); }
+  else if (siMode === 'autopause') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; si.farm.autoPause = { reason: 'user_playing', appId: 292030, since: 95 }; siTotal(); }
+  else if (siMode === 'suggest') si.farm.thresholdSuggestion = { kind: 'restricted', suggestedHours: 1.5, samples: 4 };
+  else if (siMode === 'suggestzero') si.farm.thresholdSuggestion = { kind: 'unrestricted', suggestedHours: 0, samples: 3 };
   else if (siMode === 'done') { si.farm.state = 'done'; si.farm.done = [0, 1, 2, 3, 4].map(siDone); si.farm.lastReadAgeSeconds = 20; }
   else if (siMode === 'error') { si.farm.state = 'stopped'; si.farm.lastError = 'read_failed'; si.farm.done = [siDone(5)]; si.farm.failed = [{ appId: 910003, name: SI_NAMES[3], reason: 'no_progress' }]; si.farm.lastReadAgeSeconds = 400; }
   function siReply(status, body) {
@@ -413,6 +431,7 @@
   }
   function siCommand(cmd) {
     var f = si.farm;
+    if (cmd === 'farm/resume' || cmd === 'farm/stop' || cmd === 'farm/pause') f.autoPause = null;
     if (cmd === 'ack') si.riskAcknowledged = true;
     else if (cmd === 'login') si.community = { session: 'login_open', checkedAgeSeconds: null };
     else if (cmd === 'scan') {
@@ -422,8 +441,9 @@
       }
     }
     else if (cmd === 'check') si.community = { session: si.community.session === 'login_open' ? 'login_open' : 'signed_in', checkedAgeSeconds: 0 };
+    else if (cmd === 'farm/start' && f.queue.length && si.farm.hoursUntilDrops > 0 && siMode.indexOf('batching') === 0) { f.state = 'batching'; f.phase = 'hours'; f.batchDisabled = null; f.batch = f.queue.map(function (g) { return { appId: g.appId, name: g.name, dropsRemaining: g.dropsRemaining, playtimeHours: 0 }; }); }
     else if (cmd === 'farm/start') { if (!f.queue.length && !f.current) siFill(); f.done = f.done.slice(0, 2); f.failed = []; siHold(); }
-    else if (cmd === 'farm/stop') { f.state = 'stopped'; f.current = null; f.paused = false; }
+    else if (cmd === 'farm/stop') { f.state = 'stopped'; f.current = null; f.paused = false; f.phase = null; f.batch = []; }
     else if (cmd === 'farm/pause') { if (f.current) f.queue.unshift({ appId: f.current.appId, name: f.current.name, dropsRemaining: f.current.dropsRemaining }); f.current = null; f.state = 'paused'; f.paused = true; }
     else if (cmd === 'farm/resume') siHold();
     else if (cmd === 'farm/skip') { if (f.current) f.done.push({ appId: f.current.appId, name: f.current.name }); siHold(); }
@@ -467,12 +487,35 @@
     } else if (cmd === 'achievements/stop') { r.state = 'stopped'; r.current = null; r.queue = []; r.paused = false; r.nextUnlockInSeconds = null; }
     return null;
   }
+  var siLogMode = q.get('steamidlelog'), siLogSeq = 0, siLogEntries = [], siLogGets = 0;
+  function siLogAdd(level, text, agoSeconds) {
+    siLogSeq += 1;
+    siLogEntries.push({ seq: siLogSeq, ts: new Date(Date.now() - agoSeconds * 1000).toISOString(), level: level, text: text });
+  }
+  if (siLogMode !== 'empty') {
+    [['info', 'Farm run started', 840], ['info', 'Scan: 6 games with drops, 1 refund-held', 838],
+     ['info', 'Collecting playtime for 5 games, threshold 3.0 h', 837], ['info', 'Lanternfall Chronicles joined the playtime batch', 836],
+     ['info', 'Brass Meridian joined the playtime batch', 835], ['info', 'Lanternfall Chronicles: 0.4 h -> 1.1 h', 600],
+     ['info', 'Brass Meridian: 2.8 h -> 3.2 h', 599], ['info', 'Brass Meridian left the playtime batch (3.2 h)', 599],
+     ['warning', 'Presence for Hollow Orchard Tactics lost, restarting', 420], ['warning', 'Game failed: Quiet Foundry (910004): presence_lost', 300],
+     ['info', 'Playtime phase finished', 120], ['info', 'Idling Brass Meridian (910001), 2 drops left', 119],
+     ['error', 'drops read failed: read_timeout', 60], ['info', 'Brass Meridian: drops 2 -> 1', 20]
+    ].forEach(function (r) { siLogAdd(r[0], r[1], r[2]); });
+  }
   function steamIdleFetch(path, init, fullUrl) {
     var cmd = path.slice('/api/v1/steam-idle/'.length);
+    if (cmd === 'log' && !(init && init.method === 'POST')) {
+      if (siLogMode === 'fail') return siReply(500, { error: 'failed' });
+      var after = new URLSearchParams(String(fullUrl).split('?')[1] || '').get('after');
+      siLogGets += 1;
+      if (siLogMode === 'live' && siLogGets > 1) siLogAdd('info', 'Brass Meridian: poll ' + siLogGets, 0);
+      return siReply(200, { entries: siLogEntries.filter(function (e) { return after === null || e.seq > Number(after); }), lastSeq: siLogSeq });
+    }
     if (init && init.method === 'POST') {
       window.__steamIdlePosts.push(cmd);
       var posted = init.body ? JSON.parse(init.body) : null;
       window.__steamIdleBodies.push({ cmd: cmd, body: posted });
+      if (cmd === 'log/clear') { siLogEntries = []; return siReply(200, { ok: true }); }
       if (siMode === 'hang') return new Promise(function (res, rej) {
         if (init.signal) init.signal.addEventListener('abort', function () { rej(new DOMException('Aborted', 'AbortError')); });
       });
@@ -483,6 +526,12 @@
       } else if (si.achievements && (cmd.indexOf('achievements/') === 0 || cmd === 'library/scan')) {
         var refused = siAchCommand(cmd, posted);
         if (refused) return siReply(refused[0], { error: refused[1] });
+      } else if (cmd === 'farm/settings') {
+        var keys = posted ? Object.keys(posted) : [];
+        var known = { hoursUntilDrops: function (v) { return typeof v === 'number' && v >= 0 && v <= 10; }, pauseWhilePlaying: function (v) { return typeof v === 'boolean'; }, notify: function (v) { return typeof v === 'boolean'; } };
+        if (!keys.length || keys.some(function (k) { return !known[k] || !known[k](posted[k]); })) return siReply(400, { error: 'invalid_request' });
+        keys.forEach(function (k) { si.farm[k] = posted[k]; });
+        if (si.farm.thresholdSuggestion && si.farm.thresholdSuggestion.suggestedHours === si.farm.hoursUntilDrops) si.farm.thresholdSuggestion = null;
       } else siCommand(cmd);
       return siReply(cmd === 'library/scan' ? 202 : 200, { ok: true });
     }

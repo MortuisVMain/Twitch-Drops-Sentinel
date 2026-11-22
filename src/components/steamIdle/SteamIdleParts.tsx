@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, LogIn, RefreshCw, TriangleAlert } from 'lucide-react';
-import { SteamIdleState } from '../../types';
+import { SteamIdleBatchGame, SteamIdleState } from '../../types';
+import { pluralRu } from '../../utils/idleInfo';
 import { SendCommand, SteamIdleCommand } from './useSteamIdle';
 import { RefundHeldRow } from './RefundHeldRow';
 import { isCompactList, SteamCardGrid, SteamGameCard } from './SteamGameCard';
 import { durParts } from './steamIdleLogic.mjs';
 import {
-  KNOWN_FARM_STATES, Tone, communityText, engineMissingHint, failedReasonText, farmStateText, helperText, hoursNumber, previewErrorText,
+  AUTO_PAUSE_TEXT, BATCH_DISABLED_NOTE, KNOWN_FARM_STATES, Tone, communityText, engineMissingHint, failedReasonText, farmStateText, farmStatsSegments, helperText, hoursNumber, previewErrorText,
   steamClientText, unavailableHelp,
 } from './steamIdleText';
 
@@ -100,7 +101,25 @@ export const UnavailablePanel: React.FC<{ s: SteamIdleState }> = ({ s }) => (
 );
 
 const PRIMARY_STATES = new Set(['idle', 'done', 'stopped', 'needs_login']);
-const ACTIVE_STATES = new Set(['scanning', 'farming', 'waiting', 'suspended']);
+export const ACTIVE_STATES = new Set(['scanning', 'farming', 'waiting', 'suspended', 'batching']);
+
+/** The hours phase: every game of the batch is held at once until each has enough playtime for cards to drop. */
+const BatchBlock: React.FC<{ batch: SteamIdleBatchGame[]; target: number | undefined }> = ({ batch, target }) => {
+  const compact = isCompactList(batch.length);
+  const need = hasCount(target) && target > 0 ? target : null;
+  return (
+    <div className="sidle-current">
+      <h3 id="sidle-batch-title" className="sidle-subtitle">{`Набор часов: ${batch.length} ${pluralRu(batch.length, 'игра', 'игры', 'игр')}`}</h3>
+      {need !== null && <p className="sidle-text">{`Карточки начнут падать после ${hoursNumber(need)} ч в каждой игре`}</p>}
+      <SteamCardGrid labelledBy="sidle-batch-title" compact={compact} scroll>
+        {batch.map((g) => (
+          <SteamGameCard key={g.appId} appId={g.appId} name={g.name} compact={compact}
+            facts={[need !== null ? <><b className="tabular">{hoursNumber(Math.min(g.playtimeHours, need))}</b> / {hoursNumber(need)} ч</> : <>В игре: <b className="tabular">{hoursNumber(g.playtimeHours)}</b> ч</>]} />
+        ))}
+      </SteamCardGrid>
+    </div>
+  );
+};
 
 export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; takeFocus: boolean; send: Send }> = ({ s, busy, takeFocus, send }) => {
   const { farm } = s;
@@ -110,13 +129,14 @@ export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
   const known = KNOWN_FARM_STATES.has(farm.state);
   const hasWork = farm.queue.length > 0 || cur !== null || farm.done.length > 0 || farm.failed.length > 0;
   const nothing = farm.state === 'idle' && !hasWork;
+  const statsLine = farmStatsSegments(farm);
   const stateRef = useRef<HTMLParagraphElement>(null);
   // The risk gate (with the focused button) was just replaced by this panel: keep the keyboard user here.
   useEffect(() => { if (takeFocus) stateRef.current?.focus(); }, [takeFocus]);
   return (
     <section className="titanium-island sidle-farm" aria-labelledby="sidle-farm-title">
       <h2 id="sidle-farm-title" className="sidle-title">Фарм карточек</h2>
-      <p ref={stateRef} tabIndex={-1} className="sidle-state" aria-live="polite">{farmStateText(farm.state, farm.lastError)}</p>
+      <p ref={stateRef} tabIndex={-1} className="sidle-state" aria-live="polite">{farm.state === 'paused' && farm.autoPause ? AUTO_PAUSE_TEXT : farmStateText(farm.state, farm.lastError)}</p>
       {cur && (
         <div className="sidle-current">
           <span className="sidle-game" title={cur.name}>{cur.name}</span>
@@ -126,6 +146,10 @@ export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
           </span>
         </div>
       )}
+      {farm.phase === 'hours' && (farm.batch?.length ?? 0) > 0 && <BatchBlock batch={farm.batch ?? []} target={farm.hoursUntilDrops} />}
+      {farm.batchDisabled === 'no_hours' && (
+        <p className="sidle-refusal" role="status"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> {BATCH_DISABLED_NOTE}</p>
+      )}
       {nothing && !s.preview && s.available && s.community.session !== 'signed_out' && (
         <>
           <p className="sidle-text">Карточек для фарма нет</p>
@@ -134,10 +158,11 @@ export const FarmPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | n
       )}
       {(hasCount(farm.totalDropsRemaining) || hasCount(farm.lastReadAgeSeconds)) && (
         <p className="sidle-meta">
-          {hasCount(farm.totalDropsRemaining) && farm.totalDropsRemaining > 0 && <span>всего осталось карточек: <b className="tabular">{farm.totalDropsRemaining}</b></span>}
+          {!farm.estimate && hasCount(farm.totalDropsRemaining) && farm.totalDropsRemaining > 0 && <span>всего осталось карточек: <b className="tabular">{farm.totalDropsRemaining}</b></span>}
           {hasCount(farm.lastReadAgeSeconds) && <span>проверено <Dur s={farm.lastReadAgeSeconds} /> назад</span>}
         </p>
       )}
+      {statsLine.length > 0 && <p className="sidle-meta sidle-stats" data-testid="sidle-farm-stats">{statsLine.map((part) => <span key={part}>{part}</span>)}</p>}
       <div className="sidle-actions">
         {PRIMARY_STATES.has(farm.state) && <button type="button" className="chunky-cta" aria-disabled={off} onClick={go('start')}>Начать фарм</button>}
         {farm.state === 'paused' && <button type="button" className="chunky-cta" aria-disabled={off} onClick={go('resume')}>Продолжить</button>}

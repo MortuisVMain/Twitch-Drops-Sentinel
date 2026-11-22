@@ -14,12 +14,14 @@ const cyrillic = /[А-Яа-яЁё]/;
 // Intentionally left as is: each language names itself in its own language
 const KEEP = new Set(['Русский']);
 // Plural-form helpers return bare Russian words that only ever appear glued to a number; PATTERNS translate the whole phrase
-const PLURAL_FORMS = new Set(['игра', 'игры', 'игр', 'дроп', 'дропа', 'дропов', 'кампания', 'кампании', 'кампаний', 'монитор', 'монитора', 'мониторов']);
+const PLURAL_FORMS = new Set(['игра', 'игры', 'игр', 'дроп', 'дропа', 'дропов', 'кампания', 'кампании', 'кампаний', 'монитор', 'монитора', 'мониторов', 'карточка', 'карточки', 'карточек']);
 // Templates whose placeholders hold Russian words: a realistic rendered sample instead of "1"
 const TEMPLATE_SAMPLES = {
   'Приоритет обновлен: ': 'Приоритет обновлен: Rust перемещен выше',
   'Ни для одной из ': 'Ни для одной из 3 игр очереди нет доступных кампаний',
   'Доступно вне очереди: ': 'Доступно вне очереди: 3 кампании',
+  'Набор часов: ': 'Набор часов: 3 игры',
+  'Осталось ~': 'Осталось ~3 карточки',
 };
 
 globalThis.localStorage = { getItem: () => 'en', setItem() {} };

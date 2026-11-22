@@ -45,6 +45,13 @@ export const STEAM_IDLE: Record<string, string> = {
   'Фарм карточек': 'Card farming',
   'Читаем список карточек': 'Reading the card list',
   'Фарм идёт': 'Farming in progress',
+  'Набор часов': 'Collecting playtime',
+  'Steam не засчитал часы — фарм идёт по одной игре.': 'Steam did not count the playtime, so the farm runs one game at a time.',
+  'Часов до первой карточки': 'Hours before the first card drop',
+  'Часов в каждой игре': 'Hours in each game',
+  'Введите число от 0 до 10 с шагом 0,5': 'Enter a number from 0 to 10 in steps of 0.5',
+  'Ограниченные аккаунты (новые или после возвратов) не получают карточек, пока в игре нет этого числа часов. 0 выключает фазу набора часов.': 'Restricted accounts (new ones, or after refunds) get no cards until a game has this many hours. 0 turns the playtime phase off.',
+  'Значение меняется между запусками.': 'The value changes between runs.',
   'Ждём ответа Steam, попробуем ещё раз': 'Waiting for Steam to answer, will try again',
   'Фарм на паузе': 'Farm is paused',
   'Приостановлено: запущена игра': 'Suspended: a game is running',
@@ -276,4 +283,16 @@ export const STEAM_IDLE: Record<string, string> = {
   'Темп выдачи': 'Unlock pace',
   'Пауза между двумя достижениями, чтобы выдача выглядела как обычная игра.': 'A pause between two achievements, so the run looks like normal play.',
   'Выберите игру ниже, отметьте нужные достижения и нажмите «Получить выбранные».': 'Pick a game below, tick the achievements you want and press Get selected.',
+  'Пока пусто — действия появятся здесь': 'Nothing yet: actions will show up here',
+  'Не удалось получить журнал': 'Could not read the log',
+  'Применить': 'Apply',
+  'Похоже, аккаунт без ограничений: первая карточка падает примерно через 30 минут. Поставить 0 — фаза набора часов не нужна.':
+    'Looks like the account has no restrictions: the first card drops after about 30 minutes. Set 0: the playtime phase is not needed.',
+  'Ставить фарм на паузу, пока вы играете': 'Pause farming while you play a game',
+  'Когда вы запускаете свою игру, фарм отпускает игры и продолжает сам через пару минут после того, как вы её закроете.':
+    'When you start a game of your own, the farm lets go of its games and carries on by itself a couple of minutes after you close yours.',
+  'Уведомлять о событиях фарма': 'Notify about farming events',
+  'Все карточки собраны, фарм остановился из-за ошибки, фаза набора часов отключена и дневная сводка. Приходит и в Telegram или Discord, если они подключены.':
+    'All cards collected, farming stopped by an error, the playtime phase turned off, and a daily summary. Also sent to Telegram or Discord when they are connected.',
+  'Пауза: вы играете — продолжим, когда закроете игру': 'Paused: you are playing, we will carry on when you close the game',
 };

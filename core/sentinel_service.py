@@ -164,6 +164,9 @@ SUPERVISOR_DEFAULTS = {
     "giveaways_browser": "auto",
     "steam_idle_risk_ack": False,
     "steam_idle_achievements_ack": False,
+    "steam_idle_hours_until_drops": 3.0,  # hours of playtime before a restricted account gets card drops; 0 = off
+    "steam_idle_pause_while_playing": True,  # the farm steps aside while the user plays a game of their own
+    "steam_idle_notify": True,  # Steam IDLE events go to the notifier (toast, Telegram/Discord)
     "steam_idle_unlock_min_minutes": 0,
     "steam_idle_unlock_max_minutes": 0,
     "steam_idle_unlock_skip_hidden": True,
@@ -224,7 +227,7 @@ class SentinelSupervisor:
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
             lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
             inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert",
-            module_enabled=lambda: tab_enabled(self.settings, "steamidle"))
+            module_enabled=lambda: tab_enabled(self.settings, "steamidle"), notify=NOTIFIER.notify)
         self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
@@ -454,6 +457,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/dimmer/restore-baseline", self.handle_dimmer_restore_baseline)
         steam_idle = self.steam_idle_routes
         self.app.router.add_get("/api/v1/steam-idle/state", steam_idle.state)
+        self.app.router.add_get("/api/v1/steam-idle/log", steam_idle.log)
+        self.app.router.add_post("/api/v1/steam-idle/log/clear", steam_idle.log_clear)
         self.app.router.add_post("/api/v1/steam-idle/ack", steam_idle.ack)
         self.app.router.add_post("/api/v1/steam-idle/login", steam_idle.login)
         self.app.router.add_post("/api/v1/steam-idle/check", steam_idle.check)
@@ -464,6 +469,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
         self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
         self.app.router.add_post("/api/v1/steam-idle/farm/release", steam_idle.farm_release)
+        self.app.router.add_post("/api/v1/steam-idle/farm/settings", steam_idle.farm_settings)
         self.app.router.add_post("/api/v1/steam-idle/denylist/add", steam_idle.denylist_add)
         self.app.router.add_post("/api/v1/steam-idle/denylist/remove", steam_idle.denylist_remove)
         self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)

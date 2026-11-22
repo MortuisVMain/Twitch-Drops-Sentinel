@@ -1,6 +1,6 @@
-"""Offline stand-in for the community script (`drops` / `library`), used only by the tests.
+"""Offline stand-in for the community script (`drops` / `library` / `cards`), used only by the tests.
 
-argv: <mode> <pidfile> <verb> [--expect=<id>]. The pidfile receives "<pid> <child pid>" so tests can prove the tree is gone.
+argv: <mode> <pidfile> <verb> [<app id>...] [--expect=<id>]. The pidfile receives "<pid> <child pid>" so tests can prove the tree is gone.
 """
 import json
 import os
@@ -52,11 +52,23 @@ if mode == "garbage":
 if mode == "mismatch":
     emit({"status": "account_mismatch"})
     sys.exit(5)
-if mode == "needs_expect" and not (len(sys.argv) > 4 and sys.argv[4].startswith("--expect=")):
+if mode == "needs_expect" and not any(arg.startswith("--expect=") for arg in sys.argv[4:]):
     emit({"status": "failed", "error": "no_expect"})
     sys.exit(4)
 if verb == "status":
     emit({"status": "signed_in"})
+    sys.exit(0)
+
+if verb == "cards":
+    wanted = [int(arg) for arg in sys.argv[4:] if not arg.startswith("--")]
+    by_id = {g["appId"]: g for g in DROPS}
+    if any(app_id not in by_id for app_id in wanted):
+        emit({"status": "failed", "error": "gamecards_unparsed", "page": 1})
+        sys.exit(4)
+    games = [dict(by_id[app_id]) for app_id in wanted]
+    if mode == "wrongids":
+        games = games[:1]
+    emit({"status": "complete", "games": games})
     sys.exit(0)
 
 if verb == "drops":

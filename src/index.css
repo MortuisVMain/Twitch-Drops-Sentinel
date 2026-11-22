@@ -2077,6 +2077,8 @@
 .sidle-game { font-size: var(--fs-md); font-weight: 700; color: var(--text-primary); overflow-wrap: anywhere; }
 .sidle-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; }
 .sidle-meta b { color: var(--text-primary); }
+.sidle-stats { column-gap: 8px; }
+.sidle-stats span + span::before { content: '·'; margin-right: 8px; }
 .sidle-refusal { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
 .sidle-list-rows { list-style: none; margin: 0; padding: 0; max-height: 15rem; overflow-y: auto; overflow-x: hidden; }
 .sidle-list-rows.short { max-height: 9rem; }
@@ -2198,4 +2200,15 @@ button.sidle-card-body:focus-visible { outline: 2px solid var(--led-mint); outli
 .sidle-switch-title { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 700; }
 .sidle-switch-title .ui-icon { color: var(--led-amber); }
 .sidle-switch-hint { font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.4; }
+.sidle-log-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.sidle-log-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 6px 0 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; border-radius: var(--radius-md); }
+.sidle-log-box { max-height: 18rem; min-height: 6rem; overflow-y: auto; overflow-x: hidden; padding: 8px 10px; font-family: "Cascadia Mono", Consolas, "Courier New", monospace; font-size: var(--fs-xs); line-height: 1.55; color: var(--text-secondary); }
+.sidle-log-box:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 2px; }
+.sidle-log-line { display: flex; gap: 8px; align-items: baseline; }
+.sidle-log-time { flex: 0 0 auto; color: var(--text-muted); }
+.sidle-log-level { flex: 0 0 4.5ch; color: var(--text-muted); }
+.sidle-log-text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sidle-log-line.warning .sidle-log-level, .sidle-log-line.warning .sidle-log-text { color: var(--led-amber); }
+.sidle-log-line.error .sidle-log-level, .sidle-log-line.error .sidle-log-text { color: var(--led-rose); }
+.sidle-log-empty { margin: 0; color: var(--text-muted); font-family: var(--font-ui); }
 @media (prefers-reduced-motion: reduce) { .sidle-root, .sidle-root * { animation: none !important; transition: none !important; } }

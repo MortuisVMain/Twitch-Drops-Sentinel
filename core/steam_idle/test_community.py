@@ -11,7 +11,7 @@ from unittest import mock
 
 from steam_idle import community
 from steam_idle.community import (CommunityError, GameDrops, OwnedGame, farmable, kill_in_flight, read_drops,
-                                  read_library, read_status)
+                                  read_games, read_library, read_status)
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
 
 FAKE = Path(__file__).with_name("fake_community.py")
@@ -38,6 +38,12 @@ class CommunityTests(unittest.TestCase):
             GameDrops(570, "Dota 2", 0, 0.0),
             GameDrops(440, "Team Fortress 2", 1, 12.0),
         ])
+
+    def test_a_huge_playtime_is_a_protocol_error_not_an_overflow(self):
+        entry = {"appId": 1, "name": "G", "dropsRemaining": 1, "playtimeHours": 10 ** 400}
+        with self.assertRaises(CommunityError) as caught:
+            community._games({"games": [entry]}, community._drops_entry)
+        self.assertEqual(caught.exception.code, "protocol")
 
     def test_library_complete(self):
         self.assertEqual(read_library(self.fake("ok")), [
@@ -226,6 +232,55 @@ class AccountMatchTests(unittest.TestCase):
             with self.assertRaises(CommunityError) as caught:
                 read_drops(["no-such-program"], expected_steam_id64=bad)
             self.assertEqual(caught.exception.code, "invalid_steam_id")
+
+
+class ReadGamesTests(unittest.TestCase):
+    ID = "76561198000000000"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pidfile = Path(self.temp.name) / "pids.txt"
+        self.addCleanup(force_kill, self.pidfile)
+
+    def fake(self, mode):
+        return [sys.executable, "-S", "-X", "utf8", str(FAKE), mode, str(self.pidfile)]
+
+    def test_returns_the_requested_games_in_request_order(self):
+        self.assertEqual(read_games(self.fake("ok"), [440, 730]), [
+            GameDrops(440, "Team Fortress 2", 1, 12.0),
+            GameDrops(730, "Counter-Strike 2", 3, 1017.5),
+        ])
+
+    def test_a_repeated_id_is_asked_once(self):
+        self.assertEqual([g.app_id for g in read_games(self.fake("ok"), [440, 440, 730])], [440, 730])
+
+    def test_no_ids_runs_nothing(self):
+        self.assertEqual(read_games(["no-such-program"], []), [])
+
+    def test_the_script_failure_code_is_kept(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_games(self.fake("ok"), [999])
+        self.assertEqual(caught.exception.code, "failed:gamecards_unparsed")
+
+    def test_signed_out_and_mismatch_use_the_same_codes_as_drops(self):
+        for mode, code in (("signed_out", "signed_out"), ("mismatch", "account_mismatch")):
+            with self.assertRaises(CommunityError) as caught:
+                read_games(self.fake(mode), [730], expected_steam_id64=self.ID)
+            self.assertEqual(caught.exception.code, code)
+
+    def test_expected_id_is_passed_after_the_app_ids(self):
+        self.assertEqual(len(read_games(self.fake("needs_expect"), [730, 440], expected_steam_id64=self.ID)), 2)
+
+    def test_an_answer_for_other_games_than_asked_is_a_protocol_error(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_games(self.fake("wrongids"), [730, 440])
+        self.assertEqual(caught.exception.code, "protocol")
+
+    def test_a_bad_expected_id_is_refused_before_running_anything(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_games(["no-such-program"], [730], expected_steam_id64="123")
+        self.assertEqual(caught.exception.code, "invalid_steam_id")
 
 
 class FarmableTests(unittest.TestCase):
