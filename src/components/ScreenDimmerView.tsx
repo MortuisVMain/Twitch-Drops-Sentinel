@@ -656,7 +656,8 @@ export const ScreenDimmerView: React.FC<ScreenDimmerViewProps> = ({
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0 }} title={`${mon.name}${mon.device_name ? ` • ${mon.device_name}` : ''}`}>
                       <span style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.3 }}>{mon.is_laptop_internal ? <Laptop className="ui-icon" aria-hidden="true" focusable="false" /> : <Monitor className="ui-icon" aria-hidden="true" focusable="false" />}</span>
-                      <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>
+                      {/* always two lines tall: short and long monitor names keep the percentages of all cards on one line */}
+                      <span className="clip-2" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--text-heading)', lineHeight: 1.3, minHeight: '2.6em', overflowWrap: 'anywhere' }}>
                         #{idx + 1} {label}
                       </span>
                     </div>

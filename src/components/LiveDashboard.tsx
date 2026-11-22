@@ -638,29 +638,19 @@ const filteredLogs = useMemo(() => {
                   title={`Кликните для переключения фарма на ${item.name} · ${item.drop}`}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
-                    <img
-                      className="box-thumb"
-                      src={item.art}
-                      alt={item.name}
-                      style={{ width: '34px', height: '34px', borderRadius: '6px' }}
-                      crossOrigin={isSteamArt(item.art) ? 'anonymous' : undefined}
-                      onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, item.name)) img.style.display = 'none'; }}
-                      onError={(e) => { const img = e.currentTarget; if (!retryCover(img, item.name)) img.style.display = 'none'; }}
-                    />
+                    {/* the slot keeps its place when there is no cover, so every name starts at the same x */}
+                    <span className="queue-thumb-slot" aria-hidden="true">
+                      <img
+                        src={item.art}
+                        alt=""
+                        crossOrigin={isSteamArt(item.art) ? 'anonymous' : undefined}
+                        onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, item.name)) img.style.display = 'none'; }}
+                        onError={(e) => { const img = e.currentTarget; if (!retryCover(img, item.name)) img.style.display = 'none'; }}
+                      />
+                    </span>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
                         <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
-                        {item.priorityIndex >= 0 && (
-                          <span
-                            className="tabular"
-                            role="img"
-                            title={`Место в очереди: ${item.priorityIndex + 1}`}
-                            aria-label={`Место в очереди: ${item.priorityIndex + 1}`}
-                            style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 'var(--fs-xs)', fontWeight: 700, lineHeight: 1.2, padding: '0 5px', borderRadius: '4px', border: '1px solid var(--border-subtle)', background: 'var(--bg-well)', color: 'var(--text-secondary)' }}
-                          >
-                            #{item.priorityIndex + 1}
-                          </span>
-                        )}
                       </div>
                       <div title={item.state.kind === 'none' ? item.state.reason : undefined} style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {item.state.kind === 'link' ? (
@@ -692,8 +682,20 @@ const filteredLogs = useMemo(() => {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
-                    <span className="tabular" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                    {item.priorityIndex >= 0 && (
+                      <span
+                        className="tabular"
+                        role="img"
+                        title={`Место в очереди: ${item.priorityIndex + 1}`}
+                        aria-label={`Место в очереди: ${item.priorityIndex + 1}`}
+                        style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', fontWeight: 700, lineHeight: 1.2, padding: '0 5px', borderRadius: '4px', border: '1px solid var(--border-subtle)', background: 'var(--bg-well)', color: 'var(--text-secondary)' }}
+                      >
+                        #{item.priorityIndex + 1}
+                      </span>
+                    )}
+                    {/* fixed-width, right-aligned: the percentages of all rows stand in one column */}
+                    <span className="tabular" style={{ minWidth: '3.2em', textAlign: 'right', fontSize: 'var(--fs-xs)', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
                       {item.state.kind === 'none' ? '—' : `${item.pct}%`}
                     </span>
 
@@ -723,6 +725,7 @@ const filteredLogs = useMemo(() => {
                         </button>
                       </div>
                     )}
+                    {item.priorityIndex < 0 && onReorderPriority && <span className="reorder-rocker-slot" aria-hidden="true" />}
                   </div>
                 </div>
   );
