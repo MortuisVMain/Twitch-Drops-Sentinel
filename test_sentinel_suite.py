@@ -8439,6 +8439,9 @@ def test_installer_script_keeps_its_promises():
     assert "UsePreviousAppDir=yes" in iss and "ArchitecturesAllowed=x64compatible" in iss
     assert r"AppMutex=Global\TwitchDropsSentinel_v3_Mutex" in iss and "#ifndef TEST_BUILD" in iss, "running app is detected unless it is the check build"
     assert "CloseApplications=yes" in iss
+    # an elevated setup could write to Program Files, but the app runs as the user and crash-loops there (seen 2026-11-22)
+    assert "function ProtectedDir" in iss and "{commonpf64}" in iss and "{commonpf32}" in iss and "CustomMessage('DirProtected')" in iss
+    assert "russian.DirHint=" in iss and "english.DirHint=" in iss and "CustomMessage('DirHint')" in iss, "the folder page must say which folders work"
     program = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
     assert r"Global\TwitchDropsSentinel_v3_Mutex" in program, "installer mutex must match the host's single-instance mutex"
     assert 'Name: "russian"' in iss and 'Name: "english"' in iss
