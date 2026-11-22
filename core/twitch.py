@@ -1094,7 +1094,6 @@ class Twitch:
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self._watching_restart.wait(), timeout=delay)
 
-    @task_wrapper(critical=True)
     def _notify_queue_events(self, priority: list[str], exclude: set[str]) -> None:
         """Windows toasts for games from the queue: a campaign is running / it waits for the account link.
         Deduplicated per campaign by the notification gate."""

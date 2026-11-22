@@ -5,6 +5,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 ## [Unreleased]
 - Updates: a new release is offered only once its ZIP is uploaded (the build takes a few minutes after the release appears), and the app asks again every two minutes meanwhile. Before, Install did nothing in that window.
 - Notifications inside the app (toasts) are shown again at the bottom of the window, above open dialogs; they were drawn unstyled at the end of the page and could not be seen.
+- Queue notifications work again: the toasts for a started queue campaign, a campaign waiting for the account link, and the warning that a campaign will end before the queue reaches it never fired (the check was built but never run).
 
 ## [3.9.0] - 2026-11-22
 - Notifications and safety: Telegram and Discord copies of the app's notifications (secrets stored encrypted), a notification when a sign-in is lost, a warning when a queued game's campaign will close before the queue reaches it, a "Roll back to v…" button after an update, restore of a profile backup, and an opt-in beta update channel.
