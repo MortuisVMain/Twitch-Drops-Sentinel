@@ -343,6 +343,7 @@ class CardFarm:
         self._held_since = self._progress_at = now
         self._next_read = now + self._rules.recheck_seconds
         self._state = "farming"
+        logger.info("farm holding app %s (%d card drops left)", game.app_id, game.drops_remaining)
         return True
 
     def _advance(self) -> None:
@@ -412,6 +413,8 @@ class CardFarm:
         held = self._held
         now = self._clock()
         current = next((g for g in drops if g.app_id == held.app_id), None)
+        logger.info("farm recheck app %s: %s card drops left (was %d)", held.app_id,
+                    current.drops_remaining if current else "none", held.drops_remaining)
         if current is None or current.drops_remaining == 0:
             self._release()
             self._done.append(held)

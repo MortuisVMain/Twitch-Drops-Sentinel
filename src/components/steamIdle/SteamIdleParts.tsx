@@ -201,10 +201,11 @@ export const PreviewPanel: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand 
 export const Lists: React.FC<{ s: SteamIdleState; busy: SteamIdleCommand | null; send: SendCommand }> = ({ s, busy, send }) => {
   const { queue, done, failed, refundHeld, current } = s.farm;
   if (!queue.length && !done.length && !failed.length && !refundHeld.length && !current) return null;
-  const queueCompact = isCompactList(queue.length + (current ? 1 : 0));
+  const queueCount = queue.length + (current ? 1 : 0); // the held game is the first card
+  const queueCompact = isCompactList(queueCount);
   return (
     <section className="titanium-island" aria-labelledby="sidle-queue-title">
-      <h2 id="sidle-queue-title" className="sidle-title">Очередь{queue.length > 0 && <span className="sidle-count tabular"> {queue.length}</span>}</h2>
+      <h2 id="sidle-queue-title" className="sidle-title">Очередь{queueCount > 0 && <span className="sidle-count tabular"> {queueCount}</span>}</h2>
       {queue.length > 0 || current ? (
         <SteamCardGrid labelledBy="sidle-queue-title" compact={queueCompact} scroll>
           {current && <SteamGameCard appId={current.appId} name={current.name} compact={queueCompact} badge="Сейчас" facts={[<Cards n={current.dropsRemaining} />]} />}
