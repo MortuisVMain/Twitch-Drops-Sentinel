@@ -12,6 +12,7 @@ Handles:
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 
@@ -365,6 +367,159 @@ class SafeAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
         return new_req
 
 
+PART_SIZE = 4 * 1024 * 1024
+DOWNLOAD_WORKERS = 8
+REQUEST_TIMEOUT = 20
+MAX_STALLS = 8
+RETRY_BACKOFF = 0.5
+PROBE_ATTEMPTS = 4
+_NETWORK_ERRORS = (OSError, http.client.HTTPException)
+
+
+def headers_for_host(headers: dict[str, str], origin_url: str, url: str) -> dict[str, str]:
+    """Authorization only travels to the host it was meant for, never to a CDN the release redirects to."""
+    if (urlsplit(origin_url).hostname or "").lower() == (urlsplit(url).hostname or "").lower():
+        return dict(headers)
+    return {k: v for k, v in headers.items() if k.lower() != "authorization"}
+
+
+class _RangeSource:
+    """Opens byte ranges of one download; remembers the resolved (signed, short-lived) CDN address."""
+
+    def __init__(self, url: str, headers: dict[str, str], opener) -> None:
+        self.origin_url, self.headers, self.opener = url, headers, opener
+        self.url = url
+        self._lock = threading.Lock()
+
+    def open(self, start: Optional[int] = None, end: Optional[int] = None):
+        """Plain GET when start is None, else the byte range start..end (open-ended when end is None)."""
+        url = self.url
+        headers = headers_for_host(self.headers, self.origin_url, url)
+        if start is not None:
+            headers["Range"] = f"bytes={start}-" if end is None else f"bytes={start}-{end}"
+        return self.opener.open(urllib.request.Request(url, headers=headers), timeout=REQUEST_TIMEOUT)
+
+    def probe(self) -> Optional[int]:
+        """Total size when the server honours Range (206 + Content-Range), else None; pins the final address."""
+        self.url = self.origin_url
+        with self.open(0, 0) as resp:
+            final_url = resp.geturl()
+            match = re.fullmatch(r"bytes 0-0/(\d+)", resp.headers.get("Content-Range") or "")
+            if resp.status != 206 or not match:
+                return None
+            self.url = final_url
+            return int(match.group(1))
+
+    def refresh(self, stale_url: str) -> None:
+        """Re-resolve the CDN address once after it expired; parallel callers share one result."""
+        with self._lock:
+            if self.url == stale_url:
+                logger.info("Download address expired, resolving again from %s", self.origin_url)
+                try:
+                    self.probe()
+                except _NETWORK_ERRORS as exc:
+                    # The part retries anyway; a failed re-resolve must not skip its retry budget
+                    logger.warning("Could not resolve %s again: %s", self.origin_url, exc)
+
+
+def _backoff(stalls: int, what: str, exc: Exception) -> None:
+    if stalls >= MAX_STALLS:
+        raise exc
+    logger.warning("%s interrupted (%s), retry %d/%d", what, exc, stalls, MAX_STALLS)
+    time.sleep(min(RETRY_BACKOFF * stalls, 3))
+
+
+def _fetch_part(source: _RangeSource, path: Path, start: int, end: int, progress, abort: threading.Event) -> None:
+    """Fill path[start..end]; after a drop continue from the bytes already written."""
+    pos, stalls = start, 0
+    while pos <= end:
+        if abort.is_set():
+            return
+        url = source.url
+        try:
+            with source.open(pos, end) as resp:
+                if resp.status != 206:
+                    raise OSError(f"server answered {resp.status} to a Range request")
+                with open(path, "r+b") as f:
+                    f.seek(pos)
+                    while pos <= end and not abort.is_set():
+                        chunk = resp.read(min(64 * 1024, end - pos + 1))
+                        if not chunk:
+                            raise ConnectionError("connection closed before the part was complete")
+                        f.write(chunk)
+                        pos += len(chunk)
+                        stalls = 0
+                        progress(len(chunk))
+        except _NETWORK_ERRORS as exc:
+            if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403, 410):
+                source.refresh(url)
+            stalls += 1
+            _backoff(stalls, f"Part {start}-{end}", exc)
+
+
+def _download_parallel(source: _RangeSource, path: Path, total: int, progress, part_size: int, workers: int) -> None:
+    with open(path, "wb") as f:
+        f.truncate(total)
+    abort = threading.Event()
+    parts = [(s, min(s + part_size, total) - 1) for s in range(0, total, part_size)]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_fetch_part, source, path, s, e, progress, abort) for s, e in parts]
+        try:
+            for fut in futures:
+                fut.result()
+        except BaseException:
+            abort.set()
+            raise
+
+
+def _download_stream(source: _RangeSource, path: Path, progress) -> None:
+    """One connection; after a drop resume with Range, or start over when the server answers 200."""
+    got, total, stalls = 0, 0, 0
+    with open(path, "wb") as f:
+        while True:
+            try:
+                with source.open(got if got else None) as resp:
+                    if got and resp.status != 206:
+                        progress(total, -got)
+                        got = 0
+                        f.seek(0)
+                        f.truncate()
+                    total = total or int(resp.headers.get("Content-Length") or 0)
+                    while True:
+                        chunk = resp.read(64 * 1024)
+                        if not chunk:
+                            return
+                        f.write(chunk)
+                        got += len(chunk)
+                        stalls = 0
+                        progress(total, len(chunk))
+            except _NETWORK_ERRORS as exc:
+                stalls += 1
+                _backoff(stalls, "Download", exc)
+
+
+def download_file(url: str, headers: dict[str, str], path: Path, opener, progress,
+                  part_size: int = PART_SIZE, workers: int = DOWNLOAD_WORKERS) -> None:
+    """Download url to path. progress(total_bytes, delta_bytes) may be called from several threads."""
+    source = _RangeSource(url, headers, opener)
+    total = None
+    for attempt in range(1, PROBE_ATTEMPTS + 1):
+        try:
+            total = source.probe()
+            break
+        except _NETWORK_ERRORS as exc:
+            # A slow link often drops the first TLS handshake; one bad probe must not cost the parallel download
+            logger.warning("Range probe %d/%d failed for %s: %s", attempt, PROBE_ATTEMPTS, url, exc)
+            if attempt < PROBE_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF * attempt)
+    if not total:
+        logger.info("Downloading %s in a single stream", url)
+    if total:
+        _download_parallel(source, path, total, lambda d: progress(total, d), part_size, workers)
+    else:
+        _download_stream(source, path, progress)
+
+
 def get_live_local_version() -> str:
     try:
         v_file = CORE_DIR / "version.py"
@@ -390,6 +545,48 @@ def rate_limit_wait(exc: Exception, now: float) -> float:
     except (KeyError, TypeError, ValueError) as parse_err:
         logger.warning("Unreadable GitHub rate limit headers: %s", parse_err)
     return 0.0
+
+class DownloadStatus:
+    """Thread-safe progress sink that mirrors a running download into the updater status dict."""
+
+    def __init__(self, lock: threading.Lock, status: dict) -> None:
+        self._lock, self._status = lock, status
+        self._downloaded = 0
+        self._last_time = self._last_bytes = 0.0
+
+    def __call__(self, total: int, delta: int) -> None:
+        now = time.time()
+        with self._lock:
+            self._downloaded += delta
+            if self._last_time == 0.0:
+                self._last_time = now
+            if total and not self._status["total_bytes"]:
+                self._status["total_bytes"] = total
+                self._status["total_mb"] = round(total / (1024 * 1024), 2)
+            dt = now - self._last_time
+            if dt < 0.35:
+                return
+            speed = (self._downloaded - self._last_bytes) / dt / (1024 * 1024)
+            dl_mb = round(self._downloaded / (1024 * 1024), 2)
+            self._status.update({
+                "stage": "downloading",
+                "percent": min(int(self._downloaded / total * 100), 95) if total > 0 else 50,
+                "downloaded_bytes": self._downloaded,
+                "downloaded_mb": dl_mb,
+                "total_mb": self._status["total_mb"] or dl_mb,
+                "speed_mbps": round(speed, 2),
+            })
+            self._last_time, self._last_bytes = now, self._downloaded
+
+    def finish(self) -> None:
+        with self._lock:
+            dl_mb = round(self._downloaded / (1024 * 1024), 2)
+            self._status.update({
+                "downloaded_bytes": self._downloaded,
+                "downloaded_mb": dl_mb,
+                "total_mb": self._status["total_mb"] or dl_mb,
+            })
+
 
 class GitHubUpdater:
     def __init__(self):
@@ -707,50 +904,13 @@ class GitHubUpdater:
                     expected = expected_sha256.get(try_url)
                     if not expected:
                         raise ValueError(f"no expected SHA-256 for {try_url}")
+                    status_progress = DownloadStatus(self._lock, self._status)
+                    download_file(try_url, req_headers, zip_path, opener, status_progress)
+                    status_progress.finish()
                     archive_hash = hashlib.sha256()
-                    req = urllib.request.Request(try_url, headers=req_headers)
-                    with opener.open(req, timeout=30) as resp, open(zip_path, "wb") as f:
-                        total_bytes = int(resp.headers.get("Content-Length") or 0)
-                        total_mb = round(total_bytes / (1024 * 1024), 2) if total_bytes > 0 else 0.0
-                        with self._lock:
-                            self._status["total_bytes"] = total_bytes
-                            self._status["total_mb"] = total_mb
-                        downloaded = 0
-                        start_time = time.time()
-                        last_time = start_time
-                        last_bytes = 0
-                        while True:
-                            chunk = resp.read(64 * 1024)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-                            archive_hash.update(chunk)
-                            downloaded += len(chunk)
-                            now = time.time()
-                            dt = now - last_time
-                            if dt >= 0.35:
-                                speed = (downloaded - last_bytes) / dt / (1024 * 1024)
-                                pct = int((downloaded / total_bytes) * 100) if total_bytes > 0 else 0
-                                dl_mb = round(downloaded / (1024 * 1024), 2)
-                                with self._lock:
-                                    self._status.update({
-                                        "stage": "downloading",
-                                        "percent": min(pct, 95) if total_bytes > 0 else 50,
-                                        "downloaded_bytes": downloaded,
-                                        "downloaded_mb": dl_mb,
-                                        "total_mb": total_mb if total_mb > 0 else dl_mb,
-                                        "speed_mbps": round(speed, 2),
-                                    })
-                                last_time = now
-                                last_bytes = downloaded
-
-                        with self._lock:
-                            dl_mb = round(downloaded / (1024 * 1024), 2)
-                            self._status.update({
-                                "downloaded_bytes": downloaded,
-                                "downloaded_mb": dl_mb,
-                                "total_mb": self._status["total_mb"] if self._status["total_mb"] > 0 else dl_mb,
-                            })
+                    with open(zip_path, "rb") as f:
+                        for block in iter(lambda: f.read(1024 * 1024), b""):
+                            archive_hash.update(block)
 
                     if archive_hash.hexdigest() != expected:
                         # Not a network error: the other address would carry the same asset, so do not try it

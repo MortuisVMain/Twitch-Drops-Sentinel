@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.0.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.0.1", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -4820,6 +4820,10 @@ def test_update_sources_and_token_scope():
 
     class _Resp(io.BytesIO):
         headers = {"Content-Length": str(len(payload))}
+        status = 200
+
+        def geturl(self):
+            return good[0]
 
         def __enter__(self):
             return self
@@ -7031,6 +7035,10 @@ def test_update_archive_is_checked_against_the_published_sha256():
         def __init__(self, body):
             super().__init__(body)
             self.headers = {"Content-Length": str(len(body))}
+            self.status = 200
+
+        def geturl(self):
+            return download_url
 
         def __enter__(self):
             return self
@@ -7110,7 +7118,7 @@ def test_update_archive_is_checked_against_the_published_sha256():
     ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", other)), urls=(download_url, api_url))
     assert ok is False and page in message and "Контрольная сумма" in message, message
     assert before == after, "a mismatching archive must leave every file and folder as it was"
-    assert downloads(requests) == [download_url], f"a mismatch is not a network error, no retry on the other address: {requests}"
+    assert set(downloads(requests)) == {download_url}, f"a mismatch is not a network error, no retry on the other address: {requests}"
 
     # digest missing: refused before any download
     ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", None)))
@@ -8507,6 +8515,25 @@ def test_other_copies_cleanup_unit_tests_and_service_wiring():
     print("      Program.cs uses the start-conflict logic: PASS [OK]")
 
 
+def test_service_diagnostics_feature_is_wired():
+    print("[diagnostics] Check button: host messages, tool, UI, translations...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    diag = (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8")
+    assert 'type == "RUN_DIAGNOSTICS"' in form and 'type == "CLOSE_OTHER_SERVICE"' in form and 'type == "OPEN_LOGS_FOLDER"' in form, "the host answers the three diagnostics messages"
+    assert "_backendStarts.Record()" in form and "ServiceDiagnostics.ResolveBackend(" in form, "every start is recorded and the paths come from the shared helper"
+    assert "Task.Run(" in form.split("private void RunDiagnosticsAsync", 1)[1][:400], "diagnostics run off the UI thread"
+    assert "TryCloseOther(" in form and "trackedPid == pid" in diag and 'StartsWith("python"' in diag, "only a foreign python on the port can be closed"
+    assert "DIAGNOSTICS_RESULT" in diag and "Sanitize(" in diag and "%USERPROFILE%" in diag and "7656" in diag, "the report is sanitized"
+    assert "excludedportrange" in diag and "net stop winnat" in diag, "reserved port ranges are checked"
+    assert (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").exists()
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "RUN_DIAGNOSTICS" in panel and "RESTART_SENTINEL" in panel and "OPEN_LOGS_FOLDER" in panel and "CLOSE_OTHER_SERVICE" in panel
+    assert "<ServiceDiagnosticsPanel" in dash and "setDiagnosticsOpen(true)" in dash, "the banner opens the panel"
+    assert "'Проверить': 'Check'" in (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    print("      Check button wiring: PASS [OK]")
+
+
 def test_installer_script_keeps_its_promises():
     print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
     iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
@@ -8717,6 +8744,7 @@ if __name__ == "__main__":
         test_reward_campaigns_setting_state_and_request,
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
+        test_service_diagnostics_feature_is_wired,
         test_installer_script_keeps_its_promises,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.

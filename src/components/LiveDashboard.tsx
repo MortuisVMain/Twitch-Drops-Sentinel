@@ -1,4 +1,4 @@
-import { Ban, ChevronRight, ClipboardCopy, FileText, Play, Plus, SkipForward, Zap } from 'lucide-react';
+import { Ban, ChevronRight, ClipboardCopy, FileText, Play, Plus, SkipForward, Stethoscope, Zap } from 'lucide-react';
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { 
   KeyRound, ShieldAlert, Copy, Check, ExternalLink, RefreshCw, 
@@ -13,6 +13,7 @@ import { RewardQueueRow } from './RewardQueueRow';
 import { CatalogFocusModal } from './CatalogFocusModal';
 import { gameQueueEntries, hiddenRewardIds, isRewardQueueEntry, queueItems, rewardProgressPercent, rewardQueueStatus, rewardTargetLine, rewardTodayText, usableRewardCampaigns, visibleRewardCampaigns } from '../utils/rewardCampaigns.mjs';
 import { TargetMoreMenu } from './TargetMoreMenu';
+import { ServiceDiagnosticsPanel } from './ServiceDiagnosticsPanel';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
@@ -149,6 +150,7 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     }
   };
   const [expandedSync, setExpandedSync] = useState<string[]>([]);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [codeCopy, setCodeCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handleCopyCode = async () => {
     if (!oauthCode) return;
@@ -738,6 +740,7 @@ const filteredLogs = useMemo(() => {
 
   return (
     <div id="view-dashboard" className="view-tab active">
+      <ServiceDiagnosticsPanel isOpen={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
       {starting && (
         <div className="ending-soon-radar mb-2.5" role="status" style={{ borderColor: 'var(--border-main)', justifyContent: 'flex-start', color: 'var(--text-secondary)' }}>
           Запускаем службу Hell Harvest…
@@ -749,6 +752,9 @@ const filteredLogs = useMemo(() => {
           <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
             Данные и действия обновятся после подключения.
           </span>
+          <button className="tactile-btn ml-auto" onClick={() => setDiagnosticsOpen(true)}>
+            <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Проверить
+          </button>
         </div>
       )}
       {/* 1. HARDWARE GUARD AUTOPAUSE BANNER */}

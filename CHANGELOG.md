@@ -4,6 +4,11 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-11-24
+- The built-in updater now resumes after network drops and downloads in parallel parts, so slow connections to GitHub no longer make it restart from zero.
+- The dashboard's "service unavailable" banner gets a Check button that tells what is wrong and what to do, with restart, logs folder and a copyable report.
+- The app no longer restarts its local service just because it answers slowly (for example on a slower PC at the first start). Before, each restart began the Twitch sign-in again, so a new code and a new browser tab appeared every few seconds and the code could not be entered.
+
 ## [4.0.0] - 2026-11-22
 - The app is now called Hell Harvest, with new icons. Updates, settings and sign-ins carry over.
 - A full user guide in Russian (docs/ИНСТРУКЦИЯ.md) and English (docs/GUIDE.md); the in-app help gains a Steam IDLE tab and a link to the guide; the installer explains what the app does and the first steps, and can open the guide when it finishes.

@@ -1,5 +1,6 @@
 import { APP } from './app';
 import { DASHBOARD } from './dashboard';
+import { DIAGNOSTICS } from './diagnostics';
 import { DIMMER } from './dimmer';
 import { GIVEAWAYS } from './giveaways';
 import { SETTINGS } from './settings';
@@ -10,6 +11,7 @@ import { STEAM_IDLE } from './steamIdle';
 export const EN: Record<string, string> = {
   ...APP,
   ...DASHBOARD,
+  ...DIAGNOSTICS,
   ...DIMMER,
   ...GIVEAWAYS,
   ...SETTINGS,
