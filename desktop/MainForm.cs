@@ -392,6 +392,12 @@ namespace TwitchDropsSentinel
         private Process? _pythonBackendProcess;
 
         private System.Windows.Forms.Timer? _backendWatchdogTimer;
+        private static readonly TimeSpan BackendStartGrace = TimeSpan.FromSeconds(60);
+        private const int BackendFailuresBeforeRestart = 4;
+        private DateTime _backendStartedAt = DateTime.MinValue;
+        private readonly BackendStartLog _backendStarts = new();
+        private int _backendFailures;
+        private bool _watchdogBusy;
 
         private volatile bool _isShuttingDown = false;
 
@@ -750,6 +756,8 @@ namespace TwitchDropsSentinel
 
             {
 
+                if (_watchdogBusy) return; // a check can outlast the tick interval; overlapping checks would count one failure twice
+                _watchdogBusy = true;
                 try
 
                 {
@@ -757,8 +765,20 @@ namespace TwitchDropsSentinel
                     if (_isShuttingDown || IsDisposed) return;
 
                     bool isAlive = await CheckBackendAliveAsync();
+                    if (isAlive)
+                    {
+                        _backendFailures = 0;
+                        return;
+                    }
 
-                    if (!isAlive && !_isShuttingDown && !IsDisposed)
+                    // A slow but running service is not dead: restarting it starts the Twitch sign-in over with a new code
+                    // and a new browser tab every few seconds. Wait out its start and several missed checks first.
+                    bool running = _pythonBackendProcess != null && !_pythonBackendProcess.HasExited;
+                    if (running && DateTime.UtcNow - _backendStartedAt < BackendStartGrace) return;
+                    if (running && ++_backendFailures < BackendFailuresBeforeRestart) return;
+                    _backendFailures = 0;
+
+                    if (!_isShuttingDown && !IsDisposed)
 
                     {
 
@@ -777,6 +797,10 @@ namespace TwitchDropsSentinel
                     Debug.WriteLine($"Hell Harvest Watchdog Tick error: {ex.Message}");
 
                 }
+                finally
+                {
+                    _watchdogBusy = false;
+                }
 
             };
 
@@ -794,7 +818,7 @@ namespace TwitchDropsSentinel
 
             {
 
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(800) };
+                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
                 client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
 
                 var res = await client.GetAsync("http://127.0.0.1:28492/api/state");
@@ -965,109 +989,16 @@ namespace TwitchDropsSentinel
 
 
 
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                string? scriptPath = backend.ScriptPath;
 
-                string scriptPath = Path.Combine(baseDir, "core", "sentinel_service.py");
-
-                if (!File.Exists(scriptPath))
-
-                {
-
-                    scriptPath = Path.Combine(baseDir, "..", "core", "sentinel_service.py");
-
-                }
-
-                if (!File.Exists(scriptPath))
+                if (scriptPath != null)
 
                 {
 
-                    scriptPath = Path.Combine(baseDir, "..", "..", "..", "..", "core", "sentinel_service.py");
+                    string projectRoot = backend.ProjectRoot;
 
-                }
-
-                if (!File.Exists(scriptPath))
-
-                {
-
-                    scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "core", "sentinel_service.py");
-
-                }
-
-
-
-                if (File.Exists(scriptPath))
-
-                {
-
-                    string coreDir = Path.GetDirectoryName(scriptPath) ?? "";
-
-                    string projectRoot = Directory.GetParent(coreDir)?.FullName ?? coreDir;
-
-
-
-                    // Check for embedded portable Python first
-
-                    string embeddedPython = Path.Combine(baseDir, "python", "python.exe");
-
-                    if (!File.Exists(embeddedPython))
-
-                    {
-
-                        embeddedPython = Path.Combine(baseDir, "portable_runtime", "python", "python.exe");
-
-                    }
-
-                    if (!File.Exists(embeddedPython))
-
-                    {
-
-                        embeddedPython = Path.Combine(baseDir, "..", "..", "..", "..", "portable_runtime", "python", "python.exe");
-
-                    }
-
-                    if (!File.Exists(embeddedPython))
-
-                    {
-
-                        string[] sysPythons = new[]
-
-                        {
-
-                            @"C:\Program Files\Python314\python.exe",
-
-                            @"C:\Program Files\Python313\python.exe",
-
-                            @"C:\Program Files\Python312\python.exe",
-
-                            @"C:\Program Files\Python311\python.exe",
-
-                            @"C:\Program Files\Python310\python.exe",
-
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Python\Python312\python.exe"),
-
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Python\Python311\python.exe")
-
-                        };
-
-                        foreach (var sysPy in sysPythons)
-
-                        {
-
-                            if (File.Exists(sysPy))
-
-                            {
-
-                                embeddedPython = sysPy;
-
-                                break;
-
-                            }
-
-                        }
-
-                    }
-
-                    string pythonExe = File.Exists(embeddedPython) ? embeddedPython : "python";
+                    string pythonExe = backend.PythonExe;
 
 
 
@@ -1106,6 +1037,8 @@ namespace TwitchDropsSentinel
 
 
                     _pythonBackendProcess = Process.Start(psi);
+                    _backendStartedAt = DateTime.UtcNow;
+                    if (_pythonBackendProcess != null) _backendStarts.Record();
 
                     if (_pythonBackendProcess != null)
 
@@ -1893,6 +1826,19 @@ namespace TwitchDropsSentinel
 
                 }
 
+                else if (type == "RUN_DIAGNOSTICS")
+                {
+                    RunDiagnosticsAsync(null);
+                }
+                else if (type == "CLOSE_OTHER_SERVICE")
+                {
+                    int pid = root.TryGetProperty("pid", out var pidProp) && pidProp.TryGetInt32(out int p) ? p : 0;
+                    RunDiagnosticsAsync(pid);
+                }
+                else if (type == "OPEN_LOGS_FOLDER")
+                {
+                    OpenLogsFolder();
+                }
                 else if (type == "DIMMER_MODULE")
                 {
                     if (DimmerModulePayload.TryReadEnabled(root, out bool moduleEnabled))
@@ -3965,6 +3911,72 @@ else
                 }
             }
             return null;
+        }
+
+        private const int ServicePort = 28492;
+
+        /// <summary>Runs the service diagnostics off the UI thread and posts DIAGNOSTICS_RESULT. With closePid the foreign service is closed first.</summary>
+        private void RunDiagnosticsAsync(int? closePid)
+        {
+            var tracked = _pythonBackendProcess;
+            var starts = _backendStarts.Snapshot();
+            Task.Run(() =>
+            {
+                string json;
+                try
+                {
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    var backend = ServiceDiagnostics.ResolveBackend(baseDir, Directory.GetCurrentDirectory());
+                    string closeNote = "";
+                    if (closePid.HasValue)
+                    {
+                        int? trackedPid = null;
+                        var current = _pythonBackendProcess; // the watchdog may have started a new service since the click
+                        try { if (current is { HasExited: false }) trackedPid = current.Id; }
+                        catch (InvalidOperationException ex) { LogDesktopError("diagnostics: tracked pid", ex); }
+                        if (!ServiceDiagnostics.TryCloseOther(ServicePort, closePid.Value, trackedPid, out string closeError))
+                            closeNote = closeError;
+                    }
+                    bool ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+                    string version = StartConflict.ReadVersion(backend.ProjectRoot) ?? "unknown";
+                    var result = ServiceDiagnostics.Run(new DiagnosticsInput(ServicePort, baseDir, Directory.GetCurrentDirectory(), tracked, starts, LocalApiToken.Current, version, ru));
+                    if (closeNote.Length > 0)
+                    {
+                        var checks = result.Checks.Append(new DiagnosticCheck("close", "fail", ru ? "Закрытие чужой службы" : "Closing the other service", closeNote, "")).ToList();
+                        result = new DiagnosticsResult(checks, ServiceDiagnostics.BuildReport(checks, version, LocalApiToken.Current));
+                    }
+                    json = ServiceDiagnostics.ToJson(result, LocalApiToken.Current);
+                }
+                catch (Exception ex)
+                {
+                    LogDesktopError("diagnostics failed", ex);
+                    json = JsonSerializer.Serialize(new { type = "DIAGNOSTICS_RESULT", error = ex.Message, checks = Array.Empty<object>(), report = "" });
+                }
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (_isShuttingDown || IsDisposed) return;
+                        try { _webView?.CoreWebView2?.PostWebMessageAsJson(json); }
+                        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+                        { LogDesktopError("diagnostics result not posted", ex); }
+                    }));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+                {
+                    LogDesktopError("diagnostics result not delivered", ex);
+                }
+            });
+        }
+
+        private void OpenLogsFolder()
+        {
+            try
+            {
+                var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = "\"" + backend.ProjectRoot + "\"", UseShellExecute = true });
+            }
+            catch (Exception ex) { LogDesktopError("open logs folder", ex); }
         }
 
         private static void LogDesktopError(string context, Exception ex)
