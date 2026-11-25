@@ -80,6 +80,7 @@ from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import NOTIFIER, set_enabled as set_native_toasts
 import health
+import health_watch
 from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
 import copy_import
@@ -164,6 +165,8 @@ SUPERVISOR_DEFAULTS = {
     "pause_on_gaming": True,
     "pause_on_battery": True,
     "native_toasts": True,
+    "health_watch_enabled": health_watch.DEFAULT_ENABLED,  # background check of sign-ins, Steam, giveaways and errors
+    "health_watch_hours": health_watch.DEFAULT_HOURS,  # how often: 1, 4, 12 or 24
     "update_channel": "stable",
     "farm_schedule": dict(farm_schedule.DEFAULT_SCHEDULE),
     "ui_sound_enabled": True,
@@ -256,6 +259,11 @@ class SentinelSupervisor:
             self.startup_copies, PROJECT_DIR, self._config_defaults(), lambda: bool(self.settings.get("installer_hint_dismissed", False)),
             lambda: apply_change(self.settings, lambda current: current.__setitem__("installer_hint_dismissed", True), self.save_settings),
             startup_copies.downloads_dir(), APP_VERSION, RELEASES_PAGE_URL)
+        self.health_watch = health_watch.HealthWatch(
+            PROJECT_DIR / "data" / "health_watch.json", time.time, lambda: health_watch.enabled_from(self.settings),
+            lambda: health_watch.hours_from(self.settings), self._health_watch_run,
+            lambda key, message: NOTIFIER.notify("health_watch", key, "Hell Harvest", message),
+            lambda: "en" if self.settings.get("language") == "English" else "ru")
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
 
@@ -756,6 +764,7 @@ class SentinelSupervisor:
                 "total_farm_hours": uptime_hours,
             },
             "settings": self.settings,
+            "health_watch": self.health_watch.state(),
             "reward_campaigns": reward_campaigns.state_list(STATE_BRIDGE, self.settings),
             "reward_watching": getattr(STATE_BRIDGE, "reward_watching", None) if self.settings.get("reward_campaigns_enabled") is True else None,
             "slot_minutes_today": slot_minutes,
@@ -785,7 +794,22 @@ class SentinelSupervisor:
     async def handle_get_health(self, request: web.Request) -> web.Response:
         """Read-only checks for the "Проверка работы" panel. Runs only when asked; ?lang=en for English texts."""
         lang = "en" if request.query.get("lang") == "en" else "ru"
-        return web.json_response(await health.run_health(self._health_context(lang)))
+        result = await health.run_health(self._health_context(lang))
+        self.health_watch.record_manual(result["checks"])  # the dot on the menu button follows what the panel just showed
+        return web.json_response(result)
+
+    async def _health_watch_run(self, lang: str) -> dict:
+        """The background watch: the same checks as the panel, without the network ones."""
+        return await health.run_health(self._health_context(lang), health.background_checks())
+
+    async def health_watch_loop(self):
+        """Once a second looks whether a background health run is due (see health_watch); it stops with the service."""
+        while self.is_running:
+            try:
+                await self.health_watch.tick()
+            except Exception as exc:  # tick contains its own failures; this is the last guard for the loop
+                logger.error("Health watch loop pass failed: %s", exc, exc_info=True)
+            await asyncio.sleep(1)
 
     def _fix_context(self, lang: str, request: web.Request) -> health.FixContext:
         """What a health fix may do: this service's own functions, called directly (no HTTP to itself), nothing the whitelist in health.py does not name."""
@@ -953,6 +977,7 @@ class SentinelSupervisor:
             if "farm_schedule" in data:
                 data["farm_schedule"] = farm_schedule.normalize(data["farm_schedule"])
             reward_campaigns.drop_invalid_setting(data)
+            health_watch.normalize_settings(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
@@ -2098,6 +2123,7 @@ class SentinelSupervisor:
             self.luna_autoshutdown_loop(),
             self.games_folder_rescan_loop(),
             self.signin_watch_loop(),
+            self.health_watch_loop(),
             self.startup_copies_check(),
         ]
         if TEST_MODE:

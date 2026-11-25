@@ -30,6 +30,7 @@ import { useTactileAudio } from './hooks/useTactileAudio';
 import { useSentinelState } from './hooks/useSentinelState';
 import appLogo from './assets/hell_harvest_logo.png';
 import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
+import { healthWatchDot } from './utils/healthWatch.mjs';
 import { tabDigit, tabForDigit, digitRange, titleWithDigit, digitHotkeyAllowed } from './utils/tabHotkeys.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
@@ -357,6 +358,7 @@ export const App: React.FC = () => {
   } = useSentinelState(showToast, playRewardChime, playClick);
   // A tab the user turned off in Settings is never shown, whatever was selected; the state then falls back to the Dashboard
   const shownTabs = visibleTabs(sentinelState.settings);
+  const healthDot = healthWatchDot(sentinelState.health_watch);
   const shownTabsKey = shownTabs.join(',');
   const activeTab: NavTab = shownTabs.includes(selectedTab) ? selectedTab : 'dashboard';
   useEffect(() => {
@@ -1287,12 +1289,13 @@ export const App: React.FC = () => {
               className={`tactile-btn ${showMoreMenu ? 'active-mint' : ''}`}
               id="moreMenuBtn"
               onClick={(e) => { e.stopPropagation(); playClick(); setShowThemeMenu(false); setShowMoreMenu(!showMoreMenu); }}
-              title="Ещё: мини-окно, ночной режим, тема, звук"
+              title={healthDot.show ? 'Ещё: мини-окно, ночной режим, тема, звук. Проверка работы нашла проблемы' : 'Ещё: мини-окно, ночной режим, тема, звук'}
               aria-haspopup="menu"
               aria-expanded={showMoreMenu}
-              aria-label="Дополнительные действия"
+              aria-label={healthDot.show ? 'Дополнительные действия, есть проблемы' : 'Дополнительные действия'}
             >
               <span><Ellipsis className="ui-icon" aria-hidden="true" focusable="false" /></span>
+              {healthDot.show && <span className="more-dot" aria-hidden="true" data-testid="health-dot"></span>}
               {isNightGuard && <span className="more-night" title="Ночной режим включён" aria-label="Ночной режим включён"><Moon className="ui-icon" aria-hidden="true" focusable="false" /></span>}
             </button>
             <div className={`more-menu ${showMoreMenu ? 'open' : ''}`} role="menu" onClick={(e) => e.stopPropagation()}>
@@ -1316,6 +1319,7 @@ export const App: React.FC = () => {
               </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowDiagnostics(true); }}>
                 <span><Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Проверка работы</span>
+                {healthDot.show && <span className="more-count" title="Найдено проблем">{healthDot.count}</span>}
               </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
                 <span><Palette className="ui-icon" aria-hidden="true" focusable="false" /> Тема</span>
@@ -1840,7 +1844,7 @@ export const App: React.FC = () => {
 
                 <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '4.0.1'}
+                  Текущая версия: v{sentinelState.version || '4.1.0'}
 
                 </p>
 

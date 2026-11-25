@@ -571,6 +571,12 @@ CATALOG: list[Check] = [
 ]
 
 
+def background_checks() -> list[Check]:
+    """What the background watch runs: every check except the network ones (slow, and a flaky link is not a breakage).
+    Giveaways stay: the readiness query is the quick one, its Task Scheduler answer is cached for 2 minutes and runs hidden, read only."""
+    return [entry for entry in CATALOG if entry.area != "network"]
+
+
 def _unfinished(entry: Check, lang: str, detail: str, status: str = "warn") -> dict:
     return row(entry.id, entry.area, status, entry.title[1 if lang == "en" else 0], detail,
                _t(lang, "Нажмите «Проверить снова». Если повторяется, скопируйте отчёт.", "Press Check again. If it repeats, copy the report."))

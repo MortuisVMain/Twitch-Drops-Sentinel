@@ -6,6 +6,7 @@ import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, ge
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { FarmScheduleCard } from './FarmScheduleCard';
 import { WebhooksCard } from './WebhooksCard';
+import { HealthWatchCard } from './HealthWatchCard';
 import { StartupCopiesCard } from './StartupCopiesCard';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
@@ -595,6 +596,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               )}
             </div>
           </div>
+
+          <HealthWatchCard settings={settings} onChange={onUpdateSettings} playClick={playClick} />
 
           <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
             <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} title="Что делает крестик окна. Фарм продолжается, пока приложение не закрыто полностью">ПРИ ЗАКРЫТИИ ОКНА:</span>
