@@ -3,8 +3,11 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+
+## [4.1.0] - 2026-11-25
 - A new "Health check" item in the More menu runs read-only checks of Twitch and Steam sign-in, giveaways, network, updates, settings and disk, groups the results by area and lets you copy a report.
 - The Health check now offers one-click fixes next to the problem it found: sign in to Twitch again, open the sign-in page and copy the code, sign in to Steam, reinstall the giveaways engine, repair autostart, restore the settings from a backup, delete old logs and reset the window data. Anything that erases something asks first and says what is lost, and the settings are backed up before they are restored.
+- New setting "Watch the app in the background" (on by default, every 1, 4, 12 hours or once a day): the app quietly runs the read-only checks, shows a dot on the More button and a problem count next to "Health check", and sends one notification about each new failure. It first looks about five minutes after the start; the network checks are left out. Turning it off stops it completely.
 
 ## [4.0.1] - 2026-11-24
 - The built-in updater now resumes after network drops and downloads in parallel parts, so slow connections to GitHub no longer make it restart from zero.

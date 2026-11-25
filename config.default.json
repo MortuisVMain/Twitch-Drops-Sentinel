@@ -4,6 +4,8 @@
   "pause_on_gaming": true,
   "pause_on_battery": true,
   "native_toasts": true,
+  "health_watch_enabled": true,
+  "health_watch_hours": 1,
   "ui_sound_enabled": true,
   "game_directories": [],
   "priority_games": [

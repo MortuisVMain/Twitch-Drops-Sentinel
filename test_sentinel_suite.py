@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.0.1", f"Version mismatch: {__version__}"
+    assert __version__ == "4.1.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -6069,6 +6069,7 @@ def test_reward_campaigns_setting_state_and_request():
         "    twitch_client = None\n"
         "    hardware_state = {}\n"
         "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    health_watch = SimpleNamespace(state=lambda: {'enabled': True, 'hours': 1, 'problems': 0, 'lastRun': None})\n"
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
@@ -6151,6 +6152,7 @@ def test_reward_campaigns_queue_force_hide_and_categories_api():
         "    twitch_client = None\n"
         "    hardware_state = {}\n"
         "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    health_watch = SimpleNamespace(state=lambda: {'enabled': True, 'hours': 1, 'problems': 0, 'lastRun': None})\n"
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
@@ -6248,6 +6250,7 @@ def test_reward_campaigns_daily_slot_and_auto_queue_settings():
         "    twitch_client = None\n"
         "    hardware_state = {}\n"
         "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    health_watch = SimpleNamespace(state=lambda: {'enabled': True, 'hours': 1, 'problems': 0, 'lastRun': None})\n"
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
@@ -8590,6 +8593,33 @@ def test_health_fixes_are_wired():
     print("      Health fixes wiring: PASS [OK]")
 
 
+def test_health_watch_is_wired():
+    print("[health watch] Background health watch: settings, loop, filter, notify gate, state, dot, translations...")
+    watch = (WORKSPACE / "core" / "health_watch.py").read_text(encoding="utf-8")
+    health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "HOURS_CHOICES = (1, 4, 12, 24)" in watch and "FIRST_RUN_SECONDS = 300" in watch, "four intervals, first run after five minutes"
+    assert "def background_checks" in health and 'entry.area != "network"' in health, "the background set leaves the network checks out"
+    assert "health.run_health(self._health_context(lang), health.background_checks())" in service, "the watch reuses run_health with the filter"
+    assert "health_watch.normalize_settings(data)" in service and '"health_watch": self.health_watch.state()' in service, "validated on POST, shown in the state"
+    loop = service.split("async def health_watch_loop", 1)[1].split("async def ", 1)[0]
+    assert "self.health_watch_loop()," in service and "while self.is_running" in loop and "await asyncio.sleep(1)" in loop, "a loop that checks is_running every second"
+    assert 'NOTIFIER.notify("health_watch"' in service, "announcements go through the shared toast gate"
+    assert "self.health_watch.record_manual(" in service, "the panel's own check updates the count"
+    cfg = json.loads((WORKSPACE / "config.default.json").read_text(encoding="utf-8"))
+    assert cfg["health_watch_enabled"] is True and cfg["health_watch_hours"] == 1
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "healthWatchDot(sentinelState.health_watch)" in app and 'className="more-dot"' in app and 'className="more-count"' in app
+    assert "<HealthWatchCard" in (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "'Следить за работой в фоне'" in (WORKSPACE / "src" / "i18n" / "en" / "settings.ts").read_text(encoding="utf-8")
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "health_watch_ui.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"health watch UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Health watch wiring: PASS [OK]")
+
+
 def test_installer_script_keeps_its_promises():
     print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
     iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
@@ -8803,6 +8833,7 @@ if __name__ == "__main__":
         test_service_diagnostics_feature_is_wired,
         test_health_check_is_wired,
         test_health_fixes_are_wired,
+        test_health_watch_is_wired,
         test_installer_script_keeps_its_promises,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.

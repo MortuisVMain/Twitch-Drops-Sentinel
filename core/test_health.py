@@ -404,6 +404,8 @@ def test_health_route_requires_the_token(tmp_path):
     ctx = make_ctx(tmp_path)
     fake = _t.SimpleNamespace(api_token="secret-token-123")
     fake._health_context = lambda lang: ctx
+    recorded = []
+    fake.health_watch = _t.SimpleNamespace(record_manual=recorded.append)  # the panel's check feeds the background watch's count
 
     async def go():
         app = web.Application(middlewares=[_t.MethodType(s.SentinelSupervisor.cors_middleware, fake)])
@@ -417,6 +419,7 @@ def test_health_route_requires_the_token(tmp_path):
     assert denied == 401 and ok == 200
     assert body["version"] == "4.0.1" and isinstance(body["checks"], list)
     json.dumps(body)
+    assert len(recorded) == 1 and recorded[0] == body["checks"], "the count behind the menu dot follows the manual check"
 
 
 def test_health_route_is_registered():

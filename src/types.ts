@@ -92,6 +92,8 @@ export interface SentinelSettings {
   pause_on_gaming: boolean;
   pause_on_battery: boolean;
   native_toasts: boolean;
+  health_watch_enabled?: boolean; // background "Проверка работы"; default true
+  health_watch_hours?: 1 | 4 | 12 | 24; // how often it runs; default 1
   update_channel?: 'stable' | 'beta'; // beta: pre-releases are offered too
   farm_schedule?: FarmSchedule; // quiet hours: farm only inside the window
   ui_sound_enabled?: boolean;
@@ -192,6 +194,7 @@ export interface FullSentinelState {
   hardware: HardwareGuard;
   stats: SentinelStats;
   settings: SentinelSettings;
+  health_watch?: { enabled: boolean; hours: number; problems: number; lastRun: number | null }; // problems = fail + warn of the last background or manual check
   reward_campaigns?: RewardCampaign[]; // empty while the setting is off
   reward_watching?: { id: string; name: string } | null; // the reward campaign being watched right now
   slot_minutes_today?: number; // minutes the daily reward slot took today (UTC), before drops
