@@ -19,6 +19,7 @@ import { AppearancePanel } from './components/AppearancePanel';
 
 import { HelpModal } from './components/HelpModal';
 import { HistoryModal } from './components/HistoryModal';
+import { ServiceDiagnosticsPanel } from './components/ServiceDiagnosticsPanel';
 import { CommandPalette } from './components/CommandPalette';
 import { PipMiniDeck } from './components/PipMiniDeck';
 import { useModalFocus } from './hooks/useModalFocus';
@@ -68,7 +69,9 @@ import {
 
   Volume2,
 
-  VolumeX
+  VolumeX,
+
+  Stethoscope
 
 } from 'lucide-react';
 
@@ -202,6 +205,7 @@ export const App: React.FC = () => {
 
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const [showCmdPalette, setShowCmdPalette] = useState(false);
 
@@ -1310,6 +1314,9 @@ export const App: React.FC = () => {
               <button className="more-item more-item-help" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHelpModal(true); }}>
                 <span><CircleHelp className="ui-icon" aria-hidden="true" focusable="false" /> Справка и горячие клавиши</span>
               </button>
+              <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowDiagnostics(true); }}>
+                <span><Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Проверка работы</span>
+              </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
                 <span><Palette className="ui-icon" aria-hidden="true" focusable="false" /> Тема</span>
                 <span className="more-hint"><ChevronRight className="ui-icon" aria-hidden="true" focusable="false" /></span>
@@ -1778,6 +1785,7 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
 
+      <ServiceDiagnosticsPanel isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} trophies={sentinelState.trophies || []} />
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} digitRange={digitRange(shownTabs)} />
 

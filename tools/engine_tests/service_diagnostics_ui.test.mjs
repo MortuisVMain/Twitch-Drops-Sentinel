@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { statusView, parseDiagnosticsMessage, overallStatus, hostAvailable } =
+const { statusView, parseDiagnosticsMessage, overallStatus, hostAvailable, groupChecks, countProblems, AREA_ORDER } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'serviceDiagnostics.mjs')).href);
 
 const c = (over) => ({ id: 'api', status: 'ok', title: 'T', detail: 'D', advice: '', ...over });
@@ -59,4 +59,28 @@ test('the host exists only with chrome.webview.postMessage', () => {
   assert.equal(hostAvailable({}), false);
   assert.equal(hostAvailable({ chrome: { webview: {} } }), false);
   assert.equal(hostAvailable({ chrome: { webview: { postMessage() {} } } }), true);
+});
+
+test('every check carries an area, a missing or unknown one is the service area', () => {
+  const r = parseDiagnosticsMessage({ type: 'DIAGNOSTICS_RESULT', checks: [c({ area: 'twitch' }), c({ id: 'b' }), c({ id: 'd', area: 'mars' })] });
+  assert.deepEqual(r.checks.map((x) => x.area), ['twitch', 'service', 'service']);
+});
+
+test('rows are grouped by area in a fixed order, empty areas are left out', () => {
+  assert.deepEqual(AREA_ORDER, ['service', 'twitch', 'steam', 'giveaways', 'network', 'updates', 'settings', 'system']);
+  const checks = [c({ id: 'a', area: 'system' }), c({ id: 'b', area: 'twitch' }), c({ id: 'c', area: 'service' }), c({ id: 'd', area: 'twitch' }), c({ id: 'e', area: 'network' })];
+  const groups = groupChecks(checks);
+  assert.deepEqual(groups.map((g) => g.area), ['service', 'twitch', 'network', 'system']);
+  assert.deepEqual(groups[1].checks.map((x) => x.id), ['b', 'd']);
+  assert.deepEqual(groupChecks([]), []);
+});
+
+test('a row of an area the page does not know is shown under the service group, not lost', () => {
+  const groups = groupChecks([c({ id: 'x', area: 'mars' })]);
+  assert.deepEqual(groups.map((g) => [g.area, g.checks.length]), [['service', 1]]);
+});
+
+test('problems are counted per status', () => {
+  assert.deepEqual(countProblems([c(), c({ status: 'warn' }), c({ status: 'warn' }), c({ status: 'fail' })]), { fail: 1, warn: 2 });
+  assert.deepEqual(countProblems([]), { fail: 0, warn: 0 });
 });

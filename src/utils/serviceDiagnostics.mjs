@@ -2,6 +2,8 @@
 // Run: node --test tools/engine_tests/service_diagnostics_ui.test.mjs
 
 const STATUSES = ['ok', 'warn', 'fail'];
+/** The sections of the panel, in the order they are shown. */
+export const AREA_ORDER = ['service', 'twitch', 'steam', 'giveaways', 'network', 'updates', 'settings', 'system'];
 
 /** Status to an icon key and a class suffix; anything unknown is shown as a failure, never as success. */
 export function statusView(status) {
@@ -17,6 +19,7 @@ function cleanCheck(x) {
   return {
     id: x.id,
     status,
+    area: AREA_ORDER.includes(x.area) ? x.area : 'service',
     title: text(x.title),
     detail: text(x.detail),
     advice: text(x.advice),
@@ -39,6 +42,18 @@ export function overallStatus(checks) {
   if (checks.some((c) => c.status === 'fail')) return 'fail';
   if (checks.some((c) => c.status === 'warn')) return 'warn';
   return 'ok';
+}
+
+/** Rows grouped by area in the fixed order; an area without rows is left out. */
+export function groupChecks(checks) {
+  return AREA_ORDER
+    .map((area) => ({ area, checks: checks.filter((c) => (AREA_ORDER.includes(c.area) ? c.area : 'service') === area) }))
+    .filter((g) => g.checks.length > 0);
+}
+
+/** How many rows are failures and how many warnings. */
+export function countProblems(checks) {
+  return { fail: checks.filter((c) => c.status === 'fail').length, warn: checks.filter((c) => c.status === 'warn').length };
 }
 
 /** The page runs inside the WebView2 host only there the check can run. */

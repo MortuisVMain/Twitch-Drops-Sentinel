@@ -8534,6 +8534,26 @@ def test_service_diagnostics_feature_is_wired():
     print("      Check button wiring: PASS [OK]")
 
 
+def test_health_check_is_wired():
+    print("[health] Health check: service checks, route, host merge, grouped panel, translations...")
+    health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert '"/api/v1/health"' in service and "self.handle_get_health" in service, "the route is registered behind the shared token middleware"
+    assert "health.note_settings_error(" in service and "OAUTH_CODES.note(" in (WORKSPACE / "core" / "gui_headless.py").read_text(encoding="utf-8")
+    assert "RUN_BUDGET_SECONDS" in health and "asyncio.wait_for(" in health and "exc_info=True" in health, "budget, per-check timeout, logged crashes"
+    for area in ("twitch", "steam", "giveaways", "network", "updates", "settings", "system"):
+        assert f'"{area}"' in health, f"area {area} has checks"
+    for write in ("SetValueEx", "DeleteValue", "KEY_ALL_ACCESS", "KEY_WRITE", "subprocess", "webbrowser", ".validate(", "_validate("):
+        assert write not in health, f"health checks are read-only: {write} must not appear"
+    diag = (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8")
+    assert "/api/v1/health" in diag and "ParseHealthResponse(" in diag and "FetchHealth(" in diag and "area = c.Area" in diag, "the host merges the service checks"
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    assert "groupChecks(checks)" in panel and "countProblems(checks)" in panel and "<ServiceDiagnosticsPanel" in (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Проблем:': 'Problems:'" in en and "'Проверка работы': 'Health check'" in en
+    print("      Health check wiring: PASS [OK]")
+
+
 def test_installer_script_keeps_its_promises():
     print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
     iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
@@ -8745,6 +8765,7 @@ if __name__ == "__main__":
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
         test_service_diagnostics_feature_is_wired,
+        test_health_check_is_wired,
         test_installer_script_keeps_its_promises,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.

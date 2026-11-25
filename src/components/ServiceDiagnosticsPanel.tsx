@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, ClipboardCopy, FolderOpen, Loader2, RefreshCw, RotateCcw, Stethoscope, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
-import { hostAvailable, overallStatus, parseDiagnosticsMessage, statusView, type DiagnosticCheck } from '../utils/serviceDiagnostics.mjs';
+import { countProblems, groupChecks, hostAvailable, overallStatus, parseDiagnosticsMessage, statusView, type CheckArea, type DiagnosticCheck } from '../utils/serviceDiagnostics.mjs';
 
 interface Props {
   isOpen: boolean;
@@ -15,6 +15,10 @@ type Webview = {
 };
 
 const getWebview = (): Webview | undefined => (hostAvailable(window) ? ((window as any).chrome.webview as Webview) : undefined);
+
+const AREA_TITLE: Record<CheckArea, string> = {
+  service: 'Служба', twitch: 'Twitch', steam: 'Steam', giveaways: 'Раздачи', network: 'Сеть', updates: 'Обновления', settings: 'Настройки', system: 'Система',
+};
 
 const TONE_COLOR = { ok: 'var(--led-mint)', warn: 'var(--led-amber)', fail: 'var(--led-rose)' } as const;
 
@@ -101,6 +105,7 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
 
   if (!isOpen) return null;
   const overall = overallStatus(checks);
+  const counts = countProblems(checks);
   const post = (m: unknown) => getWebview()?.postMessage(m);
 
   return (
@@ -109,7 +114,7 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
         className="w-[min(720px,94vw)] max-h-[90vh] outline-none flex flex-col overflow-hidden rounded-2xl border border-(--border-subtle) bg-(--bg-chassis-base)">
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-(--border-subtle)">
           <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" />
-          <h2 id="diag-title" className="flex-1" style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>Проверка локального сервиса</h2>
+          <h2 id="diag-title" className="flex-1" style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>Проверка работы</h2>
           <button className="tactile-btn" onClick={onClose} aria-label="Закрыть"><X className="ui-icon" aria-hidden="true" focusable="false" /></button>
         </div>
 
@@ -126,9 +131,14 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
           {hasHost && !running && checks.length > 0 && (
             <p style={{ color: TONE_COLOR[overall] }}>
               {overall === 'ok' ? 'Всё в порядке.' : overall === 'warn' ? 'Есть предупреждения.' : 'Найдены проблемы.'}
+              {counts.fail > 0 && <> Проблем: {counts.fail}.</>}
+              {counts.warn > 0 && <> Предупреждений: {counts.warn}.</>}
             </p>
           )}
-          {checks.map((c) => (
+          {groupChecks(checks).map((group) => (
+            <section key={group.area} className="flex flex-col gap-2" aria-labelledby={`diag-area-${group.area}`}>
+              <h3 id={`diag-area-${group.area}`} style={{ color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{AREA_TITLE[group.area]}</h3>
+          {group.checks.map((c) => (
             <div key={c.id} className="flex gap-2.5 rounded-lg border border-(--border-subtle) p-2.5">
               <StatusIcon status={c.status} />
               <div className="min-w-0 flex-1">
@@ -143,6 +153,8 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
                 )}
               </div>
             </div>
+          ))}
+            </section>
           ))}
         </div>
 
