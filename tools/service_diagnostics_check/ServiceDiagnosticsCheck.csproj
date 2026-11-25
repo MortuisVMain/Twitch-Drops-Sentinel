@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\desktop\ServiceDiagnostics.cs" />
+    <Compile Include="..\..\desktop\HealthFixHost.cs" />
     <Compile Include="..\..\desktop\LocalApiToken.cs" />
     <Compile Include="..\..\desktop\StartConflict.cs" />
   </ItemGroup>

@@ -1,6 +1,7 @@
 """Read-only health checks behind GET /api/v1/health: every check ok/warn/fail with fakes, the time budget, the crash path, the route."""
 import asyncio
 import json
+import os
 import threading
 import time
 import types
@@ -690,3 +691,694 @@ def test_a_successful_twitch_sign_in_clears_the_code_tracker(monkeypatch):
     assert health.OAUTH_CODES.recent() == 3
     gui_headless.HeadlessLoginForm().update("signed in", 12345, username="mortuis")
     assert health.OAUTH_CODES.recent() == 0
+
+
+# ================= stage 2: one-click fixes =================
+# Nothing here touches the real registry, config.json, logs or services: every action is a recording fake, files live in tmp_path.
+
+
+class Fakes:
+    """The service's actions as recorders; `backups` is what list_backups returns (newest first)."""
+
+    def __init__(self, tmp_path, backups=(), bad=(), fail=None):
+        self.calls = []
+        self.backups = list(backups)
+        self.bad = set(bad)
+        self.fail = fail
+        self.dir = tmp_path
+
+    def _do(self, name):
+        self.calls.append(name)
+        if self.fail == name:
+            raise health.FixFailed(f"{name} refused")
+
+    async def sign_out_twitch(self):
+        self._do("sign_out_twitch")
+
+    async def steam_login(self):
+        self._do("steam_login")
+
+    async def install_engine(self):
+        self._do("install_engine")
+        return "started"
+
+    def enable_autostart(self):
+        self._do("enable_autostart")
+        return True
+
+    async def reset_settings(self):
+        self._do("reset_settings")
+
+    def save_profile_backup(self):
+        self._do("save_profile_backup")
+        path = self.dir / "before_health_fix.zip"
+        path.write_bytes(b"zip")
+        return path
+
+    def list_backups(self):
+        self.calls.append("list_backups")
+        return list(self.backups)
+
+    def stage_restore(self, path):
+        self.calls.append(("stage_restore", path.name))
+        if path.name in self.bad:
+            raise ValueError("bad archive")
+        return ["config.json"]
+
+    def actions(self):
+        return health.FixActions(
+            sign_out_twitch=self.sign_out_twitch, steam_login=self.steam_login, install_engine=self.install_engine,
+            enable_autostart=self.enable_autostart, reset_settings=self.reset_settings, save_profile_backup=self.save_profile_backup,
+            list_backups=self.list_backups, stage_restore=self.stage_restore)
+
+
+def fix_ctx(tmp_path, fakes=None, claim_dirs=(), **over):
+    fakes = fakes or Fakes(tmp_path)
+    return health.FixContext(health=make_ctx(tmp_path, **over), actions=fakes.actions(), claim_log_dirs=lambda: list(claim_dirs)), fakes
+
+
+@pytest.fixture(autouse=True)
+def clean_fix_state():
+    health._fix_running = False
+    yield
+    health._fix_running = False
+
+
+# ---- rows offer fixes ----
+
+def test_a_row_without_a_fix_has_no_fix_key(tmp_path):
+    assert "fix" not in one(run(health.check_twitch_code(make_ctx(tmp_path))))
+    assert "fix" not in health.row("x", "system", "ok", "t")
+
+
+def test_code_loop_row_offers_a_confirmed_relogin_with_the_exact_text(tmp_path):
+    for code in ("A", "B", "C"):
+        health.OAUTH_CODES.note(code)
+    row = one(run(health.check_twitch_code_loop(make_ctx(tmp_path))))
+    assert row["fix"]["id"] == "twitch_relogin"
+    assert row["fix"]["confirm"] == "Вход в Twitch будет сброшен, понадобится ввести новый код"
+    assert row["fix"]["label"]
+
+
+def test_not_signed_in_without_a_pending_code_offers_relogin_but_a_pending_code_does_not(tmp_path):
+    assert one(run(health.check_twitch_login(make_ctx(tmp_path))))["fix"]["id"] == "twitch_relogin"
+    pending = make_ctx(tmp_path, bridge=bridge(oauth_code="ABCD-EFGH"))
+    assert "fix" not in one(run(health.check_twitch_login(pending)))
+    assert "fix" not in one(run(health.check_twitch_login(make_ctx(tmp_path, bridge=bridge(user_id="1", username="m")))))
+
+
+def test_pending_code_row_carries_a_safe_page_side_fix(tmp_path):
+    ctx = make_ctx(tmp_path, bridge=bridge(oauth_code="ABCD-EFGH", oauth_uri="https://www.twitch.tv/activate"))
+    fix = one(run(health.check_twitch_code(ctx)))["fix"]
+    assert fix["id"] == "twitch_open_code" and fix["client"] is True
+    assert fix["uri"] == "https://www.twitch.tv/activate" and fix["code"] == "ABCD-EFGH"
+    assert "twitch_open_code" not in health.FIXES, "no service action: the page and the host do it"
+
+
+@pytest.mark.parametrize("uri", ["https://evil.example/activate", "http://www.twitch.tv/activate", "https://twitch.tv.evil.com/x",
+                                 "javascript:alert(1)", "https://user@www.twitch.tv/activate", "file:///c:/x", "https://www.twitch.tv:8443/a", None])
+def test_a_foreign_activation_address_is_replaced_by_the_twitch_one(tmp_path, uri):
+    ctx = make_ctx(tmp_path, bridge=bridge(oauth_code="ABCD-EFGH", oauth_uri=uri))
+    assert one(run(health.check_twitch_code(ctx)))["fix"]["uri"] == "https://www.twitch.tv/activate"
+
+
+def test_an_address_on_twitch_tv_from_the_state_is_kept(tmp_path):
+    ctx = make_ctx(tmp_path, bridge=bridge(oauth_code="ABCD-EFGH", oauth_uri="https://www.twitch.tv/activate?device-code=XYZ"))
+    assert one(run(health.check_twitch_code(ctx)))["fix"]["uri"] == "https://www.twitch.tv/activate?device-code=XYZ"
+
+
+def test_an_odd_code_is_not_passed_on(tmp_path):
+    ctx = make_ctx(tmp_path, bridge=bridge(oauth_code="<script>x</script>", oauth_uri="https://www.twitch.tv/activate"))
+    assert "code" not in one(run(health.check_twitch_code(ctx)))["fix"]
+
+
+@pytest.mark.parametrize("session", ["signed_out", "account_mismatch"])
+def test_steam_sign_in_problem_offers_the_login_without_confirm(tmp_path, session):
+    fix = by_id(run(health.check_steam(steam_ctx(tmp_path, community={"session": session}))))["steam_session"]["fix"]
+    assert fix["id"] == "steam_login" and "confirm" not in fix
+
+
+def test_steam_engine_missing_or_a_good_session_offers_nothing(tmp_path):
+    for session in ("engine_missing", "ok"):
+        assert "fix" not in by_id(run(health.check_steam(steam_ctx(tmp_path, community={"session": session}))))["steam_session"]
+
+
+def test_engine_marker_and_missing_engine_offer_the_reinstall(tmp_path):
+    marker = by_id(run(health.check_giveaways(readiness_ctx(tmp_path, [item("engine", "todo")], marker=True))))["giveaways_engine"]
+    missing = by_id(run(health.check_giveaways(readiness_ctx(tmp_path, [item("engine", "todo")]))))["giveaways_engine"]
+    fine = by_id(run(health.check_giveaways(readiness_ctx(tmp_path, [item("engine", "ok")]))))["giveaways_engine"]
+    assert marker["fix"]["id"] == "giveaways_reinstall" and missing["fix"]["id"] == "giveaways_reinstall" and "fix" not in fine
+    assert "confirm" not in marker["fix"]
+
+
+
+def test_a_config_fallback_offers_a_confirmed_restore(tmp_path):
+    health.note_settings_error("JSONDecodeError: x")
+    fix = one(run(health.check_settings(make_ctx(tmp_path))))["fix"]
+    assert fix["id"] == "settings_restore" and fix["confirm"]
+    health.note_settings_error(None)
+    assert "fix" not in one(run(health.check_settings(make_ctx(tmp_path))))
+
+
+def test_big_logs_offer_a_confirmed_trim(tmp_path):
+    ctx = make_ctx(tmp_path)
+    with open(ctx.log_dir / "sentinel_service.log.2", "wb") as f:
+        f.truncate(201 * 1024 * 1024)
+    row = one(run(health.check_logs_size(ctx)))
+    assert row["fix"]["id"] == "logs_trim" and row["fix"]["confirm"]
+
+
+def test_autostart_of_another_copy_offers_the_repair_and_names_this_copys_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(health, "read_autostart", lambda: (True, '"C:\\Elsewhere\\Old Copy\\TwitchDropsSentinel.exe" --minimized'))
+    row = one(run(health.check_autostart(make_ctx(tmp_path))))
+    assert row["fix"]["id"] == "autostart_repair" and "confirm" not in row["fix"]
+    assert "TwitchDropsSentinel.exe" in row["fix"]["label"] and "Old Copy" not in row["fix"]["label"]
+    monkeypatch.setattr(health, "read_autostart", lambda: (False, ""))
+    assert "fix" not in one(run(health.check_autostart(make_ctx(tmp_path))))
+
+
+def test_the_english_fix_texts_have_no_russian(tmp_path):
+    health.note_settings_error("x")
+    ctx = make_ctx(tmp_path, lang="en")
+    fix = one(run(health.check_settings(ctx)))["fix"]
+    assert not any("а" <= ch.lower() <= "я" for ch in fix["label"] + fix["confirm"])
+
+
+def test_every_service_fix_a_row_can_offer_is_in_the_whitelist():
+    assert set(health.FIXES) == {"twitch_relogin", "steam_login", "giveaways_reinstall", "autostart_repair", "settings_restore", "logs_trim"}
+    for fix_id, fix in health.FIXES.items():
+        assert fix.checks and all(c in {e.id for e in health.CATALOG} for c in fix.checks), fix_id
+
+
+# ---- running a fix ----
+
+def test_an_unknown_id_is_a_400_and_nothing_runs(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path)
+    for bad in ("rm_rf", "", "../x", "twitch_open_code", None, 5):
+        status, body = run(health.run_fix(bad, fctx))
+        assert status == 400 and body["ok"] is False and body["message"], bad
+    assert fakes.calls == []
+
+
+def test_a_fix_that_does_not_apply_is_a_409_with_a_message_and_nothing_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(health, "read_autostart", lambda: (False, ""))
+    fctx, fakes = fix_ctx(tmp_path, bridge=bridge(user_id="1", username="m"))
+    status, body = run(health.run_fix("twitch_relogin", fctx))
+    assert status == 409 and body["ok"] is False and body["message"] and fakes.calls == []
+    for fix_id in ("steam_login", "giveaways_reinstall", "autostart_repair", "settings_restore", "logs_trim"):
+        status, body = run(health.run_fix(fix_id, fctx))
+        assert status == 409 and body["message"], fix_id
+    assert fakes.calls == []
+
+
+def test_relogin_signs_out_once_then_rechecks_the_twitch_rows(tmp_path, caplog):
+    for code in ("A", "B", "C"):
+        health.OAUTH_CODES.note(code)
+    fctx, fakes = fix_ctx(tmp_path)
+    with caplog.at_level("INFO", logger="sentinel.health"):
+        status, body = run(health.run_fix("twitch_relogin", fctx))
+    assert status == 200 and body["ok"] is True and body["message"]
+    assert fakes.calls == ["sign_out_twitch"]
+    assert {r["id"] for r in body["checks"]} == {"twitch_login", "twitch_code", "twitch_code_loop"}
+    assert any(rec.getMessage().startswith("health fix twitch_relogin: ok") for rec in caplog.records)
+
+
+def test_steam_login_calls_the_existing_login(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path, steam_state=lambda: {"available": True, "steam": {"running": True, "signedIn": True}, "community": {"session": "signed_out"}, "farm": {}})
+    status, body = run(health.run_fix("steam_login", fctx))
+    assert status == 200 and fakes.calls == ["steam_login"] and {r["id"] for r in body["checks"]} == {"steam_module", "steam_client", "steam_session"}
+
+
+def test_reinstall_starts_the_install_and_returns_at_once(tmp_path):
+    async def readiness():
+        return {"items": [item("engine", "todo")]}
+    fctx, fakes = fix_ctx(tmp_path, giveaways_readiness=readiness, giveaways_marker=lambda: True)
+    status, body = run(health.run_fix("giveaways_reinstall", fctx))
+    assert status == 200 and fakes.calls == ["install_engine"]
+    assert "запущ" in body["message"]
+
+
+def test_autostart_repair_enables_it_for_this_copy_and_rechecks(tmp_path, monkeypatch):
+    state = {"cmd": '"C:\\Elsewhere\\Old\\TwitchDropsSentinel.exe" --minimized'}
+    monkeypatch.setattr(health, "read_autostart", lambda: (True, state["cmd"]))
+    fctx, fakes = fix_ctx(tmp_path)
+
+    def enable():
+        fakes.calls.append("enable_autostart")
+        state["cmd"] = f'"{tmp_path / "TwitchDropsSentinel.exe"}" --minimized'
+        return True
+    fctx.actions.enable_autostart = enable
+    status, body = run(health.run_fix("autostart_repair", fctx))
+    assert status == 200 and fakes.calls == ["enable_autostart"]
+    assert one(body["checks"])["id"] == "system_autostart" and one(body["checks"])["status"] == "ok"
+
+
+def test_autostart_repair_reports_a_failed_write(tmp_path, monkeypatch):
+    monkeypatch.setattr(health, "read_autostart", lambda: (True, '"C:\\Elsewhere\\Old\\TwitchDropsSentinel.exe"'))
+    fctx, fakes = fix_ctx(tmp_path)
+    fctx.actions.enable_autostart = lambda: False
+    status, body = run(health.run_fix("autostart_repair", fctx))
+    assert status == 500 and body["ok"] is False and body["message"]
+
+
+
+
+def test_settings_restore_saves_a_backup_first_then_stages_the_newest_good_copy(tmp_path):
+    health.note_settings_error("JSONDecodeError: x")
+    fakes = Fakes(tmp_path, backups=[Path("new_bad.zip"), Path("old_good.zip"), Path("older.zip")], bad={"new_bad.zip"})
+    fctx, _ = fix_ctx(tmp_path, fakes)
+    status, body = run(health.run_fix("settings_restore", fctx))
+    assert status == 200 and body["ok"] and body["restart"] is True
+    assert fakes.calls == ["list_backups", "save_profile_backup", ("stage_restore", "new_bad.zip"), ("stage_restore", "old_good.zip")]
+    assert "reset_settings" not in fakes.calls
+
+
+def test_settings_restore_without_any_backup_resets_to_defaults_after_the_backup(tmp_path):
+    health.note_settings_error("JSONDecodeError: x")
+    fctx, fakes = fix_ctx(tmp_path)
+    status, body = run(health.run_fix("settings_restore", fctx))
+    assert status == 200 and fakes.calls == ["list_backups", "save_profile_backup", "reset_settings"]
+    assert health.settings_error() is None, "the file was rewritten: the fallback flag is cleared"
+    assert body["restart"] is False
+
+
+def test_settings_restore_with_only_unusable_backups_resets_to_defaults(tmp_path):
+    health.note_settings_error("x")
+    fakes = Fakes(tmp_path, backups=[Path("a.zip")], bad={"a.zip"})
+    fctx, _ = fix_ctx(tmp_path, fakes)
+    assert run(health.run_fix("settings_restore", fctx))[0] == 200
+    assert fakes.calls[-1] == "reset_settings"
+
+
+def test_settings_restore_stops_when_the_backup_cannot_be_saved(tmp_path):
+    health.note_settings_error("x")
+    fakes = Fakes(tmp_path, backups=[Path("a.zip")], fail="save_profile_backup")
+    fctx, _ = fix_ctx(tmp_path, fakes)
+    status, body = run(health.run_fix("settings_restore", fctx))
+    assert status == 500 and body["ok"] is False
+    assert not any(c == "reset_settings" or (isinstance(c, tuple) and c[0] == "stage_restore") for c in fakes.calls)
+
+
+def test_a_failing_action_is_a_500_the_rows_are_still_returned_and_the_failure_is_logged(tmp_path, caplog):
+    for code in ("A", "B", "C"):
+        health.OAUTH_CODES.note(code)
+    fakes = Fakes(tmp_path, fail="sign_out_twitch")
+    fctx, _ = fix_ctx(tmp_path, fakes)
+    with caplog.at_level("INFO", logger="sentinel.health"):
+        status, body = run(health.run_fix("twitch_relogin", fctx))
+    assert status == 500 and body["ok"] is False and "sign_out_twitch refused" in body["message"] and body["checks"]
+    assert any(rec.getMessage().startswith("health fix twitch_relogin: failed") for rec in caplog.records)
+
+
+def test_an_unexpected_crash_in_an_action_is_logged_with_a_traceback(tmp_path, caplog):
+    for code in ("A", "B", "C"):
+        health.OAUTH_CODES.note(code)
+    fctx, _ = fix_ctx(tmp_path)
+
+    async def boom():
+        raise RuntimeError("kaput")
+    fctx.actions.sign_out_twitch = boom
+    with caplog.at_level("INFO", logger="sentinel.health"):
+        status, body = run(health.run_fix("twitch_relogin", fctx))
+    assert status == 500 and "kaput" in body["message"]
+    assert any(rec.exc_info for rec in caplog.records if "health fix twitch_relogin" in rec.getMessage())
+
+
+def test_the_refusal_and_the_unknown_id_are_logged_too(tmp_path, caplog):
+    fctx, _ = fix_ctx(tmp_path, bridge=bridge(user_id="1", username="m"))
+    with caplog.at_level("INFO", logger="sentinel.health"):
+        run(health.run_fix("twitch_relogin", fctx))
+        run(health.run_fix("nope\nforged line", fctx))
+    messages = [rec.getMessage() for rec in caplog.records]
+    assert any(m.startswith("health fix twitch_relogin: refused") for m in messages)
+    assert any(m.startswith("health fix ") and "unknown" in m for m in messages)
+    assert not any("\n" in m for m in messages), "an id from the page cannot forge a log line"
+
+
+
+
+# ---- logs_trim ----
+
+def _age(path, days):
+    stamp = time.time() - days * 86400
+    os.utime(path, (stamp, stamp))
+
+
+def test_logs_trim_deletes_only_rotated_files_and_old_claim_logs_never_the_active_log(tmp_path):
+    core = tmp_path / "core"
+    core.mkdir()
+    claim = tmp_path / "engine"
+    claim.mkdir()
+    active = core / "sentinel_service.log"
+    active.write_bytes(b"live")
+    rotated = [core / f"sentinel_service.log.{n}" for n in (1, 2, 5)]
+    for f in rotated:
+        f.write_bytes(b"old" * 100)
+    keep = [active, core / "sentinel_service.log.bak", core / "sentinel_service.log.old.1", core / "other.log",
+            tmp_path / "sentinel_stdout.log", tmp_path / "sentinel_stderr.log"]
+    for f in keep[1:]:
+        f.write_bytes(b"keep")
+    (core / "sentinel_service.log.7").mkdir()  # a folder with a rotated-looking name
+    old_claim = claim / "ClaimOutput_20250101-000000.log"
+    old_claim.write_bytes(b"c" * 50)
+    _age(old_claim, 8)
+    fresh_claim = claim / "ClaimOutput_20261124-000000.log"
+    fresh_claim.write_bytes(b"c")
+    _age(fresh_claim, 1)
+    not_claim = claim / "notes.log"
+    not_claim.write_bytes(b"n")
+    _age(not_claim, 30)
+
+    with open(core / "sentinel_service.log.9", "wb") as f:
+        f.truncate(201 * 1024 * 1024)
+    fctx, _ = fix_ctx(tmp_path, claim_dirs=[claim])
+    status, body = run(health.run_fix("logs_trim", fctx))
+    assert status == 200 and body["ok"]
+    for f in rotated + [old_claim, core / "sentinel_service.log.9"]:
+        assert not f.exists(), f
+    for f in keep + [fresh_claim, not_claim, core / "sentinel_service.log.7"]:
+        assert f.exists(), f
+    assert active.read_bytes() == b"live"
+    assert one(body["checks"])["id"] == "system_logs" and one(body["checks"])["status"] == "ok"
+
+
+def test_logs_trim_with_nothing_to_delete_is_a_409(tmp_path):
+    fctx, _ = fix_ctx(tmp_path)
+    (fctx.health.log_dir / "sentinel_service.log").write_bytes(b"live")
+    status, body = run(health.run_fix("logs_trim", fctx))
+    assert status == 409 and (fctx.health.log_dir / "sentinel_service.log").exists()
+
+
+def test_logs_trim_keeps_going_when_one_file_cannot_be_deleted(tmp_path, monkeypatch, caplog):
+    core = tmp_path / "core"
+    core.mkdir()
+    a, b = core / "sentinel_service.log.1", core / "sentinel_service.log.2"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+    real_unlink = Path.unlink
+
+    def flaky(self, *args, **kwargs):
+        if self.name == "sentinel_service.log.1":
+            raise PermissionError("locked")
+        return real_unlink(self, *args, **kwargs)
+    monkeypatch.setattr(Path, "unlink", flaky)
+    fctx, _ = fix_ctx(tmp_path)
+    with caplog.at_level("WARNING", logger="sentinel.health"):
+        status, body = run(health.run_fix("logs_trim", fctx))
+    assert status == 200 and a.exists() and not b.exists()
+    assert any(rec.exc_info for rec in caplog.records)
+
+
+# ---- the route ----
+
+def _fix_app(fctx, secret="secret-token-123"):
+    import types as _t
+    from aiohttp import web
+    import sentinel_service as s
+    fake = _t.SimpleNamespace(api_token=secret)
+    fake._fix_context = lambda lang, request: fctx
+    app = web.Application(middlewares=[_t.MethodType(s.SentinelSupervisor.cors_middleware, fake)])
+    app.router.add_post("/api/v1/health/fix", _t.MethodType(s.SentinelSupervisor.handle_post_health_fix, fake))
+    return app
+
+
+def _post(fctx, body, headers=None, query=""):
+    from aiohttp.test_utils import TestClient, TestServer
+
+    async def go():
+        async with TestClient(TestServer(_fix_app(fctx))) as client:
+            resp = await client.post("/api/v1/health/fix" + query, data=body, headers=headers or {})
+            return resp.status, await resp.json()
+    return run(go())
+
+
+def test_the_fix_route_requires_the_token(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path, bridge=bridge())
+    status, _ = _post(fctx, json.dumps({"id": "twitch_relogin"}))
+    assert status == 401 and fakes.calls == []
+    status, body = _post(fctx, json.dumps({"id": "twitch_relogin"}), {"X-Sentinel-Token": "secret-token-123", "Content-Type": "application/json"})
+    assert status == 200 and body["ok"] is True and fakes.calls == ["sign_out_twitch"]
+
+
+def test_the_fix_route_answers_400_for_an_unknown_id_a_bad_body_and_409_when_it_does_not_apply(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path, bridge=bridge(user_id="1", username="m"))
+    headers = {"X-Sentinel-Token": "secret-token-123", "Content-Type": "application/json"}
+    assert _post(fctx, json.dumps({"id": "format_c"}), headers)[0] == 400
+    assert _post(fctx, "not json", headers)[0] == 400
+    assert _post(fctx, json.dumps(["twitch_relogin"]), headers)[0] == 400
+    assert _post(fctx, json.dumps({"id": ["twitch_relogin"]}), headers)[0] == 400
+    assert _post(fctx, json.dumps({"id": "twitch_relogin"}), headers)[0] == 409
+    assert fakes.calls == []
+
+
+def test_the_fix_route_is_registered_and_post_only():
+    text = (Path(__file__).parent / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_post("/api/v1/health/fix", self.handle_post_health_fix)' in text
+
+
+def test_the_service_hands_each_fix_the_existing_function(tmp_path, monkeypatch):
+    import types as _t
+    from aiohttp import web
+    import sentinel_service as s
+    calls = []
+
+    async def ok_response(request):
+        calls.append(("handler", request))
+        return web.json_response({"status": "ok", "success": True})
+
+    async def install():
+        calls.append("install_engine")
+        return {"status": "started"}
+
+    fake = _t.SimpleNamespace(
+        _health_context=lambda lang: None, handle_logout=ok_response, handle_reset_settings=ok_response,
+        steam_idle=_t.SimpleNamespace(login=lambda: calls.append("steam_login")), giveaways=_t.SimpleNamespace(install_engine=install))
+    monkeypatch.setattr(s, "set_autostart_status", lambda enabled: calls.append(("autostart", enabled)) or True)
+    monkeypatch.setattr(s, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(s, "write_backup", lambda path, entries: calls.append(("write_backup", path.parent.name, path.name.startswith("sentinel_profile_before_health_fix_"))) or [])
+    monkeypatch.setattr(s, "stage_restore", lambda zip_path, entries, pending: calls.append(("stage", zip_path.name, pending.name)) or ["config.json"])
+    request = object()
+    actions = s.SentinelSupervisor._fix_context(fake, "ru", request).actions
+
+    async def go():
+        await actions.sign_out_twitch()
+        await actions.steam_login()
+        assert await actions.install_engine() == "started"
+        assert actions.enable_autostart() is True
+        await actions.reset_settings()
+    run(go())
+    actions.save_profile_backup()
+    (tmp_path / "backups").mkdir(exist_ok=True)
+    (tmp_path / "backups" / "a.zip").write_bytes(b"1")
+    assert [p.name for p in actions.list_backups()] == ["a.zip"]
+    actions.stage_restore(tmp_path / "backups" / "a.zip")
+    handler_calls = [c for c in calls if isinstance(c, tuple) and c[0] == "handler"]
+    assert len(handler_calls) == 2 and all(c[1] is request for c in handler_calls)
+    assert "steam_login" in calls and "install_engine" in calls and ("autostart", True) in calls
+    assert ("write_backup", "backups", True) in calls and ("stage", "a.zip", "restore_pending") in calls
+
+
+def test_the_service_turns_a_refused_existing_function_into_a_failed_fix():
+    import types as _t
+    from aiohttp import web
+    import sentinel_service as s
+
+    async def refuse(request):
+        return web.json_response({"success": False, "error": "locked cookies"}, status=500)
+
+    fake = _t.SimpleNamespace(_health_context=lambda lang: None, handle_logout=refuse, steam_idle=_t.SimpleNamespace(login=lambda: "engine_missing"), giveaways=None)
+    actions = s.SentinelSupervisor._fix_context(fake, "ru", object()).actions
+
+    async def go():
+        with pytest.raises(health.FixFailed, match="locked cookies"):
+            await actions.sign_out_twitch()
+        with pytest.raises(health.FixFailed, match="engine_missing"):
+            await actions.steam_login()
+    run(go())
+
+
+def test_the_disk_row_offers_no_fix_because_nothing_here_frees_space(tmp_path, monkeypatch):
+    ctx = make_ctx(tmp_path)
+    for free in (0.5 * 1024 ** 3, 3 * 1024 ** 3):
+        monkeypatch.setattr(health, "disk_free_bytes", lambda p, f=free: int(f))
+        assert "fix" not in one(run(health.check_disk(ctx)))
+    assert "cache_clear" not in health.FIXES
+
+
+def test_the_recheck_ignores_the_reuse_cache_and_drops_it(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path)
+    (fctx.health.log_dir / "sentinel_service.log.1").write_bytes(b"x")
+    key = (fctx.health.lang, tuple(e.id for e in health.CATALOG))
+    health._last = (key, time.monotonic(), {"checks": [{"id": "stale"}], "version": "x", "generatedAt": ""})
+    status, body = run(health.run_fix("logs_trim", fctx))
+    assert status == 200 and one(body["checks"])["id"] == "system_logs"
+    assert health._last is None, "the next GET must not hand out the result from before the fix"
+
+
+def test_two_fixes_do_not_run_at_the_same_time(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path, steam_state=lambda: {"available": True, "steam": {}, "community": {"session": "signed_out"}, "farm": {}})
+
+    async def slow():
+        await asyncio.sleep(0.2)
+        fakes.calls.append("steam_login")
+    fctx.actions.steam_login = slow
+
+    async def both():
+        return await asyncio.gather(health.run_fix("steam_login", fctx), health.run_fix("steam_login", fctx))
+    (a, _), (b, _) = run(both())
+    assert sorted([a, b]) == [200, 409] and fakes.calls == ["steam_login"]
+    assert health._fix_running is False
+
+
+# ---- review round: logs ----
+
+def _sparse(path, mb):
+    with open(path, "wb") as f:
+        f.truncate(mb * 1024 * 1024)
+
+
+def test_logs_row_offers_the_trim_only_when_it_would_bring_the_total_under_the_limit(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _sparse(ctx.project_dir / "sentinel_stdout.log", 250)
+    _sparse(ctx.log_dir / "sentinel_service.log.1", 100)
+    row = one(run(health.check_logs_size(ctx)))
+    assert row["status"] == "warn" and "fix" not in row, "trimming the rotated file leaves 250 MB: the warning would stay"
+    assert "sentinel_stdout.log" in row["detail"] or "sentinel_stdout.log" in row["advice"], "the row says why the big files are not trimmed"
+    (ctx.project_dir / "sentinel_stdout.log").unlink()
+    _sparse(ctx.project_dir / "sentinel_stdout.log", 50)
+    row = one(run(health.check_logs_size(ctx)))
+    assert row["status"] == "ok" or row["fix"]["id"] == "logs_trim"
+
+
+def test_logs_row_with_a_big_stdout_log_and_a_big_rotated_one_offers_the_trim_when_that_is_enough(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _sparse(ctx.project_dir / "sentinel_stdout.log", 50)
+    _sparse(ctx.log_dir / "sentinel_service.log.1", 160)
+    row = one(run(health.check_logs_size(ctx)))
+    assert row["status"] == "warn" and row["fix"]["id"] == "logs_trim"
+
+
+def test_logs_trim_never_touches_the_stdout_and_stderr_logs(tmp_path):
+    fctx, _ = fix_ctx(tmp_path)
+    out, err = tmp_path / "sentinel_stdout.log", tmp_path / "sentinel_stderr.log"
+    _sparse(out, 60)
+    _sparse(err, 60)
+    (fctx.health.log_dir / "sentinel_service.log.1").write_bytes(b"x")
+    assert run(health.run_fix("logs_trim", fctx))[0] == 200
+    assert out.stat().st_size == 60 * 1024 * 1024 and err.stat().st_size == 60 * 1024 * 1024
+
+
+def test_a_missing_log_folder_or_a_vanishing_file_is_skipped_not_a_crash(tmp_path, monkeypatch, caplog):
+    now = datetime.now()
+    assert health._trim_candidates(tmp_path / "nope", [tmp_path / "also_nope"], now) == []
+    core = tmp_path / "core"
+    core.mkdir()
+    claim = tmp_path / "engine"
+    claim.mkdir()
+    old = claim / "ClaimOutput_1.log"
+    old.write_bytes(b"x")
+    _age(old, 9)
+    real_stat = Path.stat
+
+    def vanishing(self, *args, **kwargs):
+        if self.name == "ClaimOutput_1.log":
+            raise FileNotFoundError(self.name)
+        return real_stat(self, *args, **kwargs)
+    monkeypatch.setattr(Path, "stat", vanishing)
+    with caplog.at_level("DEBUG", logger="sentinel.health"):
+        assert health._trim_candidates(core, [claim], now) == []
+    assert any("ClaimOutput_1.log" in rec.getMessage() for rec in caplog.records)
+
+
+def test_the_applicability_test_survives_a_missing_log_folder(tmp_path):
+    fctx, _ = fix_ctx(tmp_path)
+    fctx.health.log_dir = tmp_path / "gone"
+    status, body = run(health.run_fix("logs_trim", fctx))
+    assert status == 409 and body["message"]
+
+
+def test_the_same_folder_listed_twice_is_trimmed_once(tmp_path):
+    claim = tmp_path / "engine"
+    claim.mkdir()
+    old = claim / "ClaimOutput_1.log"
+    old.write_bytes(b"x" * 10)
+    _age(old, 9)
+    fctx, _ = fix_ctx(tmp_path, claim_dirs=[claim, claim, claim / "." , tmp_path / "engine" / ".." / "engine"])
+    found = health._trim_candidates(fctx.health.log_dir, fctx.claim_log_dirs(), datetime.now())
+    assert found == [old]
+    status, body = run(health.run_fix("logs_trim", fctx))
+    assert status == 200 and "1" in body["message"] and "Не удалось" not in body["message"]
+
+
+# ---- review round: a read that began before a fix must not outlive it ----
+
+def test_a_get_in_flight_during_a_fix_does_not_store_its_pre_fix_result(tmp_path):
+    fctx, fakes = fix_ctx(tmp_path)
+    (fctx.health.log_dir / "sentinel_service.log.1").write_bytes(b"x")
+    started = []
+
+    async def slow(ctx):
+        started.append(1)
+        await asyncio.sleep(0.3)
+        return [health.row("c", "system", "ok", "C")]
+    checks = [health.Check("c", "system", ("С", "C"), slow, 2.0)]
+
+    async def go():
+        reader = asyncio.ensure_future(health.run_health(fctx.health, checks))
+        await asyncio.sleep(0.05)
+        status, _ = await health.run_fix("logs_trim", fctx)
+        await reader
+        return status
+    assert run(go()) == 200 and started
+    assert health._last is None, "the read that began before the fix finished after it: its result is from before the fix"
+
+
+def test_a_get_that_starts_after_the_fix_is_stored_as_usual(tmp_path):
+    fctx, _ = fix_ctx(tmp_path)
+    (fctx.health.log_dir / "sentinel_service.log.1").write_bytes(b"x")
+
+    async def quick(ctx):
+        return [health.row("c", "system", "ok", "C")]
+    checks = [health.Check("c", "system", ("С", "C"), quick, 2.0)]
+
+    async def go():
+        await health.run_fix("logs_trim", fctx)
+        await health.run_health(fctx.health, checks)
+    run(go())
+    assert health._last is not None
+
+
+def test_a_get_after_the_fix_does_not_join_a_run_that_began_before_it(tmp_path):
+    fctx, _ = fix_ctx(tmp_path)
+    (fctx.health.log_dir / "sentinel_service.log.1").write_bytes(b"x")
+    calls = []
+
+    async def counting(ctx):
+        calls.append(1)
+        await asyncio.sleep(0.2)
+        return [health.row("c", "system", "ok", "C")]
+    checks = [health.Check("c", "system", ("С", "C"), counting, 2.0)]
+
+    async def go():
+        first = asyncio.ensure_future(health.run_health(fctx.health, checks))
+        await asyncio.sleep(0.03)
+        await health.run_fix("logs_trim", fctx)
+        await health.run_health(fctx.health, checks)
+        await first
+    run(go())
+    assert len(calls) == 2
+
+
+# ---- review round: backups ----
+
+def test_the_service_does_not_offer_its_own_safety_zips_as_a_backup_to_restore(tmp_path, monkeypatch):
+    import types as _t
+    import sentinel_service as s
+    folder = tmp_path / "backups"
+    folder.mkdir()
+    for name in ("sentinel_profile_backup_1.zip", "sentinel_profile_before_restore_1.zip", "sentinel_profile_before_health_fix_20261125_100000.zip"):
+        (folder / name).write_bytes(b"z")
+    monkeypatch.setattr(s, "BACKUP_DIR", folder)
+    fake = _t.SimpleNamespace(_health_context=lambda lang: None)
+    names = {p.name for p in s.SentinelSupervisor._fix_context(fake, "ru", object()).actions.list_backups()}
+    assert names == {"sentinel_profile_backup_1.zip", "sentinel_profile_before_restore_1.zip"}

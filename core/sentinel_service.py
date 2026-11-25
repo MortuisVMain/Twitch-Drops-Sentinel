@@ -56,6 +56,7 @@ from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
 from giveaways_controller import ENGINE_INCOMPLETE_MARK, GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
+from giveaways_controller import _refusal_text as giveaways_refusal_text
 from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
                                    create_controller as create_steam_idle_controller, steam_idle_backend_kind)
 from steam_idle.protection import USER_DENYLIST_KEY as STEAM_IDLE_DENYLIST_KEY
@@ -431,6 +432,7 @@ class SentinelSupervisor:
     def _setup_routes(self):
         self.app.router.add_get("/api/state", self.handle_get_state)
         self.app.router.add_get("/api/v1/health", self.handle_get_health)
+        self.app.router.add_post("/api/v1/health/fix", self.handle_post_health_fix)
         self.app.router.add_get("/api/logs", self.handle_get_logs)
         self.app.router.add_get("/api/catalog", self.handle_get_catalog)
         self.app.router.add_get("/api/verify-game", self.handle_verify_game)
@@ -784,6 +786,62 @@ class SentinelSupervisor:
         """Read-only checks for the "Проверка работы" panel. Runs only when asked; ?lang=en for English texts."""
         lang = "en" if request.query.get("lang") == "en" else "ru"
         return web.json_response(await health.run_health(self._health_context(lang)))
+
+    def _fix_context(self, lang: str, request: web.Request) -> health.FixContext:
+        """What a health fix may do: this service's own functions, called directly (no HTTP to itself), nothing the whitelist in health.py does not name."""
+        async def through(handler) -> None:
+            response = await handler(request)
+            if response.status != 200:
+                try:
+                    data = json.loads(response.text)
+                except (TypeError, ValueError):
+                    data = {}
+                raise health.FixFailed(str(data.get("error") or data.get("message") or f"HTTP {response.status}"))
+
+        async def steam_login() -> None:
+            refusal = self.steam_idle.login()
+            if refusal:
+                raise health.FixFailed(str(refusal))
+
+        async def install_engine() -> str:
+            try:
+                return str((await self.giveaways.install_engine()).get("status", ""))
+            except web.HTTPException as exc:
+                raise health.FixFailed(giveaways_refusal_text(exc)) from exc
+
+        def save_profile_backup() -> Path:
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            path = BACKUP_DIR / f"sentinel_profile_before_health_fix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            write_backup(path, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH))  # whatever of the profile exists, config.json included
+            return path
+
+        def list_backups() -> list[Path]:
+            if not BACKUP_DIR.is_dir():
+                return []
+            # the fix's own safety copies are the damaged profile itself: never what a restore should pick
+            return sorted((p for p in BACKUP_DIR.glob("*.zip") if "_before_health_fix_" not in p.name), key=lambda p: p.stat().st_mtime, reverse=True)
+
+        return health.FixContext(
+            health=self._health_context(lang),
+            actions=health.FixActions(
+                sign_out_twitch=lambda: through(self.handle_logout), steam_login=steam_login, install_engine=install_engine,
+                enable_autostart=lambda: set_autostart_status(True), reset_settings=lambda: through(self.handle_reset_settings),
+                save_profile_backup=save_profile_backup, list_backups=list_backups,
+                stage_restore=lambda zip_path: stage_restore(zip_path, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH), RESTORE_PENDING_DIR)),
+            claim_log_dirs=lambda: [PROJECT_DIR, resolve_fgc_root()])
+
+    async def handle_post_health_fix(self, request: web.Request) -> web.Response:
+        """One whitelisted fix: {"id": "..."}; ?lang=en for English texts. 400 unknown id or bad body, 409 does not apply now, 500 failed (see health.run_fix)."""
+        lang = "en" if request.query.get("lang") == "en" else "ru"
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        fix_id = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(fix_id, str):
+            return web.json_response({"ok": False, "message": "Expected {\"id\": \"<fix id>\"}." if lang == "en" else "Ожидалось {\"id\": \"<номер исправления>\"}.", "checks": []}, status=400)
+        status, payload = await health.run_fix(fix_id, self._fix_context(lang, request))
+        return web.json_response(payload, status=status)
 
     async def handle_get_logs(self, request: web.Request) -> web.Response:
         """The console journal after a cursor: ?after=<seq>&session=<id>. A missing cursor means everything."""

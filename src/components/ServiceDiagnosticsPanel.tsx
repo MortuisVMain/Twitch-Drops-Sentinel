@@ -1,7 +1,10 @@
-import { AlertTriangle, Check, ClipboardCopy, FolderOpen, Loader2, RefreshCw, RotateCcw, Stethoscope, X } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardCopy, FolderOpen, Loader2, RefreshCw, RotateCcw, Stethoscope, Wrench, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
-import { countProblems, groupChecks, hostAvailable, overallStatus, parseDiagnosticsMessage, statusView, type CheckArea, type DiagnosticCheck } from '../utils/serviceDiagnostics.mjs';
+import {
+  controlsBusy, countProblems, groupChecks, hostAvailable, noticeFor, noticeOrphan, overallStatus, parseDiagnosticsMessage, parseFixResult, planFix, restartOffered, statusView,
+  type CheckArea, type DiagnosticCheck, type DiagnosticFix, type FixResult,
+} from '../utils/serviceDiagnostics.mjs';
 
 interface Props {
   isOpen: boolean;
@@ -21,6 +24,10 @@ const AREA_TITLE: Record<CheckArea, string> = {
 };
 
 const TONE_COLOR = { ok: 'var(--led-mint)', warn: 'var(--led-amber)', fail: 'var(--led-rose)' } as const;
+
+const OPENED_AND_COPIED = 'Страница входа открыта, код скопирован: вставьте его на странице.';
+const OPENED_NOT_COPIED = 'Страница входа открыта, но код скопировать не удалось: введите его вручную.';
+const OPENED_NO_CODE = 'Страница входа открыта.';
 
 // The report goes to the clipboard: the browser API, then a hidden textarea, then the host (the service is down, so it cannot copy)
 async function copyReport(text: string): Promise<boolean> {
@@ -51,6 +58,20 @@ async function copyReport(text: string): Promise<boolean> {
   return false;
 }
 
+// What a fix said, under the row that offered it (or on its own when the fix made the row go away); a restart is offered when the fix needs one
+const FixNotice: React.FC<{ notice: FixResult; onRestart: () => void }> = ({ notice, onRestart }) => (
+  <div role={notice.ok ? 'status' : 'alert'} className="mt-1.5 whitespace-pre-wrap break-words" style={{ color: notice.ok ? 'var(--led-mint)' : 'var(--led-rose)', fontSize: 'var(--fs-xs)' }}>
+    {notice.message}
+    {restartOffered(notice) && (
+      <div>
+        <button className="tactile-btn mt-1.5" onClick={onRestart}>
+          <RotateCcw className="ui-icon" aria-hidden="true" focusable="false" /> Перезапустить приложение
+        </button>
+      </div>
+    )}
+  </div>
+);
+
 const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
   const { icon, tone } = statusView(status);
   const Icon = icon === 'check' ? Check : icon === 'alert' ? AlertTriangle : X;
@@ -66,6 +87,8 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
   const [report, setReport] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [fixing, setFixing] = useState<string | null>(null);
+  const [notice, setNotice] = useState<FixResult | null>(null);
   const hasHost = hostAvailable(window);
 
   const run = useCallback(() => {
@@ -73,6 +96,7 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
     if (!wv) return;
     setRunning(true);
     setError(null);
+    setNotice(null);
     wv.postMessage({ type: 'RUN_DIAGNOSTICS' });
   }, []);
 
@@ -84,6 +108,12 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
       let data: unknown = e.data;
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch { return; }
+      }
+      const fixResult = parseFixResult(data);
+      if (fixResult) {
+        setNotice(fixResult);
+        setFixing(null);  // the host now runs the checks again: the panel stays busy until DIAGNOSTICS_RESULT
+        return;
       }
       const result = parseDiagnosticsMessage(data);
       if (!result) return;
@@ -107,6 +137,24 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
   const overall = overallStatus(checks);
   const counts = countProblems(checks);
   const post = (m: unknown) => getWebview()?.postMessage(m);
+  const busy = controlsBusy(running, fixing);
+
+  const startFix = (fix: DiagnosticFix) => {
+    const plan = planFix(fix, busy);
+    if (!plan) return;
+    if (plan.confirm && !window.confirm(plan.confirm)) return;
+    setNotice(null);
+    plan.messages.forEach(post);
+    if (fix.client) {  // the Twitch sign-in page: the host opens it, the page copies the code
+      const said = (ok: boolean, message: string) => setNotice({ id: fix.id, ok, message, restart: false });
+      if (plan.copy) void copyReport(plan.copy).then((ok) => said(ok, ok ? OPENED_AND_COPIED : OPENED_NOT_COPIED));
+      else said(true, OPENED_NO_CODE);
+      return;
+    }
+    setFixing(fix.id);
+    setRunning(true);
+    setError(null);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3" onClick={onClose}>
@@ -124,10 +172,11 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
           )}
           {hasHost && running && (
             <div className="flex items-center gap-2" role="status" style={{ color: 'var(--text-secondary)' }}>
-              <Loader2 className="ui-icon animate-spin" aria-hidden="true" focusable="false" /> Проверяем службу, порт и файлы…
+              <Loader2 className="ui-icon animate-spin" aria-hidden="true" focusable="false" /> {fixing ? 'Выполняем исправление…' : 'Проверяем службу, порт и файлы…'}
             </div>
           )}
           {error && <p role="alert" style={{ color: 'var(--led-rose)' }}>Проверка не удалась: {error}</p>}
+          {notice && noticeOrphan(checks, notice) && <FixNotice notice={notice} onRestart={() => post({ type: 'RESTART_SENTINEL' })} />}
           {hasHost && !running && checks.length > 0 && (
             <p style={{ color: TONE_COLOR[overall] }}>
               {overall === 'ok' ? 'Всё в порядке.' : overall === 'warn' ? 'Есть предупреждения.' : 'Найдены проблемы.'}
@@ -146,11 +195,19 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
                 {c.detail && <div className="whitespace-pre-wrap break-words" style={{ color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)' }}>{c.detail}</div>}
                 {c.advice && c.status !== 'ok' && <div className="whitespace-pre-wrap break-words mt-1" style={{ color: 'var(--text-primary)', fontSize: 'var(--fs-xs)' }}>{c.advice}</div>}
                 {c.action === 'close_other' && c.pid != null && (
-                  <button className="tactile-btn mt-1.5" disabled={running}
+                  <button className="tactile-btn mt-1.5" disabled={busy}
                     onClick={() => { setRunning(true); post({ type: 'CLOSE_OTHER_SERVICE', pid: c.pid }); }}>
                     <X className="ui-icon" aria-hidden="true" focusable="false" /> Закрыть старую копию
                   </button>
                 )}
+                {c.fix && planFix(c.fix, false) && (
+                  <button className="tactile-btn mt-1.5" disabled={busy} onClick={() => startFix(c.fix!)}>
+                    {fixing === c.fix.id
+                      ? <Loader2 className="ui-icon animate-spin" aria-hidden="true" focusable="false" />
+                      : <Wrench className="ui-icon" aria-hidden="true" focusable="false" />} {c.fix.label}
+                  </button>
+                )}
+                {notice && noticeFor(c, notice) && <FixNotice notice={notice} onRestart={() => post({ type: 'RESTART_SENTINEL' })} />}
               </div>
             </div>
           ))}
@@ -169,7 +226,7 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
             <button className="tactile-btn" disabled={!report} onClick={async () => setCopied(await copyReport(report))}>
               <ClipboardCopy className="ui-icon" aria-hidden="true" focusable="false" /> {copied ? 'Скопировано' : 'Скопировать отчёт'}
             </button>
-            <button className="tactile-btn" disabled={running} onClick={run}>
+            <button className="tactile-btn" disabled={busy} onClick={run}>
               <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Проверить снова
             </button>
           </div>

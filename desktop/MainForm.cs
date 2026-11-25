@@ -1464,6 +1464,9 @@ namespace TwitchDropsSentinel
 
                 );
 
+                // a reset the panel asked for runs now, before WebView2 opens the folder (only the exact WebView2Data folder is ever deleted)
+                if (!WebViewDataReset.ApplyPending(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), out string resetNote) && resetNote.Length > 0)
+                    LogDesktopError("window data reset", new IOException(resetNote));
                 Directory.CreateDirectory(userDataFolder);
 
 
@@ -1834,6 +1837,15 @@ namespace TwitchDropsSentinel
                 {
                     int pid = root.TryGetProperty("pid", out var pidProp) && pidProp.TryGetInt32(out int p) ? p : 0;
                     RunDiagnosticsAsync(pid);
+                }
+                else if (type == "HEALTH_FIX")
+                {
+                    RunHealthFixAsync(root.TryGetProperty("id", out var fixIdProp) && fixIdProp.ValueKind == JsonValueKind.String ? fixIdProp.GetString() ?? "" : "");
+                }
+                else if (type == "OPEN_TWITCH_ACTIVATE")
+                {
+                    // the service's address is checked again here: only https on twitch.tv, otherwise the usual sign-in page
+                    OpenExternalLink(TwitchActivatePolicy.Resolve(root.TryGetProperty("uri", out var activateProp) && activateProp.ValueKind == JsonValueKind.String ? activateProp.GetString() : null), "twitch activate");
                 }
                 else if (type == "OPEN_LOGS_FOLDER")
                 {
@@ -3967,6 +3979,55 @@ else
                     LogDesktopError("diagnostics result not delivered", ex);
                 }
             });
+        }
+
+        /// <summary>Runs one fix off the UI thread: the window data reset here, every other fix through the service. Posts FIX_RESULT, then runs the diagnostics again.</summary>
+        private void RunHealthFixAsync(string fixId)
+        {
+            Task.Run(() =>
+            {
+                FixResult result;
+                try
+                {
+                    var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                    bool ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+                    if (fixId == "webview_reset")
+                    {
+                        result = WebViewDataReset.Schedule(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), out string scheduleError)
+                            ? new FixResult(fixId, true, ru ? "Сброс запланирован: перезапустите приложение, и данные окна удалятся при старте." : "Reset scheduled: restart the app and the window data is deleted at the start.", Restart: true)
+                            : new FixResult(fixId, false, (ru ? "Не удалось запланировать сброс: " : "Could not schedule the reset: ") + scheduleError);
+                    }
+                    else
+                    {
+                        result = ServiceDiagnostics.PostFix(ServicePort, LocalApiToken.Current, fixId, ru);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDesktopError("health fix failed", ex);
+                    result = new FixResult(ServiceDiagnostics.SafeId(fixId), false, ex.Message);
+                }
+                PostToPage(ServiceDiagnostics.FixResultJson(result, LocalApiToken.Current), "fix result");
+                RunDiagnosticsAsync(null);
+            });
+        }
+
+        private void PostToPage(string json, string what)
+        {
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    if (_isShuttingDown || IsDisposed) return;
+                    try { _webView?.CoreWebView2?.PostWebMessageAsJson(json); }
+                    catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+                    { LogDesktopError(what + " not posted", ex); }
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                LogDesktopError(what + " not delivered", ex);
+            }
         }
 
         private void OpenLogsFolder()

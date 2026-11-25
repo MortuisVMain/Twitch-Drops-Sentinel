@@ -8554,6 +8554,42 @@ def test_health_check_is_wired():
     print("      Health check wiring: PASS [OK]")
 
 
+def test_health_fixes_are_wired():
+    print("[health fixes] One-click fixes: whitelist, route, confirms, host relay, window data reset, panel, translations...")
+    health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    ids = ("twitch_relogin", "steam_login", "giveaways_reinstall", "autostart_repair", "settings_restore", "logs_trim")
+    table = health.split("FIXES: dict[str, Fix]", 1)[1].split("_fix_running = False", 1)[0]
+    assert all(f'Fix("{fix_id}"' in table for fix_id in ids) and table.count('Fix("') == len(ids), "the whitelist holds exactly the documented fixes"
+    assert "twitch_open_code" not in table, "the page-side fix has no service action"
+    assert 'add_post("/api/v1/health/fix", self.handle_post_health_fix)' in service and "health.run_fix(" in service, "the route runs only the whitelist"
+    assert 'logger.info("health fix %s: ok' in health and "health fix %s: refused" in health and "health fix %s: failed" in health, "every fix is logged as 'health fix <id>: <result>'"
+    for existing in ("self.handle_logout", "self.steam_idle.login()", "self.giveaways.install_engine()", "set_autostart_status(True)", "self.handle_reset_settings",
+                     "write_backup(", "stage_restore(zip_path"):
+        assert existing in service.split("def _fix_context", 1)[1].split("async def handle_post_health_fix", 1)[0], f"the fix reuses {existing}"
+    assert "http://127.0.0.1" not in service.split("def _fix_context", 1)[1].split("async def handle_post_health_fix", 1)[0], "no HTTP call to itself"
+    for confirmed in ("CONFIRM_RELOGIN", "CONFIRM_SETTINGS", "CONFIRM_LOGS"):
+        assert f"{confirmed})" in health, f"{confirmed} is attached to its fix"
+    assert 'ROTATED_LOG = re.compile(r"^sentinel_service\\.log\\.\\d+$")' in health, "only rotated logs are trimmed, never the active one"
+    restore = health.split("async def _restore_settings", 1)[1].split("async def _can_trim_logs", 1)[0]
+    assert restore.index("actions.list_backups") < restore.index("actions.save_profile_backup") < restore.index("actions.stage_restore") < restore.index("actions.reset_settings"), "the backup of the current settings comes before any restore or reset"
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    host = (WORKSPACE / "desktop" / "HealthFixHost.cs").read_text(encoding="utf-8")
+    diag = (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8")
+    assert 'type == "HEALTH_FIX"' in form and "RunHealthFixAsync(" in form and "ServiceDiagnostics.PostFix(" in form and "FixResultJson(" in form, "the host relays the fix and answers FIX_RESULT"
+    assert "Task.Run(" in form.split("private void RunHealthFixAsync", 1)[1][:200] and "RunDiagnosticsAsync(null)" in form.split("private void RunHealthFixAsync", 1)[1], "the fix runs off the UI thread, then the checks run again"
+    assert 'type == "OPEN_TWITCH_ACTIVATE"' in form and "TwitchActivatePolicy.Resolve(" in form, "the sign-in page address is checked by the host"
+    assert form.index("WebViewDataReset.ApplyPending(") < form.index("Directory.CreateDirectory(userDataFolder)") < form.index("CoreWebView2Environment.CreateAsync(null, userDataFolder)"), "the reset runs before WebView2 opens the folder"
+    assert "IsAllowedFolder(folder, localAppData)" in host and "ReparsePoint" in host and "Directory.Delete(folder, true)" in host and host.count("Directory.Delete(") == 1, "only the exact, non-link folder is deleted"
+    assert "/api/v1/health/fix?lang=" in diag and "ParseFixResponse(" in diag and "Sanitize(c.Fix.Label" in diag, "the relay is a token-bearing POST and its answer is parsed and sanitized"
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    assert "planFix(" in panel and "window.confirm(plan.confirm)" in panel and "controlsBusy(" in panel and "parseFixResult(" in panel and "noticeOrphan(" in panel, "the panel confirms, disables and shows the notice"
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Выполняем исправление…': 'Running the fix…'" in en and "'Перезапустить приложение': 'Restart the app'" in en
+    assert "ServiceDiagnostics.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8") and "HealthFixHost.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    print("      Health fixes wiring: PASS [OK]")
+
+
 def test_installer_script_keeps_its_promises():
     print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
     iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
@@ -8766,6 +8802,7 @@ if __name__ == "__main__":
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
         test_service_diagnostics_feature_is_wired,
         test_health_check_is_wired,
+        test_health_fixes_are_wired,
         test_installer_script_keeps_its_promises,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.

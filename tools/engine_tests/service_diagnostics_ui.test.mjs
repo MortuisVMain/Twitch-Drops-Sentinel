@@ -84,3 +84,88 @@ test('problems are counted per status', () => {
   assert.deepEqual(countProblems([c(), c({ status: 'warn' }), c({ status: 'warn' }), c({ status: 'fail' })]), { fail: 1, warn: 2 });
   assert.deepEqual(countProblems([]), { fail: 0, warn: 0 });
 });
+
+// ---- stage 2: one-click fixes (pure logic of the buttons, the confirm and the notices) ----
+const fx = await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'serviceDiagnostics.mjs')).href);
+const fix = (over) => ({ id: 'cache_clear', label: 'Clear', confirm: null, client: false, uri: null, code: null, ...over });
+
+test('a fix with a confirm text carries it and sends only its id to the host', () => {
+  const plan = fx.planFix(fix({ id: 'logs_trim', confirm: 'Old logs will be deleted' }), false);
+  assert.deepEqual(plan, { confirm: 'Old logs will be deleted', messages: [{ type: 'HEALTH_FIX', id: 'logs_trim' }], copy: null });
+});
+
+test('a harmless fix has no confirm and needs no question', () => {
+  assert.equal(fx.planFix(fix(), false).confirm, null);
+});
+
+test('nothing is planned while a check or another fix is running', () => {
+  assert.equal(fx.planFix(fix(), true), null);
+});
+
+test('no fix, no plan', () => {
+  assert.equal(fx.planFix(null, false), null);
+  assert.equal(fx.planFix(undefined, false), null);
+});
+
+test('the Twitch page fix opens the page through the host and copies the code, it never asks the service', () => {
+  const plan = fx.planFix(fix({ id: 'twitch_open_code', client: true, uri: 'https://www.twitch.tv/activate', code: 'ABCD-EFGH' }), false);
+  assert.deepEqual(plan, { confirm: null, messages: [{ type: 'OPEN_TWITCH_ACTIVATE', uri: 'https://www.twitch.tv/activate' }], copy: 'ABCD-EFGH' });
+  const noCode = fx.planFix(fix({ id: 'twitch_open_code', client: true, uri: 'https://www.twitch.tv/activate' }), false);
+  assert.equal(noCode.copy, null);
+  assert.equal(fx.planFix(fix({ id: 'twitch_open_code', client: true, uri: 'https://www.twitch.tv/activate', code: 'A' }), true), null);
+});
+
+test('a page-side flag on any other fix id does nothing: only the known id runs on the page', () => {
+  assert.equal(fx.planFix(fix({ id: 'format_c', client: true, uri: 'https://x' }), false), null);
+});
+
+test('a fix id that is not a plain name is never sent', () => {
+  for (const id of ['', 'A', 'rm -rf', 'a'.repeat(41), '../x', 'x"y', 5, null]) assert.equal(fx.planFix(fix({ id }), false), null, String(id));
+});
+
+test('rows carry a clean fix and drop a broken one', () => {
+  const r = parseDiagnosticsMessage({ type: 'DIAGNOSTICS_RESULT', checks: [
+    c({ id: 'a', fix: { id: 'logs_trim', label: 'Trim', confirm: 'Sure?' } }),
+    c({ id: 'b', fix: { id: 'twitch_open_code', label: 'Open', client: true, uri: 'https://www.twitch.tv/activate', code: 'AB-CD' } }),
+    c({ id: 'd', fix: { id: 'bad id', label: 'x' } }),
+    c({ id: 'e', fix: { id: 'cache_clear' } }),
+    c({ id: 'f', fix: 'cache_clear' }),
+    c({ id: 'g' }),
+  ] });
+  const [a, b, d, e, f, g] = r.checks;
+  assert.deepEqual(a.fix, { id: 'logs_trim', label: 'Trim', confirm: 'Sure?', client: false, uri: null, code: null });
+  assert.deepEqual([b.fix.client, b.fix.uri, b.fix.code], [true, 'https://www.twitch.tv/activate', 'AB-CD']);
+  assert.deepEqual([d.fix, e.fix, f.fix, g.fix], [null, null, null, null]);
+});
+
+test('only a FIX_RESULT message is read as a fix result', () => {
+  assert.equal(fx.parseFixResult(null), null);
+  assert.equal(fx.parseFixResult({ type: 'DIAGNOSTICS_RESULT' }), null);
+  assert.equal(fx.parseFixResult({ type: 'FIX_RESULT' }), null);
+  assert.deepEqual(fx.parseFixResult({ type: 'FIX_RESULT', id: 'cache_clear', ok: true, message: 'Done', restart: false }), { id: 'cache_clear', ok: true, message: 'Done', restart: false });
+  assert.deepEqual(fx.parseFixResult({ type: 'FIX_RESULT', id: 'x', ok: 'yes', message: 5, restart: true }), { id: 'x', ok: false, message: '', restart: false });
+  assert.equal(fx.parseFixResult({ type: 'FIX_RESULT', id: 'webview_reset', ok: true, message: 'm', restart: true }).restart, true);
+});
+
+test('the notice shows on the rows that offer that fix, and on its own when no row does any more', () => {
+  const notice = { id: 'cache_clear', ok: true, message: 'Done', restart: false };
+  const rows = [c({ id: 'a', fix: fix() }), c({ id: 'b', fix: fix({ id: 'logs_trim' }) }), c({ id: 'd' })];
+  assert.deepEqual(rows.map((r) => fx.noticeFor(r, notice)), [true, false, false]);
+  assert.equal(fx.noticeOrphan(rows, notice), false);
+  assert.equal(fx.noticeOrphan([rows[1], rows[2]], notice), true);
+  assert.equal(fx.noticeOrphan(rows, null), false);
+  assert.equal(fx.noticeFor(rows[0], null), false);
+});
+
+test('the restart is offered only after a successful fix that asks for it', () => {
+  assert.equal(fx.restartOffered({ id: 'a', ok: true, message: '', restart: true }), true);
+  assert.equal(fx.restartOffered({ id: 'a', ok: true, message: '', restart: false }), false);
+  assert.equal(fx.restartOffered({ id: 'a', ok: false, message: '', restart: true }), false);
+  assert.equal(fx.restartOffered(null), false);
+});
+
+test('buttons are disabled while a check or any fix runs', () => {
+  assert.equal(fx.controlsBusy(false, null), false);
+  assert.equal(fx.controlsBusy(true, null), true);
+  assert.equal(fx.controlsBusy(false, 'cache_clear'), true);
+});
