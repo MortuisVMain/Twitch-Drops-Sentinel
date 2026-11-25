@@ -13,7 +13,6 @@ import { RewardQueueRow } from './RewardQueueRow';
 import { CatalogFocusModal } from './CatalogFocusModal';
 import { gameQueueEntries, hiddenRewardIds, isRewardQueueEntry, queueItems, rewardProgressPercent, rewardQueueStatus, rewardTargetLine, rewardTodayText, usableRewardCampaigns, visibleRewardCampaigns } from '../utils/rewardCampaigns.mjs';
 import { TargetMoreMenu } from './TargetMoreMenu';
-import { ServiceDiagnosticsPanel } from './ServiceDiagnosticsPanel';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
@@ -27,6 +26,8 @@ import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueVi
 const OVERRIDE_CARD_MIN_REM = 12.5;
 
 export interface LiveDashboardProps {
+  /** The "Проверить" button of the service-unavailable banner opens the app-wide health center. */
+  onOpenHealthCenter?: () => void;
   activeDrop: ActiveDrop | null;
   connected?: boolean;
   connectionPhase?: ConnectionPhase;
@@ -102,6 +103,7 @@ const QUEUE_FILTER_EMPTY: Record<QueueFilter, string> = {
 };
 
 export const LiveDashboard: React.FC<LiveDashboardProps> = ({
+  onOpenHealthCenter,
   activeDrop,
   connected = false,
   connectionPhase = connected ? 'connected' : 'unavailable',
@@ -150,7 +152,6 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     }
   };
   const [expandedSync, setExpandedSync] = useState<string[]>([]);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [codeCopy, setCodeCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handleCopyCode = async () => {
     if (!oauthCode) return;
@@ -740,7 +741,6 @@ const filteredLogs = useMemo(() => {
 
   return (
     <div id="view-dashboard" className="view-tab active">
-      <ServiceDiagnosticsPanel isOpen={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
       {starting && (
         <div className="ending-soon-radar mb-2.5" role="status" style={{ borderColor: 'var(--border-main)', justifyContent: 'flex-start', color: 'var(--text-secondary)' }}>
           Запускаем службу Hell Harvest…
@@ -752,7 +752,7 @@ const filteredLogs = useMemo(() => {
           <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
             Данные и действия обновятся после подключения.
           </span>
-          <button className="tactile-btn ml-auto" onClick={() => setDiagnosticsOpen(true)}>
+          <button className="tactile-btn ml-auto" onClick={() => onOpenHealthCenter?.()}>
             <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Проверить
           </button>
         </div>

@@ -4,6 +4,12 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+- The Health check is now the Health center, with its own stethoscope button next to More (grey when all is well, amber with warnings, red with the number of failures; Ctrl+Shift+H and the quick commands open it too). The dot and the menu item were moved there from the More menu.
+- The Health center has four sections: Summary (overall state, time of the last check, "Check now" and the last 20 problems found or fixed), Checks (the rows and one-click fixes as before), For developers and Maintenance (restart the app, open the logs folder, reset the window data and the background watch switch with its interval).
+- For developers: "Save report to a file" puts the cleaned report on the Desktop, "Collect logs" builds a ZIP of cleaned copies of the service, desktop and crash logs (the last 5 MB of each, with a README of what is inside) on the Desktop, and "Report a problem" copies the report and opens a prefilled new issue on GitHub; the report itself is never put in the link.
+- A click on the notification about a new failure opens the Health center (the app registers a hellharvest:// link for the current Windows user to make this work and removes it on uninstall).
+- New service address GET /api/v1/health/history returns the last 20 problems found or fixed by background and manual checks.
+
 ## [4.1.0] - 2026-11-25
 - A new "Health check" item in the More menu runs read-only checks of Twitch and Steam sign-in, giveaways, network, updates, settings and disk, groups the results by area and lets you copy a report.
 - The Health check now offers one-click fixes next to the problem it found: sign in to Twitch again, open the sign-in page and copy the code, sign in to Steam, reinstall the giveaways engine, repair autostart, restore the settings from a backup, delete old logs and reset the window data. Anything that erases something asks first and says what is lost, and the settings are backed up before they are restored.

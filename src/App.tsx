@@ -30,7 +30,7 @@ import { useTactileAudio } from './hooks/useTactileAudio';
 import { useSentinelState } from './hooks/useSentinelState';
 import appLogo from './assets/hell_harvest_logo.png';
 import { visibleTabs, dimmerModuleMessage } from './utils/tabVisibility.mjs';
-import { healthWatchDot } from './utils/healthWatch.mjs';
+import { healthButtonView, isHealthHotkey, isOpenCenterMessage } from './utils/healthCenter.mjs';
 import { tabDigit, tabForDigit, digitRange, titleWithDigit, digitHotkeyAllowed } from './utils/tabHotkeys.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
@@ -265,6 +265,10 @@ export const App: React.FC = () => {
 
         document.body.classList.toggle('window-maximized', isMax);
 
+      } else if (isOpenCenterMessage(msg)) {
+
+        setShowDiagnostics(true);
+
       }
 
     };
@@ -276,6 +280,8 @@ export const App: React.FC = () => {
     if (wv && typeof wv.addEventListener === 'function') {
 
       wv.addEventListener('message', handleWebMsg);
+
+      if (typeof wv.postMessage === 'function') wv.postMessage({ type: 'APP_READY' });
 
     }
 
@@ -358,7 +364,7 @@ export const App: React.FC = () => {
   } = useSentinelState(showToast, playRewardChime, playClick);
   // A tab the user turned off in Settings is never shown, whatever was selected; the state then falls back to the Dashboard
   const shownTabs = visibleTabs(sentinelState.settings);
-  const healthDot = healthWatchDot(sentinelState.health_watch);
+  const healthBtn = healthButtonView(sentinelState.health_watch);
   const shownTabsKey = shownTabs.join(',');
   const activeTab: NavTab = shownTabs.includes(selectedTab) ? selectedTab : 'dashboard';
   useEffect(() => {
@@ -825,6 +831,12 @@ export const App: React.FC = () => {
 
         setShowCmdPalette((prev) => !prev);
 
+      } else if (isHealthHotkey(e)) {
+
+        e.preventDefault();
+
+        setShowDiagnostics(true);
+
       } else if (e.altKey && e.key === 'Backspace') {
 
         e.preventDefault();
@@ -1284,18 +1296,29 @@ export const App: React.FC = () => {
 
 
 
+          <button
+            className={`tactile-btn pip-hide health-btn health-${healthBtn.tone}`}
+            id="healthCenterBtn"
+            onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(false); setShowDiagnostics(true); }}
+            title={healthBtn.title}
+            aria-label={healthBtn.label}
+            aria-haspopup="dialog"
+          >
+            <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" />
+            {healthBtn.badge !== null && <span className="health-badge" aria-hidden="true" data-testid="health-badge">{healthBtn.badge}</span>}
+          </button>
+
           <div className="header-more-wrap pip-hide">
             <button
               className={`tactile-btn ${showMoreMenu ? 'active-mint' : ''}`}
               id="moreMenuBtn"
               onClick={(e) => { e.stopPropagation(); playClick(); setShowThemeMenu(false); setShowMoreMenu(!showMoreMenu); }}
-              title={healthDot.show ? 'Ещё: мини-окно, ночной режим, тема, звук. Проверка работы нашла проблемы' : 'Ещё: мини-окно, ночной режим, тема, звук'}
+              title="Ещё: мини-окно, ночной режим, тема, звук"
               aria-haspopup="menu"
               aria-expanded={showMoreMenu}
-              aria-label={healthDot.show ? 'Дополнительные действия, есть проблемы' : 'Дополнительные действия'}
+              aria-label="Дополнительные действия"
             >
               <span><Ellipsis className="ui-icon" aria-hidden="true" focusable="false" /></span>
-              {healthDot.show && <span className="more-dot" aria-hidden="true" data-testid="health-dot"></span>}
               {isNightGuard && <span className="more-night" title="Ночной режим включён" aria-label="Ночной режим включён"><Moon className="ui-icon" aria-hidden="true" focusable="false" /></span>}
             </button>
             <div className={`more-menu ${showMoreMenu ? 'open' : ''}`} role="menu" onClick={(e) => e.stopPropagation()}>
@@ -1316,10 +1339,6 @@ export const App: React.FC = () => {
               </button>
               <button className="more-item more-item-help" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHelpModal(true); }}>
                 <span><CircleHelp className="ui-icon" aria-hidden="true" focusable="false" /> Справка и горячие клавиши</span>
-              </button>
-              <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowDiagnostics(true); }}>
-                <span><Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Проверка работы</span>
-                {healthDot.show && <span className="more-count" title="Найдено проблем">{healthDot.count}</span>}
               </button>
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
                 <span><Palette className="ui-icon" aria-hidden="true" focusable="false" /> Тема</span>
@@ -1481,6 +1500,7 @@ export const App: React.FC = () => {
           {activeTab === 'dashboard' && (
 
             <LiveDashboard
+              onOpenHealthCenter={() => setShowDiagnostics(true)}
               activeDrop={sentinelState.active_drop}
 
               hardware={sentinelState.hardware}
@@ -1728,6 +1748,7 @@ export const App: React.FC = () => {
           { id: 'toggle-sound', icon: isMuted ? VolumeX : Volume2, title: isMuted ? 'Включить звук интерфейса' : 'Выключить звук интерфейса', action: () => { toggleMute(); showToast(!isMuted ? 'Звук интерфейса выключен' : 'Звук интерфейса включён'); } },
           { id: 'open-help', icon: CircleHelp, title: 'Справка и горячие клавиши', action: () => setShowHelpModal(true) },
           { id: 'open-history', icon: History, title: 'История и статистика', action: () => setShowHistory(true) },
+          { id: 'open-health', key: 'Ctrl+Shift+H', icon: Stethoscope, title: 'Центр проверки', action: () => setShowDiagnostics(true) },
         ].filter(item => !query || item.title.toLowerCase().includes(query) || (item.key || '').toLowerCase().includes(query));
 
         const matchingGames = (sentinelState?.all_catalog_games || [])
@@ -1789,7 +1810,8 @@ export const App: React.FC = () => {
 
       {/* Help Modal */}
 
-      <ServiceDiagnosticsPanel isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
+      <ServiceDiagnosticsPanel isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} watch={sentinelState.health_watch}
+        settings={sentinelState.settings} onUpdateSettings={handleUpdateSettings} playClick={playClick} />
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} trophies={sentinelState.trophies || []} />
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} activeTab={activeTab} dimmerEnabled={shownTabs.includes('dimmer')} digitRange={digitRange(shownTabs)} />
 

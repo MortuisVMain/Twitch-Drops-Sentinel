@@ -1,5 +1,6 @@
 // Runs the service diagnostics against a port and prints every check, then checks the pure parsers.
 // Usage: dotnet run --project tools/service_diagnostics_check -- [port] [--no-token]   (default port 28599; read-only, kills nothing)
+using System.Text;
 using TwitchDropsSentinel;
 
 int port = args.Select(a => int.TryParse(a, out int p) ? p : 0).FirstOrDefault(p => p > 0);
@@ -354,5 +355,218 @@ finally
     try { Directory.Delete(localApp2, true); } catch (Exception ex) { Console.WriteLine("cleanup: " + ex.Message); }
 }
 
+
+// ---- health center: file names, log ZIP, issue link, toast launch ----
+var stamp = new DateTime(2026, 11, 25, 14, 5, 33);
+Check(HealthExport.ReportFileName(stamp) == "Hell Harvest report 2026-11-25 1405.txt", "report file name carries the date and minutes");
+Check(HealthExport.LogsZipName(stamp) == "Hell Harvest logs 2026-11-25 1405.zip", "logs zip name carries the date and minutes");
+
+string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+string dirty = HealthExport.SanitizeLog(
+    "path " + homeDir + @"\x steam 76561198012345678 token SECRET-TOKEN-123456" + Environment.NewLine +
+    "Authorization: Bearer abc.def-123" + Environment.NewLine + "Cookie: auth-token=zzz; unique_id=1" + Environment.NewLine +
+    "Login successful, user ID: 4242, login: mortuis_v" + Environment.NewLine + "{\"access_token\": \"AAAA1111BBBB\", \"login\":\"mortuis_v\"}" + Environment.NewLine +
+    "password=hunter2 bearer XYZ.123", "SECRET-TOKEN-123456");
+Check(!dirty.Contains(homeDir, StringComparison.OrdinalIgnoreCase) && dirty.Contains("%USERPROFILE%"), "log: profile path replaced");
+Check(!dirty.Contains("76561198012345678") && !dirty.Contains("SECRET-TOKEN"), "log: Steam ID and token removed");
+Check(!dirty.Contains("abc.def-123") && !dirty.Contains("auth-token=zzz") && !dirty.Contains("AAAA1111BBBB") && !dirty.Contains("hunter2") && !dirty.Contains("XYZ.123"), "log: Bearer, cookie, access_token and password patterns removed");
+Check(!dirty.Contains("mortuis_v") && !dirty.Contains("4242") && dirty.Contains("m***"), "log: the Twitch user name and id are masked");
+
+string logRoot = Path.Combine(Path.GetTempPath(), "hh_logs_" + Guid.NewGuid().ToString("N"));
+string logCore = Path.Combine(logRoot, "core");
+string logBase = Path.Combine(logRoot, "app");
+Directory.CreateDirectory(logCore);
+Directory.CreateDirectory(logBase);
+try
+{
+    File.WriteAllText(Path.Combine(logRoot, "sentinel_stdout.log"), "out line " + homeDir + "\n");
+    // sentinel_stderr.log is missing on purpose
+    File.WriteAllText(Path.Combine(logCore, "sentinel_service.log"), "svc login: someone token SECRET-TOKEN-123456\n");
+    File.WriteAllText(Path.Combine(logCore, "sentinel_service.log.1"), "old svc\n");
+    File.WriteAllText(Path.Combine(logBase, "desktop_errors.log"), "desk\n");
+    File.WriteAllText(Path.Combine(logBase, "crash.log"), "crash\n");
+    File.WriteAllText(Path.Combine(logRoot, "config.json"), "{\"secret\":\"must never be zipped\"}");
+    File.WriteAllText(Path.Combine(logCore, "other.log"), "must never be zipped");
+    var sources = HealthExport.StandardSources(logRoot, logBase);
+    Check(sources.Select(s => s.EntryName).OrderBy(n => n, StringComparer.Ordinal).SequenceEqual(new[] { "core/sentinel_service.log", "core/sentinel_service.log.1", "crash.log", "desktop_errors.log", "sentinel_stderr.log", "sentinel_stdout.log" }), "the sources are exactly the six named files");
+    string zip = Path.Combine(logRoot, "out.zip");
+    var included = HealthExport.BuildLogZip(zip, "REPORT BODY " + homeDir, sources, "SECRET-TOKEN-123456", stamp, "9.9.9");
+    using (var archive = System.IO.Compression.ZipFile.OpenRead(zip))
+    {
+        var names = archive.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        Check(names.SequenceEqual(new[] { "README.txt", "core/sentinel_service.log", "core/sentinel_service.log.1", "crash.log", "desktop_errors.log", "report.txt", "sentinel_stdout.log" }), "zip: present files + report + README, nothing else (no config, no other log)");
+        string Read(string n) { using var r = new StreamReader(archive.GetEntry(n)!.Open()); return r.ReadToEnd(); }
+        Check(!Read("sentinel_stdout.log").Contains(homeDir, StringComparison.OrdinalIgnoreCase), "zip: copies are sanitized (profile path)");
+        Check(!Read("core/sentinel_service.log").Contains("SECRET-TOKEN") && !Read("core/sentinel_service.log").Contains("someone"), "zip: token and user name are gone from the service log");
+        Check(Read("report.txt").StartsWith("REPORT BODY") && !Read("report.txt").Contains(homeDir, StringComparison.OrdinalIgnoreCase), "zip: the report is included and sanitized");
+        string readme = Read("README.txt");
+        Check(readme.Contains("sentinel_stdout.log") && readme.Contains("core/sentinel_service.log.1") && readme.Contains("report.txt"), "README lists what was included");
+        Check(readme.Contains("sentinel_stderr.log") && readme.Contains("not found", StringComparison.OrdinalIgnoreCase), "README says which file was missing");
+        Check(readme.Contains("9.9.9"), "README carries the app version");
+    }
+    Check(included.Contains("sentinel_stdout.log") && !included.Contains("sentinel_stderr.log"), "the builder returns what it included");
+
+    // a 6 MB log is cut to its last 5 MB, from a whole line, read while another writer holds it open
+    string big = Path.Combine(logRoot, "big.log");
+    using (var writer = new FileStream(big, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < 120000; i++) sb.Append("line ").Append(i.ToString("D6")).Append(' ').Append('x', 40).Append('\n');
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        writer.Write(bytes, 0, bytes.Length);
+        writer.Flush();
+        Check(bytes.Length > 5 * 1024 * 1024, "test data is bigger than the cap");
+        string zipBig = Path.Combine(logRoot, "big.zip");
+        HealthExport.BuildLogZip(zipBig, "r", new[] { new LogSource("sentinel_stdout.log", big) }, null, stamp, "1");
+        using var archive = System.IO.Compression.ZipFile.OpenRead(zipBig);
+        using var reader = new StreamReader(archive.GetEntry("sentinel_stdout.log")!.Open());
+        string text = reader.ReadToEnd();
+        Check(Encoding.UTF8.GetByteCount(text) <= 5 * 1024 * 1024, "the entry is at most 5 MB");
+        Check(text.TrimEnd().EndsWith("line 119999 " + new string('x', 40)), "the entry ends with the last line");
+        Check(!text.Contains("line 000000") && text.StartsWith("line "), "the entry starts at a whole line, the head is cut off");
+        using var rd = new StreamReader(archive.GetEntry("README.txt")!.Open());
+        Check(rd.ReadToEnd().Contains("last 5 MB"), "README says the file was cut");
+    }
+
+    // the report file
+    string desktop = Path.Combine(logRoot, "Desktop");
+    string saved = HealthExport.SaveReport(desktop, "REPORT " + homeDir, stamp);
+    Check(Path.GetFileName(saved) == "Hell Harvest report 2026-11-25 1405.txt" && Path.GetDirectoryName(saved) == desktop, "the report is saved in the given folder under the dated name");
+    Check(!File.ReadAllText(saved).Contains(homeDir, StringComparison.OrdinalIgnoreCase) && File.ReadAllText(saved).StartsWith("REPORT"), "the saved report is sanitized again");
+    string saved2 = HealthExport.SaveReport(desktop, "second", stamp);
+    Check(saved2 != saved && File.ReadAllText(saved).StartsWith("REPORT") && Path.GetFileName(saved2).Contains("(2)"), "the same minute never overwrites an earlier file");
+}
+finally
+{
+    try { Directory.Delete(logRoot, true); } catch (Exception ex) { Console.WriteLine("cleanup: " + ex.Message); }
+}
+
+string issue = HealthExport.IssueUrl("4.2.0", "Microsoft Windows 10.0.26300");
+Check(HealthExport.IsAllowedIssueUrl(issue), "the issue link passes its own check");
+Check(issue.StartsWith("https://github.com/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title="), "the issue link points at issues/new of the project");
+var issueQuery = System.Web.HttpUtility.ParseQueryString(new Uri(issue).Query);
+Check(issueQuery["title"] == "Проблема в Hell Harvest v4.2.0", "the title is the urlencoded Russian text with the version");
+Check(issueQuery["body"]!.Contains("4.2.0") && issueQuery["body"]!.Contains("Windows 10.0.26300") && issueQuery["body"]!.Contains("Вставьте отчёт из буфера обмена"), "the body is the short template");
+Check(issue.Length < 1500 && issueQuery.AllKeys.Length == 2, "the link is short: no report inside, only title and body");
+foreach (var bad in new[]
+{
+    "http://github.com/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b",
+    "https://github.com.evil.example/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b",
+    "https://evil.example/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b",
+    "https://github.com/Other/Repo/issues/new?title=a&body=b",
+    "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/issues/new/choose?title=a&body=b",
+    "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b&assignees=x",
+    "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b#frag",
+    "https://user:pw@github.com/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b",
+    "https://github.com:444/MortuisVMain/Twitch-Drops-Sentinel/issues/new?title=a&body=b",
+    "https://github.com/MortuisVMain/Twitch-Drops-Sentinel/issues?title=a&body=b",
+    "javascript:alert(1)", "file:///C:/Windows/System32/calc.exe", "", null,
+})
+    Check(!HealthExport.IsAllowedIssueUrl(bad), "issue link refused: " + (bad ?? "null"));
+
+Check(HealthLaunch.IsHealthUri("hellharvest://health") && HealthLaunch.IsHealthUri("hellharvest://health/") && HealthLaunch.IsHealthUri("HELLHARVEST://HEALTH"), "the toast address is recognized");
+Check(!HealthLaunch.IsHealthUri("hellharvest://other") && !HealthLaunch.IsHealthUri("hellharvest://health/../x") && !HealthLaunch.IsHealthUri("https://health") && !HealthLaunch.IsHealthUri("--minimized") && !HealthLaunch.IsHealthUri(null), "any other argument is not the toast address");
+Check(HealthLaunch.FindHealthArg(new[] { "--minimized", "hellharvest://health" }) == "hellharvest://health" && HealthLaunch.FindHealthArg(new[] { "--minimized" }) == null, "the toast address is found among the arguments");
+var fake = new FakeProtocolStore();
+Check(HealthLaunch.EnsureRegistered(fake, @"C:\Apps\Hell Harvest\TwitchDropsSentinel.exe"), "the first call registers the scheme");
+Check(fake.Writes.All(w => w.Key == "hellharvest" || w.Key.StartsWith(@"hellharvest\")), "only keys under the app's own scheme are written");
+Check(fake.Values[(@"hellharvest\shell\open\command", null)] == "\"C:\\Apps\\Hell Harvest\\TwitchDropsSentinel.exe\" \"%1\"" && fake.Values.ContainsKey(("hellharvest", "URL Protocol")), "the command opens this exe with the address; URL Protocol is set");
+int writesBefore = fake.Writes.Count;
+Check(!HealthLaunch.EnsureRegistered(fake, @"C:\Apps\Hell Harvest\TwitchDropsSentinel.exe") && fake.Writes.Count == writesBefore, "the second call changes nothing");
+Check(HealthLaunch.EnsureRegistered(fake, @"D:\Moved\TwitchDropsSentinel.exe") && fake.Values[(@"hellharvest\shell\open\command", null)].Contains(@"D:\Moved"), "a moved copy takes the scheme over");
+Check(!HealthLaunch.EnsureRegistered(fake, "relative.exe") && !HealthLaunch.EnsureRegistered(fake, ""), "a path that is not absolute is never registered");
+
+
+// ---- review fixes: desktop fallback, partial zip, collisions, guard, reveal, sanitize parity, version cap ----
+Check(HealthExport.DesktopFolder(@"C:\Users\x\Desktop", @"C:\Users\x", @"C:\App") == @"C:\Users\x\Desktop", "desktop: the system folder is used when it is a real path");
+Check(HealthExport.DesktopFolder("", @"C:\Users\x", @"C:\App") == @"C:\Users\x\Desktop", "desktop: an empty system path falls back to the profile Desktop");
+Check(HealthExport.DesktopFolder(null, @"C:\Users\x", @"C:\App") == @"C:\Users\x\Desktop", "desktop: a null system path falls back to the profile Desktop");
+Check(HealthExport.DesktopFolder("relative\\dir", "", @"C:\App") == @"C:\App", "desktop: a relative path and no profile fall back to the app data folder");
+Check(Path.IsPathRooted(HealthExport.DesktopFolder("", "", @"C:\App")) && Path.IsPathRooted(HealthExport.DesktopFolder("x", "y", @"C:\App")), "desktop: the result is never relative");
+
+string rfRoot = Path.Combine(Path.GetTempPath(), "hh_rf_" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(rfRoot);
+try
+{
+    string src1 = Path.Combine(rfRoot, "a.log");
+    File.WriteAllText(src1, "x\n");
+    string partial = Path.Combine(rfRoot, "partial.zip");
+    bool threw = false;
+    try { HealthExport.BuildLogZip(partial, "r", new[] { new LogSource("a.log", src1) }, null, stamp, "1", capBytes: -1); }
+    catch (Exception) { threw = true; }
+    Check(threw && !File.Exists(partial), "a failed build rethrows and leaves no partial zip");
+    string foreign = Path.Combine(rfRoot, "foreign.zip");
+    File.WriteAllText(foreign, "not mine");
+    try { HealthExport.BuildLogZip(foreign, "r", new[] { new LogSource("a.log", src1) }, null, stamp, "1"); } catch (IOException) { }
+    Check(File.ReadAllText(foreign) == "not mine", "a name that is already taken is never deleted by the cleanup");
+
+    string zipName = HealthExport.LogsZipName(stamp);
+    File.WriteAllText(Path.Combine(rfRoot, zipName), "keep me");
+    var one = HealthExport.BuildLogZipUnique(rfRoot, zipName, "r", new[] { new LogSource("a.log", src1) }, null, stamp, "1");
+    Check(Path.GetFileName(one.Path).Contains("(2)") && File.ReadAllText(Path.Combine(rfRoot, zipName)) == "keep me", "a taken zip name moves on to (2) and the old file is untouched");
+    using (var lockedFile = new FileStream(Path.Combine(rfRoot, "Hell Harvest logs 2026-11-25 1405 (3).zip"), FileMode.Create, FileAccess.Write, FileShare.None))
+    {
+        var two = HealthExport.BuildLogZipUnique(rfRoot, zipName, "r", new[] { new LogSource("a.log", src1) }, null, stamp, "1");
+        Check(Path.GetFileName(two.Path).Contains("(4)"), "a locked file with the next name is skipped, not an error");
+    }
+    string rep1 = HealthExport.SaveReport(rfRoot, "one", stamp);
+    string rep2 = HealthExport.SaveReport(rfRoot, "two", stamp);
+    Check(rep1 != rep2 && File.ReadAllText(rep1) == "one" && File.ReadAllText(rep2) == "two", "two saved reports in the same minute are two files");
+}
+finally
+{
+    try { Directory.Delete(rfRoot, true); } catch (Exception ex) { Console.WriteLine("cleanup: " + ex.Message); }
+}
+
+var guard = new HealthExport.ExportGuard();
+var lease = guard.TryEnter("logs");
+Check(lease != null && guard.TryEnter("logs") == null, "a second click on the same action is refused while it runs");
+Check(guard.TryEnter("report") is { } other && other != null, "another action is not blocked");
+lease!.Dispose();
+Check(guard.TryEnter("logs") != null, "the action is available again after it finished");
+
+bool revealThrew = false;
+var logged = new List<string>();
+bool revealed = HealthExport.TryReveal(_ => throw new InvalidOperationException("no explorer"), @"C:\x\y.zip", ex => logged.Add(ex.Message));
+Check(!revealed && logged.Count == 1 && !revealThrew, "a reveal failure is logged and reported as false, never thrown");
+Check(HealthExport.TryReveal(_ => { }, @"C:\x\y.zip", _ => { }), "a working reveal is true");
+
+string longIssue = HealthExport.IssueUrl(new string('9', 200), "Windows");
+var longQuery = System.Web.HttpUtility.ParseQueryString(new Uri(longIssue).Query);
+Check(longQuery["title"] == "Проблема в Hell Harvest v" + new string('9', 32) && HealthExport.IsAllowedIssueUrl(longIssue), "the version in the issue link is cut to 32 characters");
+
+string hHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+string hFwd = hHome.Replace('\\', '/');
+string hJson = hHome.Replace("\\", "\\\\");
+string fixture = string.Join("\n", new[]
+{
+    "2026-11-25 10:00:00 INFO Loading config from " + hHome + @"\AppData\x",
+    "2026-11-25 10:00:01 DEBUG {\"path\": \"" + hJson + "\\\\AppData\"}",
+    "2026-11-25 10:00:02 DEBUG cwd " + hFwd + "/AppData",
+    "2026-11-25 10:00:03 INFO Notify user jane.doe@mail.example about a drop",
+    "2026-11-25 10:00:04 INFO twitch auth_token=abcDEF123456 ok",
+    "2026-11-25 10:00:05 DEBUG {\"refresh_token\": \"RRRR9999\", \"device_token\": \"DDDD7777\"}",
+    "2026-11-25 10:00:06 INFO session user_id=987654321 userId: 246810",
+    "2026-11-25 10:00:07 INFO {\"userId\": \"55512345\"}",
+    "2026-11-25 10:00:08 INFO watching https://www.twitch.tv/streamer_name now",
+    "2026-11-25 10:00:09 INFO opened https://www.twitch.tv/directory/game/Rust ok",
+    "2026-11-25 10:00:10 DEBUG {\"username\": \"some_user\", \"x\": 1}",
+    "2026-11-25 10:00:11 DEBUG steamLoginSecure=76561198012345678%7C%7CAAAABBBB; sessionid=0123456789abcdef",
+    "2026-11-25 10:00:12 INFO login: mortuis_v oauth:abcd1234efgh",
+});
+string cleaned = HealthExport.SanitizeLog(fixture, null);
+foreach (var secret in new[] { hHome, hFwd, hJson, "jane.doe", "abcDEF123456", "RRRR9999", "DDDD7777", "987654321", "246810", "55512345", "streamer_name", "some_user", "AAAABBBB", "0123456789abcdef", "abcd1234efgh", "mortuis_v", "76561198012345678" })
+    Check(cleaned.IndexOf(secret, StringComparison.OrdinalIgnoreCase) < 0, "sentinel log fixture: '" + secret + "' is gone");
+Check(cleaned.Contains("j***@mail.example") && cleaned.Contains("twitch.tv/s***") && cleaned.Contains("%USERPROFILE%"), "sentinel log fixture: email, channel name and profile are masked in place");
+Check(cleaned.Contains("twitch.tv/directory/game/Rust") && cleaned.Contains("Loading config from") && cleaned.Contains("INFO watching"), "sentinel log fixture: ordinary text and non-user twitch pages stay");
+
 Console.WriteLine(failures == 0 ? "ALL SERVICE DIAGNOSTICS CHECKS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
+
+sealed class FakeProtocolStore : IProtocolStore
+{
+    public Dictionary<(string Key, string? Name), string> Values { get; } = new();
+    public List<(string Key, string? Name)> Writes { get; } = new();
+    public string? Get(string subKey, string? name) => Values.TryGetValue((subKey, name), out var v) ? v : null;
+    public void Set(string subKey, string? name, string value) { Values[(subKey, name)] = value; Writes.Add((subKey, name)); }
+}

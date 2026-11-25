@@ -132,12 +132,17 @@ TOAST_SCRIPT = (
     "$n = $t.GetElementsByTagName('text'); "
     "$n.Item(0).InnerText = $env:SENTINEL_TOAST_TITLE; "
     "$n.Item(1).InnerText = $env:SENTINEL_TOAST_MESSAGE; "
+    "if ($env:SENTINEL_TOAST_LAUNCH) { $t.DocumentElement.SetAttribute('activationType', 'protocol'); $t.DocumentElement.SetAttribute('launch', $env:SENTINEL_TOAST_LAUNCH) }; "
     "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
     "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Hell Harvest').Show($toast);"
 )
 
 
 TOAST_TEXT_LIMIT = 256
+
+# What a click on a toast opens: the app registers this scheme for the current user at its start (desktop/HealthCenterHost.cs).
+# Only these fixed addresses can ride on a toast; callers pass the key, never an address.
+TOAST_LAUNCH_URIS = {"health": "hellharvest://health"}
 
 
 def _toast_text(value) -> str:
@@ -146,8 +151,8 @@ def _toast_text(value) -> str:
     return text[:TOAST_TEXT_LIMIT]
 
 
-def send_windows_toast(title: str, message: str):
-    """Sends a native Windows 10/11 toast via PowerShell WinRT.
+def send_windows_toast(title: str, message: str, launch: Optional[str] = None):
+    """Sends a native Windows 10/11 toast via PowerShell WinRT. launch: a key of TOAST_LAUNCH_URIS; a click on the toast then opens that address.
 
     The script is a constant: title and message come from campaign authors, so they travel in the child's
     environment and are read with $env:, never spliced into code (PowerShell also treats U+2018..U+201B as quotes).
@@ -157,6 +162,13 @@ def send_windows_toast(title: str, message: str):
     env = dict(os.environ)
     env["SENTINEL_TOAST_TITLE"] = _toast_text(title)
     env["SENTINEL_TOAST_MESSAGE"] = _toast_text(message)
+    env.pop("SENTINEL_TOAST_LAUNCH", None)
+    if launch is not None:
+        uri = TOAST_LAUNCH_URIS.get(launch)
+        if uri:
+            env["SENTINEL_TOAST_LAUNCH"] = uri
+        else:
+            logger.warning("Toast launch key %r is not known, the toast has no click action", launch)
     try:
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],

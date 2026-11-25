@@ -8532,7 +8532,7 @@ def test_service_diagnostics_feature_is_wired():
     panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
     dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "RUN_DIAGNOSTICS" in panel and "RESTART_SENTINEL" in panel and "OPEN_LOGS_FOLDER" in panel and "CLOSE_OTHER_SERVICE" in panel
-    assert "<ServiceDiagnosticsPanel" in dash and "setDiagnosticsOpen(true)" in dash, "the banner opens the panel"
+    assert "onOpenHealthCenter?.()" in dash, "the banner opens the health center"
     assert "'Проверить': 'Check'" in (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
     print("      Check button wiring: PASS [OK]")
 
@@ -8609,7 +8609,7 @@ def test_health_watch_is_wired():
     cfg = json.loads((WORKSPACE / "config.default.json").read_text(encoding="utf-8"))
     assert cfg["health_watch_enabled"] is True and cfg["health_watch_hours"] == 1
     app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "healthWatchDot(sentinelState.health_watch)" in app and 'className="more-dot"' in app and 'className="more-count"' in app
+    assert "healthButtonView(sentinelState.health_watch)" in app and 'className="health-badge"' in app, "the state moved from the menu button to the header health button"
     assert "<HealthWatchCard" in (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     assert "'Следить за работой в фоне'" in (WORKSPACE / "src" / "i18n" / "en" / "settings.ts").read_text(encoding="utf-8")
     node = shutil.which("node")
@@ -8618,6 +8618,56 @@ def test_health_watch_is_wired():
                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         assert res.returncode == 0, f"health watch UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
     print("      Health watch wiring: PASS [OK]")
+
+
+def test_health_center_is_wired():
+    print("[health center] Health center: header button, sections, history, exports, toast click, hotkey, translations...")
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    parts = (WORKSPACE / "src" / "components" / "HealthCenterParts.tsx").read_text(encoding="utf-8")
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert 'id="healthCenterBtn"' in app and "healthButtonView(sentinelState.health_watch)" in app and 'className="health-badge"' in app, "the header button carries the state and the failure badge"
+    assert "healthBtn.label" in app and "healthBtn.title" in app, "aria-label and title describe the state"
+    assert 'className="header-more-wrap pip-hide"' in app and "pip-hide health-btn" in app, "hidden in PIP mode like the other header buttons"
+    more = app.split('id="moreMenuBtn"', 1)[1].split('role="menu"', 1)[0]
+    assert "more-dot" not in more and "Проверка работы" not in app.split('role="menu"', 1)[1].split("</div>", 1)[0], "the dot and the menu item left the more menu"
+    assert "isHealthHotkey(e)" in app and "isOpenCenterMessage(msg)" in app and "type: 'APP_READY'" in app, "hotkey, host open message, ready signal"
+    assert "id: 'open-health'" in app and "title: 'Центр проверки'" in app, "command palette entry"
+    assert "onOpenHealthCenter" in dash and "<ServiceDiagnosticsPanel" not in dash, "the banner button opens the app-wide center"
+    assert 'role="tablist"' in panel and 'role="tab"' in panel and 'role="tabpanel"' in panel and "nextSection(section, e.key)" in panel, "keyboard accessible sections"
+    for section in ("SummarySection", "DeveloperSection", "MaintenanceSection"):
+        assert section in parts and f"<{section}" in panel, f"{section} is drawn by the center"
+    for message in ("SAVE_HEALTH_REPORT", "COLLECT_HEALTH_LOGS", "REPORT_HEALTH_PROBLEM"):
+        assert message in panel, f"the page asks for {message}"
+    assert "<HealthWatchCard" in panel and "/api/v1/health/history" in panel, "the watch switch is reused, the history is fetched"
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    prog = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    host = (WORKSPACE / "desktop" / "HealthCenterHost.cs").read_text(encoding="utf-8")
+    for message in ('type == "APP_READY"', 'type == "SAVE_HEALTH_REPORT"', 'type == "COLLECT_HEALTH_LOGS"', 'type == "REPORT_HEALTH_PROBLEM"'):
+        assert message in form, f"the host handles {message}"
+    assert "Task.Run(" in form.split("private void RunHealthExportAsync", 1)[1][:400], "exports run off the UI thread"
+    nav = form.split("private void OnNavigationStarting", 1)[1].split("private void ", 1)[0]
+    assert nav.count("_pageReady = false;") == 2, "a reload makes the page not ready again, so a toast click waits for APP_READY"
+    export = form.split("private void RunHealthExportAsync", 1)[1].split("private void PostToPage", 1)[0]
+    assert "HealthExport.DesktopFolder(" in export and "BuildLogZipUnique(" in export and "_exportGuard.TryEnter(" in export, "safe Desktop, collision-proof names, one run per action"
+    assert "HealthExport.TryReveal(" in export and "UniquePath" not in export, "a reveal failure does not fail the export"
+    assert "HealthExport.IsAllowedIssueUrl(url)" in form and "OPEN_HEALTH_CENTER" in form and "WM_SENTINEL_HEALTH" in form, "issue link checked before opening; toast activation reaches the page"
+    assert "HealthLaunch.EnsureRegistered(new CurrentUserProtocolStore()" in prog and "PostMessage(HWND_BROADCAST, WM_SENTINEL_HEALTH" in prog, "the scheme is registered by the app (HKCU) and a second start hands the click over"
+    assert "Registry.CurrentUser" in host and "LocalMachine" not in host and "ClassesRoot" not in host, "only the current user's registry is touched"
+    assert "HealthCenterHost.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/v1/health/history", self.handle_get_health_history)' in service and "history=self.health_history" in service
+    assert 'launch="health"' in service, "the problem toast opens the center"
+    gui = (WORKSPACE / "core" / "gui_headless.py").read_text(encoding="utf-8")
+    assert 'TOAST_LAUNCH_URIS = {"health": "hellharvest://health"}' in gui and "SENTINEL_TOAST_LAUNCH" in gui, "only a fixed address can ride on a toast"
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Центр проверки': 'Health center'" in en and "'Собрать логи': 'Collect logs'" in en
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "health_center.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"health center UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Health center wiring: PASS [OK]")
 
 
 def test_installer_script_keeps_its_promises():
@@ -8834,6 +8884,7 @@ if __name__ == "__main__":
         test_health_check_is_wired,
         test_health_fixes_are_wired,
         test_health_watch_is_wired,
+        test_health_center_is_wired,
         test_installer_script_keeps_its_promises,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.

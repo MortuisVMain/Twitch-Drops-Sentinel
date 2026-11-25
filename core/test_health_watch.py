@@ -156,13 +156,13 @@ def test_a_new_fail_notifies_with_the_row_title_and_where_to_look(tmp_path):
     rig = Rig(tmp_path, rows=[r("system_disk", "fail", "Свободное место на диске"), r("system_logs", "ok")])
     rig.tick(rig.clock.now + FIRST_RUN_SECONDS)
     assert len(rig.toasts) == 1
-    assert "Свободное место на диске" in rig.toasts[0][1] and "Откройте «Проверка работы»" in rig.toasts[0][1]
+    assert "Свободное место на диске" in rig.toasts[0][1] and "Откройте «Центр проверки»" in rig.toasts[0][1]
 
 
 def test_english_texts_follow_the_app_language(tmp_path):
     rig = Rig(tmp_path, rows=[r("system_disk", "fail", "Free disk space")], lang="en")
     rig.tick(rig.clock.now + FIRST_RUN_SECONDS)
-    assert "Free disk space" in rig.toasts[0][1] and "Health check" in rig.toasts[0][1]
+    assert "Free disk space" in rig.toasts[0][1] and "Health center" in rig.toasts[0][1]
 
 
 def test_the_same_fail_is_not_announced_twice(tmp_path):
@@ -215,7 +215,7 @@ def test_problem_count_is_fail_plus_warn_of_the_last_run(tmp_path):
     rig = Rig(tmp_path, rows=[r("a", "fail"), r("b", "warn"), r("c", "ok")])
     first = rig.clock.now + FIRST_RUN_SECONDS
     rig.tick(first)
-    assert rig.watch.state() == {"enabled": True, "hours": 1, "problems": 2, "lastRun": first}
+    assert rig.watch.state() == {"enabled": True, "hours": 1, "problems": 2, "fails": 1, "lastRun": first, "lastManual": None}
     rig.rows = [r("a", "ok")]
     rig.tick(first + HOUR)
     assert rig.watch.state()["problems"] == 0

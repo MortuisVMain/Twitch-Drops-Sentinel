@@ -8,6 +8,8 @@ const POWER_VERB: Record<string, string> = {
 };
 
 export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]> = [
+  [/^Центр проверки: проблем (\d+)$/, 'Health center: $1 problems'],
+  [/^Центр проверки: найдено проблем (\d+) \(Ctrl\+Shift\+H\)$/, 'Health center: $1 problems found (Ctrl+Shift+H)'],
   [/^Когда очередь закончится, ПК (.+)$/, (verb) => `When the queue ends, the PC ${POWER_VERB[verb] ?? verb}`],
   [/^Активирована тема: (.+)$/, 'Theme activated: $1'],
   [/^Не сохранено: (.+)$/, 'Not saved: $1'],

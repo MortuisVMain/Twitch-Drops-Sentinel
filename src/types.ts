@@ -194,7 +194,7 @@ export interface FullSentinelState {
   hardware: HardwareGuard;
   stats: SentinelStats;
   settings: SentinelSettings;
-  health_watch?: { enabled: boolean; hours: number; problems: number; lastRun: number | null }; // problems = fail + warn of the last background or manual check
+  health_watch?: { enabled: boolean; hours: number; problems: number; fails?: number; lastRun: number | null; lastManual?: number | null }; // problems = fail + warn of the last background or manual check
   reward_campaigns?: RewardCampaign[]; // empty while the setting is off
   reward_watching?: { id: string; name: string } | null; // the reward campaign being watched right now
   slot_minutes_today?: number; // minutes the daily reward slot took today (UTC), before drops

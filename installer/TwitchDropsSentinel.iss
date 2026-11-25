@@ -147,6 +147,10 @@ Type: files; Name: "{app}\*.log"
 Type: files; Name: "{app}\*.log.old"
 Type: files; Name: "{app}\core\sentinel_service.log*"
 
+[Registry]
+; The app registers hellharvest:// for the current user when it starts (a click on its problem toast opens the health center); remove it with the app.
+Root: HKCU; Subkey: "Software\Classes\hellharvest"; ValueType: none; Flags: uninsdeletekey
+
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';

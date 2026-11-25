@@ -621,10 +621,14 @@ namespace TwitchDropsSentinel
 
 
         private readonly bool _startMinimized;
+        private volatile string _lastDiagnosticsReport = ""; // the sanitized report of the newest check: the "For developer" actions write this one
+        private volatile bool _pageReady;                    // the page has told it listens (APP_READY)
+        private volatile bool _pendingOpenHealth;            // a toast click arrived before the page was ready
+        private readonly HealthExport.ExportGuard _exportGuard = new(); // one run per "For developer" action at a time
 
 
 
-        public MainForm(bool startMinimized = false)
+        public MainForm(bool startMinimized = false, bool openHealthCenter = false)
 
         {
 
@@ -634,6 +638,7 @@ namespace TwitchDropsSentinel
                 ex => LogDesktopError("запись яркости монитора", ex));
 
             _startMinimized = startMinimized;
+            _pendingOpenHealth = openHealthCenter;
 
             Text = "Hell Harvest";
 
@@ -1648,9 +1653,10 @@ namespace TwitchDropsSentinel
             if (_allowInlineNavigation && e.Uri.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
             {
                 _allowInlineNavigation = false;
+                _pageReady = false; // the page is about to reload: it says APP_READY again when it listens
                 return;
             }
-            if (AppOriginPolicy.IsAppUri(e.Uri)) return;
+            if (AppOriginPolicy.IsAppUri(e.Uri)) { _pageReady = false; return; }
             e.Cancel = true;
             try
             {
@@ -1846,6 +1852,14 @@ namespace TwitchDropsSentinel
                 {
                     // the service's address is checked again here: only https on twitch.tv, otherwise the usual sign-in page
                     OpenExternalLink(TwitchActivatePolicy.Resolve(root.TryGetProperty("uri", out var activateProp) && activateProp.ValueKind == JsonValueKind.String ? activateProp.GetString() : null), "twitch activate");
+                }
+                else if (type == "APP_READY")
+                {
+                    OnPageReady();
+                }
+                else if (type == "SAVE_HEALTH_REPORT" || type == "COLLECT_HEALTH_LOGS" || type == "REPORT_HEALTH_PROBLEM")
+                {
+                    RunHealthExportAsync(type == "SAVE_HEALTH_REPORT" ? "report" : type == "COLLECT_HEALTH_LOGS" ? "logs" : "issue");
                 }
                 else if (type == "OPEN_LOGS_FOLDER")
                 {
@@ -3040,6 +3054,13 @@ else
 
 
 
+            if (Program.WM_SENTINEL_HEALTH != 0 && m.Msg == (int)Program.WM_SENTINEL_HEALTH)
+            {
+                RestoreFromTray();
+                PostOpenHealthCenter();
+                return;
+            }
+
             if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
 
             {
@@ -3957,6 +3978,7 @@ else
                         var checks = result.Checks.Append(new DiagnosticCheck("close", "fail", ru ? "Закрытие чужой службы" : "Closing the other service", closeNote, "")).ToList();
                         result = new DiagnosticsResult(checks, ServiceDiagnostics.BuildReport(checks, version, LocalApiToken.Current));
                     }
+                    _lastDiagnosticsReport = result.Report;
                     json = ServiceDiagnostics.ToJson(result, LocalApiToken.Current);
                 }
                 catch (Exception ex)
@@ -4011,6 +4033,98 @@ else
                 RunDiagnosticsAsync(null);
             });
         }
+
+        private void PostOpenHealthCenter()
+        {
+            if (_pageReady) PostToPage("{\"type\":\"OPEN_HEALTH_CENTER\"}", "open health center");
+            else _pendingOpenHealth = true;
+        }
+
+        private void OnPageReady()
+        {
+            _pageReady = true;
+            if (!_pendingOpenHealth) return;
+            _pendingOpenHealth = false;
+            PostToPage("{\"type\":\"OPEN_HEALTH_CENTER\"}", "open health center");
+        }
+
+        private void PostExportResult(string kind, bool ok, string message) =>
+            PostToPage(JsonSerializer.Serialize(new { type = "HEALTH_EXPORT_RESULT", kind, ok, message = ServiceDiagnostics.Sanitize(message, LocalApiToken.Current) }), "health export result");
+
+        /// <summary>
+        /// The "For developer" actions of the health center, off the UI thread: the report as a file on the Desktop, the sanitized logs ZIP on the Desktop, or the
+        /// clipboard plus the project new-issue page. Answers HEALTH_EXPORT_RESULT. The page sends only the kind; every name, folder and address is decided here.
+        /// </summary>
+        private void RunHealthExportAsync(string kind)
+        {
+            var lease = _exportGuard.TryEnter(kind);
+            if (lease == null) return; // the same action is still running: a double click does nothing
+            Task.Run(() =>
+            {
+                using var held = lease;
+                bool ru = true;
+                try
+                {
+                    var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                    ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+                    string version = StartConflict.ReadVersion(backend.ProjectRoot) ?? "unknown";
+                    string report = _lastDiagnosticsReport;
+                    string? token = LocalApiToken.Current;
+                    DateTime now = DateTime.Now;
+                    string desktop = HealthExport.DesktopFolder(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TwitchDropsSentinel"));
+                    if (kind == "logs")
+                    {
+                        var sources = HealthExport.StandardSources(backend.ProjectRoot, AppDomain.CurrentDomain.BaseDirectory);
+                        var built = HealthExport.BuildLogZipUnique(desktop, HealthExport.LogsZipName(now), report.Length > 0 ? report : "(no report yet)", sources, token, now, version);
+                        string zip = built.Path;
+                        var included = built.Included;
+                        RevealInExplorer(zip);
+                        PostExportResult(kind, true, (ru ? "Логи собраны на рабочем столе: " : "Logs collected on the Desktop: ") + Path.GetFileName(zip) + " (" + included.Count + (ru ? " файлов)" : " files)"));
+                    }
+                    else if (report.Length == 0)
+                    {
+                        PostExportResult(kind, false, ru ? "Отчёта ещё нет: дождитесь конца проверки." : "There is no report yet: wait for the check to finish.");
+                    }
+                    else if (kind == "report")
+                    {
+                        string file = HealthExport.SaveReport(desktop, report, now, token);
+                        RevealInExplorer(file);
+                        PostExportResult(kind, true, (ru ? "Отчёт сохранён на рабочем столе: " : "Report saved on the Desktop: ") + Path.GetFileName(file));
+                    }
+                    else
+                    {
+                        bool copied = (bool)Invoke(new Func<bool>(() =>
+                        {
+                            try { Clipboard.SetDataObject(report, true, 5, 100); return true; }
+                            catch (System.Runtime.InteropServices.ExternalException ex) { LogDesktopError("report problem: clipboard", ex); return false; }
+                        }));
+                        string url = HealthExport.IssueUrl(version, System.Runtime.InteropServices.RuntimeInformation.OSDescription + " (" + Environment.OSVersion.Version + ")");
+                        if (!copied)
+                            PostExportResult(kind, false, ru ? "Не удалось скопировать отчёт в буфер обмена." : "The report could not be copied to the clipboard.");
+                        else if (!HealthExport.IsAllowedIssueUrl(url))
+                            PostExportResult(kind, false, ru ? "Адрес страницы обращения не прошёл проверку." : "The issue page address did not pass the check.");
+                        else
+                        {
+                            OpenExternalLink(url, "report problem");
+                            PostExportResult(kind, true, ru ? "Отчёт скопирован. Вставьте его в обращение на открывшейся странице GitHub." : "The report is copied. Paste it into the issue on the GitHub page that opened.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDesktopError("health export (" + kind + ")", ex);
+                    PostExportResult(kind, false, (ru ? "Не получилось: " : "Failed: ") + ex.Message);
+                }
+            });
+        }
+
+        /// <summary>Selects the file in Explorer. A failure is only logged: the file is written, the export did not fail.</summary>
+        private static void RevealInExplorer(string path) =>
+            HealthExport.TryReveal(p =>
+            {
+                using var explorer = Process.Start(new ProcessStartInfo("explorer.exe") { Arguments = "/select,\"" + p + "\"", UseShellExecute = false });
+            }, path, ex => LogDesktopError("reveal in Explorer", ex));
 
         private void PostToPage(string json, string what)
         {

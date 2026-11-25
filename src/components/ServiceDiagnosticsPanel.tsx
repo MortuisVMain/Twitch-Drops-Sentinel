@@ -1,14 +1,23 @@
-import { AlertTriangle, Check, ClipboardCopy, FolderOpen, Loader2, RefreshCw, RotateCcw, Stethoscope, Wrench, X } from 'lucide-react';
+import { Loader2, Stethoscope, Wrench, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
+import type { SentinelSettings } from '../types';
 import {
-  controlsBusy, countProblems, groupChecks, hostAvailable, noticeFor, noticeOrphan, overallStatus, parseDiagnosticsMessage, parseFixResult, planFix, restartOffered, statusView,
-  type CheckArea, type DiagnosticCheck, type DiagnosticFix, type FixResult,
+  controlsBusy, countProblems, groupChecks, hostAvailable, noticeFor, noticeOrphan, overallStatus, parseDiagnosticsMessage, parseFixResult, planFix,
+  type DiagnosticCheck, type DiagnosticFix, type FixResult,
 } from '../utils/serviceDiagnostics.mjs';
+import { SECTIONS, lastCheckTime, nextSection, parseExportResult, parseHistory } from '../utils/healthCenter.mjs';
+import { HealthWatchCard } from './HealthWatchCard';
+import { AREA_TITLE, DeveloperSection, FixNotice, MaintenanceSection, StatusIcon, SummarySection, type HealthEvent } from './HealthCenterParts';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  /** The service's health_watch state: the time of the last background or manual check. */
+  watch?: { lastRun: number | null; lastManual?: number | null };
+  settings?: SentinelSettings;
+  onUpdateSettings?: (patch: Partial<SentinelSettings>) => void;
+  playClick?: () => void;
 }
 
 type Webview = {
@@ -19,15 +28,10 @@ type Webview = {
 
 const getWebview = (): Webview | undefined => (hostAvailable(window) ? ((window as any).chrome.webview as Webview) : undefined);
 
-const AREA_TITLE: Record<CheckArea, string> = {
-  service: 'Служба', twitch: 'Twitch', steam: 'Steam', giveaways: 'Раздачи', network: 'Сеть', updates: 'Обновления', settings: 'Настройки', system: 'Система',
-};
-
-const TONE_COLOR = { ok: 'var(--led-mint)', warn: 'var(--led-amber)', fail: 'var(--led-rose)' } as const;
-
 const OPENED_AND_COPIED = 'Страница входа открыта, код скопирован: вставьте его на странице.';
 const OPENED_NOT_COPIED = 'Страница входа открыта, но код скопировать не удалось: введите его вручную.';
 const OPENED_NO_CODE = 'Страница входа открыта.';
+const HISTORY_URL = 'http://127.0.0.1:28492/api/v1/health/history';
 
 // The report goes to the clipboard: the browser API, then a hidden textarea, then the host (the service is down, so it cannot copy)
 async function copyReport(text: string): Promise<boolean> {
@@ -58,30 +62,13 @@ async function copyReport(text: string): Promise<boolean> {
   return false;
 }
 
-// What a fix said, under the row that offered it (or on its own when the fix made the row go away); a restart is offered when the fix needs one
-const FixNotice: React.FC<{ notice: FixResult; onRestart: () => void }> = ({ notice, onRestart }) => (
-  <div role={notice.ok ? 'status' : 'alert'} className="mt-1.5 whitespace-pre-wrap break-words" style={{ color: notice.ok ? 'var(--led-mint)' : 'var(--led-rose)', fontSize: 'var(--fs-xs)' }}>
-    {notice.message}
-    {restartOffered(notice) && (
-      <div>
-        <button className="tactile-btn mt-1.5" onClick={onRestart}>
-          <RotateCcw className="ui-icon" aria-hidden="true" focusable="false" /> Перезапустить приложение
-        </button>
-      </div>
-    )}
-  </div>
-);
-
-const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
-  const { icon, tone } = statusView(status);
-  const Icon = icon === 'check' ? Check : icon === 'alert' ? AlertTriangle : X;
-  return <Icon className="ui-icon shrink-0" style={{ color: TONE_COLOR[tone] }} aria-hidden="true" focusable="false" />;
-};
-
-// "Проверить" on the dashboard banner: the page cannot ask a service that is down, so the app shell (MainForm.cs) does the diagnosis
-export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) => {
+// The health center: opened from the header button, Ctrl+Shift+H, the command palette, the dashboard banner and a click on the problem toast.
+// The page cannot ask a service that is down, so the app shell (MainForm.cs) does the diagnosis and the file work.
+export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose, watch, settings, onUpdateSettings, playClick }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus(isOpen, dialogRef, onClose);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [section, setSection] = useState<string>('summary');
   const [running, setRunning] = useState(false);
   const [checks, setChecks] = useState<DiagnosticCheck[]>([]);
   const [report, setReport] = useState('');
@@ -89,6 +76,10 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
   const [copied, setCopied] = useState(false);
   const [fixing, setFixing] = useState<string | null>(null);
   const [notice, setNotice] = useState<FixResult | null>(null);
+  const [events, setEvents] = useState<HealthEvent[]>([]);
+  const [localCheck, setLocalCheck] = useState<number | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<{ kind: string; ok: boolean; message: string } | null>(null);
   const hasHost = hostAvailable(window);
 
   const run = useCallback(() => {
@@ -100,14 +91,31 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
     wv.postMessage({ type: 'RUN_DIAGNOSTICS' });
   }, []);
 
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetch(HISTORY_URL);
+      if (res.ok) setEvents(parseHistory(await res.json()));
+    } catch (err) {
+      console.warn('ServiceDiagnosticsPanel: the history is unavailable (the service may be down)', err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOpen) return;
+    setSection('summary');
+    setExportResult(null);
     const wv = getWebview();
     if (!wv) return;
     const onMessage = (e: MessageEvent) => {
       let data: unknown = e.data;
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch { return; }
+      }
+      const exported = parseExportResult(data);
+      if (exported) {
+        setExportResult(exported);
+        setExporting(null);
+        return;
       }
       const fixResult = parseFixResult(data);
       if (fixResult) {
@@ -121,11 +129,13 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
       setReport(result.report);
       setError(result.error);
       setRunning(false);
+      setLocalCheck(Math.floor(Date.now() / 1000));
+      void loadHistory();
     };
     wv.addEventListener('message', onMessage);
     run();
     return () => wv.removeEventListener('message', onMessage);
-  }, [isOpen, run]);
+  }, [isOpen, run, loadHistory]);
 
   useEffect(() => {
     if (!copied) return;
@@ -138,6 +148,8 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
   const counts = countProblems(checks);
   const post = (m: unknown) => getWebview()?.postMessage(m);
   const busy = controlsBusy(running, fixing);
+  const lastCheck = Math.max(lastCheckTime(watch) ?? 0, localCheck ?? 0) || null;
+  const windowReset = checks.find((c) => c.fix?.id === 'webview_reset')?.fix ?? null;
 
   const startFix = (fix: DiagnosticFix) => {
     const plan = planFix(fix, busy);
@@ -156,17 +168,43 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
     setError(null);
   };
 
+  const startExport = (type: 'SAVE_HEALTH_REPORT' | 'COLLECT_HEALTH_LOGS' | 'REPORT_HEALTH_PROBLEM') => {
+    setExportResult(null);
+    setExporting(type === 'SAVE_HEALTH_REPORT' ? 'report' : type === 'COLLECT_HEALTH_LOGS' ? 'logs' : 'issue');
+    post({ type });
+  };
+
+  const onTabKey = (e: React.KeyboardEvent) => {
+    const next = nextSection(section, e.key);
+    if (!next) return;
+    e.preventDefault();
+    setSection(next);
+    tabRefs.current[next]?.focus();
+  };
+
+  const restart = () => post({ type: 'RESTART_SENTINEL' });
+
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3" onClick={onClose}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="diag-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}
-        className="w-[min(720px,94vw)] max-h-[90vh] outline-none flex flex-col overflow-hidden rounded-2xl border border-(--border-subtle) bg-(--bg-chassis-base)">
+        className="w-[min(720px,94vw)] h-[min(640px,90vh)] outline-none flex flex-col overflow-hidden rounded-2xl border border-(--border-subtle) bg-(--bg-chassis-base)">
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-(--border-subtle)">
           <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" />
-          <h2 id="diag-title" className="flex-1" style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>Проверка работы</h2>
+          <h2 id="diag-title" className="flex-1" style={{ fontSize: 'var(--fs-md)', fontWeight: 600 }}>Центр проверки</h2>
           <button className="tactile-btn" onClick={onClose} aria-label="Закрыть"><X className="ui-icon" aria-hidden="true" focusable="false" /></button>
         </div>
 
-        <div className="overflow-y-auto px-4 py-3 flex flex-col gap-2.5" aria-live="polite">
+        <div role="tablist" aria-label="Разделы центра проверки" className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-(--border-subtle)" onKeyDown={onTabKey}>
+          {SECTIONS.map((s) => (
+            <button key={s.id} role="tab" id={`health-tab-${s.id}`} aria-selected={section === s.id} aria-controls={`health-panel-${s.id}`}
+              tabIndex={section === s.id ? 0 : -1} ref={(el) => { tabRefs.current[s.id] = el; }}
+              className={`tactile-btn ${section === s.id ? 'active-mint' : ''}`} onClick={() => setSection(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div role="tabpanel" id={`health-panel-${section}`} aria-labelledby={`health-tab-${section}`} className="overflow-y-auto px-4 py-3 flex flex-col gap-2.5 flex-1" aria-live="polite">
           {!hasHost && (
             <p style={{ color: 'var(--text-secondary)' }}>Проверка работает только в приложении Hell Harvest: в браузере у страницы нет доступа к системе.</p>
           )}
@@ -176,61 +214,59 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose }) =>
             </div>
           )}
           {error && <p role="alert" style={{ color: 'var(--led-rose)' }}>Проверка не удалась: {error}</p>}
-          {notice && noticeOrphan(checks, notice) && <FixNotice notice={notice} onRestart={() => post({ type: 'RESTART_SENTINEL' })} />}
-          {hasHost && !running && checks.length > 0 && (
-            <p style={{ color: TONE_COLOR[overall] }}>
-              {overall === 'ok' ? 'Всё в порядке.' : overall === 'warn' ? 'Есть предупреждения.' : 'Найдены проблемы.'}
-              {counts.fail > 0 && <> Проблем: {counts.fail}.</>}
-              {counts.warn > 0 && <> Предупреждений: {counts.warn}.</>}
-            </p>
+          {notice && (section !== 'checks' || noticeOrphan(checks, notice)) && <FixNotice notice={notice} onRestart={restart} />}
+
+          {section === 'summary' && (
+            <SummarySection hasHost={hasHost} running={running} hasChecks={checks.length > 0} overall={overall} counts={counts} lastCheck={lastCheck}
+              busy={busy} events={events} onRun={run} />
           )}
-          {groupChecks(checks).map((group) => (
+
+          {section === 'checks' && groupChecks(checks).map((group) => (
             <section key={group.area} className="flex flex-col gap-2" aria-labelledby={`diag-area-${group.area}`}>
               <h3 id={`diag-area-${group.area}`} style={{ color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{AREA_TITLE[group.area]}</h3>
-          {group.checks.map((c) => (
-            <div key={c.id} className="flex gap-2.5 rounded-lg border border-(--border-subtle) p-2.5">
-              <StatusIcon status={c.status} />
-              <div className="min-w-0 flex-1">
-                <strong style={{ color: 'var(--text-primary)' }}>{c.title}</strong>
-                {c.detail && <div className="whitespace-pre-wrap break-words" style={{ color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)' }}>{c.detail}</div>}
-                {c.advice && c.status !== 'ok' && <div className="whitespace-pre-wrap break-words mt-1" style={{ color: 'var(--text-primary)', fontSize: 'var(--fs-xs)' }}>{c.advice}</div>}
-                {c.action === 'close_other' && c.pid != null && (
-                  <button className="tactile-btn mt-1.5" disabled={busy}
-                    onClick={() => { setRunning(true); post({ type: 'CLOSE_OTHER_SERVICE', pid: c.pid }); }}>
-                    <X className="ui-icon" aria-hidden="true" focusable="false" /> Закрыть старую копию
-                  </button>
-                )}
-                {c.fix && planFix(c.fix, false) && (
-                  <button className="tactile-btn mt-1.5" disabled={busy} onClick={() => startFix(c.fix!)}>
-                    {fixing === c.fix.id
-                      ? <Loader2 className="ui-icon animate-spin" aria-hidden="true" focusable="false" />
-                      : <Wrench className="ui-icon" aria-hidden="true" focusable="false" />} {c.fix.label}
-                  </button>
-                )}
-                {notice && noticeFor(c, notice) && <FixNotice notice={notice} onRestart={() => post({ type: 'RESTART_SENTINEL' })} />}
-              </div>
-            </div>
-          ))}
+              {group.checks.map((c) => (
+                <div key={c.id} className="flex gap-2.5 rounded-lg border border-(--border-subtle) p-2.5">
+                  <StatusIcon status={c.status} />
+                  <div className="min-w-0 flex-1">
+                    <strong style={{ color: 'var(--text-primary)' }}>{c.title}</strong>
+                    {c.detail && <div className="whitespace-pre-wrap break-words" style={{ color: 'var(--text-secondary)', fontSize: 'var(--fs-xs)' }}>{c.detail}</div>}
+                    {c.advice && c.status !== 'ok' && <div className="whitespace-pre-wrap break-words mt-1" style={{ color: 'var(--text-primary)', fontSize: 'var(--fs-xs)' }}>{c.advice}</div>}
+                    {c.action === 'close_other' && c.pid != null && (
+                      <button className="tactile-btn mt-1.5" disabled={busy}
+                        onClick={() => { setRunning(true); post({ type: 'CLOSE_OTHER_SERVICE', pid: c.pid }); }}>
+                        <X className="ui-icon" aria-hidden="true" focusable="false" /> Закрыть старую копию
+                      </button>
+                    )}
+                    {c.fix && planFix(c.fix, false) && (
+                      <button className="tactile-btn mt-1.5" disabled={busy} onClick={() => startFix(c.fix!)}>
+                        {fixing === c.fix.id
+                          ? <Loader2 className="ui-icon animate-spin" aria-hidden="true" focusable="false" />
+                          : <Wrench className="ui-icon" aria-hidden="true" focusable="false" />} {c.fix.label}
+                      </button>
+                    )}
+                    {notice && noticeFor(c, notice) && <FixNotice notice={notice} onRestart={restart} />}
+                  </div>
+                </div>
+              ))}
             </section>
           ))}
-        </div>
+          {section === 'checks' && hasHost && !running && checks.length === 0 && !error && (
+            <p style={{ color: 'var(--text-secondary)' }}>Проверок ещё не было.</p>
+          )}
 
-        {hasHost && (
-          <div className="flex flex-wrap gap-2 px-4 py-3 border-t border-(--border-subtle)">
-            <button className="tactile-btn active-mint" onClick={() => post({ type: 'RESTART_SENTINEL' })}>
-              <RotateCcw className="ui-icon" aria-hidden="true" focusable="false" /> Перезапустить сервис
-            </button>
-            <button className="tactile-btn" onClick={() => post({ type: 'OPEN_LOGS_FOLDER' })}>
-              <FolderOpen className="ui-icon" aria-hidden="true" focusable="false" /> Открыть папку логов
-            </button>
-            <button className="tactile-btn" disabled={!report} onClick={async () => setCopied(await copyReport(report))}>
-              <ClipboardCopy className="ui-icon" aria-hidden="true" focusable="false" /> {copied ? 'Скопировано' : 'Скопировать отчёт'}
-            </button>
-            <button className="tactile-btn" disabled={busy} onClick={run}>
-              <RefreshCw className="ui-icon" aria-hidden="true" focusable="false" /> Проверить снова
-            </button>
-          </div>
-        )}
+          {section === 'developer' && hasHost && (
+            <DeveloperSection report={report} exporting={exporting} copied={copied} result={exportResult}
+              onCopy={async () => setCopied(await copyReport(report))} onExport={startExport} />
+          )}
+
+          {section === 'maintenance' && hasHost && (
+            <MaintenanceSection busy={busy} canResetWindow={Boolean(windowReset && planFix(windowReset, false))} onRestart={restart}
+              onOpenLogs={() => post({ type: 'OPEN_LOGS_FOLDER' })} onResetWindow={() => windowReset && startFix(windowReset)}
+              watchCard={settings && onUpdateSettings
+                ? <HealthWatchCard settings={settings} onChange={onUpdateSettings} playClick={playClick ?? (() => {})} />
+                : null} />
+          )}
+        </div>
       </div>
     </div>
   );

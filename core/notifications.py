@@ -19,12 +19,12 @@ MAX_REMEMBERED = 2000
 MAX_TOASTS_PER_BATCH = 3
 
 
-def _default_sender(title: str, message: str) -> None:
+def _default_sender(title: str, message: str, launch: Optional[str] = None) -> None:
     from constants import TEST_MODE
     if TEST_MODE:
         return
     from gui_headless import send_windows_toast
-    send_windows_toast(title, message)
+    send_windows_toast(title, message, launch)
 
 
 class ToastGate:
@@ -79,9 +79,10 @@ class ToastGate:
         except OSError as exc:
             logger.warning("Could not save toast memory %s: %s", self._store_path, exc, exc_info=True)
 
-    def notify(self, kind: str, key: str, title: str, message: str) -> bool:
+    def notify(self, kind: str, key: str, title: str, message: str, launch: Optional[str] = None) -> bool:
         """One toast per (kind, key). Remembered even while toasts are off, so switching them on later
-        does not replay old events. Returns True when a toast was actually sent."""
+        does not replay old events. launch: a key of gui_headless.TOAST_LAUNCH_URIS, what a click on the toast opens.
+        Returns True when a toast was actually sent."""
         token = f"{kind}:{key}"
         with self._lock:
             if token in self._seen:
@@ -91,7 +92,10 @@ class ToastGate:
         self._tell_listeners(title, message)
         if not self._enabled():
             return False
-        self._sender(title, message)
+        if launch is None:
+            self._sender(title, message)
+        else:
+            self._sender(title, message, launch)
         return True
 
     def notify_new(
