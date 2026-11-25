@@ -96,12 +96,14 @@ class AchievementQueue:
                  uniform: Callable[[float, float], float], guard: Callable[[], str | None] | None = None,
                  on_command: Callable[[], None] = lambda: None, classify: Callable[[int], str] | None = None,
                  on_finished: Callable[[int, str | None, int], None] | None = None,
-                 on_written: Callable[[int], None] | None = None):
+                 on_written: Callable[[int], None] | None = None,
+                 on_unlocked: Callable[[int, str, int], None] | None = None):
         """`classify(app_id)` returns "protected", "clear" or "unknown" (blocking); only "clear" opens a game.
         None skips the check and is meant for tests of the queue alone.
         `on_finished(app_id, note, unlocked_total)` is called in the step thread whenever a game is done with;
-        `on_written(unlocked_total)`, also there, after every write batch that changed the account."""
-        self._on_finished, self._on_written = on_finished, on_written
+        `on_written(unlocked_total)`, also there, after every write batch that changed the account;
+        `on_unlocked(app_id, name, count)` after every batch that unlocked something."""
+        self._on_finished, self._on_written, self._on_unlocked = on_finished, on_written, on_unlocked
         self._read, self._unlock, self._clock, self._uniform, self._guard = read_achievements, unlock, clock, uniform, guard
         self._classify = classify
         self._wake = on_command  # called after every command; must be safe from any thread
@@ -439,6 +441,14 @@ class AchievementQueue:
         game.failed += lost
         self._totals["failed"] += lost
 
+    def _report_unlocked(self, game: _Game, count: int) -> None:
+        if self._on_unlocked is None:
+            return
+        try:
+            self._on_unlocked(game.app_id, game.name, count)
+        except Exception:
+            logger.error("achievements statistics hook failed for app %s", game.app_id, exc_info=True)
+
     def _on_error(self, game: _Game, error: AchievementsError) -> None:
         logger.error("achievements unlock failed: %s (wrote=%s)", error.code, error.wrote)
         self._lose_remaining(game)
@@ -459,6 +469,7 @@ class AchievementQueue:
         self._totals["failed"] += failed
         if (unlocked := sum(_RESULT_TOTAL.get(item.result) == "unlocked" for item in outcome.results)):
             logger.info("Unlocked %d achievements in %s", unlocked, _label(game))
+            self._report_unlocked(game, unlocked)
         game.done += len(batch)
         del game.targets[:len(batch)]
         if outcome.changed and self._on_written is not None:

@@ -2117,6 +2117,21 @@ button.sidle-card-body:focus-visible { outline: 2px solid var(--led-mint); outli
 .sidle-preview-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .sidle-root .sidle-preview .tactile-btn { min-height: 32px; padding: 0 10px; }
 .sidle-skel { display: flex; flex-direction: column; gap: 10px; }
+.sidle-stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 0; }
+.sidle-stats-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 12px; background: var(--bg-well); border: 1px solid var(--border-subtle); }
+.sidle-stats-tile dt { font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.sidle-stats-tile dd { margin: 0; font-size: 1.4em; font-weight: 700; color: var(--text-primary); }
+.sidle-stats-weeks { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; align-items: end; height: 120px; }
+.sidle-stats-week { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-width: 0; }
+.sidle-stats-scroll { max-height: 360px; overflow: auto; }
+.sidle-stats-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); color: var(--text-secondary); }
+.sidle-stats-table th, .sidle-stats-table td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.sidle-stats-table thead th { position: sticky; top: 0; background: var(--bg-chassis-base); font-weight: 700; color: var(--text-primary); }
+.sidle-stats-table th:first-child { text-align: left; }
+.sidle-stats-name { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text-primary); }
+.sidle-stats-sort { padding: 2px 4px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; cursor: pointer; border-radius: 4px; }
+.sidle-stats-sort:hover { color: var(--led-mint); }
+.sidle-stats-sort:focus-visible { outline: 2px solid var(--led-mint); outline-offset: 1px; }
 .sidle-seg { display: inline-flex; flex-shrink: 0; width: fit-content; max-width: 100%; border: 1px solid var(--border-main); border-radius: 8px; overflow: hidden; background: var(--bg-well); }
 .sidle-seg-btn { min-height: 32px; padding: 0 16px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
 .sidle-seg-btn + .sidle-seg-btn { border-left: 1px solid var(--border-main); }

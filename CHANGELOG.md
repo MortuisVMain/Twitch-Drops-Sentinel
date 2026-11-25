@@ -3,6 +3,7 @@
 Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English, are on the [Releases](https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases) page.
 
 ## [Unreleased]
+- Steam IDLE keeps statistics from this version on: farm hours, cards dropped and achievements unlocked, per game and per day, for the current Steam account (kept for a year). The new "Statistics" section in the Steam IDLE tab shows the totals for 7 days, 30 days or all time, weekly bars, a sortable per-game table, a CSV export and a reset. The "History and statistics" window shows the same totals next to your drops and free games.
 
 ## [4.1.0] - 2026-11-25
 - A new "Health check" item in the More menu runs read-only checks of Twitch and Steam sign-in, giveaways, network, updates, settings and disk, groups the results by area and lets you copy a report.

@@ -46,10 +46,12 @@ class AchievementsRun:
                  clock: Callable[[], float], uniform: Callable[[float, float], float],
                  sleep: Callable[[float], Awaitable[None]], protection: "ProtectionChecker",
                  store: InterruptedStore, wall_clock: Callable[[], float] = time.time,
-                 user_denied: Callable[[int], bool] = lambda app_id: False):
+                 user_denied: Callable[[int], bool] = lambda app_id: False,
+                 on_unlocked: Callable[[int, int, str, int], None] = lambda account, app_id, name, count: None):
         self._gate, self._get_setting, self._set_setting = gate, get_setting, set_setting
         self._protection, self._user_denied = protection, user_denied  # user_denied: the user's own anti-cheat games
         self._store, self._wall_clock = store, wall_clock
+        self._stats_unlocked = on_unlocked  # (account, app id, name, count): for the statistics
         self._interrupted: dict | None = store.load()  # a run the last session did not finish; never started by itself
         self._record: dict | None = None  # the record of the run in progress, rewritten whenever a game finishes
         self._closing = self._keep_record = False
@@ -65,7 +67,8 @@ class AchievementsRun:
         self._wake = Wake()
         self._queue = AchievementQueue(self._queue_read, self._queue_unlock, clock, uniform, self._queue_guard,
                                        on_command=self._wake.set, classify=self._queue_classify,
-                                       on_finished=self._on_game_finished, on_written=self._on_written)
+                                       on_finished=self._on_game_finished, on_written=self._on_written,
+                                       on_unlocked=lambda app_id, name, count: self._stats_unlocked(self._account, app_id, name, count))
         self._tools: "Tools | None" = None
         self._account, self._expected = 0, ""
         self._preparing = self._cancel = self._reading = False

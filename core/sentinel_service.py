@@ -540,6 +540,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
         self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)
         self.app.router.add_get("/api/v1/steam-idle/library", steam_idle.library)
+        self.app.router.add_get("/api/v1/steam-idle/stats", steam_idle.stats)
+        self.app.router.add_post("/api/v1/steam-idle/stats/reset", steam_idle.stats_reset)
         self.app.router.add_get("/api/v1/steam-idle/achievements", steam_idle.achievements_read)
         self.app.router.add_post("/api/v1/steam-idle/achievements/start", steam_idle.achievements_start)
         self.app.router.add_post("/api/v1/steam-idle/achievements/resume-interrupted", steam_idle.achievements_resume_interrupted)

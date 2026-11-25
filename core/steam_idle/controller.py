@@ -35,6 +35,7 @@ from .presence import Presence
 from .protection import (BUILTIN, CACHE_FILE_NAME, MAX_USER_DENYLIST, USER_DENYLIST_KEY, ProtectionChecker, clean_user_denylist,
                          is_builtin)
 from .run_events import NOTIFY_KEY, RunEvents
+from .stats import STATS_FILE_NAME, StatsRecorder
 from .wake import Wake
 
 logger = logging.getLogger(__name__)
@@ -202,6 +203,7 @@ class SteamIdleController:
         self._read_games_fn = read_games  # None: the farm's rechecks read every badge page
         self._wall_clock = wall_clock
         self._daily = DailyDrops(get_setting, set_setting, wall_clock)
+        self._stats = StatsRecorder(None if data_dir is None else data_dir / STATS_FILE_NAME, clock, wall_clock)
         self._first_drops = FirstDropSamples(get_setting, set_setting)
         self._events = RunEvents(notify, lambda: self._flag(NOTIFY_KEY), self._daily)
         self._running_app = running_app  # None: no detector (not Windows, or the inert backend), nothing is watched
@@ -219,7 +221,7 @@ class SteamIdleController:
         self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard,
                               on_command=self._wake.set, refund=self._first_seen,
                               read_games=self._read_games if read_games else None, on_drops=self._count_drops,
-                              on_first_drop=self._record_first_drop)
+                              on_first_drop=self._record_first_drop, on_game_drops=self._record_game_drops)
         self._achv = AchievementsRun(
             gate=self._read_gate, get_setting=get_setting, set_setting=set_setting,
             risk_acknowledged=lambda: bool(get_setting(RISK_ACK_KEY, False)),
@@ -230,7 +232,8 @@ class SteamIdleController:
             session_error=self._session_error,
             is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep,
             protection=self._protection, user_denied=lambda app_id: app_id in self._user_denylist(), wall_clock=wall_clock,
-            store=InterruptedStore(None if data_dir is None else data_dir / RECORD_FILE_NAME))
+            store=InterruptedStore(None if data_dir is None else data_dir / RECORD_FILE_NAME),
+            on_unlocked=self._record_unlocks)
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
         self._library_error: str | None = None
@@ -366,6 +369,7 @@ class SteamIdleController:
         self._run_tools, self._run_account, self._expected = tools, client.account_id, steam_id64(client.account_id)
         self._run_error, self._library_fetched = None, False
         self._events.begin_run(str(int(self._wall_clock())))
+        self._stats.restart_clock()  # the time since the last run (or a crash) is never credited
         if not self._rules_injected:
             self._farm.set_hours_until_drops(self._hours_setting())
         self._farm.start()
@@ -686,6 +690,7 @@ class SteamIdleController:
             await asyncio.wait_for(asyncio.to_thread(self._wind_down), _RELEASE_SECONDS + _UNLOCK_WAIT_SECONDS + 1.0)
         except asyncio.TimeoutError:
             logger.error("releasing the held game timed out on shutdown")
+        await asyncio.to_thread(self._announce, self._close_stats)  # the time up to the release, then the file
 
     def _wind_down(self) -> None:
         """Thread: kill the in-flight reads, let a blocked step finish (the closed farm holds nothing), release all."""
@@ -789,6 +794,31 @@ class SteamIdleController:
 
     def _count_drops(self, count: int) -> None:
         self._daily.add(self._run_account, count)
+
+    def _record_game_drops(self, game: GameDrops, count: int) -> None:
+        """Step thread: cards of one game confirmed by two reads, for the statistics."""
+        self._announce(self._stats.add_cards, self._run_account, game.app_id, game.name, count)
+
+    def _record_unlocks(self, account: int, app_id: int, name: str, count: int) -> None:
+        self._announce(self._stats.add_achievements, account, app_id, name, count)
+
+    def _close_stats(self) -> None:
+        """Nothing is held any more: credit the time up to now, then write the file."""
+        self._stats.tick(self._run_account, {})
+        self._stats.flush(force=True)
+
+    def _tick_stats(self) -> None:
+        self._stats.tick(self._run_account, self._farm.held_games())
+
+    def stats_report(self, period: str) -> dict:
+        """The statistics of the active Steam account (the run's when Steam reports none) for "7", "30" or "all"."""
+        return self._stats.report(self._client_state().account_id or self._run_account, period)
+
+    def stats_reset(self) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
+        self._stats.reset(self._client_state().account_id or self._run_account)
+        return None
 
     def _record_first_drop(self, game: GameDrops, hours: float) -> None:
         """Step thread: keep the playtime at the first card of a game farmed alone from zero hours (see first_drop.py)."""
@@ -925,6 +955,7 @@ class SteamIdleController:
                 self._wake.clear()  # a command from here on ends the sleep below at once
                 self._announce(self._events.daily_summary, self._run_account)
                 delay = await asyncio.to_thread(self._step)
+                await asyncio.to_thread(self._announce, self._tick_stats)  # a due file write stays off the event loop
                 self._announce(self._events.observe, self._farm.status(), self._run_error, self._run_account)
                 if self._farm.status()["state"] in _ENDED and delay > 0 and not self._farm.pending():
                     return
@@ -944,6 +975,7 @@ class SteamIdleController:
     async def _abort_run(self) -> None:
         """After a crash: release every live presence directly and report the farm stopped; never raises."""
         self._run_error = "internal_error"
+        await asyncio.to_thread(self._announce, self._close_stats)
         try:
             await asyncio.to_thread(self._release_presences)
             self._farm.abort("internal_error")
