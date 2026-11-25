@@ -295,4 +295,23 @@ export const STEAM_IDLE: Record<string, string> = {
   'Все карточки собраны, фарм остановился из-за ошибки, фаза набора часов отключена и дневная сводка. Приходит и в Telegram или Discord, если они подключены.':
     'All cards collected, farming stopped by an error, the playtime phase turned off, and a daily summary. Also sent to Telegram or Discord when they are connected.',
   'Пауза: вы играете — продолжим, когда закроете игру': 'Paused: you are playing, we will carry on when you close the game',
+  // statistics
+  'Статистика': 'Statistics',
+  'Период': 'Period',
+  'Часы фарма': 'Farm hours',
+  'Время фарма': 'Farm time',
+  'Время по играм может пересекаться, если фарм идёт сразу в нескольких играх.': 'Times per game can overlap when several games are farmed at once.',
+  'Время': 'Time',
+  'Последний раз': 'Last time',
+  'Игра': 'Game',
+  'По играм': 'By game',
+  'Загрузка статистики…': 'Loading statistics…',
+  'Не удалось загрузить статистику.': 'Could not load the statistics.',
+  'Часы фарма по неделям за последние 12 недель': 'Farm hours by week for the last 12 weeks',
+  'Статистика считается начиная с этой версии: часы фарма, карточки и достижения появятся здесь после первого запуска фарма или выдачи достижений.':
+    'Statistics are counted from this version on: farm hours, cards and achievements will appear here after the first farm run or achievements unlock.',
+  'Сохранить таблицу игр в CSV для Excel': 'Save the game table as CSV for Excel',
+  'Сбросить статистику': 'Reset statistics',
+  'Сбросить статистику Steam IDLE? Будут удалены часы фарма, карточки и достижения по всем играм текущего аккаунта. Это нельзя отменить.':
+    'Reset the Steam IDLE statistics? The farm hours, cards and achievements of every game of the current account will be deleted. This cannot be undone.',
 };

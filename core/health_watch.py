@@ -62,11 +62,16 @@ def count_problems(rows: list[dict]) -> int:
     return sum(1 for row in _watched(rows) if row.get("status") in ("fail", "warn"))
 
 
+def count_fails(rows: list[dict]) -> int:
+    """Rows that are fail, outside the areas the watch does not look at."""
+    return sum(1 for row in _watched(rows) if row.get("status") == "fail")
+
+
 def _problem_id(row: dict) -> str:
     return f"{row.get('id')}:{row.get('status')}"
 
 
-_TOAST = {"ru": "{title}. Откройте «Проверка работы»", "en": "{title}. Open \"Health check\""}
+_TOAST = {"ru": "{title}. Откройте «Центр проверки»", "en": "{title}. Open \"Health center\""}
 
 
 class HealthWatch:
@@ -80,9 +85,11 @@ class HealthWatch:
         notify: Callable[[str, str], None],
         lang: Callable[[], str],
         mono: Callable[[], float] = time.monotonic,
+        history: Optional[Any] = None,
     ) -> None:
         """clock: epoch seconds, only the shown time of a run. mono: monotonic seconds, what the schedule runs on (a clock change or
-        a sleep must not fire or skip a run). run(lang) returns {"checks": [rows]}. notify(key, message): keys are unique per announcement."""
+        a sleep must not fire or skip a run). run(lang) returns {"checks": [rows]}. notify(key, message): keys are unique per announcement.
+        history: optional HealthHistory, fed with every run (background and manual)."""
         self._store_path = store_path
         self._clock = clock
         self._enabled = enabled
@@ -91,9 +98,12 @@ class HealthWatch:
         self._notify = notify
         self._lang = lang
         self._mono = mono
+        self._history = history
+        self._last_manual: Optional[float] = None
         self._manual_seq = 0  # bumped by every manual check: a background run that began before it must not overwrite its count
         self._last_run: Optional[float] = None
         self._problems = 0
+        self._fails = 0
         self._notified: set[str] = set()
         self._load()
         self._applied = (enabled(), hours())
@@ -106,10 +116,16 @@ class HealthWatch:
         try:
             data = json.loads(self._store_path.read_text(encoding="utf-8"))
             last, problems, notified = data.get("lastRun"), data.get("problems"), data.get("notified")
+            manual = data.get("lastManual")
             if isinstance(last, (int, float)) and not isinstance(last, bool):
                 self._last_run = float(last)
+            if isinstance(manual, (int, float)) and not isinstance(manual, bool):
+                self._last_manual = float(manual)
             if isinstance(problems, int) and not isinstance(problems, bool) and problems >= 0:
                 self._problems = problems
+            fails = data.get("fails")
+            if isinstance(fails, int) and not isinstance(fails, bool) and fails >= 0:
+                self._fails = fails
             if isinstance(notified, list):
                 self._notified = {str(item) for item in notified}
         except (OSError, ValueError, AttributeError) as exc:
@@ -120,22 +136,32 @@ class HealthWatch:
             return
         try:
             self._store_path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_json(self._store_path, {"lastRun": self._last_run, "problems": self._problems, "notified": sorted(self._notified)})
+            atomic_write_json(self._store_path, {"lastRun": self._last_run, "lastManual": self._last_manual, "problems": self._problems, "fails": self._fails, "notified": sorted(self._notified)})
         except OSError as exc:
             logger.warning("Could not save health watch memory %s: %s", self._store_path, exc, exc_info=True)
 
     def state(self) -> dict:
-        return {"enabled": self._enabled(), "hours": self._hours(), "problems": self._problems, "lastRun": self._last_run}
+        return {"enabled": self._enabled(), "hours": self._hours(), "problems": self._problems, "fails": self._fails, "lastRun": self._last_run, "lastManual": self._last_manual}
 
     def record_manual(self, rows: list[dict]) -> None:
         """The panel's own check: the stored count follows it (the dot clears once things are fixed); the schedule is not touched."""
         self._manual_seq += 1
+        self._last_manual = self._clock()
+        self._record_history(rows)
         count = count_problems(rows)
         failing = {_problem_id(row) for row in _watched(rows) if row.get("status") == "fail"}
-        if count != self._problems or not self._notified <= failing:
-            self._problems = count
-            self._notified &= failing  # fixed and broken again later is news again
-            self._save()
+        self._problems = count
+        self._fails = count_fails(rows)
+        self._notified &= failing  # fixed and broken again later is news again
+        self._save()
+
+    def _record_history(self, rows: list[dict]) -> None:
+        if self._history is None:
+            return
+        try:
+            self._history.record(rows)
+        except Exception as exc:  # noqa: BLE001 - the history is a convenience: it must not break a check
+            logger.error("Health history could not record a run: %s", exc, exc_info=True)
 
     def _refresh(self) -> None:
         """Settings changed since the last look: switching on, or a new interval, restarts the clock from now."""
@@ -172,6 +198,8 @@ class HealthWatch:
             self._due = ended + self._hours() * 3600
             if seq == self._manual_seq:  # a manual check that landed meanwhile is newer than this result
                 self._problems = count_problems(rows)
+                self._fails = count_fails(rows)
+                self._record_history(rows)  # an older picture than a manual check that landed meanwhile is not news
             self._announce(rows, self._last_run)
             self._save()
             return True

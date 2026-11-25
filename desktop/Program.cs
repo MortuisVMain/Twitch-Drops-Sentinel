@@ -30,6 +30,7 @@ namespace TwitchDropsSentinel
         private const uint WM_CLOSE = 0x0010;
         private static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
         public static uint WM_SENTINEL_SHOW;
+        public static uint WM_SENTINEL_HEALTH;
         private static Mutex? _singleInstanceMutex;
 
         private static void LogCrash(string tag, Exception ex)
@@ -135,6 +136,13 @@ namespace TwitchDropsSentinel
             }
         }
 
+        /// <summary>Lets a click on the service toast start this exe: hellharvest:// is registered for the current user (HKCU\Software\Classes), nothing machine-wide.</summary>
+        private static void RegisterToastScheme()
+        {
+            try { HealthLaunch.EnsureRegistered(new CurrentUserProtocolStore(), Environment.ProcessPath ?? ""); }
+            catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException || ex is IOException) { LogCrash("ToastScheme", ex); }
+        }
+
         [STAThread]
         public static void Main(string[] args)
         {
@@ -145,6 +153,8 @@ namespace TwitchDropsSentinel
             catch { }
 
             WM_SENTINEL_SHOW = RegisterWindowMessage("WM_SENTINEL_SHOW_V3_0");
+            WM_SENTINEL_HEALTH = RegisterWindowMessage("WM_SENTINEL_HEALTH_V4_2");
+            bool openHealth = HealthLaunch.FindHealthArg(args) != null; // a click on the service toast starts this exe with hellharvest://health
 
             bool isNewInstance = false;
             try
@@ -170,7 +180,8 @@ namespace TwitchDropsSentinel
             if (!isNewInstance && !TryReplaceOlderCopy())
             {
                 // App already running! Wake existing instance from tray and exit immediately
-                PostMessage(HWND_BROADCAST, WM_SENTINEL_SHOW, IntPtr.Zero, IntPtr.Zero);
+                if (openHealth) PostMessage(HWND_BROADCAST, WM_SENTINEL_HEALTH, IntPtr.Zero, IntPtr.Zero);
+                else PostMessage(HWND_BROADCAST, WM_SENTINEL_SHOW, IntPtr.Zero, IntPtr.Zero);
                 return;
             }
 
@@ -197,7 +208,8 @@ namespace TwitchDropsSentinel
             try
             {
                 bool startMinimized = args != null && args.Any(a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase));
-                Application.Run(new MainForm(startMinimized));
+                RegisterToastScheme();
+                Application.Run(new MainForm(startMinimized && !openHealth, openHealth));
             }
             catch (Exception ex)
             {

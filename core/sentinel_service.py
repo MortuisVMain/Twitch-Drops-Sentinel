@@ -80,6 +80,7 @@ from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import NOTIFIER, set_enabled as set_native_toasts
 import health
+import health_history
 import health_watch
 from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
@@ -259,11 +260,12 @@ class SentinelSupervisor:
             self.startup_copies, PROJECT_DIR, self._config_defaults(), lambda: bool(self.settings.get("installer_hint_dismissed", False)),
             lambda: apply_change(self.settings, lambda current: current.__setitem__("installer_hint_dismissed", True), self.save_settings),
             startup_copies.downloads_dir(), APP_VERSION, RELEASES_PAGE_URL)
+        self.health_history = health_history.HealthHistory(PROJECT_DIR / "data" / "health_history.json", time.time)
         self.health_watch = health_watch.HealthWatch(
             PROJECT_DIR / "data" / "health_watch.json", time.time, lambda: health_watch.enabled_from(self.settings),
             lambda: health_watch.hours_from(self.settings), self._health_watch_run,
-            lambda key, message: NOTIFIER.notify("health_watch", key, "Hell Harvest", message),
-            lambda: "en" if self.settings.get("language") == "English" else "ru")
+            lambda key, message: NOTIFIER.notify("health_watch", key, "Hell Harvest", message, launch="health"),
+            lambda: "en" if self.settings.get("language") == "English" else "ru", history=self.health_history)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
 
@@ -441,6 +443,7 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/state", self.handle_get_state)
         self.app.router.add_get("/api/v1/health", self.handle_get_health)
         self.app.router.add_post("/api/v1/health/fix", self.handle_post_health_fix)
+        self.app.router.add_get("/api/v1/health/history", self.handle_get_health_history)
         self.app.router.add_get("/api/logs", self.handle_get_logs)
         self.app.router.add_get("/api/catalog", self.handle_get_catalog)
         self.app.router.add_get("/api/verify-game", self.handle_verify_game)
@@ -540,6 +543,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
         self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)
         self.app.router.add_get("/api/v1/steam-idle/library", steam_idle.library)
+        self.app.router.add_get("/api/v1/steam-idle/stats", steam_idle.stats)
+        self.app.router.add_post("/api/v1/steam-idle/stats/reset", steam_idle.stats_reset)
         self.app.router.add_get("/api/v1/steam-idle/achievements", steam_idle.achievements_read)
         self.app.router.add_post("/api/v1/steam-idle/achievements/start", steam_idle.achievements_start)
         self.app.router.add_post("/api/v1/steam-idle/achievements/resume-interrupted", steam_idle.achievements_resume_interrupted)
@@ -797,6 +802,10 @@ class SentinelSupervisor:
         result = await health.run_health(self._health_context(lang))
         self.health_watch.record_manual(result["checks"])  # the dot on the menu button follows what the panel just showed
         return web.json_response(result)
+
+    async def handle_get_health_history(self, request: web.Request) -> web.Response:
+        """The last 20 problems found or fixed by background and manual checks, newest first."""
+        return web.json_response({"events": self.health_history.events()})
 
     async def _health_watch_run(self, lang: str) -> dict:
         """The background watch: the same checks as the panel, without the network ones."""

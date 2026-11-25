@@ -4,6 +4,7 @@ import { failureText, hasStaleData } from '../utils/dataLoad';
 import { ActivityConsole } from './steamIdle/ActivityConsole';
 import { AchievementsSection } from './steamIdle/AchievementsSection';
 import { SectionSwitch, SteamIdleSection } from './steamIdle/SectionSwitch';
+import { StatsPanel } from './steamIdle/StatsPanel';
 import { FarmHours } from './steamIdle/FarmHours';
 import { ACTIVE_STATES, FarmPanel, Lists, PreviewPanel, Readiness, RiskGate, Skeleton, UnavailablePanel } from './steamIdle/SteamIdleParts';
 import { refusalText } from './steamIdle/steamIdleText';
@@ -57,6 +58,7 @@ export const SteamIdleView: React.FC<{ onOpenGiveawaysReadiness?: () => void; ap
                 <Lists s={s} busy={busy} send={send} />
               </>
             )}
+          {s.available && s.riskAcknowledged && <StatsPanel />}
           <ActivityConsole s={s} appVersion={appVersion} />
         </>
       )}

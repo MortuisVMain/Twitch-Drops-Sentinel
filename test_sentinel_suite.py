@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.1.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.2.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -8439,6 +8439,47 @@ def test_steam_idle_package_unit_tests():
     print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
 
 
+def test_steam_idle_statistics_wiring_and_routes():
+    print("[steam idle] Statistics: unit module, service routes, tab section, history tiles, English strings, UI logic tests...")
+    core = WORKSPACE / "core"
+    assert (core / "steam_idle" / "test_stats.py").is_file(), "the statistics unit tests are part of the steam_idle discovery"
+    service = (core / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/v1/steam-idle/stats", steam_idle.stats)' in service and 'add_post("/api/v1/steam-idle/stats/reset", steam_idle.stats_reset)' in service
+    controller = (core / "steam_idle" / "controller.py").read_text(encoding="utf-8")
+    assert "StatsRecorder(None if data_dir is None else data_dir / STATS_FILE_NAME" in controller and "on_game_drops=self._record_game_drops" in controller
+    assert "asyncio.to_thread(self._announce, self._close_stats)" in controller, "shutdown and a crash write the file off the event loop"
+    view = (WORKSPACE / "src" / "components" / "SteamIdleView.tsx").read_text(encoding="utf-8")
+    assert "<StatsPanel />" in view
+    panel = (WORKSPACE / "src" / "components" / "steamIdle" / "StatsPanel.tsx").read_text(encoding="utf-8")
+    assert "window.confirm(RESET_CONFIRM)" in panel and 'aria-sort=' in panel and "gamesCsv(" in panel
+    history = (WORKSPACE / "src" / "components" / "HistoryModal.tsx").read_text(encoding="utf-8")
+    assert "/stats?period=" in history and "historyCsv(items)" in history, "history tiles read the statistics; the history CSV is unchanged"
+    assert "'Сбросить статистику'" in (WORKSPACE / "src" / "i18n" / "en" / "steamIdle.ts").read_text(encoding="utf-8")
+    ensure_test_service()
+
+    def call(method, path):
+        req = urllib.request.Request(BASE_URL + path, data=b"{}" if method == "POST" else None, method=method,
+                                     headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    for period in ("7", "30", "all"):
+        status, report = call("GET", f"/api/v1/steam-idle/stats?period={period}")
+        assert status == 200 and report["period"] == period and set(report) == {"period", "totals", "weeks", "games"}, report
+        assert len(report["weeks"]) == 12 and set(report["totals"]) == {"farmSeconds", "games", "cards", "achievements"}, report
+    assert call("GET", "/api/v1/steam-idle/stats?period=5")[0] == 400, "an unknown period is refused"
+    assert call("POST", "/api/v1/steam-idle/stats/reset")[0] == 200
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "steam_idle_stats.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"statistics UI logic tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Steam IDLE statistics: PASS [OK]")
+
+
 def test_other_copies_cleanup_unit_tests_and_service_wiring():
     print("[startup copies] Finder, cleanup, import and routes: unit modules, live API in test mode, source wiring...")
     import io
@@ -8532,7 +8573,7 @@ def test_service_diagnostics_feature_is_wired():
     panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
     dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
     assert "RUN_DIAGNOSTICS" in panel and "RESTART_SENTINEL" in panel and "OPEN_LOGS_FOLDER" in panel and "CLOSE_OTHER_SERVICE" in panel
-    assert "<ServiceDiagnosticsPanel" in dash and "setDiagnosticsOpen(true)" in dash, "the banner opens the panel"
+    assert "onOpenHealthCenter?.()" in dash, "the banner opens the health center"
     assert "'Проверить': 'Check'" in (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
     print("      Check button wiring: PASS [OK]")
 
@@ -8609,7 +8650,7 @@ def test_health_watch_is_wired():
     cfg = json.loads((WORKSPACE / "config.default.json").read_text(encoding="utf-8"))
     assert cfg["health_watch_enabled"] is True and cfg["health_watch_hours"] == 1
     app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "healthWatchDot(sentinelState.health_watch)" in app and 'className="more-dot"' in app and 'className="more-count"' in app
+    assert "healthButtonView(sentinelState.health_watch)" in app and 'className="health-badge"' in app, "the state moved from the menu button to the header health button"
     assert "<HealthWatchCard" in (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     assert "'Следить за работой в фоне'" in (WORKSPACE / "src" / "i18n" / "en" / "settings.ts").read_text(encoding="utf-8")
     node = shutil.which("node")
@@ -8618,6 +8659,56 @@ def test_health_watch_is_wired():
                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         assert res.returncode == 0, f"health watch UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
     print("      Health watch wiring: PASS [OK]")
+
+
+def test_health_center_is_wired():
+    print("[health center] Health center: header button, sections, history, exports, toast click, hotkey, translations...")
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    parts = (WORKSPACE / "src" / "components" / "HealthCenterParts.tsx").read_text(encoding="utf-8")
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert 'id="healthCenterBtn"' in app and "healthButtonView(sentinelState.health_watch)" in app and 'className="health-badge"' in app, "the header button carries the state and the failure badge"
+    assert "healthBtn.label" in app and "healthBtn.title" in app, "aria-label and title describe the state"
+    assert 'className="header-more-wrap pip-hide"' in app and "pip-hide health-btn" in app, "hidden in PIP mode like the other header buttons"
+    more = app.split('id="moreMenuBtn"', 1)[1].split('role="menu"', 1)[0]
+    assert "more-dot" not in more and "Проверка работы" not in app.split('role="menu"', 1)[1].split("</div>", 1)[0], "the dot and the menu item left the more menu"
+    assert "isHealthHotkey(e)" in app and "isOpenCenterMessage(msg)" in app and "type: 'APP_READY'" in app, "hotkey, host open message, ready signal"
+    assert "id: 'open-health'" in app and "title: 'Центр проверки'" in app, "command palette entry"
+    assert "onOpenHealthCenter" in dash and "<ServiceDiagnosticsPanel" not in dash, "the banner button opens the app-wide center"
+    assert 'role="tablist"' in panel and 'role="tab"' in panel and 'role="tabpanel"' in panel and "nextSection(section, e.key)" in panel, "keyboard accessible sections"
+    for section in ("SummarySection", "DeveloperSection", "MaintenanceSection"):
+        assert section in parts and f"<{section}" in panel, f"{section} is drawn by the center"
+    for message in ("SAVE_HEALTH_REPORT", "COLLECT_HEALTH_LOGS", "REPORT_HEALTH_PROBLEM"):
+        assert message in panel, f"the page asks for {message}"
+    assert "<HealthWatchCard" in panel and "/api/v1/health/history" in panel, "the watch switch is reused, the history is fetched"
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    prog = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    host = (WORKSPACE / "desktop" / "HealthCenterHost.cs").read_text(encoding="utf-8")
+    for message in ('type == "APP_READY"', 'type == "SAVE_HEALTH_REPORT"', 'type == "COLLECT_HEALTH_LOGS"', 'type == "REPORT_HEALTH_PROBLEM"'):
+        assert message in form, f"the host handles {message}"
+    assert "Task.Run(" in form.split("private void RunHealthExportAsync", 1)[1][:400], "exports run off the UI thread"
+    nav = form.split("private void OnNavigationStarting", 1)[1].split("private void ", 1)[0]
+    assert nav.count("_pageReady = false;") == 2, "a reload makes the page not ready again, so a toast click waits for APP_READY"
+    export = form.split("private void RunHealthExportAsync", 1)[1].split("private void PostToPage", 1)[0]
+    assert "HealthExport.DesktopFolder(" in export and "BuildLogZipUnique(" in export and "_exportGuard.TryEnter(" in export, "safe Desktop, collision-proof names, one run per action"
+    assert "HealthExport.TryReveal(" in export and "UniquePath" not in export, "a reveal failure does not fail the export"
+    assert "HealthExport.IsAllowedIssueUrl(url)" in form and "OPEN_HEALTH_CENTER" in form and "WM_SENTINEL_HEALTH" in form, "issue link checked before opening; toast activation reaches the page"
+    assert "HealthLaunch.EnsureRegistered(new CurrentUserProtocolStore()" in prog and "PostMessage(HWND_BROADCAST, WM_SENTINEL_HEALTH" in prog, "the scheme is registered by the app (HKCU) and a second start hands the click over"
+    assert "Registry.CurrentUser" in host and "LocalMachine" not in host and "ClassesRoot" not in host, "only the current user's registry is touched"
+    assert "HealthCenterHost.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/v1/health/history", self.handle_get_health_history)' in service and "history=self.health_history" in service
+    assert 'launch="health"' in service, "the problem toast opens the center"
+    gui = (WORKSPACE / "core" / "gui_headless.py").read_text(encoding="utf-8")
+    assert 'TOAST_LAUNCH_URIS = {"health": "hellharvest://health"}' in gui and "SENTINEL_TOAST_LAUNCH" in gui, "only a fixed address can ride on a toast"
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Центр проверки': 'Health center'" in en and "'Собрать логи': 'Collect logs'" in en
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "health_center.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"health center UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Health center wiring: PASS [OK]")
 
 
 def test_installer_script_keeps_its_promises():
@@ -8822,6 +8913,7 @@ if __name__ == "__main__":
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_steam_idle_statistics_wiring_and_routes,
         test_other_copies_cleanup_unit_tests_and_service_wiring,
         test_reward_campaigns_unit_tests,
         test_core_feature_unit_tests,
@@ -8834,6 +8926,7 @@ if __name__ == "__main__":
         test_health_check_is_wired,
         test_health_fixes_are_wired,
         test_health_watch_is_wired,
+        test_health_center_is_wired,
         test_installer_script_keeps_its_promises,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.
