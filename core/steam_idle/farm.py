@@ -77,10 +77,12 @@ class CardFarm:
                  refund: FirstSeenStore | None = None,
                  read_games: Callable[[list[int]], list[GameDrops]] | None = None,
                  on_drops: Callable[[int], None] = lambda count: None,
-                 on_first_drop: Callable[[GameDrops, float], None] = lambda game, hours: None):
+                 on_first_drop: Callable[[GameDrops, float], None] = lambda game, hours: None,
+                 on_game_drops: Callable[[GameDrops, int], None] = lambda game, count: None):
         self._rules, self._read_drops, self._factory, self._clock = rules, read_drops, presence_factory, clock
         self._read_games = read_games  # None: every recheck reads every badge page
         self._on_drops = on_drops  # called with the number of cards that dropped, whenever some were seen
+        self._on_game_drops = on_game_drops  # (game, cards): a decrease confirmed by two reads that both listed the game
         self._on_first_drop = on_first_drop  # (game, playtime hours): a game held alone from ~0 h dropped its first card
         self._first_watch: int | None = None  # the app id of the held game whose first drop is being waited for
         self._refund = refund or FirstSeenStore(None, time.time)  # games that may still be refundable stay queued out
@@ -206,6 +208,14 @@ class CardFarm:
         """The app ids this farm holds (or is about to hold in the hours phase) right now; safe from any thread."""
         held, batch = self._held, self._batch
         return frozenset(({held.app_id} if held else set()) | (set() if batch is None else batch.ids()))
+
+    def held_games(self) -> dict[int, str]:
+        """{app id: name} of the games with a live presence right now (the hours phase counts those started); any thread."""
+        held, batch = self._held, self._batch
+        games = {} if batch is None else {g.app_id: g.name for g in list(batch.held.values())}
+        if held is not None:
+            games[held.app_id] = held.name
+        return games
 
     def pending(self) -> bool:
         """True while a command is queued and not yet applied by a step (the status may already show its effect)."""
@@ -475,13 +485,17 @@ class CardFarm:
         self._stale = True
         return merge_games(self._last_drops, got, ids)
 
-    def _count_drops(self, game: GameDrops, remaining: int) -> None:
-        """A game's cards went from `game.drops_remaining` to `remaining`: count and log the ones that dropped."""
+    def _count_drops(self, game: GameDrops, remaining: int, confirmed: bool = True) -> None:
+        """A game's cards went from `game.drops_remaining` to `remaining`: count and log the ones that dropped.
+        `confirmed` is false when the game was missing from the read (taken as 0 left): the run counters take it, the
+        per-game statistics do not."""
         if remaining >= game.drops_remaining:
             return
         logger.info("%s: drops %d -> %d", game.name, game.drops_remaining, remaining)
         self._dropped += game.drops_remaining - remaining
         self._on_drops(game.drops_remaining - remaining)
+        if confirmed:
+            self._on_game_drops(game, game.drops_remaining - remaining)
 
     def _note_first_drop(self, held: GameDrops, current: GameDrops | None, remaining: int, now: float) -> None:
         """The first decrease for a game held alone from ~0 h: report the playtime that read showed."""
@@ -531,7 +545,7 @@ class CardFarm:
         logger.debug("Recheck %s: %s drops left (was %d)", _label(held),  # every recheck; the console shows only changes
                     "none" if current is None else current.drops_remaining, held.drops_remaining)
         remaining = 0 if current is None else current.drops_remaining
-        self._count_drops(held, remaining)
+        self._count_drops(held, remaining, current is not None)
         self._note_first_drop(held, current, remaining, now)
         if current is None or current.drops_remaining == 0:
             self._release()
@@ -613,7 +627,7 @@ class CardFarm:
             return
         latest = {game.app_id: game for game in drops}
         for game in before:
-            self._count_drops(game, latest[game.app_id].drops_remaining if game.app_id in latest else 0)
+            self._count_drops(game, latest[game.app_id].drops_remaining if game.app_id in latest else 0, game.app_id in latest)
         result = self._batch.recheck(drops, self._rules.hours_until_drops, self._clock())
         for game in result.done:
             self._finish_game(game)

@@ -15,6 +15,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Не сохранено: (.+)$/, 'Not saved: $1'],
   [/^Не отправлено: (.+)$/, 'Not sent: $1'],
   [/^Неделя с (.+): дропов (\d+), игр (\d+)$/, 'Week of $1: $2 drops, $3 games'],
+  [/^Неделя с (.+): (.+) ч, карточек (\d+), достижений (\d+)$/, 'Week of $1: $2 h, $3 cards, $4 achievements'],
   [/^Готово: (.+) Перезапуск…$/, 'Done: $1 Restarting…'],
   [/^Откат не удался: (.+)$/, 'Rollback failed: $1'],
   [/^Вернуть v(.+)\? v(.+) больше не будет предлагаться, приложение перезапустится\.$/, 'Bring back v$1? v$2 will not be offered again; the app restarts.'],

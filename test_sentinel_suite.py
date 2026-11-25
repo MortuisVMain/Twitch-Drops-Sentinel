@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.1.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.2.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -8439,6 +8439,47 @@ def test_steam_idle_package_unit_tests():
     print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
 
 
+def test_steam_idle_statistics_wiring_and_routes():
+    print("[steam idle] Statistics: unit module, service routes, tab section, history tiles, English strings, UI logic tests...")
+    core = WORKSPACE / "core"
+    assert (core / "steam_idle" / "test_stats.py").is_file(), "the statistics unit tests are part of the steam_idle discovery"
+    service = (core / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/v1/steam-idle/stats", steam_idle.stats)' in service and 'add_post("/api/v1/steam-idle/stats/reset", steam_idle.stats_reset)' in service
+    controller = (core / "steam_idle" / "controller.py").read_text(encoding="utf-8")
+    assert "StatsRecorder(None if data_dir is None else data_dir / STATS_FILE_NAME" in controller and "on_game_drops=self._record_game_drops" in controller
+    assert "asyncio.to_thread(self._announce, self._close_stats)" in controller, "shutdown and a crash write the file off the event loop"
+    view = (WORKSPACE / "src" / "components" / "SteamIdleView.tsx").read_text(encoding="utf-8")
+    assert "<StatsPanel />" in view
+    panel = (WORKSPACE / "src" / "components" / "steamIdle" / "StatsPanel.tsx").read_text(encoding="utf-8")
+    assert "window.confirm(RESET_CONFIRM)" in panel and 'aria-sort=' in panel and "gamesCsv(" in panel
+    history = (WORKSPACE / "src" / "components" / "HistoryModal.tsx").read_text(encoding="utf-8")
+    assert "/stats?period=" in history and "historyCsv(items)" in history, "history tiles read the statistics; the history CSV is unchanged"
+    assert "'Сбросить статистику'" in (WORKSPACE / "src" / "i18n" / "en" / "steamIdle.ts").read_text(encoding="utf-8")
+    ensure_test_service()
+
+    def call(method, path):
+        req = urllib.request.Request(BASE_URL + path, data=b"{}" if method == "POST" else None, method=method,
+                                     headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    for period in ("7", "30", "all"):
+        status, report = call("GET", f"/api/v1/steam-idle/stats?period={period}")
+        assert status == 200 and report["period"] == period and set(report) == {"period", "totals", "weeks", "games"}, report
+        assert len(report["weeks"]) == 12 and set(report["totals"]) == {"farmSeconds", "games", "cards", "achievements"}, report
+    assert call("GET", "/api/v1/steam-idle/stats?period=5")[0] == 400, "an unknown period is refused"
+    assert call("POST", "/api/v1/steam-idle/stats/reset")[0] == 200
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "steam_idle_stats.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"statistics UI logic tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Steam IDLE statistics: PASS [OK]")
+
+
 def test_other_copies_cleanup_unit_tests_and_service_wiring():
     print("[startup copies] Finder, cleanup, import and routes: unit modules, live API in test mode, source wiring...")
     import io
@@ -8872,6 +8913,7 @@ if __name__ == "__main__":
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_steam_idle_statistics_wiring_and_routes,
         test_other_copies_cleanup_unit_tests_and_service_wiring,
         test_reward_campaigns_unit_tests,
         test_core_feature_unit_tests,

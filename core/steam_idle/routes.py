@@ -10,6 +10,7 @@ from .achievements import MAX_UNLOCK_NAMES, AchievementsError, valid_api_name
 _UINT32_MAX = 0xFFFFFFFF
 _MAX_EXCLUDE = 100000
 _INVALID = {"error": "invalid_request"}
+_STATS_PERIODS = frozenset({"7", "30", "all"})
 _FARM_SETTINGS = {"hoursUntilDrops": "hours_until_drops", "pauseWhilePlaying": "pause_while_playing", "notify": "notify"}
 
 
@@ -123,6 +124,15 @@ class SteamIdleRoutes:
             return await request.json()
         except ValueError:
             return None
+
+    async def stats(self, request: web.Request) -> web.Response:
+        period = request.query.get("period", "30")
+        if period not in _STATS_PERIODS:
+            return web.json_response(_INVALID, status=400)
+        return web.json_response(self._c.stats_report(period))
+
+    async def stats_reset(self, request: web.Request) -> web.Response:
+        return self._reply(self._c.stats_reset())
 
     async def achievements_ack(self, request: web.Request) -> web.Response:
         body = await self._body(request)

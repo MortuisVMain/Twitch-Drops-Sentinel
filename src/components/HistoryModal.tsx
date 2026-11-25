@@ -1,7 +1,9 @@
-import { Download, Gift, History, Trophy, X } from 'lucide-react';
+import { Download, Gamepad2, Gift, History, Trophy, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useModalFocus } from '../hooks/useModalFocus';
 import type { ClaimedGameItem, TrophyItem } from '../types';
+import { parseStats, periodTotals } from './steamIdle/idleStats.mjs';
+import { BASE as STEAM_IDLE_BASE } from './steamIdle/useSteamIdle';
 import { buildHistory, historyCsv, historyTotals, weeklyBuckets, type HistorySource } from '../utils/history.mjs';
 
 interface Props {
@@ -11,6 +13,8 @@ interface Props {
 }
 
 type Filter = 'all' | HistorySource;
+type SteamTotals = ReturnType<typeof periodTotals>;
+const STEAM_PERIODS = ['7', '30', 'all'] as const;
 const FEED_LIMIT = 100;
 
 // What the app brought in: Twitch drops from Trophies.md and claimed free games, with totals, weeks and a CSV
@@ -20,6 +24,7 @@ export const HistoryModal: React.FC<Props> = ({ isOpen, onClose, trophies }) => 
   const [giveaways, setGiveaways] = useState<ClaimedGameItem[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
+  const [steam, setSteam] = useState<SteamTotals[] | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -28,6 +33,19 @@ export const HistoryModal: React.FC<Props> = ({ isOpen, onClose, trophies }) => 
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setGiveaways(Array.isArray(d?.inventory) ? d.inventory : []))
       .catch((err) => { console.error('HistoryModal: giveaways load failed', err); setGiveaways([]); setLoadError(true); });
+  }, [isOpen]);
+
+  // Steam IDLE totals for the same three periods; without them (module off, old service) the tiles just show no such row
+  useEffect(() => {
+    if (!isOpen) return;
+    setSteam(null);
+    Promise.all(STEAM_PERIODS.map((p) => fetch(`${STEAM_IDLE_BASE}/stats?period=${p}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))).then((json) => {
+        const parsed = parseStats(json);
+        if (!parsed) throw new Error('the answer does not match the contract');
+        return periodTotals(parsed);
+      }))).then(setSteam)
+      .catch((err) => console.error('HistoryModal: Steam IDLE statistics load failed', err));
   }, [isOpen]);
 
   const now = Date.now();
@@ -51,6 +69,7 @@ export const HistoryModal: React.FC<Props> = ({ isOpen, onClose, trophies }) => 
 
   if (!isOpen) return null;
   const tiles: Array<[string, { twitch: number; giveaway: number }]> = [['7 дней', totals.week], ['30 дней', totals.month], ['Всё время', totals.all]];
+  const steamRows: Array<[string, (t: SteamTotals) => number]> = [['Часы фарма', (t) => t.hours], ['Карточки', (t) => t.cards], ['Достижения', (t) => t.achievements]];
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3" onClick={onClose}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="history-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}
@@ -65,11 +84,19 @@ export const HistoryModal: React.FC<Props> = ({ isOpen, onClose, trophies }) => 
         </div>
         <div className="history-body">
           <div className="history-tiles">
-            {tiles.map(([label, c]) => (
+            {tiles.map(([label, c], index) => (
               <div key={label} className="history-tile">
                 <span className="history-tile-label">{label}</span>
                 <span className="history-tile-row"><Trophy className="ui-icon" aria-hidden="true" focusable="false" /> <span>Дропы</span> <strong className="tabular">{c.twitch}</strong></span>
                 <span className="history-tile-row"><Gift className="ui-icon" aria-hidden="true" focusable="false" /> <span>Игры</span> <strong className="tabular">{c.giveaway}</strong></span>
+                {steam && (
+                  <>
+                    <span className="history-tile-row"><Gamepad2 className="ui-icon" aria-hidden="true" focusable="false" /> <span>Steam IDLE</span></span>
+                    {steamRows.map(([name, pick]) => (
+                      <span key={name} className="history-tile-row"><span>{name}</span> <strong className="tabular">{pick(steam[index])}</strong></span>
+                    ))}
+                  </>
+                )}
               </div>
             ))}
           </div>

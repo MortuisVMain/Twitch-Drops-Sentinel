@@ -4,6 +4,8 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-25
+- Steam IDLE keeps statistics from this version on: farm hours, cards dropped and achievements unlocked, per game and per day, for the current Steam account (kept for a year). The new "Statistics" section in the Steam IDLE tab shows the totals for 7 days, 30 days or all time, weekly bars, a sortable per-game table, a CSV export and a reset. The "History and statistics" window shows the same totals next to your drops and free games.
 - The Health check is now the Health center, with its own stethoscope button next to More (grey when all is well, amber with warnings, red with the number of failures; Ctrl+Shift+H and the quick commands open it too). The dot and the menu item were moved there from the More menu.
 - The Health center has four sections: Summary (overall state, time of the last check, "Check now" and the last 20 problems found or fixed), Checks (the rows and one-click fixes as before), For developers and Maintenance (restart the app, open the logs folder, reset the window data and the background watch switch with its interval).
 - For developers: "Save report to a file" puts the cleaned report on the Desktop, "Collect logs" builds a ZIP of cleaned copies of the service, desktop and crash logs (the last 5 MB of each, with a README of what is inside) on the Desktop, and "Report a problem" copies the report and opens a prefilled new issue on GitHub; the report itself is never put in the link.
