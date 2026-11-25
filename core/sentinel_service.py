@@ -55,7 +55,7 @@ from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE, STEAM_IDLE_LIVE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
-from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
+from giveaways_controller import ENGINE_INCOMPLETE_MARK, GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
 from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
                                    create_controller as create_steam_idle_controller, steam_idle_backend_kind)
 from steam_idle.protection import USER_DENYLIST_KEY as STEAM_IDLE_DENYLIST_KEY
@@ -78,6 +78,7 @@ from signin_watch import SignInWatch, lost_text
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
 from notifications import NOTIFIER, set_enabled as set_native_toasts
+import health
 from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
 import copy_import
@@ -293,8 +294,10 @@ class SentinelSupervisor:
                     reward_campaigns.drop_invalid_setting(data)
                     default_settings.update(data)
                     apply_disabled_tabs(default_settings)
+                health.note_settings_error(None)
             except Exception as e:
                 logger.warning(f"Could not load config.json: {e}")
+                health.note_settings_error(f"{type(e).__name__}: {e}")
 
         # Sanitize games_to_pause: remove any non-game system utilities or ignored processes
         raw_pause_games = default_settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES)
@@ -427,6 +430,7 @@ class SentinelSupervisor:
 
     def _setup_routes(self):
         self.app.router.add_get("/api/state", self.handle_get_state)
+        self.app.router.add_get("/api/v1/health", self.handle_get_health)
         self.app.router.add_get("/api/logs", self.handle_get_logs)
         self.app.router.add_get("/api/catalog", self.handle_get_catalog)
         self.app.router.add_get("/api/verify-game", self.handle_verify_game)
@@ -766,6 +770,20 @@ class SentinelSupervisor:
     async def handle_get_state(self, request: web.Request) -> web.Response:
         state = await self.get_full_state()
         return web.json_response(state)
+
+    def _health_context(self, lang: str) -> health.HealthContext:
+        """What the read-only health checks may look at: the service's own memory and cached state, nothing that acts."""
+        return health.HealthContext(
+            project_dir=PROJECT_DIR, log_dir=CORE_DIR, bridge=STATE_BRIDGE, steam_state=self.steam_idle.state,
+            giveaways_readiness=lambda: check_giveaways_readiness(self.giveaways, full=False),
+            # disk work stays inside the callable: the check runs it in a worker thread, not on the event loop
+            giveaways_marker=lambda: (resolve_fgc_root() / "data" / ENGINE_INCOMPLETE_MARK).exists(),
+            cached_update=lambda: UPDATER._cached_result, version=APP_VERSION, lang=lang)
+
+    async def handle_get_health(self, request: web.Request) -> web.Response:
+        """Read-only checks for the "Проверка работы" panel. Runs only when asked; ?lang=en for English texts."""
+        lang = "en" if request.query.get("lang") == "en" else "ru"
+        return web.json_response(await health.run_health(self._health_context(lang)))
 
     async def handle_get_logs(self, request: web.Request) -> web.Response:
         """The console journal after a cursor: ?after=<seq>&session=<id>. A missing cursor means everything."""

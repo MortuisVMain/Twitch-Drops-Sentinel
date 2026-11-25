@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from translate import _
+from health import OAUTH_CODES
 
 logger = logging.getLogger("TwitchDrops.HeadlessGUI")
 
@@ -383,6 +384,7 @@ class HeadlessLoginForm:
     def update(self, text: str, user_id: Any = None, username: Any = None):
         logger.info(f"[LOGIN] {text} (User ID: {user_id}, Username: {username})")
         if user_id:
+            OAUTH_CODES.clear()  # signed in: earlier codes are not a restart loop any more
             STATE_BRIDGE.user_id = str(user_id)
             STATE_BRIDGE.oauth_code = None
             STATE_BRIDGE.oauth_uri = None
@@ -399,6 +401,7 @@ class HeadlessLoginForm:
         logger.info(f"[LOGIN] OAuth Device Code needed: {code} at {uri}")
         STATE_BRIDGE.oauth_code = str(code)
         STATE_BRIDGE.oauth_uri = str(uri)
+        OAUTH_CODES.note(code)  # the health check counts new codes: a sign-in that restarts keeps issuing them
         STATE_BRIDGE.status_text = _("sentinel", "login_required_status").format(code=code)
         STATE_BRIDGE.add_log("AUTH", _("sentinel", "login_code_log").format(code=code, uri=uri))
         try:  # through the gate: honours the notifications switch, reaches Telegram/Discord, once per code

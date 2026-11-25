@@ -9,8 +9,8 @@ using System.Text.RegularExpressions;
 
 namespace TwitchDropsSentinel
 {
-    /// <summary>One line of the "service unavailable" check. Status is "ok", "warn" or "fail"; Action is a button the page may show.</summary>
-    public sealed record DiagnosticCheck(string Id, string Status, string Title, string Detail, string Advice, string? Action = null, int? Pid = null);
+    /// <summary>One line of the check. Status is "ok", "warn" or "fail"; Action is a button the page may show; Area groups the lines in the panel ("service" for what the host sees).</summary>
+    public sealed record DiagnosticCheck(string Id, string Status, string Title, string Detail, string Advice, string? Action = null, int? Pid = null, string Area = "service");
 
     public sealed record DiagnosticsResult(IReadOnlyList<DiagnosticCheck> Checks, string Report);
 
@@ -54,8 +54,15 @@ namespace TwitchDropsSentinel
         public const int RestartWindowMinutes = 5;
         public const int RestartLoopCount = 3;
         public const int LogTailLines = 15;
+        public const int HealthTimeoutMs = 12000;
+        public const int HealthMaxBytes = 1024 * 1024;
+        private static readonly Regex SafeIdPattern = new("^[a-z0-9_]{1,40}$", RegexOptions.Compiled);
+        private static readonly string[] HealthAreas = { "twitch", "steam", "giveaways", "network", "updates", "settings", "system" };
 
         private static string L(bool ru, string r, string e) => ru ? r : e;
+
+        /// <summary>Check ids are plain names: anything else (markup, capitals, over 40 characters) becomes "service_check".</summary>
+        public static string SafeId(string id) => SafeIdPattern.IsMatch(id) ? id : "service_check";
 
         // ---- backend location (shared with MainForm.EnsurePythonBackendRunning) ----
 
@@ -162,7 +169,7 @@ namespace TwitchDropsSentinel
             foreach (var c in checks)
             {
                 string tag = c.Status == "ok" ? "[OK]  " : c.Status == "warn" ? "[WARN]" : "[FAIL]";
-                sb.AppendLine($"{tag} {c.Title}");
+                sb.AppendLine(c.Area == "service" ? $"{tag} {c.Title}" : $"{tag} ({c.Area}) {c.Title}");
                 if (c.Detail.Length > 0) sb.AppendLine("       " + c.Detail.Replace("\n", "\n       "));
                 if (c.Advice.Length > 0) sb.AppendLine("       -> " + c.Advice.Replace("\n", "\n          "));
             }
@@ -173,11 +180,74 @@ namespace TwitchDropsSentinel
         {
             var checks = result.Checks.Select(c => new
             {
-                id = c.Id, ok = c.Status == "ok", status = c.Status,
+                id = SafeId(c.Id), ok = c.Status == "ok", status = c.Status,
                 title = Sanitize(c.Title, token), detail = Sanitize(c.Detail, token), advice = Sanitize(c.Advice, token),
-                action = c.Action, pid = c.Pid,
+                action = c.Action, pid = c.Pid, area = c.Area,
             });
             return JsonSerializer.Serialize(new { type = "DIAGNOSTICS_RESULT", checks, report = result.Report });
+        }
+
+        // ---- the service's own checks (GET /api/v1/health) ----
+
+        private static DiagnosticCheck HealthFallback(bool ru, string reason) =>
+            new("health", "warn", L(ru, "Проверки службы недоступны", "Service checks unavailable"), reason,
+                L(ru, "Нажмите «Проверить снова» или перезапустите сервис. Проверки выше выполнены без помощи службы.", "Press Check again or restart the service. The checks above did not need the service."));
+
+        /// <summary>The health answer as check rows; anything unusable gives the one warning row instead. Pure, so it is checked without a service.</summary>
+        public static IReadOnlyList<DiagnosticCheck> ParseHealthResponse(string? json, bool ru)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return new[] { HealthFallback(ru, L(ru, "Служба вернула пустой ответ.", "The service returned an empty answer.")) };
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("checks", out var list) || list.ValueKind != JsonValueKind.Array)
+                    return new[] { HealthFallback(ru, L(ru, "Неожиданный ответ службы.", "Unexpected answer of the service.")) };
+                var rows = new List<DiagnosticCheck>();
+                foreach (var el in list.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object || Text(el, "id") is not { Length: > 0 } id) continue;
+                    string status = Text(el, "status");
+                    string area = Text(el, "area");
+                    rows.Add(new DiagnosticCheck(SafeId(id), status is "ok" or "warn" or "fail" ? status : "warn", Text(el, "title"), Text(el, "detail"), Text(el, "advice"),
+                        Area: Array.IndexOf(HealthAreas, area) >= 0 ? area : "service"));
+                }
+                return rows.Count > 0 ? rows : new[] { HealthFallback(ru, L(ru, "Служба не вернула ни одной проверки.", "The service returned no checks.")) };
+            }
+            catch (JsonException ex)
+            {
+                return new[] { HealthFallback(ru, L(ru, "Ответ службы не разобран: ", "The service answer could not be read: ") + ex.Message) };
+            }
+        }
+
+        private static string Text(JsonElement el, string name) =>
+            el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+        /// <summary>Asks the running service for its checks (token header, 12 s). A service that cannot answer gives the one warning row.</summary>
+        public static IReadOnlyList<DiagnosticCheck> FetchHealth(int port, string? token, bool ru)
+        {
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(HealthTimeoutMs), MaxResponseContentBufferSize = HealthMaxBytes };
+                if (!string.IsNullOrEmpty(token)) client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, token);
+                using var res = client.GetAsync($"http://127.0.0.1:{port}/api/v1/health?lang={(ru ? "ru" : "en")}").GetAwaiter().GetResult();
+                if (!res.IsSuccessStatusCode)
+                    return new[] { HealthFallback(ru, L(ru, $"Служба ответила HTTP {(int)res.StatusCode}.", $"The service answered HTTP {(int)res.StatusCode}.")) };
+                return ParseHealthResponse(res.Content.ReadAsStringAsync().GetAwaiter().GetResult(), ru);
+            }
+            catch (TaskCanceledException)
+            {
+                return new[] { HealthFallback(ru, L(ru, $"Служба не ответила за {HealthTimeoutMs / 1000} с.", $"The service did not answer within {HealthTimeoutMs / 1000} s.")) };
+            }
+            catch (HttpRequestException ex)
+            {
+                return new[] { HealthFallback(ru, L(ru, "Не удалось связаться со службой: ", "Could not reach the service: ") + ex.Message) };
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // whatever else goes wrong here (a bad header value, a reset stream) must not lose the host checks already collected
+                Debug.WriteLine("ServiceDiagnostics: health fetch failed: " + ex);
+                return new[] { HealthFallback(ru, L(ru, "Проверки службы не выполнены: ", "The service checks failed: ") + ex.Message) };
+            }
         }
 
         // ---- the run ----
@@ -196,6 +266,8 @@ namespace TwitchDropsSentinel
                 CheckPython(backend, ru),
                 CheckExcludedPorts(input.Port, ru),
             };
+            // the service's own read-only checks, only when it answers at all (a slow answer still counts)
+            if (checks.First(c => c.Id == "api").Status != "fail") checks.AddRange(FetchHealth(input.Port, input.Token, ru));
             return new DiagnosticsResult(checks, BuildReport(checks, input.AppVersion, input.Token));
         }
 

@@ -1,6 +1,7 @@
 // ServiceDiagnosticsPanel: the "Check" button of the service-unavailable banner
 export const DIAGNOSTICS: Record<string, string> = {
   'Проверить': 'Check',
+  'Проверка работы': 'Health check',
   'Проверка локального сервиса': 'Local service check',
   'Закрыть': 'Close',
   'Проверка работает только в приложении Hell Harvest: в браузере у страницы нет доступа к системе.': 'The check works only inside the Hell Harvest app: in a browser the page has no access to the system.',
@@ -15,4 +16,10 @@ export const DIAGNOSTICS: Record<string, string> = {
   'Скопировать отчёт': 'Copy report',
   'Скопировано': 'Copied',
   'Проверить снова': 'Check again',
+  'Проблем:': 'Problems:',
+  'Предупреждений:': 'Warnings:',
+  'Служба': 'Service',
+  'Сеть': 'Network',
+  'Обновления': 'Updates',
+  'Система': 'System',
 };
