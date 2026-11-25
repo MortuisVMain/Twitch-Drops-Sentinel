@@ -1,9 +1,10 @@
-"""Read-only health checks behind GET /api/v1/health.
+"""Health checks behind GET /api/v1/health, and the whitelist of one-click fixes behind POST /api/v1/health/fix.
 
-Every check returns rows {id, area, status: ok|warn|fail, title, detail, advice}. Nothing here signs in, installs, writes or opens a
-browser: Twitch sign-in is read from the service's memory (validating the token could start a new sign-in), Steam from its cached
-state, the Windows registry is only read. Texts follow ?lang= (ru by default, en on request), kept here because the service has no
-translation table for user-facing texts of this kind.
+Every check returns rows {id, area, status: ok|warn|fail, title, detail, advice, fix?}. The checks are read-only: they sign in nothing,
+install nothing, write nothing and open no browser (Twitch sign-in is read from the service's memory, since validating the token could
+start a new sign-in; Steam from its cached state; the Windows registry is only read). A row may offer a fix {id, label, confirm?}; the
+fix itself runs only through run_fix, from FIXES, and only with the actions the service hands in (FixActions). Texts follow ?lang= (ru by
+default, en on request), kept here because the service has no translation table for user-facing texts of this kind.
 """
 
 from __future__ import annotations
@@ -14,12 +15,14 @@ import os
 import re
 import shutil
 import sys
+import stat as stat_mod
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, NamedTuple, Optional
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -50,8 +53,50 @@ def _t(lang: str, ru: str, en: str) -> str:
     return en if lang == "en" else ru
 
 
-def row(check_id: str, area: str, status: str, title: str, detail: str = "", advice: str = "") -> dict:
-    return {"id": check_id, "area": area, "status": status, "title": title, "detail": sanitize(detail), "advice": advice}
+def row(check_id: str, area: str, status: str, title: str, detail: str = "", advice: str = "", fix: Optional[dict] = None) -> dict:
+    out = {"id": check_id, "area": area, "status": status, "title": title, "detail": sanitize(detail), "advice": advice}
+    if fix:
+        out["fix"] = fix
+    return out
+
+
+def fix_spec(lang: str, fix_id: str, label: tuple[str, str], confirm: Optional[tuple[str, str]] = None, **extra: Any) -> dict:
+    """What a row shows for its fix: id, button label and, for anything that erases, the text naming exactly what is lost."""
+    spec: dict[str, Any] = {"id": fix_id, "label": sanitize(_t(lang, *label))}
+    if confirm:
+        spec["confirm"] = _t(lang, *confirm)
+    spec.update(extra)
+    return spec
+
+
+CONFIRM_RELOGIN = ("Вход в Twitch будет сброшен, понадобится ввести новый код", "Twitch sign-in will be reset, you will need to enter a new code")
+CONFIRM_SETTINGS = (
+    "Текущий config.json сохранится в резервную копию. Затем настройки заменит последняя пригодная резервная копия (она применится после перезапуска, "
+    "вместе с ней вернутся входы и данные из копии), а если копий нет, настройки сбросятся к заводским. Всё, что менялось после той копии, пропадёт.",
+    "The current config.json is saved to a backup first. Then the settings are replaced by the newest usable backup (applied after a restart, together "
+    "with the sign-ins and data stored in it), or reset to factory values if there is no backup. Anything changed after that backup is lost.")
+CONFIRM_LOGS = (
+    "Будут удалены старые журналы: sentinel_service.log.1, .2 и так далее, а также ClaimOutput_*.log старше 7 дней. Текущий журнал не затрагивается.",
+    "Old logs will be deleted: sentinel_service.log.1, .2 and so on, and ClaimOutput_*.log older than 7 days. The current log is not touched.")
+ACTIVATE_URI = "https://www.twitch.tv/activate"
+_CODE_TEXT = re.compile(r"^[A-Za-z0-9-]{1,32}$")
+
+
+def activation_uri(raw: Any) -> str:
+    """The sign-in page the panel may open: the address from the state when it is https on twitch.tv, otherwise the usual one."""
+    text = str(raw or "").strip()
+    if not text or any(ch.isspace() or ord(ch) < 32 for ch in text):
+        return ACTIVATE_URI
+    if "://" not in text:
+        text = "https://" + text
+    try:
+        parts = urlsplit(text)
+        host, port = parts.hostname or "", parts.port
+    except ValueError:
+        return ACTIVATE_URI
+    if parts.scheme != "https" or parts.username or parts.password or port not in (None, 443):
+        return ACTIVATE_URI
+    return text if host == "twitch.tv" or host.endswith(".twitch.tv") else ACTIVATE_URI
 
 
 # ---- state the service feeds in from where it happens ----
@@ -184,9 +229,10 @@ async def check_twitch_login(ctx: HealthContext) -> list[dict]:
         return [row("twitch_login", "twitch", "ok", title,
                     t(f"Вход выполнен: {name}. Состояние взято из памяти службы, токен запросом к Twitch не проверялся.",
                       f"Signed in as {name}. Read from the service's memory; the token was not checked with a request to Twitch."))]
+    fix = None if ctx.bridge.oauth_code else fix_spec(ctx.lang, "twitch_relogin", ("Войти в Twitch заново", "Sign in to Twitch again"), CONFIRM_RELOGIN)
     return [row("twitch_login", "twitch", "warn", title, t("Вход в Twitch не выполнен.", "Not signed in to Twitch."),
                 t("Подождите несколько секунд после запуска. Если не проходит, войдите по коду на панели.",
-                  "Wait a few seconds after the start. If it stays, sign in with the code shown on the dashboard."))]
+                  "Wait a few seconds after the start. If it stays, sign in with the code shown on the dashboard."), fix)]
 
 
 async def check_twitch_code(ctx: HealthContext) -> list[dict]:
@@ -196,8 +242,12 @@ async def check_twitch_code(ctx: HealthContext) -> list[dict]:
     if not code:
         return [row("twitch_code", "twitch", "ok", title, t("Ввод кода не требуется.", "No code is waiting."))]
     uri = ctx.bridge.oauth_uri or "twitch.tv/activate"
+    extra: dict[str, Any] = {"client": True, "uri": activation_uri(ctx.bridge.oauth_uri)}  # the page opens it through the host and copies the code
+    if _CODE_TEXT.match(str(code)):
+        extra["code"] = str(code)
     return [row("twitch_code", "twitch", "warn", title, t(f"Служба ждёт ввода кода {code} на странице {uri}.", f"The service waits for code {code} on {uri}."),
-                t("Откройте страницу и введите код. Код действует ограниченное время.", "Open the page and enter the code. The code expires after a while."))]
+                t("Откройте страницу и введите код. Код действует ограниченное время.", "Open the page and enter the code. The code expires after a while."),
+                fix_spec(ctx.lang, "twitch_open_code", ("Открыть страницу и скопировать код", "Open the page and copy the code"), **extra))]
 
 
 async def check_twitch_code_loop(ctx: HealthContext) -> list[dict]:
@@ -210,7 +260,8 @@ async def check_twitch_code_loop(ctx: HealthContext) -> list[dict]:
                     t("Так бывает, когда служба на медленном ПК перезапускается, не дождавшись ответа. Обновитесь до 4.0.1 или новее, "
                       "введите последний код и отправьте отчёт («Скопировать отчёт»), если не помогло.",
                       "This happens when the service restarts on a slow PC before it answers. Update to 4.0.1 or newer, enter the latest code "
-                      "and send the report (Copy report) if it does not help."))]
+                      "and send the report (Copy report) if it does not help."),
+                    fix_spec(ctx.lang, "twitch_relogin", ("Войти в Twitch заново", "Sign in to Twitch again"), CONFIRM_RELOGIN))]
     return [row("twitch_code_loop", "twitch", "ok", title, t(f"Новых кодов за 10 минут: {count}.", f"New codes in 10 minutes: {count}."))]
 
 
@@ -238,8 +289,9 @@ async def check_steam(ctx: HealthContext) -> list[dict]:
     session = (state.get("community") or {}).get("session")
     session_title = t("Сессия сообщества Steam", "Steam community session")
     if session in ("signed_out", "account_mismatch", "engine_missing"):
+        fix = fix_spec(ctx.lang, "steam_login", ("Войти в Steam", "Sign in to Steam")) if session != "engine_missing" else None
         rows.append(row("steam_session", "steam", "warn", session_title, t(f"Состояние: {session}.", f"State: {session}."),
-                        t("Войдите в Steam во вкладке Steam IDLE.", "Sign in to Steam on the Steam IDLE tab.")))
+                        t("Войдите в Steam во вкладке Steam IDLE.", "Sign in to Steam on the Steam IDLE tab."), fix))
     else:
         rows.append(row("steam_session", "steam", "ok", session_title, t(f"Состояние: {session or 'unknown'}.", f"State: {session or 'unknown'}.")))
     last_error = (state.get("farm") or {}).get("lastError")
@@ -300,7 +352,8 @@ async def check_giveaways(ctx: HealthContext) -> list[dict]:
             status = "fail"
             detail = t("Установка движка не завершилась: остался маркер .engine-install-incomplete.", "The engine install did not finish: the .engine-install-incomplete marker is left.")
             advice = t("Во вкладке «Раздачи» нажмите «Установить движок» ещё раз.", "On the Giveaways tab press Install engine again.")
-        rows.append(row(check_id, "giveaways", status, title, detail, advice))
+        fix = fix_spec(ctx.lang, "giveaways_reinstall", ("Переустановить движок раздач", "Reinstall the giveaways engine")) if kind == "engine" and status != "ok" else None
+        rows.append(row(check_id, "giveaways", status, title, detail, advice, fix))
     if logins:
         missing = [e.get("store") or "?" for e in logins if e.get("status") != "ok"]
         signed = [e.get("store") or "?" for e in logins if e.get("status") == "ok"]
@@ -310,7 +363,8 @@ async def check_giveaways(ctx: HealthContext) -> list[dict]:
                         t("Откройте вкладку «Раздачи» и войдите в нужные магазины; остальные можно не трогать.", "Open the Giveaways tab and sign in to the stores you need; leave the others.") if missing else ""))
     if marker and not any(r["id"] == "giveaways_engine" for r in rows):
         rows.append(row("giveaways_engine", "giveaways", "fail", t("Движок раздач", "Giveaways engine"),
-                        t("Установка движка не завершилась.", "The engine install did not finish."), t("Установите движок ещё раз.", "Install the engine again.")))
+                        t("Установка движка не завершилась.", "The engine install did not finish."), t("Установите движок ещё раз.", "Install the engine again."),
+                        fix_spec(ctx.lang, "giveaways_reinstall", ("Переустановить движок раздач", "Reinstall the giveaways engine"))))
     return rows
 
 
@@ -374,7 +428,8 @@ async def check_settings(ctx: HealthContext) -> list[dict]:
     if error:
         return [row("settings_config", "settings", "fail", title, t(f"Файл не прочитан, взяты значения по умолчанию: {error}", f"The file could not be read, defaults are used: {error}"),
                     t("Восстановите настройки из резервной копии (Настройки, раздел резервных копий) или удалите повреждённый config.json.",
-                      "Restore the settings from a backup (Settings, backups section) or delete the damaged config.json."))]
+                      "Restore the settings from a backup (Settings, backups section) or delete the damaged config.json."),
+                    fix_spec(ctx.lang, "settings_restore", ("Восстановить настройки", "Restore the settings"), CONFIRM_SETTINGS))]
     return [row("settings_config", "settings", "ok", title, t("Читается без ошибок.", "Read without errors."))]
 
 
@@ -404,7 +459,15 @@ async def check_logs_size(ctx: HealthContext) -> list[dict]:
     total = await asyncio.to_thread(_logs_total_bytes, ctx.log_dir, ctx.project_dir)
     detail = t(f"Всего {total / 1024 ** 2:.1f} МБ.", f"{total / 1024 ** 2:.1f} MB in total.")
     if total > LOGS_WARN_BYTES:
-        return [row("system_logs", "system", "warn", title, detail, t("Журналы разрослись: удалите старые файлы sentinel_*.log в папке программы.", "The logs have grown: delete the old sentinel_*.log files in the app folder."))]
+        rotated = await asyncio.to_thread(_rotated_bytes, ctx.log_dir)
+        advice = t("Журналы разрослись: удалите старые файлы sentinel_*.log в папке программы.", "The logs have grown: delete the old sentinel_*.log files in the app folder.")
+        if rotated > 0 and total - rotated <= LOGS_WARN_BYTES:  # the fix is offered only when it really ends the warning
+            return [row("system_logs", "system", "warn", title, detail, advice, fix_spec(ctx.lang, "logs_trim", ("Удалить старые журналы", "Delete old logs"), CONFIRM_LOGS))]
+        return [row("system_logs", "system", "warn", title,
+                    detail + " " + t("Основной объём в sentinel_stdout.log и sentinel_stderr.log: их держит открытыми работающая служба, поэтому приложение их не урезает.",
+                                     "Most of it is in sentinel_stdout.log and sentinel_stderr.log: the running service keeps them open, so the app does not trim them."),
+                    t("Закройте приложение полностью (в том числе из трея) и удалите эти файлы вручную; ротированные журналы можно удалить сразу.",
+                      "Close the app completely (also from the tray) and delete those files by hand; the rotated logs can go at once."))]
     return [row("system_logs", "system", "ok", title, detail)]
 
 
@@ -417,6 +480,18 @@ def _same_dir(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
+def _points_here(command: str, project_dir: Path) -> bool:
+    folder = Path(_autostart_exe(command)).parent
+    return _same_dir(folder, project_dir) or _same_dir(folder, project_dir / "desktop" / "publish")
+
+
+def _autostart_target(project_dir: Path) -> Path:
+    """The program autostart would start for this copy (the same choice service_system.set_autostart_status makes)."""
+    exe = project_dir / "TwitchDropsSentinel.exe"
+    published = project_dir / "desktop" / "publish" / "TwitchDropsSentinel.exe"
+    return published if not exe.exists() and published.exists() else exe
+
+
 async def check_autostart(ctx: HealthContext) -> list[dict]:
     t = lambda ru, en: _t(ctx.lang, ru, en)
     title = t("Автозапуск с Windows", "Autostart with Windows")
@@ -424,10 +499,11 @@ async def check_autostart(ctx: HealthContext) -> list[dict]:
     if not enabled:
         return [row("system_autostart", "system", "ok", title, t("Выключен.", "Turned off."))]
     exe = Path(_autostart_exe(command))
-    here = _same_dir(exe.parent, ctx.project_dir) or _same_dir(exe.parent, ctx.project_dir / "desktop" / "publish")
-    if not here:
+    if not _points_here(command, ctx.project_dir):
+        target = _autostart_target(ctx.project_dir)
         return [row("system_autostart", "system", "warn", title, t(f"Автозапуск указывает на другую копию: {exe}", f"Autostart points to another copy: {exe}"),
-                    t("В настройках выключите и снова включите автозапуск в этой копии.", "In Settings turn autostart off and on again in this copy."))]
+                    t("В настройках выключите и снова включите автозапуск в этой копии.", "In Settings turn autostart off and on again in this copy."),
+                    fix_spec(ctx.lang, "autostart_repair", (f"Включить автозапуск этой копии ({target})", f"Turn on autostart for this copy ({target})")))]
     return [row("system_autostart", "system", "ok", title, t("Указывает на эту копию.", "Points to this copy."))]
 
 
@@ -513,6 +589,7 @@ async def _guarded(entry: Check, ctx: HealthContext) -> list[dict]:
 
 _flight: Optional[tuple[tuple, asyncio.Task]] = None
 _last: Optional[tuple[tuple, float, dict]] = None
+_generation = 0  # bumped when a fix changes things: a run that began before it must not store its result
 
 
 async def run_health(ctx: HealthContext, checks: Optional[list[Check]] = None, budget: float = RUN_BUDGET_SECONDS) -> dict:
@@ -527,15 +604,16 @@ async def run_health(ctx: HealthContext, checks: Optional[list[Check]] = None, b
     if _flight and _flight[0] == key and not _flight[1].done() and _flight[1].get_loop() is loop:
         task = _flight[1]
     else:
-        task = loop.create_task(_shared_run(key, ctx, entries, budget))
+        task = loop.create_task(_shared_run(key, ctx, entries, budget, _generation))
         _flight = (key, task)
     return await asyncio.shield(task)  # a caller that goes away must not cancel the run the others wait for
 
 
-async def _shared_run(key: tuple, ctx: HealthContext, entries: list[Check], budget: float) -> dict:
+async def _shared_run(key: tuple, ctx: HealthContext, entries: list[Check], budget: float, generation: int) -> dict:
     global _last
     result = await _run_checks(ctx, entries, budget)
-    _last = (key, time.monotonic(), result)
+    if generation == _generation:
+        _last = (key, time.monotonic(), result)
     return result
 
 
@@ -555,3 +633,268 @@ async def _run_checks(ctx: HealthContext, entries: list[Check], budget: float) -
         if not task.done():
             await asyncio.gather(task, return_exceptions=True)
     return {"checks": rows, "version": ctx.version, "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds")}
+
+
+# ---- one-click fixes (POST /api/v1/health/fix) ----
+
+class FixFailed(Exception):
+    """A fix action could not do its job; the text is shown to the user."""
+
+
+class Outcome(NamedTuple):
+    message: str
+    restart: bool = False  # the result takes effect only after the app restarts
+
+
+@dataclass
+class FixActions:
+    """What a fix may do. The service hands in its own functions, so nothing here knows about the service or calls it over HTTP.
+    The sync ones run in a worker thread; every one raises FixFailed (or anything else, which is logged) when it fails."""
+    sign_out_twitch: Callable[[], Awaitable[None]]
+    steam_login: Callable[[], Awaitable[None]]
+    install_engine: Callable[[], Awaitable[str]]
+    enable_autostart: Callable[[], bool]
+    reset_settings: Callable[[], Awaitable[None]]
+    save_profile_backup: Callable[[], Path]
+    list_backups: Callable[[], list[Path]]  # newest first
+    stage_restore: Callable[[Path], list[str]]  # ValueError for an archive that cannot be used
+
+
+@dataclass
+class FixContext:
+    health: HealthContext
+    actions: FixActions
+    claim_log_dirs: Callable[[], list[Path]] = lambda: []
+
+
+@dataclass(frozen=True)
+class Fix:
+    id: str
+    checks: tuple[str, ...]  # the catalog checks to run again afterwards
+    applicable: Callable[[FixContext], Awaitable[Optional[str]]]  # None when it applies now, otherwise why it does not
+    run: Callable[[FixContext], Awaitable[Outcome]]
+
+
+ROTATED_LOG = re.compile(r"^sentinel_service\.log\.\d+$")  # what the rotating handler leaves; never the active sentinel_service.log
+CLAIM_LOG_DAYS = 7
+
+
+def _plain_file(f: Path) -> Optional[os.stat_result]:
+    """The file's stat when it is a regular file that is not a link; None for anything else, or when it vanished (logged at debug)."""
+    try:
+        st = f.stat()
+        return st if stat_mod.S_ISREG(st.st_mode) and not f.is_symlink() else None
+    except OSError as exc:
+        logger.debug("health fix logs_trim: skipped %s: %s", f.name, exc)
+        return None
+
+
+def _rotated_logs(log_dir: Path) -> list[Path]:
+    try:
+        names = list(log_dir.iterdir())
+    except OSError as exc:
+        logger.debug("health fix logs_trim: cannot list %s: %s", log_dir.name, exc)
+        return []
+    return [f for f in names if ROTATED_LOG.match(f.name) and _plain_file(f)]
+
+
+def _rotated_bytes(log_dir: Path) -> int:
+    return sum(st.st_size for st in (_plain_file(f) for f in _rotated_logs(log_dir)) if st)
+
+
+def _trim_candidates(log_dir: Path, claim_dirs: list[Path], now: datetime) -> list[Path]:
+    found = _rotated_logs(log_dir)
+    cutoff = (now - timedelta(days=CLAIM_LOG_DAYS)).timestamp()
+    seen: set[Path] = set()
+    for folder in claim_dirs:
+        try:
+            key = folder.resolve()
+            if key in seen or not folder.is_dir():
+                continue
+            seen.add(key)
+            listing = list(folder.glob("ClaimOutput_*.log"))
+        except OSError as exc:
+            logger.debug("health fix logs_trim: cannot list %s: %s", folder.name, exc)
+            continue
+        found.extend(f for f in listing if (st := _plain_file(f)) and st.st_mtime < cutoff)
+    return found
+
+
+def _trim(files: list[Path]) -> tuple[int, int, int]:
+    """(deleted, bytes freed, failed): one file that cannot be deleted does not stop the rest."""
+    deleted = freed = failed = 0
+    for f in files:
+        try:
+            size = f.stat().st_size
+            f.unlink()
+            deleted, freed = deleted + 1, freed + size
+        except OSError as exc:
+            failed += 1
+            logger.warning("health fix logs_trim: could not delete %s: %s", f.name, exc, exc_info=True)
+    return deleted, freed, failed
+
+
+async def _can_relogin(fc: FixContext) -> Optional[str]:
+    if not fc.health.bridge.user_id or OAUTH_CODES.recent() >= CODE_LOOP_COUNT:
+        return None
+    return _t(fc.health.lang, "Вход в Twitch уже выполнен: сбрасывать нечего.", "Twitch is already signed in: nothing to reset.")
+
+
+async def _relogin(fc: FixContext) -> Outcome:
+    await fc.actions.sign_out_twitch()
+    OAUTH_CODES.clear()
+    return Outcome(_t(fc.health.lang, "Вход сброшен. Служба запросит новый код, он появится через несколько секунд: нажмите «Проверить снова».",
+                      "Sign-in reset. The service will ask for a new code in a few seconds: press Check again."))
+
+
+async def _can_steam_login(fc: FixContext) -> Optional[str]:
+    state = await asyncio.to_thread(fc.health.steam_state)
+    if state.get("available") and (state.get("community") or {}).get("session") in ("signed_out", "account_mismatch"):
+        return None
+    return _t(fc.health.lang, "Сессия Steam в порядке или вход сейчас недоступен.", "The Steam session is fine or sign-in is not available now.")
+
+
+async def _steam_login(fc: FixContext) -> Outcome:
+    await fc.actions.steam_login()
+    return Outcome(_t(fc.health.lang, "Окно входа в Steam открывается. Войдите и нажмите «Проверить снова».", "The Steam sign-in window is opening. Sign in and press Check again."))
+
+
+async def _can_reinstall(fc: FixContext) -> Optional[str]:
+    if await asyncio.to_thread(fc.health.giveaways_marker):
+        return None
+    engine = [e for e in (await fc.health.giveaways_readiness()).get("items") or [] if e.get("id") == "engine"]
+    if any(e.get("status") != "ok" for e in engine):
+        return None
+    return _t(fc.health.lang, "Движок раздач установлен.", "The giveaways engine is installed.")
+
+
+async def _reinstall(fc: FixContext) -> Outcome:
+    started = await fc.actions.install_engine()
+    if started == "already_running":
+        return Outcome(_t(fc.health.lang, "Установка движка уже идёт.", "The engine install is already running."))
+    return Outcome(_t(fc.health.lang, "Установка движка запущена, это займёт несколько минут. Проверьте позже кнопкой «Проверить снова».",
+                      "The engine install is started and takes a few minutes. Check later with Check again."))
+
+
+async def _can_repair_autostart(fc: FixContext) -> Optional[str]:
+    enabled, command = await asyncio.to_thread(read_autostart)
+    if enabled and not _points_here(command, fc.health.project_dir):
+        return None
+    return _t(fc.health.lang, "Автозапуск выключен или уже указывает на эту копию.", "Autostart is off or already points to this copy.")
+
+
+async def _repair_autostart(fc: FixContext) -> Outcome:
+    if not await asyncio.to_thread(fc.actions.enable_autostart):
+        raise FixFailed(_t(fc.health.lang, "Windows не дала записать автозапуск.", "Windows refused to write the autostart entry."))
+    return Outcome(_t(fc.health.lang, "Автозапуск теперь указывает на эту копию.", "Autostart now points to this copy."))
+
+
+async def _can_restore_settings(fc: FixContext) -> Optional[str]:
+    if settings_error():
+        return None
+    return _t(fc.health.lang, "Файл настроек читается без ошибок.", "The settings file is read without errors.")
+
+
+async def _restore_settings(fc: FixContext) -> Outcome:
+    t = lambda ru, en: _t(fc.health.lang, ru, en)
+    backups = await asyncio.to_thread(fc.actions.list_backups)  # before ours is written, or the newest one would be the damaged file itself
+    try:
+        saved = await asyncio.to_thread(fc.actions.save_profile_backup)
+    except Exception as exc:
+        logger.error("health fix settings_restore: the backup of the current settings failed: %s", exc, exc_info=True)
+        raise FixFailed(t(f"Копия текущих настроек не сохранилась, ничего не менялось: {exc}", f"The backup of the current settings was not saved, nothing was changed: {exc}")) from exc
+    for path in backups:
+        try:
+            await asyncio.to_thread(fc.actions.stage_restore, path)
+        except ValueError as exc:
+            logger.warning("health fix settings_restore: %s cannot be used: %s", path.name, exc)
+            continue
+        return Outcome(t(f"Копия {path.name} подготовлена и применится при перезапуске приложения. Прежние настройки сохранены в {saved.name}.",
+                         f"Backup {path.name} is ready and will be applied when the app restarts. The previous settings are saved as {saved.name}."), restart=True)
+    await fc.actions.reset_settings()
+    note_settings_error(None)  # config.json was just written again
+    return Outcome(t(f"Пригодных резервных копий нет: настройки сброшены к заводским. Прежний файл сохранён в {saved.name}.",
+                     f"No usable backup: the settings were reset to factory values. The previous file is saved as {saved.name}."))
+
+
+async def _can_trim_logs(fc: FixContext) -> Optional[str]:
+    if await asyncio.to_thread(_trim_candidates, fc.health.log_dir, fc.claim_log_dirs(), fc.health.now()):
+        return None
+    return _t(fc.health.lang, "Старых журналов нет: нечего удалять.", "There are no old logs to delete.")
+
+
+async def _trim_logs(fc: FixContext) -> Outcome:
+    t = lambda ru, en: _t(fc.health.lang, ru, en)
+    files = await asyncio.to_thread(_trim_candidates, fc.health.log_dir, fc.claim_log_dirs(), fc.health.now())
+    deleted, freed, failed = await asyncio.to_thread(_trim, files)
+    if failed and not deleted:
+        raise FixFailed(t("Ни один файл не удалось удалить: они заняты другой программой.", "No file could be deleted: they are in use by another program."))
+    tail = t(f" Не удалось удалить: {failed}.", f" Could not delete: {failed}.") if failed else ""
+    return Outcome(t(f"Удалено файлов: {deleted}, освобождено {freed / 1024 ** 2:.1f} МБ.", f"Files deleted: {deleted}, {freed / 1024 ** 2:.1f} MB freed.") + tail)
+
+
+FIXES: dict[str, Fix] = {fix.id: fix for fix in (
+    Fix("twitch_relogin", ("twitch_login", "twitch_code", "twitch_code_loop"), _can_relogin, _relogin),
+    Fix("steam_login", ("steam",), _can_steam_login, _steam_login),
+    Fix("giveaways_reinstall", ("giveaways",), _can_reinstall, _reinstall),
+    Fix("autostart_repair", ("system_autostart",), _can_repair_autostart, _repair_autostart),
+    Fix("settings_restore", ("settings_config",), _can_restore_settings, _restore_settings),
+    Fix("logs_trim", ("system_logs",), _can_trim_logs, _trim_logs),
+)}
+
+_fix_running = False
+
+
+def _log_text(value: Any) -> str:
+    """An id from the page, flattened to one short quoted line so it cannot forge a log entry."""
+    return repr(str(value)[:40])
+
+
+async def _recheck(fix: Fix, ctx: HealthContext) -> list[dict]:
+    """The related checks again, straight away (not from the 3 s reuse cache), and the cache dropped so the next GET is fresh too."""
+    global _last, _flight, _generation
+    _generation += 1  # a read already in flight began before the fix: it must not store, and later callers must not join it
+    _flight = None
+    _last = None
+    entries = [entry for entry in CATALOG if entry.id in fix.checks]
+    result = await _run_checks(ctx, entries, RUN_BUDGET_SECONDS)
+    _last = None
+    return result["checks"]
+
+
+async def run_fix(fix_id: Any, fc: FixContext) -> tuple[int, dict]:
+    """(HTTP status, body {ok, message, checks, restart?}): 400 unknown id, 409 not applicable now or another fix running, 500 failed, else 200."""
+    global _fix_running
+    lang = fc.health.lang
+    t = lambda ru, en: _t(lang, ru, en)
+    fix = FIXES.get(fix_id) if isinstance(fix_id, str) else None
+    if fix is None:
+        logger.warning("health fix %s: unknown id", _log_text(fix_id))
+        return 400, {"ok": False, "message": t("Такого исправления нет.", "No such fix."), "checks": []}
+    if _fix_running:  # no await between this test and the assignment: two clicks cannot both pass
+        logger.info("health fix %s: refused (another fix is running)", fix.id)
+        return 409, {"ok": False, "message": t("Другое исправление ещё выполняется.", "Another fix is still running."), "checks": []}
+    _fix_running = True
+    try:
+        refusal = await fix.applicable(fc)
+        if refusal:
+            logger.info("health fix %s: refused (%s)", fix.id, refusal)
+            return 409, {"ok": False, "message": refusal, "checks": []}
+        ok, restart = True, False
+        try:
+            outcome = await fix.run(fc)
+            message, restart = sanitize(outcome.message), outcome.restart
+            logger.info("health fix %s: ok (%s)", fix.id, message)
+        except FixFailed as exc:
+            ok, message = False, sanitize(str(exc))
+            logger.warning("health fix %s: failed (%s)", fix.id, message, exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - the panel must get an answer, the log gets the traceback
+            ok, message = False, sanitize(t(f"Не удалось: {type(exc).__name__}: {exc}", f"Failed: {type(exc).__name__}: {exc}"))
+            logger.error("health fix %s: failed (%s)", fix.id, message, exc_info=True)
+        checks = await _recheck(fix, fc.health)
+        return (200 if ok else 500), {"ok": ok, "message": message, "checks": checks, "restart": restart}
+    except Exception as exc:  # noqa: BLE001 - a crash in the applicability test or the recheck
+        logger.error("health fix %s: crashed: %s", fix.id, exc, exc_info=True)
+        return 500, {"ok": False, "message": sanitize(t(f"Исправление не выполнено: {type(exc).__name__}: {exc}", f"The fix did not run: {type(exc).__name__}: {exc}")), "checks": []}
+    finally:
+        _fix_running = False

@@ -9,8 +9,14 @@ using System.Text.RegularExpressions;
 
 namespace TwitchDropsSentinel
 {
-    /// <summary>One line of the check. Status is "ok", "warn" or "fail"; Action is a button the page may show; Area groups the lines in the panel ("service" for what the host sees).</summary>
-    public sealed record DiagnosticCheck(string Id, string Status, string Title, string Detail, string Advice, string? Action = null, int? Pid = null, string Area = "service");
+    /// <summary>A one-click fix a row offers. Confirm is the text naming what is lost (null for a harmless fix); Client means the page does it itself (Uri and Code are what it needs).</summary>
+    public sealed record DiagnosticFix(string Id, string Label, string? Confirm = null, bool Client = false, string? Uri = null, string? Code = null);
+
+    /// <summary>The outcome of a fix, as the page is told: Restart when it takes effect only after the app restarts.</summary>
+    public sealed record FixResult(string Id, bool Ok, string Message, bool Restart = false);
+
+    /// <summary>One line of the check. Status is "ok", "warn" or "fail"; Action is a button the page may show; Area groups the lines in the panel ("service" for what the host sees); Fix is the one-click fix of the row.</summary>
+    public sealed record DiagnosticCheck(string Id, string Status, string Title, string Detail, string Advice, string? Action = null, int? Pid = null, string Area = "service", DiagnosticFix? Fix = null);
 
     public sealed record DiagnosticsResult(IReadOnlyList<DiagnosticCheck> Checks, string Report);
 
@@ -56,7 +62,10 @@ namespace TwitchDropsSentinel
         public const int LogTailLines = 15;
         public const int HealthTimeoutMs = 12000;
         public const int HealthMaxBytes = 1024 * 1024;
-        private static readonly Regex SafeIdPattern = new("^[a-z0-9_]{1,40}$", RegexOptions.Compiled);
+        public const int FixTimeoutMs = 30000;
+        public const int MaxFixMessage = 500;
+        private static readonly Regex SafeCodePattern = new(@"\A[A-Za-z0-9-]{1,32}\z", RegexOptions.Compiled);
+        private static readonly Regex SafeIdPattern = new(@"\A[a-z0-9_]{1,40}\z", RegexOptions.Compiled);
         private static readonly string[] HealthAreas = { "twitch", "steam", "giveaways", "network", "updates", "settings", "system" };
 
         private static string L(bool ru, string r, string e) => ru ? r : e;
@@ -183,6 +192,11 @@ namespace TwitchDropsSentinel
                 id = SafeId(c.Id), ok = c.Status == "ok", status = c.Status,
                 title = Sanitize(c.Title, token), detail = Sanitize(c.Detail, token), advice = Sanitize(c.Advice, token),
                 action = c.Action, pid = c.Pid, area = c.Area,
+                fix = c.Fix is null ? null : new
+                {
+                    id = SafeId(c.Fix.Id), label = Sanitize(c.Fix.Label, token), confirm = c.Fix.Confirm is null ? null : Sanitize(c.Fix.Confirm, token),
+                    client = c.Fix.Client, uri = c.Fix.Uri, code = c.Fix.Code,
+                },
             });
             return JsonSerializer.Serialize(new { type = "DIAGNOSTICS_RESULT", checks, report = result.Report });
         }
@@ -209,7 +223,7 @@ namespace TwitchDropsSentinel
                     string status = Text(el, "status");
                     string area = Text(el, "area");
                     rows.Add(new DiagnosticCheck(SafeId(id), status is "ok" or "warn" or "fail" ? status : "warn", Text(el, "title"), Text(el, "detail"), Text(el, "advice"),
-                        Area: Array.IndexOf(HealthAreas, area) >= 0 ? area : "service"));
+                        Area: Array.IndexOf(HealthAreas, area) >= 0 ? area : "service", Fix: ReadFix(el)));
                 }
                 return rows.Count > 0 ? rows : new[] { HealthFallback(ru, L(ru, "Служба не вернула ни одной проверки.", "The service returned no checks.")) };
             }
@@ -221,6 +235,77 @@ namespace TwitchDropsSentinel
 
         private static string Text(JsonElement el, string name) =>
             el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+        private static string Cut(string text, int max) => text.Length <= max ? text : text[..max];
+
+        /// <summary>The row's fix, only when its id is a plain name and it has a label. The service cannot hand the page an address or a code the host would not open or copy.</summary>
+        private static DiagnosticFix? ReadFix(JsonElement row)
+        {
+            if (!row.TryGetProperty("fix", out var f) || f.ValueKind != JsonValueKind.Object) return null;
+            string id = Text(f, "id"), label = Text(f, "label"), confirm = Text(f, "confirm");
+            if (!SafeIdPattern.IsMatch(id) || label.Length == 0) return null;
+            bool client = f.TryGetProperty("client", out var c) && c.ValueKind == JsonValueKind.True;
+            string? uri = client ? TwitchActivatePolicy.Resolve(Text(f, "uri")) : null;
+            string code = client ? Text(f, "code") : "";
+            return new DiagnosticFix(id, Cut(label, 200), confirm.Length > 0 ? Cut(confirm, 600) : null, client, uri, SafeCodePattern.IsMatch(code) ? code : null);
+        }
+
+        // ---- fixes: the host relays the page's request to the service and tells the page how it went ----
+
+        /// <summary>The service's answer to a fix as a FixResult. Pure: nothing usable (no body, not JSON, wrong shape, a failing status) is a failure with a text.</summary>
+        public static FixResult ParseFixResponse(string id, int status, string? json, bool ru)
+        {
+            string safe = SafeId(id);
+            FixResult Failed(string why) => new(safe, false, why);
+            if (string.IsNullOrWhiteSpace(json)) return Failed(L(ru, $"Служба ответила HTTP {status} без текста.", $"The service answered HTTP {status} without a text."));
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) return Failed(L(ru, "Неожиданный ответ службы.", "Unexpected answer of the service."));
+                bool ok = status is >= 200 and < 300 && root.TryGetProperty("ok", out var o) && o.ValueKind == JsonValueKind.True;
+                bool restart = ok && root.TryGetProperty("restart", out var r) && r.ValueKind == JsonValueKind.True;
+                string message = Cut(Text(root, "message"), MaxFixMessage);
+                if (message.Length == 0) message = ok ? L(ru, "Готово.", "Done.") : L(ru, $"Служба ответила HTTP {status}.", $"The service answered HTTP {status}.");
+                return new FixResult(safe, ok, message, restart);
+            }
+            catch (JsonException ex)
+            {
+                return Failed(L(ru, "Ответ службы не разобран: ", "The service answer could not be read: ") + ex.Message);
+            }
+        }
+
+        /// <summary>Asks the service to run one of its fixes (POST /api/v1/health/fix with the token). Only a plain id is sent; every failure is a FixResult, never an exception.</summary>
+        public static FixResult PostFix(int port, string? token, string id, bool ru)
+        {
+            string safe = SafeId(id);
+            if (!SafeIdPattern.IsMatch(id)) return new FixResult(safe, false, L(ru, "Неизвестное исправление.", "Unknown fix."));
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(FixTimeoutMs), MaxResponseContentBufferSize = HealthMaxBytes };
+                if (!string.IsNullOrEmpty(token)) client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, token);
+                using var body = new StringContent(JsonSerializer.Serialize(new { id }), Encoding.UTF8, "application/json");
+                using var res = client.PostAsync($"http://127.0.0.1:{port}/api/v1/health/fix?lang={(ru ? "ru" : "en")}", body).GetAwaiter().GetResult();
+                return ParseFixResponse(id, (int)res.StatusCode, res.Content.ReadAsStringAsync().GetAwaiter().GetResult(), ru);
+            }
+            catch (TaskCanceledException)
+            {
+                return new FixResult(safe, false, L(ru, $"Служба не ответила за {FixTimeoutMs / 1000} с.", $"The service did not answer within {FixTimeoutMs / 1000} s."));
+            }
+            catch (HttpRequestException ex)
+            {
+                return new FixResult(safe, false, L(ru, "Не удалось связаться со службой: ", "Could not reach the service: ") + ex.Message);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Debug.WriteLine("ServiceDiagnostics: fix request failed: " + ex);
+                return new FixResult(safe, false, L(ru, "Исправление не выполнено: ", "The fix did not run: ") + ex.Message);
+            }
+        }
+
+        /// <summary>The FIX_RESULT message for the page.</summary>
+        public static string FixResultJson(FixResult result, string? token = null) =>
+            JsonSerializer.Serialize(new { type = "FIX_RESULT", id = SafeId(result.Id), ok = result.Ok, message = Sanitize(result.Message, token), restart = result.Restart });
 
         /// <summary>Asks the running service for its checks (token header, 12 s). A service that cannot answer gives the one warning row.</summary>
         public static IReadOnlyList<DiagnosticCheck> FetchHealth(int port, string? token, bool ru)
@@ -265,6 +350,7 @@ namespace TwitchDropsSentinel
                 CheckFolder(backend, ru),
                 CheckPython(backend, ru),
                 CheckExcludedPorts(input.Port, ru),
+                WebViewDataReset.BuildRow(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), ru),
             };
             // the service's own read-only checks, only when it answers at all (a slow answer still counts)
             if (checks.First(c => c.Id == "api").Status != "fail") checks.AddRange(FetchHealth(input.Port, input.Token, ru));

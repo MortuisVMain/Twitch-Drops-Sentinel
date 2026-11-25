@@ -4,6 +4,7 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 - A new "Health check" item in the More menu runs read-only checks of Twitch and Steam sign-in, giveaways, network, updates, settings and disk, groups the results by area and lets you copy a report.
+- The Health check now offers one-click fixes next to the problem it found: sign in to Twitch again, open the sign-in page and copy the code, sign in to Steam, reinstall the giveaways engine, repair autostart, restore the settings from a backup, delete old logs and reset the window data. Anything that erases something asks first and says what is lost, and the settings are backed up before they are restored.
 
 ## [4.0.1] - 2026-11-24
 - The built-in updater now resumes after network drops and downloads in parallel parts, so slow connections to GitHub no longer make it restart from zero.
