@@ -8,7 +8,7 @@ import subprocess
 import sys
 import unicodedata
 import uuid
-from time import time
+from time import monotonic as _monotonic, time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -17,6 +17,10 @@ from translate import _
 from health import OAUTH_CODES
 
 logger = logging.getLogger("TwitchDrops.HeadlessGUI")
+
+# A service that keeps restarting asks for a new Twitch code each time; one activation tab per 10 minutes is enough, the toast still carries each code.
+ACTIVATION_TAB_INTERVAL = 600.0
+_last_activation_tab_at: Optional[float] = None
 
 # Journal kept for the console, "copy logs" and the diagnostic report. Counter runs are folded on write (one hourly sync
 # alone writes ~104 "(n/104)" lines). Lines are kept by age: the console must show at least the last 5 hours of farming,
@@ -425,11 +429,17 @@ class HeadlessLoginForm:
         if os.environ.get("SENTINEL_NO_BROWSER") == "1":
             logger.warning("SENTINEL_NO_BROWSER: the Twitch activation page was not opened")
             return
+        global _last_activation_tab_at
+        now = _monotonic()
+        if _last_activation_tab_at is not None and now - _last_activation_tab_at < ACTIVATION_TAB_INTERVAL:
+            logger.warning("Twitch activation page not opened again: the last tab was opened %.0f s ago", now - _last_activation_tab_at)
+            return
+        _last_activation_tab_at = now
         try:
             import webbrowser
             webbrowser.open(str(uri))
         except Exception as e:
-            logger.debug(f"Failed to auto-open browser: {e}")
+            logger.warning("Failed to auto-open browser: %s", e, exc_info=True)
 
     def config(self, **kwargs):
         pass

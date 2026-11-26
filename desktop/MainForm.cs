@@ -392,11 +392,11 @@ namespace TwitchDropsSentinel
         private Process? _pythonBackendProcess;
 
         private System.Windows.Forms.Timer? _backendWatchdogTimer;
-        private static readonly TimeSpan BackendStartGrace = TimeSpan.FromSeconds(60);
-        private const int BackendFailuresBeforeRestart = 4;
-        private DateTime _backendStartedAt = DateTime.MinValue;
+        private readonly BackendRestartPolicy _restartPolicy = new(); // the only owner of "start or restart the service"; MainForm executes its decisions on the UI thread
+        private readonly HashSet<int> _killedByUs = new(); // UI thread only: pids closed on purpose, their Exited is not a crash
         private readonly BackendStartLog _backendStarts = new();
-        private int _backendFailures;
+        private readonly PageCrashGate _pageCrashes = new();
+        private DateTime? _loggedBackoff;
         private bool _watchdogBusy;
 
         private volatile bool _isShuttingDown = false;
@@ -770,28 +770,12 @@ namespace TwitchDropsSentinel
                     if (_isShuttingDown || IsDisposed) return;
 
                     bool isAlive = await CheckBackendAliveAsync();
-                    if (isAlive)
-                    {
-                        _backendFailures = 0;
-                        return;
-                    }
+                    if (_isShuttingDown || IsDisposed) return;
 
                     // A slow but running service is not dead: restarting it starts the Twitch sign-in over with a new code
-                    // and a new browser tab every few seconds. Wait out its start and several missed checks first.
-                    bool running = _pythonBackendProcess != null && !_pythonBackendProcess.HasExited;
-                    if (running && DateTime.UtcNow - _backendStartedAt < BackendStartGrace) return;
-                    if (running && ++_backendFailures < BackendFailuresBeforeRestart) return;
-                    _backendFailures = 0;
-
-                    if (!_isShuttingDown && !IsDisposed)
-
-                    {
-
-                        Debug.WriteLine("Hell Harvest Watchdog: Backend unreachable. Auto-reviving Python service...");
-
-                        EnsurePythonBackendRunning();
-
-                    }
+                    // and a new browser tab. The policy waits out the start grace and several missed checks before it kills anything.
+                    NotifyBackendExitIfAny(); // fallback for an Exited event that could not be delivered
+                    ApplyRestartDecision(_restartPolicy.OnHealthCheck(isAlive, DateTime.UtcNow));
 
                 }
 
@@ -923,136 +907,117 @@ namespace TwitchDropsSentinel
 
 
 
+        /// <summary>Startup only: starts the service when nothing answers and nothing is tracked. A running service is never killed here.</summary>
         private void EnsurePythonBackendRunning()
-
         {
-
             if (_isShuttingDown || IsDisposed) return;
-
+            bool answers = false;
             try
-
             {
-
                 using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(400) };
                 client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
-
-                var res = client.GetAsync("http://127.0.0.1:28492/api/state").GetAwaiter().GetResult();
-
-                if (res.IsSuccessStatusCode)
-
-                {
-
-                    return;
-
-                }
-
+                using var res = client.GetAsync("http://127.0.0.1:28492/api/state").GetAwaiter().GetResult();
+                answers = res.IsSuccessStatusCode;
             }
-
-            catch
-
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException)
             {
-
-                // Service not responding; launch it
-
+                Debug.WriteLine($"Hell Harvest: service does not answer at startup: {ex.Message}");
             }
+            ApplyRestartDecision(_restartPolicy.OnHealthCheck(answers, DateTime.UtcNow));
+        }
 
-
-
-            try
-
+        /// <summary>Executes a decision of the restart policy. UI thread only; every start is reported back to the policy.</summary>
+        private void ApplyRestartDecision(RestartDecision decision)
+        {
+            if (_isShuttingDown || IsDisposed) return;
+            switch (decision.Action)
             {
-
-                if (_pythonBackendProcess != null)
-
-                {
-
-                    try
-
+                case RestartAction.KillAndStart:
+                    Debug.WriteLine($"Hell Harvest Watchdog: restarting the service ({decision.Reason})");
+                    bool oldGone = KillTrackedBackend();
+                    StartBackendProcess(decision.CleanStalePort || !oldGone); // a survivor holds the port: clear it, or the new one cannot bind
+                    break;
+                case RestartAction.Start:
+                    Debug.WriteLine($"Hell Harvest Watchdog: starting the service ({decision.Reason})");
+                    StartBackendProcess(decision.CleanStalePort);
+                    break;
+                case RestartAction.Backoff:
+                    if (_loggedBackoff != decision.Until) // the watchdog sees the same pause every 4 s: log it once
                     {
-
-                        if (!_pythonBackendProcess.HasExited)
-
-                        {
-
-                            _pythonBackendProcess.Kill(true);
-
-                        }
-
-                        _pythonBackendProcess.Dispose();
-
+                        _loggedBackoff = decision.Until;
+                        LogDesktopError("service restarts paused", new InvalidOperationException($"{decision.Reason}; no restart until {decision.Until:HH:mm:ss} UTC"));
                     }
+                    break;
+            }
+        }
 
-                    catch { }
+        /// <summary>Closes the tracked process; true when it is gone. Never throws: the policy already counts a start in flight, so the start must follow.</summary>
+        private bool KillTrackedBackend()
+        {
+            var old = _pythonBackendProcess;
+            if (old == null) return true;
+            try
+            {
+                if (old.HasExited) return true;
+                _killedByUs.Add(old.Id); // marked before the Kill so its Exited is never taken for a crash
+                old.Kill(true);
+                return old.WaitForExit(1500);
+            }
+            catch (Exception ex) // AggregateException from a tree kill included
+            {
+                LogDesktopError("closing the stalled service", ex);
+                return false;
+            }
+        }
 
-                    _pythonBackendProcess = null;
+        private void StartBackendProcess(bool cleanStalePort)
+        {
+            bool reported = false;
+            try
+            {
+                try { _pythonBackendProcess?.Dispose(); }
+                catch (InvalidOperationException ex) { LogDesktopError("disposing the previous service process", ex); }
+                _pythonBackendProcess = null;
 
-                }
-
-
-
-                CleanupStalePort28492();
-
-
+                // only on a cold start or after a crash pause, when nothing of ours is running: never right after our own start
+                if (cleanStalePort) CleanupStalePort28492();
 
                 var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
                 string? scriptPath = backend.ScriptPath;
-
-                if (scriptPath != null)
-
+                if (scriptPath == null)
                 {
+                    LogDesktopError("service start", new FileNotFoundException("core\\sentinel_service.py was not found"));
+                    return;
+                }
+                string projectRoot = backend.ProjectRoot;
+                string pythonExe = backend.PythonExe;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = pythonExe,
+                    Arguments = $"-X utf8 \"{scriptPath}\"",
+                    WorkingDirectory = projectRoot,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
+                psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+                psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current; // environment only: never the command line, a file or a log
 
-                    string projectRoot = backend.ProjectRoot;
+                _pythonBackendProcess = Process.Start(psi);
+                var proc = _pythonBackendProcess;
+                if (proc == null) return;
+                int pid = proc.Id;
+                _restartPolicy.OnStarted(pid, DateTime.UtcNow);
+                reported = true;
+                _backendStarts.Record();
 
-                    string pythonExe = backend.PythonExe;
-
-
-
-                    var psi = new ProcessStartInfo
-
-                    {
-
-                        FileName = pythonExe,
-
-                        Arguments = $"-X utf8 \"{scriptPath}\"",
-
-                        WorkingDirectory = projectRoot,
-
-                        CreateNoWindow = true,
-
-                        UseShellExecute = false,
-
-                        RedirectStandardOutput = true,
-
-                        RedirectStandardError = true,
-
-                        StandardOutputEncoding = Encoding.UTF8,
-
-                        StandardErrorEncoding = Encoding.UTF8
-
-                    };
-
-                    psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-
-                    psi.EnvironmentVariables["PYTHONUTF8"] = "1";
-
-                    psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
-
-                    psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current; // environment only: never the command line, a file or a log
-
-
-
-                    _pythonBackendProcess = Process.Start(psi);
-                    _backendStartedAt = DateTime.UtcNow;
-                    if (_pythonBackendProcess != null) _backendStarts.Record();
-
-                    if (_pythonBackendProcess != null)
-
-                    {
-
-                        ChildProcessTracker.AddProcess(_pythonBackendProcess);
-
-                        _pythonBackendProcess.EnableRaisingEvents = true;
-
+                ChildProcessTracker.AddProcess(proc);
+                proc.EnableRaisingEvents = true;
                         string stdoutLog = Path.Combine(projectRoot, "sentinel_stdout.log");
 
                         string stderrLog = Path.Combine(projectRoot, "sentinel_stderr.log");
@@ -1091,7 +1056,7 @@ namespace TwitchDropsSentinel
 
 
 
-                        _pythonBackendProcess.OutputDataReceived += (s, e) =>
+                        proc.OutputDataReceived += (s, e) =>
 
                         {
 
@@ -1099,7 +1064,7 @@ namespace TwitchDropsSentinel
 
                         };
 
-                        _pythonBackendProcess.ErrorDataReceived += (s, e) =>
+                        proc.ErrorDataReceived += (s, e) =>
 
                         {
 
@@ -1107,38 +1072,71 @@ namespace TwitchDropsSentinel
 
                         };
 
-                        _pythonBackendProcess.BeginOutputReadLine();
+                        proc.BeginOutputReadLine();
 
-                        _pythonBackendProcess.BeginErrorReadLine();
+                        proc.BeginErrorReadLine();
 
-                        _pythonBackendProcess.Exited += (s, ev) =>
-
-                        {
-
-                            if (!_isShuttingDown && !IsDisposed)
-
-                            {
-
-                                Task.Delay(2000).ContinueWith(_ => EnsurePythonBackendRunning());
-
-                            }
-
-                        };
-
-                    }
-
-                }
-
+                // never restarts anything here: the policy decides on the UI thread
+                proc.Exited += (s, ev) => PostBackendExit(pid);
             }
-
             catch (Exception ex)
-
             {
-
-                Debug.WriteLine($"Failed to auto-spawn Python backend: {ex.Message}");
-
+                LogDesktopError("service start failed", ex);
             }
+            finally
+            {
+                if (!reported) ApplyRestartDecision(_restartPolicy.OnStartFailed(DateTime.UtcNow)); // never starts again at once: the next watchdog tick retries
+            }
+        }
 
+        private void PostBackendExit(int pid)
+        {
+            if (_isShuttingDown || IsDisposed) return;
+            try
+            {
+                BeginInvoke(new Action(() => OnBackendExited(pid)));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                LogDesktopError("service exit not delivered to the UI thread (the watchdog will notice)", ex);
+            }
+        }
+
+        private void OnBackendExited(int pid)
+        {
+            if (_isShuttingDown || IsDisposed) return;
+            bool killed = _killedByUs.Remove(pid);
+            ApplyRestartDecision(_restartPolicy.OnExited(pid, DateTime.UtcNow, killed));
+        }
+
+        /// <summary>
+        /// The page renderer crashed (WebView2 158 hits STATUS_ACCESS_VIOLATION inside msedge.dll) or hung: reload instead of leaving the
+        /// browser error page up. PageCrashGate caps it at 3 reloads per 5 minutes; past that the error page and its Refresh button stay.
+        /// </summary>
+        private void OnWebViewProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+        {
+            var kind = e.ProcessFailedKind;
+            bool renderer = kind is CoreWebView2ProcessFailedKind.RenderProcessExited or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive;
+            bool reload = renderer && !_isShuttingDown && !IsDisposed && _pageCrashes.ShouldReload(DateTime.UtcNow);
+            LogDesktopError("window page crashed", new InvalidOperationException($"{kind}, reason {e.Reason}, exit code {e.ExitCode}; {(reload ? "reloading" : "not reloaded")}"));
+            if (!reload) return;
+            try { _webView?.CoreWebView2?.Reload(); }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                LogDesktopError("reloading the crashed page", ex);
+            }
+        }
+
+        /// <summary>Watchdog fallback: the tracked process is gone but its Exited event never reached the UI thread.</summary>
+        private void NotifyBackendExitIfAny()
+        {
+            var proc = _pythonBackendProcess;
+            int? pid = _restartPolicy.TrackedPid;
+            if (proc == null || pid == null) return;
+            bool exited;
+            try { exited = proc.HasExited; }
+            catch (InvalidOperationException ex) { LogDesktopError("tracked service process unreadable", ex); exited = true; }
+            if (exited) OnBackendExited(pid.Value);
         }
 
 
@@ -1494,6 +1492,7 @@ namespace TwitchDropsSentinel
 
                 _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
                 _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+                _webView.CoreWebView2.ProcessFailed += OnWebViewProcessFailed;
 
                 _webView.CoreWebView2.NewWindowRequested += (s, args) =>
 
@@ -3953,6 +3952,7 @@ else
         {
             var tracked = _pythonBackendProcess;
             var starts = _backendStarts.Snapshot();
+            var crashBackoff = _restartPolicy.BackoffUntil;
             Task.Run(() =>
             {
                 string json;
@@ -3972,7 +3972,7 @@ else
                     }
                     bool ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
                     string version = StartConflict.ReadVersion(backend.ProjectRoot) ?? "unknown";
-                    var result = ServiceDiagnostics.Run(new DiagnosticsInput(ServicePort, baseDir, Directory.GetCurrentDirectory(), tracked, starts, LocalApiToken.Current, version, ru));
+                    var result = ServiceDiagnostics.Run(new DiagnosticsInput(ServicePort, baseDir, Directory.GetCurrentDirectory(), tracked, starts, LocalApiToken.Current, version, ru, crashBackoff));
                     if (closeNote.Length > 0)
                     {
                         var checks = result.Checks.Append(new DiagnosticCheck("close", "fail", ru ? "Закрытие чужой службы" : "Closing the other service", closeNote, "")).ToList();

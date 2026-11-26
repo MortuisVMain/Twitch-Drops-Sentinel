@@ -184,6 +184,11 @@ def create_release():
     )
     (RELEASE_DIR / "config.json").write_text(clean_config, encoding="utf-8")
 
+    # 7b. The template the service reads for "untouched defaults" (core/sentinel_service.py: _config_defaults, load_settings)
+    default_template = WORKSPACE / "config.default.json"
+    assert default_template.exists(), f"Missing config template: {default_template}"
+    shutil.copy2(default_template, RELEASE_DIR / "config.default.json")
+
     # 8. 1-Click Launcher BAT
     print("[*] Copying 1-click launcher batch file with SmartScreen unblock...")
     bat_src = WORKSPACE / "Запустить_Hell_Harvest.bat"
@@ -225,6 +230,8 @@ def create_release():
             pzf.write(exe_file, "TwitchDropsSentinel.update")
         for license_file in LICENSE_FILES:
             pzf.write(RELEASE_DIR / license_file, license_file)
+        # config.default.json is not protected: installs that never had it get it with the update
+        pzf.write(RELEASE_DIR / "config.default.json", "config.default.json")
         # Include dist/
         for file in (RELEASE_DIR / "dist").rglob("*"):
             if file.is_file():
