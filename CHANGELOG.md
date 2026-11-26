@@ -4,6 +4,11 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.2.1] - 2026-11-26
+- Fixed a restart storm of the local service: after any exit the app started a new service every 2 seconds, killed each one while it was still starting, and kept issuing new Twitch sign-in codes and browser tabs. Now only one place decides about restarts, a starting service is never killed, and a service that crashes three times right after its start is left alone for 60 seconds (the Health center says so). The Twitch activation page opens at most once per 10 minutes.
+- When the window page crashes (WebView2 158, released by Microsoft on 26 Nov, crashes with STATUS_ACCESS_VIOLATION), the app reloads it by itself instead of leaving the "This page is having a problem" screen up; at most 3 reloads per 5 minutes, each one written to desktop_errors.log.
+- Installs now include config.default.json (the template of default settings), so the service no longer reports it as unreadable on every start; the update patch delivers it to existing installs.
+
 ## [4.2.0] - 2026-11-25
 - Steam IDLE keeps statistics from this version on: farm hours, cards dropped and achievements unlocked, per game and per day, for the current Steam account (kept for a year). The new "Statistics" section in the Steam IDLE tab shows the totals for 7 days, 30 days or all time, weekly bars, a sortable per-game table, a CSV export and a reset. The "History and statistics" window shows the same totals next to your drops and free games.
 - The Health check is now the Health center, with its own stethoscope button next to More (grey when all is well, amber with warnings, red with the number of failures; Ctrl+Shift+H and the quick commands open it too). The dot and the menu item were moved there from the More menu.

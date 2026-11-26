@@ -24,7 +24,7 @@ namespace TwitchDropsSentinel
     public sealed record BackendLocation(string? ScriptPath, string ProjectRoot, string PythonExe, bool PythonFound);
 
     public sealed record DiagnosticsInput(int Port, string BaseDir, string CurrentDir, Process? Tracked, IReadOnlyList<DateTime> Starts,
-        string? Token, string AppVersion, bool Russian);
+        string? Token, string AppVersion, bool Russian, DateTime? CrashBackoffUntil = null);
 
     /// <summary>Thread-safe list of the moments the host started the service process.</summary>
     public sealed class BackendStartLog
@@ -502,6 +502,10 @@ namespace TwitchDropsSentinel
         {
             bool ru = input.Russian;
             string title = L(ru, "Перезапуски службы", "Service restarts");
+            if (input.CrashBackoffUntil is { } until && until > DateTime.UtcNow)
+                return new("restarts", "fail", title,
+                    L(ru, $"Служба падает при запуске: приложение не перезапускает её до {until.ToLocalTime():HH:mm:ss}, чтобы не плодить коды входа Twitch.", $"The service crashes at start: the app pauses its restarts until {until.ToLocalTime():HH:mm:ss} so that it does not issue Twitch sign-in codes in a loop."),
+                    L(ru, "Посмотрите последние строки журнала ошибок выше и откройте папку логов. После паузы приложение попробует ещё раз.", "See the last error-log lines above and open the logs folder. After the pause the app tries once more."));
             var cutoff = DateTime.UtcNow.AddMinutes(-RestartWindowMinutes);
             int n = input.Starts.Count(t => t >= cutoff);
             if (n >= RestartLoopCount)

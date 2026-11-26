@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.2.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.2.1", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -8578,6 +8578,29 @@ def test_service_diagnostics_feature_is_wired():
     print("      Check button wiring: PASS [OK]")
 
 
+def test_service_restarts_have_one_owner():
+    print("[restarts] One owner of service restarts: the Exited handler only notifies, no kill on a quick check, crash backoff, config template ships...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    policy_path = WORKSPACE / "desktop" / "BackendRestartPolicy.cs"
+    assert policy_path.exists(), "the restart policy file must exist"
+    policy = policy_path.read_text(encoding="utf-8")
+    assert "System.Diagnostics" not in policy and "System.Windows.Forms" not in policy, "the policy is pure: no Process, no WinForms"
+    exited = form.split("proc.Exited +=", 1)[1].split(";", 1)[0]
+    assert "EnsurePythonBackendRunning" not in exited and "Task.Delay" not in exited, "the Exited handler never restarts the service itself"
+    assert "BeginInvoke(new Action(() => OnBackendExited(pid)))" in form, "an exit is handed to the UI thread"
+    assert "Task.Delay(2000).ContinueWith" not in form, "the old self-feeding restart path is gone"
+    ensure = form.split("private void EnsurePythonBackendRunning()", 1)[1].split("private void ApplyRestartDecision", 1)[0]
+    assert "Kill(" not in ensure and "CleanupStalePort28492" not in ensure, "the startup probe never kills anything"
+    assert "FromMilliseconds(400)" in ensure and "_pythonBackendProcess" not in ensure, "the 400 ms probe only reports to the policy"
+    for name in ("QuickCrashesBeforeBackoff = 3", "BackoffPause = TimeSpan.FromSeconds(60)", "StartGrace = TimeSpan.FromSeconds(60)", "FailuresBeforeRestart = 4"):
+        assert name in policy, name
+    assert "CrashBackoffUntil" in (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8") and "crashBackoff" in form, "the diagnostics row knows about the pause"
+    assert "BackendRestartPolicy.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    release = (WORKSPACE / "tools" / "create_clean_release.py").read_text(encoding="utf-8")
+    assert release.count('"config.default.json"') >= 3, "the release and the hot patch ship config.default.json"
+    print("      Restart ownership: PASS [OK]")
+
+
 def test_health_check_is_wired():
     print("[health] Health check: service checks, route, host merge, grouped panel, translations...")
     health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
@@ -8923,6 +8946,7 @@ if __name__ == "__main__":
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
         test_service_diagnostics_feature_is_wired,
+        test_service_restarts_have_one_owner,
         test_health_check_is_wired,
         test_health_fixes_are_wired,
         test_health_watch_is_wired,

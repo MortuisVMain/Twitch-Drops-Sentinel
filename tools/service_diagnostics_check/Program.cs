@@ -560,6 +560,105 @@ foreach (var secret in new[] { hHome, hFwd, hJson, "jane.doe", "abcDEF123456", "
 Check(cleaned.Contains("j***@mail.example") && cleaned.Contains("twitch.tv/s***") && cleaned.Contains("%USERPROFILE%"), "sentinel log fixture: email, channel name and profile are masked in place");
 Check(cleaned.Contains("twitch.tv/directory/game/Rust") && cleaned.Contains("Loading config from") && cleaned.Contains("INFO watching"), "sentinel log fixture: ordinary text and non-user twitch pages stay");
 
+// ---- BackendRestartPolicy: replays of the restart storm (pure, no process, no clock) ----
+{
+    var t0 = new DateTime(2026, 11, 26, 12, 0, 0, DateTimeKind.Utc);
+    DateTime At(double s) => t0.AddSeconds(s);
+
+    // the storm: A starts slow, A crashes, B starts, 2 s later B is still starting and a failing check arrives
+    var storm = new BackendRestartPolicy();
+    Check(storm.OnHealthCheck(false, At(0)).Action == RestartAction.Start, "policy: nothing tracked and nothing answers starts once");
+    Check(storm.OnHealthCheck(false, At(0.1)).Action == RestartAction.None, "policy: a second start while the first is in flight is refused");
+    storm.OnStarted(100, At(0.2));
+    Check(storm.OnHealthCheck(false, At(10)).Action == RestartAction.None, "policy: A is slow inside the grace period: nothing happens");
+    Check(storm.OnExited(100, At(20), killedByUs: false).Action == RestartAction.Start, "policy: a genuine exit of the current process starts a new one");
+    Check(storm.OnExited(100, At(20.1), killedByUs: false).Action == RestartAction.None, "policy: the same exit reported twice starts nothing more");
+    storm.OnStarted(101, At(20.2));
+    foreach (double s in new[] { 22, 24, 26, 28, 30 })
+        Check(storm.OnHealthCheck(false, At(s)).Action == RestartAction.None, $"policy: B is still starting at +{s - 20} s: it is NOT killed");
+
+    // exits of processes we killed or that are not the tracked one are ignored
+    var ign = new BackendRestartPolicy();
+    ign.OnHealthCheck(false, At(0)); ign.OnStarted(200, At(0));
+    Check(ign.OnExited(999, At(5), killedByUs: false).Action == RestartAction.None && ign.TrackedPid == 200, "policy: the exit of an unknown process is ignored");
+    Check(ign.OnExited(200, At(5), killedByUs: true).Action == RestartAction.None, "policy: the exit of a process we killed is ignored");
+
+    // watchdog rule: grace 60 s, then 4 failed checks in a row = exactly one Kill+Start
+    var wd = new BackendRestartPolicy();
+    wd.OnHealthCheck(false, At(0)); wd.OnStarted(300, At(0));
+    Check(Enumerable.Range(1, 10).All(i => wd.OnHealthCheck(false, At(i * 5)).Action == RestartAction.None), "policy: failed checks inside the 60 s grace never restart");
+    var kinds = new List<RestartAction>();
+    for (int i = 0; i < 4; i++) kinds.Add(wd.OnHealthCheck(false, At(61 + i * 4)).Action);
+    Check(kinds.SequenceEqual(new[] { RestartAction.None, RestartAction.None, RestartAction.None, RestartAction.KillAndStart }), "policy: three failures wait, the fourth is one Kill+Start");
+    Check(wd.OnHealthCheck(false, At(78)).Action == RestartAction.None, "policy: while that start is in flight nothing else starts");
+    wd.OnStarted(301, At(78));
+    Check(wd.OnExited(300, At(78.5), killedByUs: true).Action == RestartAction.None && wd.TrackedPid == 301, "policy: the exit of the killed process does not touch the new one");
+    var okReset = new BackendRestartPolicy();
+    okReset.OnHealthCheck(false, At(0)); okReset.OnStarted(400, At(0));
+    for (int i = 0; i < 3; i++) okReset.OnHealthCheck(false, At(61 + i * 4));
+    okReset.OnHealthCheck(true, At(75));
+    Check(okReset.OnHealthCheck(false, At(79)).Action == RestartAction.None && okReset.OnHealthCheck(false, At(83)).Action == RestartAction.None && okReset.OnHealthCheck(false, At(87)).Action == RestartAction.None, "policy: one answer resets the failure count");
+
+    // crash backoff: 3 quick crashes in a row = pause 60 s, then one retry; a long run resets the counter
+    var crash = new BackendRestartPolicy();
+    crash.OnHealthCheck(false, At(0));
+    double now = 0;
+    var results = new List<RestartDecision>();
+    for (int pid = 1; pid <= 3; pid++)
+    {
+        crash.OnStarted(pid, At(now));
+        now += 5;
+        results.Add(crash.OnExited(pid, At(now), killedByUs: false));
+    }
+    Check(results[0].Action == RestartAction.Start && results[1].Action == RestartAction.Start, "policy: the first two quick crashes restart at once");
+    Check(results[2].Action == RestartAction.Backoff && results[2].Until == At(75), "policy: the third quick crash backs off for 60 s");
+    Check(crash.BackoffUntil == At(75), "policy: the backoff is visible for the diagnostics");
+    Check(crash.OnHealthCheck(false, At(40)).Action == RestartAction.Backoff, "policy: during the pause a failed check starts nothing");
+    var retry = crash.OnHealthCheck(false, At(76));
+    Check(retry.Action == RestartAction.Start && retry.CleanStalePort, "policy: after the pause one retry starts (and may clear a stale python)");
+    Check(crash.OnHealthCheck(false, At(76.5)).Action == RestartAction.None, "policy: the retry is single-flight too");
+    crash.OnStarted(4, At(76.5));
+    Check(crash.OnExited(4, At(80), killedByUs: false).Action == RestartAction.Backoff, "policy: a quick crash of the retry backs off again");
+
+    var longRun = new BackendRestartPolicy();
+    longRun.OnHealthCheck(false, At(0));
+    longRun.OnStarted(1, At(0)); longRun.OnExited(1, At(5), false);
+    longRun.OnStarted(2, At(5)); longRun.OnExited(2, At(10), false);
+    longRun.OnStarted(3, At(10));
+    Check(longRun.OnExited(3, At(100), false).Action == RestartAction.Start, "policy: a run that lived over 30 s restarts at once");
+    longRun.OnStarted(4, At(100)); longRun.OnExited(4, At(105), false);
+    longRun.OnStarted(5, At(105));
+    Check(longRun.OnExited(5, At(110), false).Action == RestartAction.Start && longRun.BackoffUntil == null, "policy: a long run reset the counter, two quick crashes after it do not back off");
+
+    var fail = new BackendRestartPolicy();
+    fail.OnHealthCheck(false, At(0));
+    fail.OnStartFailed(At(0)); fail.OnHealthCheck(false, At(4)); fail.OnStartFailed(At(4)); fail.OnHealthCheck(false, At(8));
+    Check(fail.OnStartFailed(At(8)).Action == RestartAction.Backoff, "policy: a start that cannot even spawn backs off like a crash");
+
+    var cold = new BackendRestartPolicy();
+    Check(cold.OnHealthCheck(false, At(0)).CleanStalePort, "policy: the very first start may clear a stale python on the port");
+    cold.OnStarted(1, At(0));
+    Check(!cold.OnExited(1, At(100), false).CleanStalePort, "policy: a restart right after our own process never touches the port");
+    Check(cold.OnHealthCheck(true, At(1)).Action == RestartAction.None, "policy: an answering service needs nothing");
+
+    var diag = ServiceDiagnostics.Run(new DiagnosticsInput(28599, root, root, null, Array.Empty<DateTime>(), null, "t", false, DateTime.UtcNow.AddSeconds(30)));
+    var diagRow = diag.Checks.First(c => c.Id == "restarts");
+    Check(diagRow.Status == "fail" && diagRow.Detail.Contains("crashes at start"), "diagnostics: a crash backoff is a failing restarts row");
+    var diagRu = ServiceDiagnostics.Run(new DiagnosticsInput(28599, root, root, null, Array.Empty<DateTime>(), null, "t", true, DateTime.UtcNow.AddSeconds(30)));
+    Check(diagRu.Checks.First(c => c.Id == "restarts").Detail.Contains("Служба падает при запуске"), "diagnostics: the backoff row is also in Russian");
+}
+
+{
+    // WebView2 158 renderer crashes (STATUS_ACCESS_VIOLATION): the page reloads itself, but a page that keeps crashing is not reloaded forever
+    var t0 = new DateTime(2026, 11, 26, 8, 0, 0, DateTimeKind.Utc);
+    var gate = new PageCrashGate();
+    Check(gate.ShouldReload(t0), "page crash: the first crash reloads the page");
+    Check(gate.ShouldReload(t0.AddMinutes(1)), "page crash: the second crash reloads the page");
+    Check(gate.ShouldReload(t0.AddMinutes(2)), "page crash: the third crash reloads the page");
+    Check(!gate.ShouldReload(t0.AddMinutes(3)), "page crash: a fourth crash within 5 minutes is not reloaded");
+    Check(gate.ShouldReload(t0.AddMinutes(6.5)), "page crash: once older crashes leave the 5-minute window, reloads resume");
+}
+
 Console.WriteLine(failures == 0 ? "ALL SERVICE DIAGNOSTICS CHECKS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
 
