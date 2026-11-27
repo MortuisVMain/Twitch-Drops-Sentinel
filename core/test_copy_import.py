@@ -38,7 +38,8 @@ def nothing_runs():
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="copy_import_"))
+        # resolved: stage_import stores the resolved path, and TEMP may be an 8.3 short path (CI: RUNNER~1)
+        self.root = Path(tempfile.mkdtemp(prefix="copy_import_")).resolve()
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.project = self.root / "New"
         self.source = self.root / "Old"
