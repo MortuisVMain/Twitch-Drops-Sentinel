@@ -559,9 +559,59 @@ namespace TwitchDropsSentinel
 
 
 
+        // One HttpClient for the whole host (a client per call burns a socket and a handler each time). The timeout is per request,
+        // through a CancellationTokenSource, because HttpClient.Timeout is global. The token is constant for the run.
+        private static readonly System.Net.Http.HttpClient HostHttp = CreateHostHttp();
+
+        private static System.Net.Http.HttpClient CreateHostHttp()
+        {
+            var client = new System.Net.Http.HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
+            return client;
+        }
+
+        // A drag fires Move dozens of times a second; the position is written once, when the window has been still for 500 ms.
+        private readonly WindowSaveDebounce _moveSaveDebounce = new(TimeSpan.FromMilliseconds(500));
+        private System.Windows.Forms.Timer? _moveSaveTimer;
+
+        private void OnWindowMoved()
+        {
+            if (WindowState != FormWindowState.Normal || _isPipMode) return;
+            _moveSaveDebounce.Touch(DateTime.UtcNow);
+            if (_moveSaveTimer == null)
+            {
+                _moveSaveTimer = new System.Windows.Forms.Timer { Interval = 250 };
+                _moveSaveTimer.Tick += (s, e) =>
+                {
+                    if (_moveSaveDebounce.IsDue(DateTime.UtcNow))
+                    {
+                        _moveSaveTimer?.Stop();
+                        SaveWindowState();
+                    }
+                };
+            }
+            _moveSaveTimer.Start();
+        }
+
+        /// <summary>Tells WebView2 how much memory the page may keep: Low while hidden in the tray, Normal when shown again.</summary>
+        private void SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel level)
+        {
+            try
+            {
+                if (_webView?.CoreWebView2 != null) _webView.CoreWebView2.MemoryUsageTargetLevel = level;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or NotImplementedException or NotSupportedException or InvalidCastException)
+            {
+                LogDesktopError($"SetWebViewMemoryTarget({level}): the installed WebView2 runtime does not support it", ex);
+            }
+        }
+
         private void SaveWindowState()
 
         {
+
+            _moveSaveDebounce.Flush(); // a save from any path covers the pending Move save
+            _moveSaveTimer?.Stop();
 
             try
 
@@ -717,7 +767,7 @@ namespace TwitchDropsSentinel
 
             ResizeEnd += (s, e) => SaveWindowState();
 
-            Move += (s, e) => { if (WindowState == FormWindowState.Normal && !_isPipMode) SaveWindowState(); };
+            Move += (s, e) => OnWindowMoved();
 
 
 
@@ -799,6 +849,15 @@ namespace TwitchDropsSentinel
 
 
 
+        /// <summary>Liveness probe: the light /api/ping, and /api/state only when an older service answers 404 (host and service can be updated apart).</summary>
+        private static async Task<System.Net.Http.HttpResponseMessage> ProbeServiceAsync(CancellationToken ct)
+        {
+            var res = await HostHttp.GetAsync("http://127.0.0.1:28492/api/ping", ct);
+            if (res.StatusCode != System.Net.HttpStatusCode.NotFound) return res;
+            res.Dispose();
+            return await HostHttp.GetAsync("http://127.0.0.1:28492/api/state", ct);
+        }
+
         private async Task<bool> CheckBackendAliveAsync()
 
         {
@@ -807,10 +866,8 @@ namespace TwitchDropsSentinel
 
             {
 
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
-
-                var res = await client.GetAsync("http://127.0.0.1:28492/api/state");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                using var res = await ProbeServiceAsync(cts.Token);
 
                 if (!res.IsSuccessStatusCode) return false;
 
@@ -914,9 +971,8 @@ namespace TwitchDropsSentinel
             bool answers = false;
             try
             {
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(400) };
-                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
-                using var res = client.GetAsync("http://127.0.0.1:28492/api/state").GetAwaiter().GetResult();
+                using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+                using var res = ProbeServiceAsync(cts.Token).GetAwaiter().GetResult();
                 answers = res.IsSuccessStatusCode;
             }
             catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException)
@@ -1146,6 +1202,8 @@ namespace TwitchDropsSentinel
         {
 
             _isShuttingDown = true;
+            // The graceful wait below can take up to ~21 s (Steam IDLE unlock); don't leave a frozen window on screen.
+            if (Visible) Hide();
 
             _dimmerModule?.Shutdown();
 
@@ -1179,14 +1237,15 @@ namespace TwitchDropsSentinel
 
 
 
+            bool shutdownAccepted = false;
+
             try
 
             {
 
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
-
-                client.PostAsync("http://127.0.0.1:28492/api/shutdown", null).GetAwaiter().GetResult();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                using var shutdownResponse = HostHttp.PostAsync("http://127.0.0.1:28492/api/shutdown", null, cts.Token).GetAwaiter().GetResult();
+                shutdownAccepted = shutdownResponse.IsSuccessStatusCode;
 
             }
 
@@ -1208,7 +1267,7 @@ namespace TwitchDropsSentinel
 
                 {
 
-                    _pythonBackendProcess.WaitForExit(2500);
+                    _pythonBackendProcess.WaitForExit((int)BackendShutdownWait.For(shutdownAccepted).TotalMilliseconds);
 
                     if (!_pythonBackendProcess.HasExited)
 
@@ -1609,7 +1668,7 @@ namespace TwitchDropsSentinel
 
                         // This last fallback cannot use the token: its origin is not the app's, so the page script stays inert and the page cannot talk to the service (it only shows this message)
                         _allowInlineNavigation = true; // NavigateToString arrives as a data: navigation; OnNavigationStarting lets this one through
-                        _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Hell Harvest v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
+                        _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Hell Harvest</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
 
                     }
 
@@ -1825,6 +1884,7 @@ namespace TwitchDropsSentinel
                         Process.Start(new ProcessStartInfo
                         {
                             FileName = File.Exists(targetExe) ? targetExe : Application.ExecutablePath,
+                            Arguments = RestartHandoff.RestartArguments(),
                             UseShellExecute = true,
                             WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
                         });
@@ -2512,6 +2572,7 @@ namespace TwitchDropsSentinel
 
                     {
 
+                        SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel.Low);
                         _ = _webView.CoreWebView2.TrySuspendAsync();
 
                     }
@@ -3296,6 +3357,7 @@ else
             {
                 if (_webView?.CoreWebView2 != null)
                 {
+                    SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel.Low);
                     _ = _webView.CoreWebView2.TrySuspendAsync();
                 }
             }
@@ -3415,6 +3477,7 @@ else
 
                     {
 
+                        SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel.Normal);
                         _webView.CoreWebView2.Resume();
                         _webView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"WAKEUP_SYNC\"}");
 
@@ -4683,8 +4746,6 @@ else
 
                 };
 
-                MouseDown += (s, e) => _onDismiss?.Invoke();
-                MouseDoubleClick += (s, e) => _onDismiss?.Invoke();
 
             }
 

@@ -1,4 +1,5 @@
 """aiohttp handlers for /api/v1/steam-idle: thin adapters that map controller refusals to HTTP 409."""
+import asyncio
 import re
 
 from aiohttp import web
@@ -51,7 +52,7 @@ class SteamIdleRoutes:
         return web.json_response({"ok": True}, status=status)
 
     async def state(self, request: web.Request) -> web.Response:
-        return web.json_response(self._c.state())
+        return web.json_response(await asyncio.to_thread(self._c.state))
 
     async def log(self, request: web.Request) -> web.Response:
         """The activity entries newer than `after` (all when absent); open even while the module is off."""

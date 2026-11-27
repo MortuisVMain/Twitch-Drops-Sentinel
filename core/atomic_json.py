@@ -16,6 +16,8 @@ def atomic_write_json(path: Path, data: Any) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(temp_name, path)
     except BaseException:
         Path(temp_name).unlink(missing_ok=True)

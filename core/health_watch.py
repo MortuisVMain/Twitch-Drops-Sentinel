@@ -200,7 +200,7 @@ class HealthWatch:
                 self._problems = count_problems(rows)
                 self._fails = count_fails(rows)
                 self._record_history(rows)  # an older picture than a manual check that landed meanwhile is not news
-            self._announce(rows, self._last_run)
+                self._announce(rows, self._last_run)
             self._save()
             return True
         except Exception as exc:  # noqa: BLE001 - the loop must outlive any one run

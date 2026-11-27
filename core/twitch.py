@@ -2787,6 +2787,7 @@ class Twitch:
         self._drops.clear()
         self.gui.inv.clear()
         self.inventory.clear()
+        self._campaigns.clear()
         self._mnt_triggers.clear()
         switch_triggers: set[datetime] = set()
         next_hour = datetime.now(timezone.utc) + timedelta(hours=1)

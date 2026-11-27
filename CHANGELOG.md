@@ -4,6 +4,15 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-27
+- Steam IDLE reads the card page of the farmed game again: the cheap check every 10 minutes failed on every run ("gamecards_unparsed") because Steam's page wraps its badge in a row class the parser treated as the badges list, so each check read every badge page instead. A failure that repeats is now logged once, then quietly, with one line when it recovers.
+- Restart from the app no longer sometimes just closes it: the new copy waits for the old one to let go instead of taking it for a running copy. On exit the app gives the service up to 21 seconds, so Steam IDLE can release the games it holds, instead of killing it after 2.5 seconds.
+- Fixed: the "Lock" choice of the auto-shutdown did nothing; a damaged update archive left the updater on "extracting"; a health notification could repeat a problem you had just fixed; a single mouse click ended the blackout although the screen says Esc or Alt+Backspace.
+- Screen fixes: the 40-segment progress meter lights up, the Health center badge count is readable, the game catalog and the diagnostics report open above the header, colours that were missing in some themes are set. The stage chip shows the real drop stage, and values the app does not measure show "-" instead of invented numbers.
+- Confirmations (reset statistics, switch account, run a fix) are in-app dialogs instead of browser pop-ups.
+- Less background work: the window checks the service with a light request, polls only when the live connection is down, redraws the countdown without redrawing the whole app, stops the animated backdrop when hidden, and lets WebView2 use less memory while in the tray. The service reads Trophies.md only when it changed.
+- Hardening: certificate checks are on for cover-art requests, cookies are never saved unencrypted if Windows encryption fails (the previous file is kept), settings files are flushed to disk before they replace the old ones.
+
 ## [4.2.1] - 2026-11-26
 - Fixed a restart storm of the local service: after any exit the app started a new service every 2 seconds, killed each one while it was still starting, and kept issuing new Twitch sign-in codes and browser tabs. Now only one place decides about restarts, a starting service is never killed, and a service that crashes three times right after its start is left alone for 60 seconds (the Health center says so). The Twitch activation page opens at most once per 10 minutes.
 - When the window page crashes (WebView2 158, released by Microsoft on 26 Nov, crashes with STATUS_ACCESS_VIOLATION), the app reloads it by itself instead of leaving the "This page is having a problem" screen up; at most 3 reloads per 5 minutes, each one written to desktop_errors.log.

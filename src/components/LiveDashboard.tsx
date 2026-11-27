@@ -19,6 +19,7 @@ import { deadlineFacts } from '../utils/campaignFacts';
 import { queueDeadlineRisks } from '../utils/queueDeadline.mjs';
 import { collapseLogs, CONSOLE_COLLAPSED_KEY, CONSOLE_FILTER_KEY, type ConsoleFilter, filterLogs, hostCanOpenLogFile, openLogFile, parseConsoleFilter, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
+import { useTickedDrop } from '../hooks/useTickedDrop';
 import { primaryChipIndex, sortOffQueue, splitQueueRows } from '../utils/dashboardLayout';
 import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueView, type CampaignState, type QueueFilter } from '../utils/campaignState';
 
@@ -269,9 +270,19 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     return resolveGameBoxArt(activeGame, match?.box_art);
   }, [activeGame, safeAllGames]);
 
+  // Stage of the campaign: only from the engine's own drop counts, never invented
+  const activeGameRow = useMemo(() => {
+    if (!activeGame) return undefined;
+    return safeAllGames.find((g) => safeLower(g.name) === safeLower(activeGame))
+      || safeAllGames.find((g) => smartGameMatch(g.name, activeGame));
+  }, [activeGame, safeAllGames]);
+  const stageTotal = activeGameRow?.total_drops ?? 0;
+  const stageLabel = stageTotal > 0 ? `ЭТАП ${Math.min(stageTotal, (activeGameRow?.claimed_drops ?? 0) + 1)} ИЗ ${stageTotal}` : null;
+
   // Progress metrics
-  const progressPct = Math.min(100, Math.max(0, activeDrop?.progress_percent || 0));
-  const currentMinutes = activeDrop?.current_minutes || 0;
+  const tickedDrop = useTickedDrop(activeDrop, hardware.is_paused);
+  const progressPct = Math.min(100, Math.max(0, tickedDrop?.progress_percent || 0));
+  const currentMinutes = tickedDrop?.current_minutes || 0;
   const requiredMinutes = activeDrop?.required_minutes || 240;
   const remainingMinutes = Math.max(0, requiredMinutes - currentMinutes);
   const etaMinutes = remainingMinutes > 0 ? remainingMinutes : 0;
@@ -1143,7 +1154,7 @@ const filteredLogs = useMemo(() => {
               {/* Middle Drop Info & Quick Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px 6px', flexWrap: 'wrap' }}>
-                  <span className="version-chip">ЭТАП 2 ИЗ 3</span>
+                  {stageLabel && <span className="version-chip">{stageLabel}</span>}
                   <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} id="heroMins">
                     {currentMinutes} ИЗ {requiredMinutes} МИН
                   </span>
@@ -1250,7 +1261,7 @@ const filteredLogs = useMemo(() => {
               <div className="campaign-stages-3">
                 <div className="stage-pill done">
                   <span><Check className="ui-icon" aria-hidden="true" focusable="false" /> 1. Начальная награда</span>
-                  <span className="tabular">100%</span>
+                  <span className="tabular" title="Нет данных по этапам">—</span>
                 </div>
                 <div className="stage-pill active">
                   <span><Play className="ui-icon" aria-hidden="true" focusable="false" /> 2. {activeTitle || 'Текущая цель'}</span>
@@ -1258,14 +1269,14 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <div className="stage-pill">
                   <span style={{ color: 'var(--text-muted)' }}>3. Финальный трофей</span>
-                  <span className="tabular" style={{ color: 'var(--text-muted)' }}>0%</span>
+                  <span className="tabular" style={{ color: 'var(--text-muted)' }} title="Нет данных по этапам">—</span>
                 </div>
               </div>
               <div className="led-strip-40" id="ledMatrix40">
                 {Array.from({ length: 40 }).map((_, i) => (
                   <span
                     key={i}
-                    className={`led-seg ${i < Math.round((progressPct / 100) * 40) ? 'lit' : ''}`}
+                    className={`led-cell${i < Math.round((progressPct / 100) * 40) ? ' lit-mint' : ''}`}
                   />
                 ))}
               </div>

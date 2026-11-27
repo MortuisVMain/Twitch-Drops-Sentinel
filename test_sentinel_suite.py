@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.2.1", f"Version mismatch: {__version__}"
+    assert __version__ == "4.3.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -1623,7 +1623,8 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     assert "NotifyWebviewDimmerState" in main_cs, "MainForm.cs must implement NotifyWebviewDimmerState"
     assert "DIMMER_STATE_CHANGED" in main_cs, "MainForm.cs must emit DIMMER_STATE_CHANGED"
     assert "SetThreadExecutionState" in main_cs, "MainForm.cs must configure AwayMode during blackout"
-    assert "MouseDown" in main_cs and "KeyDown" in main_cs, "BlackoutOverlayForm must dismiss on mouse click or key press"
+    assert "KeyDown" in main_cs and "Keys.Escape" in main_cs, "BlackoutOverlayForm must dismiss on Esc / Alt+Backspace"
+    assert not re.search(r"Mouse\w*\s*\+=\s*\(s,\s*e\)\s*=>\s*_onDismiss", main_cs), "BlackoutOverlayForm must not dismiss on a mouse click (UI promises Esc / Alt+Backspace only)"
 
     # 4. Frontend ScreenDimmerView.tsx & LiveDashboard.tsx verification
     dimmer_tsx = (WORKSPACE / "src" / "components" / "ScreenDimmerView.tsx").read_text(encoding="utf-8")
@@ -4329,7 +4330,7 @@ def test_switch_account_forgets_only_that_store():
     assert len(spawned) == count, "a refused sign-in must not start anything"
 
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
-    assert "window.confirm(" in view and "handleStoreAuth(store.id, true)" in view and "?switch=1" in view, "the button must ask first, then switch"
+    assert "ask(SWITCH_ACCOUNT_CONFIRM" in view and "handleStoreAuth(store.id, true)" in view and "?switch=1" in view, "the button must ask first, then switch"
     print("      Switch account: ALL PASS [OK]")
 
 
@@ -5137,7 +5138,7 @@ def test_local_api_token_guards_every_route_when_the_host_sets_one():
 
         # Normal routes: none / wrong / empty
         wrong = token[:-1] + ("A" if token[-1] != "A" else "B")
-        for path, method, body in (("/api/state", "GET", None), ("/api/v1/steam-idle/ack", "POST", b"{}"), ("/api/shutdown", "POST", b"{}")):
+        for path, method, body in (("/api/state", "GET", None), ("/api/ping", "GET", None), ("/api/v1/steam-idle/ack", "POST", b"{}"), ("/api/shutdown", "POST", b"{}")):
             code, _h, answer = call(path, method, body=body)
             assert code == 401 and json.loads(answer) == {"error": "unauthorized"}, (path, "no token", code, answer[:100])
             code, _h, _a = call(path, method, {"X-Sentinel-Token": wrong}, body)
@@ -5146,6 +5147,8 @@ def test_local_api_token_guards_every_route_when_the_host_sets_one():
             assert code == 401, (path, "empty token", code)
         code, _h, _a = call("/api/state", headers=good)
         assert code == 200, f"the right token must pass: {code}"
+        code, _h, answer = call("/api/ping", headers=good)
+        assert code == 200 and json.loads(answer)["ok"] is True, f"the light liveness answer with the right token: {code} {answer[:100]}"
         code, _h, answer = call("/api/v1/steam-idle/state", headers=good)
         assert code == 200, f"a Steam IDLE read with the right token: {code} {answer[:100]}"
         code, _h, answer = call("/api/v1/steam-idle/farm/stop", "POST", {**good, "Content-Type": "application/json"}, b"{}")
@@ -5223,7 +5226,12 @@ def test_host_and_page_carry_the_local_api_token():
     spawn = form[start:form.index("_pythonBackendProcess = Process.Start(psi)", start)]
     assert "psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current;" in spawn, "the child gets the secret through its environment"
     assert "Arguments = $\"-X utf8 \\\"{scriptPath}\\\"\"" in spawn and "LocalApiToken" not in spawn.split("Arguments =", 1)[1].split("\n", 1)[0], "never on the command line"
-    assert form.count("LocalApiToken.HeaderName") >= 3, "both health probes and the shutdown call send the header"
+    assert "client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);" in form, "the shared host client sends the header"
+    assert form.count("new System.Net.Http.HttpClient") == 1 and "new HttpClient" not in form, "every host call (both health probes and the shutdown) goes through that one client"
+    assert form.count("HostHttp.") >= 3, "both health probes and the shutdown call use the shared client"
+    probe = form.split("ProbeServiceAsync(CancellationToken ct)", 1)[1].split("CheckBackendAliveAsync", 1)[0]
+    assert "28492/api/ping" in probe and "NotFound" in probe and "28492/api/state" in probe, "liveness uses /api/ping and falls back to /api/state on an older service"
+    assert form.count("ProbeServiceAsync(cts.Token)") == 2 and form.count("28492/api/state") == 1, "the watchdog and the startup check both probe through it"
     assert "LogDesktopError" not in token_cs and "File.Write" not in token_cs and "Console." not in token_cs, "the secret is never written anywhere"
 
     first_navigate = form.index("CoreWebView2.Navigate(")
@@ -8451,7 +8459,7 @@ def test_steam_idle_statistics_wiring_and_routes():
     view = (WORKSPACE / "src" / "components" / "SteamIdleView.tsx").read_text(encoding="utf-8")
     assert "<StatsPanel />" in view
     panel = (WORKSPACE / "src" / "components" / "steamIdle" / "StatsPanel.tsx").read_text(encoding="utf-8")
-    assert "window.confirm(RESET_CONFIRM)" in panel and 'aria-sort=' in panel and "gamesCsv(" in panel
+    assert "await ask(RESET_CONFIRM" in panel and 'aria-sort=' in panel and "gamesCsv(" in panel
     history = (WORKSPACE / "src" / "components" / "HistoryModal.tsx").read_text(encoding="utf-8")
     assert "/stats?period=" in history and "historyCsv(items)" in history, "history tiles read the statistics; the history CSV is unchanged"
     assert "'Сбросить статистику'" in (WORKSPACE / "src" / "i18n" / "en" / "steamIdle.ts").read_text(encoding="utf-8")
@@ -8650,7 +8658,7 @@ def test_health_fixes_are_wired():
     assert "IsAllowedFolder(folder, localAppData)" in host and "ReparsePoint" in host and "Directory.Delete(folder, true)" in host and host.count("Directory.Delete(") == 1, "only the exact, non-link folder is deleted"
     assert "/api/v1/health/fix?lang=" in diag and "ParseFixResponse(" in diag and "Sanitize(c.Fix.Label" in diag, "the relay is a token-bearing POST and its answer is parsed and sanitized"
     panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
-    assert "planFix(" in panel and "window.confirm(plan.confirm)" in panel and "controlsBusy(" in panel and "parseFixResult(" in panel and "noticeOrphan(" in panel, "the panel confirms, disables and shows the notice"
+    assert "planFix(" in panel and "await ask(plan.confirm" in panel and "controlsBusy(" in panel and "parseFixResult(" in panel and "noticeOrphan(" in panel, "the panel confirms, disables and shows the notice"
     en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
     assert "'Выполняем исправление…': 'Running the fix…'" in en and "'Перезапустить приложение': 'Restart the app'" in en
     assert "ServiceDiagnostics.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8") and "HealthFixHost.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")

@@ -62,7 +62,7 @@ from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOW
 from steam_idle.protection import USER_DENYLIST_KEY as STEAM_IDLE_DENYLIST_KEY
 from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
-from auto_shutdown import next_countdown, priority_drops_done
+from auto_shutdown import next_countdown, priority_drops_done, run_power_action
 from settings_transaction import apply_change, save_transaction
 from tab_visibility import apply_disabled_tabs, tab_enabled
 import reward_campaigns
@@ -214,6 +214,40 @@ def _dimmer_off_response() -> web.Response:
     return web.json_response({"error": "module_disabled"}, status=409)
 
 
+_TROPHIES_CACHE: tuple[tuple[str, int, int], list[dict]] | None = None
+
+
+def _parse_trophies() -> list[dict]:
+    trophies = []
+    try:
+        with open(TROPHIES_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception as e:
+        logger.error(f"Error reading Trophies.md: {e}")
+        return trophies
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            continue
+        parts = [p.strip() for p in line.split("|")[1:-1]]
+        if len(parts) >= 5:
+            first_col = parts[0].lower()
+            second_col = parts[1].lower().replace("**", "")
+            if any(marker in first_col for marker in ("дата", "date", ":---", "---")):
+                continue
+            if second_col in ("игра", "game", "title"):
+                continue
+            trophies.append({
+                "id": f"tr-{i}",
+                "date": parts[0],
+                "game": parts[1].replace("**", ""),
+                "drop_name": parts[2],
+                "campaign": parts[3],
+                "status": "Claimed" if ("Забран" in parts[4] or "Claimed" in parts[4]) else parts[4],
+            })
+    return trophies[::-1]  # Latest first
+
+
 class SentinelSupervisor:
     def __init__(self):
         self.api_token = take_api_token()  # first, so no child process created below inherits it
@@ -235,9 +269,9 @@ class SentinelSupervisor:
             "detected_game": None,
             "on_battery": False,
             "is_paused": False,
-            "ping_ms": 18,
+            "ping_ms": None,  # not measured yet; the UI shows "—"
             "cpu_percent": 12,
-            "gpu_percent": 8,
+            "gpu_percent": None,  # never measured
         }
         self.luna_countdown: Optional[int] = None
         self.luna_fired = False
@@ -410,37 +444,25 @@ class SentinelSupervisor:
                 logger.error(f"Error updating live twitch client settings: {e}")
 
     def load_trophies(self) -> list[dict]:
-        trophies = []
-        if TROPHIES_FILE.exists():
-            try:
-                with open(TROPHIES_FILE, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                for i, raw_line in enumerate(lines):
-                    line = raw_line.strip()
-                    if not line.startswith("|"):
-                        continue
-                    parts = [p.strip() for p in line.split("|")[1:-1]]
-                    if len(parts) >= 5:
-                        first_col = parts[0].lower()
-                        second_col = parts[1].lower().replace("**", "")
-                        if any(marker in first_col for marker in ("дата", "date", ":---", "---")):
-                            continue
-                        if second_col in ("игра", "game", "title"):
-                            continue
-                        trophies.append({
-                            "id": f"tr-{i}",
-                            "date": parts[0],
-                            "game": parts[1].replace("**", ""),
-                            "drop_name": parts[2],
-                            "campaign": parts[3],
-                            "status": "Claimed" if ("Забран" in parts[4] or "Claimed" in parts[4]) else parts[4],
-                        })
-            except Exception as e:
-                logger.error(f"Error reading Trophies.md: {e}")
-        return trophies[::-1]  # Latest first
+        """Trophies.md parsed newest first; re-read only when the file's (mtime, size) changed."""
+        global _TROPHIES_CACHE
+        try:
+            st = TROPHIES_FILE.stat()
+        except FileNotFoundError:
+            _TROPHIES_CACHE = None
+            return []
+        except OSError as e:
+            logger.error(f"Error reading Trophies.md: {e}")
+            return []
+        key = (str(TROPHIES_FILE), st.st_mtime_ns, st.st_size)
+        cached = _TROPHIES_CACHE
+        if cached is None or cached[0] != key:
+            cached = _TROPHIES_CACHE = (key, _parse_trophies())
+        return list(cached[1])
 
     def _setup_routes(self):
         self.app.router.add_get("/api/state", self.handle_get_state)
+        self.app.router.add_get("/api/ping", self.handle_ping)
         self.app.router.add_get("/api/v1/health", self.handle_get_health)
         self.app.router.add_post("/api/v1/health/fix", self.handle_post_health_fix)
         self.app.router.add_get("/api/v1/health/history", self.handle_get_health_history)
@@ -613,7 +635,7 @@ class SentinelSupervisor:
     async def get_full_state(self) -> dict:
         trophies = self.load_trophies()
         uptime_hours = round((datetime.now().timestamp() - STATE_BRIDGE.start_time) / 3600, 1)
-        traffic_saved_mb = round(uptime_hours * 3.5 * 3600 / 8, 0) if uptime_hours > 0 else 28400
+        traffic_saved_mb = round(uptime_hours * 3.5 * 3600 / 8, 0) if uptime_hours > 0 else 0
 
         # Return actual active drop from STATE_BRIDGE without fake mocks
         active_drop = STATE_BRIDGE.active_drop
@@ -786,6 +808,23 @@ class SentinelSupervisor:
     async def handle_get_state(self, request: web.Request) -> web.Response:
         state = await self.get_full_state()
         return web.json_response(state)
+
+    async def handle_ping(self, request: web.Request) -> web.Response:
+        """Cheap liveness for the host watchdog (every ~4 s): in-memory fields only, shaped like the part of /api/state its tray tooltip reads."""
+        drop = STATE_BRIDGE.active_drop
+        active = None
+        if isinstance(drop, dict):
+            try:
+                pct = int(drop.get("progress_percent") or 0)
+            except (TypeError, ValueError):
+                pct = 0
+            active = {"game": drop.get("game") or "", "progress_percent": pct}
+        return web.json_response({
+            "ok": True,
+            "version": APP_VERSION,
+            "hardware": {"is_paused": self.hardware_state.get("is_paused") is True},
+            "active_drop": active,
+        })
 
     def _health_context(self, lang: str) -> health.HealthContext:
         """What the read-only health checks may look at: the service's own memory and cached state, nothing that acts."""
@@ -1882,7 +1921,7 @@ class SentinelSupervisor:
             async for msg in ws:
                 pass
         finally:
-            self.ws_clients.remove(ws)
+            self.ws_clients.discard(ws)  # broadcast_ws may have dropped it already
         return ws
 
     async def broadcast_ws(self):
@@ -2007,10 +2046,7 @@ class SentinelSupervisor:
                 if step.fire:
                     mode = self.settings.get("auto_shutdown_mode", "shutdown")
                     logger.info(f"Luna Auto-Shutdown executing: {mode}")
-                    if mode == "shutdown":
-                        subprocess.Popen(["shutdown", "/s", "/t", "0"])
-                    elif mode == "sleep":
-                        subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                    run_power_action(mode)
 
             except Exception as e:
                 logger.error(f"Luna shutdown loop error: {e}")

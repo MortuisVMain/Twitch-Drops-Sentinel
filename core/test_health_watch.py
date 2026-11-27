@@ -307,6 +307,14 @@ def test_a_manual_check_during_a_background_run_is_not_overwritten(tmp_path):
     assert json.loads(rig.store.read_text(encoding="utf-8"))["problems"] == 0
 
 
+def test_a_stale_background_run_does_not_re_announce_what_a_manual_check_cleared(tmp_path):
+    rig = Rig(tmp_path, rows=[r("system_disk", "fail")])
+    rig.during_run = lambda: rig.watch.record_manual([r("system_disk", "ok")])  # fixed and re-checked while the run worked
+    rig.tick(rig.clock.now + FIRST_RUN_SECONDS)
+    assert rig.toasts == []
+    assert json.loads(rig.store.read_text(encoding="utf-8"))["notified"] == []
+
+
 def test_a_run_that_finishes_after_the_watch_was_switched_off_announces_nothing(tmp_path):
     rig = Rig(tmp_path, rows=[r("system_disk", "fail")])
 

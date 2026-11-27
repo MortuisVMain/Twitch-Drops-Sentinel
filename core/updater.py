@@ -939,7 +939,7 @@ class GitHubUpdater:
             with zipfile.ZipFile(zip_path, "r") as zf:
                 bad_file = zf.testzip()
                 if bad_file:
-                    return False, f"Архив поврежден: ошибка в файле {bad_file}"
+                    raise zipfile.BadZipFile(f"Архив поврежден: ошибка в файле {bad_file}")
 
                 recorder = RollbackRecorder(PROJECT_DIR, ROLLBACK_DIR)
                 from_version = get_live_local_version()
@@ -1011,6 +1011,12 @@ class GitHubUpdater:
                     "is_updating": False,
                     "error_message": str(e),
                 })
+            try:
+                shutil.rmtree(staging_dir)
+            except FileNotFoundError:
+                pass
+            except OSError as cleanup_err:
+                logger.warning("Could not remove the update staging dir %s: %s", staging_dir, cleanup_err, exc_info=True)
             return False, f"Ошибка установки обновления: {e}"
         finally:
             self._is_updating = False

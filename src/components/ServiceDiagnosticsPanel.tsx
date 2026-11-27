@@ -7,6 +7,7 @@ import {
   type DiagnosticCheck, type DiagnosticFix, type FixResult,
 } from '../utils/serviceDiagnostics.mjs';
 import { SECTIONS, lastCheckTime, nextSection, parseExportResult, parseHistory } from '../utils/healthCenter.mjs';
+import { useConfirm } from './ConfirmDialog';
 import { HealthWatchCard } from './HealthWatchCard';
 import { AREA_TITLE, DeveloperSection, FixNotice, MaintenanceSection, StatusIcon, SummarySection, type HealthEvent } from './HealthCenterParts';
 
@@ -66,7 +67,9 @@ async function copyReport(text: string): Promise<boolean> {
 // The page cannot ask a service that is down, so the app shell (MainForm.cs) does the diagnosis and the file work.
 export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose, watch, settings, onUpdateSettings, playClick }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useModalFocus(isOpen, dialogRef, onClose);
+  const { ask, confirmDialog, asking } = useConfirm();
+  // While the question is open it owns Escape and Tab
+  useModalFocus(isOpen && !asking, dialogRef, onClose);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [section, setSection] = useState<string>('summary');
   const [running, setRunning] = useState(false);
@@ -151,10 +154,10 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose, watc
   const lastCheck = Math.max(lastCheckTime(watch) ?? 0, localCheck ?? 0) || null;
   const windowReset = checks.find((c) => c.fix?.id === 'webview_reset')?.fix ?? null;
 
-  const startFix = (fix: DiagnosticFix) => {
+  const startFix = async (fix: DiagnosticFix) => {
     const plan = planFix(fix, busy);
     if (!plan) return;
-    if (plan.confirm && !window.confirm(plan.confirm)) return;
+    if (plan.confirm && !(await ask(plan.confirm, 'Выполнить'))) return;
     setNotice(null);
     plan.messages.forEach(post);
     if (fix.client) {  // the Twitch sign-in page: the host opens it, the page copies the code
@@ -186,6 +189,7 @@ export const ServiceDiagnosticsPanel: React.FC<Props> = ({ isOpen, onClose, watc
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3" onClick={onClose}>
+      {confirmDialog}
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="diag-title" tabIndex={-1} onClick={(e) => e.stopPropagation()}
         className="w-[min(720px,94vw)] h-[min(640px,90vh)] outline-none flex flex-col overflow-hidden rounded-2xl border border-(--border-subtle) bg-(--bg-chassis-base)">
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-(--border-subtle)">

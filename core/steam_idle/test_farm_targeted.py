@@ -96,6 +96,22 @@ class TargetedRecheckTests(unittest.TestCase):
         self.assertEqual((h.read_calls, h.status()["current"]["dropsRemaining"]), (2, 2))
         self.assertTrue(any("gamecards_unparsed" in line for line in logged.output))
 
+    def test_a_card_page_failure_that_repeats_is_quiet_until_it_recovers(self):
+        h = Targeted([[gd(10, 3)]], [CommunityError("timeout")])
+        h.up(1)
+        with self.assertLogs("steam_idle.farm", level="WARNING") as first:
+            h.tick(600)
+        self.assertEqual(len(first.records), 1)
+        with self.assertLogs("steam_idle.farm", level="DEBUG") as repeat:
+            h.tick(600)
+            h.tick(600)
+        self.assertTrue(all(r.levelname == "DEBUG" for r in repeat.records), repeat.output)
+        h.games = [[gd(10, 3)]]
+        with self.assertLogs("steam_idle.farm", level="INFO") as healed:
+            h.tick(600)
+        self.assertEqual([(r.levelname, r.getMessage()) for r in healed.records],
+                         [("INFO", "card pages read recovered after 3 failures")])
+
     def test_signed_out_on_a_card_page_is_confirmed_by_a_full_read(self):
         h = Targeted([[gd(10, 3)], [gd(10, 2)]], [CommunityError("signed_out")])
         h.up(1)

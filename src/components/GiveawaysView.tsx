@@ -13,6 +13,7 @@ import { initialLoad, loadOk, loadFailed, loadRetry, hasStaleData, isGiveawaysSt
 import { loginAttemptSucceeded, loginHintVisible } from '../utils/loginAttempt';
 import { useGiveawaysReadiness } from '../hooks/useGiveawaysReadiness';
 import { withServiceToken } from '../utils/serviceAuth.mjs';
+import { useConfirm } from './ConfirmDialog';
 import { GiveawaysReadiness } from './GiveawaysReadiness';
 import { countTodo } from '../utils/giveawaysReadiness';
 
@@ -99,6 +100,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
   appVersion = '',
   openReadinessOnMount = false,
 }) => {
+  const { ask, confirmDialog } = useConfirm();
   const [readinessOpen, setReadinessOpen] = useState(openReadinessOnMount);
   const readinessErrorAtOpen = useRef<string | null>(null);
   const readiness = useGiveawaysReadiness(readinessOpen);
@@ -471,6 +473,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
 
   return (
     <div id="view-giveaways" className="view-tab active" style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      {confirmDialog}
       {/* Top Header Island 1-to-1 with SPEC */}
       <div className="titanium-island" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: '6px 12px', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div style={{ minWidth: 0 }}>
@@ -570,7 +573,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
                     style={{ minHeight: '24px', width: '24px', padding: 0, fontSize: 'var(--fs-xs)', justifyContent: 'center', flexShrink: 0 }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (window.confirm(SWITCH_ACCOUNT_CONFIRM)) handleStoreAuth(store.id, true);
+                      void ask(SWITCH_ACCOUNT_CONFIRM, 'Сменить аккаунт').then((ok) => { if (ok) handleStoreAuth(store.id, true); });
                     }}
                     title="Сменить аккаунт"
                     aria-label={`Сменить аккаунт ${store.name}`}

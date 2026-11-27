@@ -16,6 +16,11 @@ logger = logging.getLogger("TwitchDrops")
 
 DPAPI_MAGIC = b"DPAPI1:"
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
+_warned_unprotected = False
+
+
+class DpapiError(RuntimeError):
+    """DPAPI could not protect the data; callers must not fall back to writing it in the clear."""
 
 
 class _DATA_BLOB(ctypes.Structure):
@@ -42,8 +47,17 @@ def _read_and_free_blob(blob: _DATA_BLOB) -> bytes:
 
 
 def protect_bytes(data: bytes) -> bytes:
-    """Encrypt bytes with Windows DPAPI (CurrentUser scope) and prefix with DPAPI_MAGIC."""
-    if os.name != "nt" or not data:
+    """Encrypt bytes with Windows DPAPI (CurrentUser scope) and prefix with DPAPI_MAGIC.
+
+    Raises DpapiError on Windows when encryption fails. Off Windows the data comes back unchanged (warned once).
+    """
+    global _warned_unprotected
+    if not data:
+        return data
+    if os.name != "nt":
+        if not _warned_unprotected:
+            _warned_unprotected = True
+            logger.warning("DPAPI is only available on Windows: secrets are stored without encryption")
         return data
     try:
         in_blob, _buf = _make_blob(data)
@@ -59,12 +73,17 @@ def protect_bytes(data: bytes) -> bytes:
             ctypes.byref(out_blob),
         )
         if not ok:
-            return data
+            raise DpapiError(f"CryptProtectData failed (WinError {ctypes.GetLastError()})")
         encrypted = _read_and_free_blob(out_blob)
-        return DPAPI_MAGIC + encrypted if encrypted else data
+        if not encrypted:
+            raise DpapiError("CryptProtectData returned an empty blob")
+        return DPAPI_MAGIC + encrypted
+    except DpapiError as exc:
+        logger.error("DPAPI protect failed, refusing to fall back to plaintext: %s", exc)
+        raise
     except Exception as exc:
-        logger.debug("DPAPI protect fallback: %s", exc)
-        return data
+        logger.error("DPAPI protect failed, refusing to fall back to plaintext: %s", exc, exc_info=True)
+        raise DpapiError(str(exc)) from exc
 
 
 def unprotect_bytes(data: bytes) -> bytes:
@@ -117,14 +136,22 @@ def load_cookie_jar(cookie_jar: Any, path: Path) -> None:
         cookie_jar.load(path)
 
 
-def save_cookie_jar(cookie_jar: Any, path: Path) -> None:
-    """Save aiohttp.CookieJar to disk encrypted with Windows DPAPI."""
+def save_cookie_jar(cookie_jar: Any, path: Path) -> bool:
+    """Save aiohttp.CookieJar to disk encrypted with Windows DPAPI.
+
+    Returns False when encryption failed: nothing is written and the previous file stays as it was.
+    """
     raw_pickle = pickle.dumps(cookie_jar._cookies, pickle.HIGHEST_PROTOCOL)
-    protected = protect_bytes(raw_pickle)
+    try:
+        protected = protect_bytes(raw_pickle)
+    except DpapiError:
+        logger.error("cookies were not saved to %s this time, the previous file is kept", path)
+        return False
     tmp_path = path.with_name(path.name + ".tmp")
     try:
         tmp_path.write_bytes(protected)
         os.replace(tmp_path, path)
+        return True
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise

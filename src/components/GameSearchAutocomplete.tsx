@@ -194,7 +194,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
     const parts = text.split(new RegExp(`(${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
     return parts.map((part, i) =>
       part.toLowerCase() === search.toLowerCase() ? (
-        <span key={i} className="text-[var(--accent)] font-semibold bg-[#368873]/15 px-0.5 rounded">
+        <span key={i} className="text-[var(--led-mint)] font-semibold bg-[#368873]/15 px-0.5 rounded">
           {part}
         </span>
       ) : (
@@ -207,7 +207,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
     <div ref={containerRef} className={`relative w-full ${className}`}>
       {/* Search Input Box */}
       <div className="relative flex items-center group">
-        <Search className="w-4 h-4 text-[var(--muted)] group-focus-within:text-[var(--accent)] absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors pointer-events-none" aria-hidden="true" focusable="false" />
+        <Search className="w-4 h-4 text-[var(--text-muted)] group-focus-within:text-[var(--led-mint)] absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors pointer-events-none" aria-hidden="true" focusable="false" />
         <input
           ref={inputRef}
           type="text"
@@ -220,11 +220,11 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="w-full bg-[var(--surface)] hover:bg-[var(--surface-elevated)] focus:bg-[var(--surface-elevated)] border border-[var(--line)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[#73bba5]/35 rounded-xl pl-10 pr-9 py-2.5 text-xs text-[var(--foreground)] placeholder-[var(--muted)] outline-none transition-all shadow-inner backdrop-blur-xl"
+          className="w-full bg-[var(--bg-row)] hover:bg-[var(--bg-row-hover)] focus:bg-[var(--bg-row-hover)] border border-[var(--border-main)] focus:border-[var(--led-mint)] focus:ring-1 focus:ring-[#73bba5]/35 rounded-xl pl-10 pr-9 py-2.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none transition-all shadow-inner backdrop-blur-xl"
         />
         {liveVerification.loading && (
           <div className="absolute right-9 top-1/2 -translate-y-1/2">
-            <Loader2 className="w-3.5 h-3.5 text-[var(--accent)] animate-spin" aria-hidden="true" focusable="false" />
+            <Loader2 className="w-3.5 h-3.5 text-[var(--led-mint)] animate-spin" aria-hidden="true" focusable="false" />
           </div>
         )}
         {query && (
@@ -234,7 +234,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
               setQuery('');
               inputRef.current?.focus();
             }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-white p-0.5 rounded-lg hover:bg-white/[0.08] transition-all cursor-pointer"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white p-0.5 rounded-lg hover:bg-white/[0.08] transition-all cursor-pointer"
             title="Очистить"
           >
             <X className="w-3.5 h-3.5" aria-hidden="true" focusable="false" />
@@ -244,11 +244,11 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
 
       {/* Floating Suggestions Dropdown */}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-2xl bg-[var(--surface-elevated)] border border-[var(--line)] overflow-hidden animate-in fade-in zoom-in-95 duration-150 shadow-2xl">
+        <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-2xl bg-[var(--bg-row-hover)] border border-[var(--border-main)] overflow-hidden animate-in fade-in zoom-in-95 duration-150 shadow-2xl">
           {/* Header pill */}
-          <div className="px-3.5 py-2 border-b border-[var(--line)] bg-white/[0.02] flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--muted)]">
+          <div className="px-3.5 py-2 border-b border-[var(--border-main)] bg-white/[0.02] flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)]">
             <span className="flex items-center gap-1.5 font-bold">
-              <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" aria-hidden="true" focusable="false" />
+              <Sparkles className="w-3.5 h-3.5 text-[var(--led-mint)]" aria-hidden="true" focusable="false" />
               {query.trim() ? `Поиск «${query.trim()}» с проверкой Twitch:` : 'Популярные игры и активные Drops:'}
             </span>
             <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)] tabular">Enter — выбрать · Esc — закрыть</span>
@@ -259,8 +259,8 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
             {/* 1. Verified Active Drops Section */}
             {activeDropsSuggestions.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-[length:var(--fs-xs)] font-bold text-[var(--accent)] uppercase tracking-[0.04em] flex items-center gap-1">
-                  <Flame className="w-3 h-3 text-[var(--accent)]" aria-hidden="true" focusable="false" />
+                <div className="px-2 py-1 text-[length:var(--fs-xs)] font-bold text-[var(--led-mint)] uppercase tracking-[0.04em] flex items-center gap-1">
+                  <Flame className="w-3 h-3 text-[var(--led-mint)]" aria-hidden="true" focusable="false" />
                   <span>Активные кампании (идут сейчас)</span>
                 </div>
                 <div className="space-y-1 mt-1">
@@ -284,23 +284,23 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
                             inPriority 
-                              ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--accent)]' 
+                              ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--led-mint)]' 
                               : inExcluded
                                 ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
                                 : inRemoved
                                   ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                                  : 'bg-[#368873]/10 border-[#73bba5]/30 text-[var(--accent)]'
+                                  : 'bg-[#368873]/10 border-[#73bba5]/30 text-[var(--led-mint)]'
                           }`}>
                             {inExcluded ? <Ban className="w-3.5 h-3.5" aria-hidden="true" focusable="false" /> : inRemoved ? <Trash2 className="w-3.5 h-3.5" aria-hidden="true" focusable="false" /> : <Flame className="w-3.5 h-3.5" aria-hidden="true" focusable="false" />}
                           </div>
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold text-[var(--foreground)] truncate">
+                              <span className="text-xs font-bold text-[var(--text-primary)] truncate">
                                 {highlightMatch(game.name, query.trim())}
                               </span>
                               {inPriority && (
-                                <span className="text-[length:var(--fs-xs)] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/40 shrink-0">
+                                <span className="text-[length:var(--fs-xs)] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--led-mint)] border border-[#73bba5]/40 shrink-0">
                                   В очереди #{priorityList.indexOf(game.name) + 1}
                                 </span>
                               )}
@@ -319,16 +319,16 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                             </div>
 
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[length:var(--fs-xs)] font-semibold text-[var(--accent)] flex items-center gap-0.5">
+                              <span className="text-[length:var(--fs-xs)] font-semibold text-[var(--led-mint)] flex items-center gap-0.5">
                                 <ShieldCheck className="w-2.5 h-2.5" aria-hidden="true" focusable="false" /> 100% Фарм {game.drops_end_at ? `до ${new Date(game.drops_end_at).toLocaleDateString(uiLocale(), { day: 'numeric', month: 'short' })}` : ''}
                               </span>
                               {game.rewards_count && (
-                                <span className="text-[length:var(--fs-xs)] text-[var(--muted)] bg-[var(--surface)] border border-[var(--line)] px-1 rounded tabular-nums">
+                                <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)] bg-[var(--bg-row)] border border-[var(--border-main)] px-1 rounded tabular-nums">
                                   {game.rewards_count} наград
                                 </span>
                               )}
                               {game.is_installed && (
-                                <span className="text-[length:var(--fs-xs)] text-[var(--muted)] flex items-center gap-0.5">
+                                <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)] flex items-center gap-0.5">
                                   <HardDrive className="w-2.5 h-2.5" aria-hidden="true" focusable="false" /> На ПК
                                 </span>
                               )}
@@ -366,7 +366,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                             className={`shrink-0 px-2.5 py-1 rounded-lg text-[length:var(--fs-xs)] font-semibold transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
                               inPriority
                                 ? 'bg-[#368873] text-white border border-[#73bba5] shadow-sm hover:bg-rose-500 hover:border-rose-400'
-                                : 'bg-[#368873]/20 hover:bg-[#368873] hover:text-white text-[var(--accent)] border border-[#73bba5]/40 font-bold'
+                                : 'bg-[#368873]/20 hover:bg-[#368873] hover:text-white text-[var(--led-mint)] border border-[#73bba5]/40 font-bold'
                             }`}
                           >
                             {inPriority ? (
@@ -392,8 +392,8 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
             {/* 2. Other Games Section (Installed / Catalog without active drops) */}
             {otherSuggestions.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-[length:var(--fs-xs)] font-bold text-[var(--muted)] uppercase tracking-[0.04em] flex items-center gap-1">
-                  <Gamepad2 className="w-3 h-3 text-[var(--muted)]" aria-hidden="true" focusable="false" />
+                <div className="px-2 py-1 text-[length:var(--fs-xs)] font-bold text-[var(--text-muted)] uppercase tracking-[0.04em] flex items-center gap-1">
+                  <Gamepad2 className="w-3 h-3 text-[var(--text-muted)]" aria-hidden="true" focusable="false" />
                   <span>Каталог игр (Дропы не активны на Twitch)</span>
                 </div>
                 <div className="space-y-1 mt-1">
@@ -410,7 +410,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                         onMouseEnter={() => setSelectedIndex(globalIdx)}
                         className={`flex items-center justify-between gap-3 px-3 py-2 rounded-xl transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-[var(--surface)] border border-[var(--line)] shadow-sm'
+                            ? 'bg-[var(--bg-row)] border border-[var(--border-main)] shadow-sm'
                             : 'hover:bg-white/[0.03] border border-transparent'
                         }`}
                         onClick={() => handleToggle(game.name)}
@@ -418,23 +418,23 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border ${
                             inPriority 
-                              ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--accent)]' 
+                              ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--led-mint)]' 
                               : inExcluded
                                 ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
                                 : inRemoved
                                   ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                                  : 'bg-white/[0.04] border-[var(--line)] text-[var(--muted)]'
+                                  : 'bg-white/[0.04] border-[var(--border-main)] text-[var(--text-muted)]'
                           }`}>
                             {inExcluded ? <Ban className="w-3.5 h-3.5" aria-hidden="true" focusable="false" /> : inRemoved ? <Trash2 className="w-3.5 h-3.5" aria-hidden="true" focusable="false" /> : <Gamepad2 className="w-3.5 h-3.5" aria-hidden="true" focusable="false" />}
                           </div>
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold text-[var(--foreground)] truncate">
+                              <span className="text-xs font-bold text-[var(--text-primary)] truncate">
                                 {highlightMatch(game.name, query.trim())}
                               </span>
                               {inPriority && (
-                                <span className="text-[length:var(--fs-xs)] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--accent)] border border-[#73bba5]/40 shrink-0">
+                                <span className="text-[length:var(--fs-xs)] font-bold px-1.5 py-0.2 rounded bg-[#368873]/20 text-[var(--led-mint)] border border-[#73bba5]/40 shrink-0">
                                   В очереди
                                 </span>
                               )}
@@ -457,7 +457,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                                 <AlertCircle className="w-2.5 h-2.5" aria-hidden="true" focusable="false" /> Нет раздачи на Twitch
                               </span>
                               {game.is_installed && (
-                                <span className="text-[length:var(--fs-xs)] text-[var(--muted)] flex items-center gap-0.5">
+                                <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)] flex items-center gap-0.5">
                                   · На ПК
                                 </span>
                               )}
@@ -495,7 +495,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                             className={`shrink-0 px-2.5 py-1 rounded-lg text-[length:var(--fs-xs)] font-semibold transition-all flex items-center gap-1 active:scale-95 cursor-pointer ${
                               inPriority
                                 ? 'bg-[#368873] text-white border border-[#73bba5] shadow-sm'
-                                : 'bg-white/[0.06] hover:bg-white/[0.15] text-[var(--muted)] hover:text-white border border-[var(--line)]'
+                                : 'bg-white/[0.06] hover:bg-white/[0.15] text-[var(--text-muted)] hover:text-white border border-[var(--border-main)]'
                             }`}
                           >
                             {inPriority ? (
@@ -529,26 +529,26 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                 className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
                   liveVerification.data?.has_active_drops
                     ? 'bg-[#368873]/15 border-[#73bba5]/40 text-white shadow-sm'
-                    : 'bg-white/[0.02] border-dashed border-[var(--line)] text-white hover:border-[#73bba5]/40'
+                    : 'bg-white/[0.02] border-dashed border-[var(--border-main)] text-white hover:border-[#73bba5]/40'
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
                     liveVerification.data?.has_active_drops
-                      ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--accent)]'
-                      : 'bg-[#368873]/10 border-[#73bba5]/20 text-[var(--accent)]'
+                      ? 'bg-[#368873]/20 border-[#73bba5]/40 text-[var(--led-mint)]'
+                      : 'bg-[#368873]/10 border-[#73bba5]/20 text-[var(--led-mint)]'
                   }`}>
                     {liveVerification.data?.has_active_drops ? (
-                      <Flame className="w-4 h-4 text-[var(--accent)]" aria-hidden="true" focusable="false" />
+                      <Flame className="w-4 h-4 text-[var(--led-mint)]" aria-hidden="true" focusable="false" />
                     ) : (
-                      <Plus className="w-4 h-4 text-[var(--accent)]" aria-hidden="true" focusable="false" />
+                      <Plus className="w-4 h-4 text-[var(--led-mint)]" aria-hidden="true" focusable="false" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold leading-tight text-[var(--foreground)]">
-                      Добавить «<span className="text-[var(--accent)]">{liveVerification.data?.canonical_name || query.trim()}</span>»
+                    <p className="text-xs font-bold leading-tight text-[var(--text-primary)]">
+                      Добавить «<span className="text-[var(--led-mint)]">{liveVerification.data?.canonical_name || query.trim()}</span>»
                     </p>
-                    <p className="text-[length:var(--fs-xs)] text-[var(--muted)] mt-0.5 truncate">
+                    <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)] mt-0.5 truncate">
                       {liveVerification.data?.message || 'Hell Harvest начнет автоматический поиск подходящих трансляций'}
                     </p>
                   </div>
@@ -568,7 +568,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
             )}
 
             {suggestions.length === 0 && !query.trim() && (
-              <div className="py-6 text-center text-xs text-[var(--muted)]">
+              <div className="py-6 text-center text-xs text-[var(--text-muted)]">
                 Начните вводить название игры...
               </div>
             )}

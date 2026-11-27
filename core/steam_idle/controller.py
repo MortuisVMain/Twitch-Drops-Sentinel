@@ -237,6 +237,7 @@ class SteamIdleController:
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
         self._library_error: str | None = None
+        self._library_lock = threading.Lock()
         self._session, self._checked_account, self._checked_at = "unknown", 0, None
         self._task = self._login_task = self._check_task = None
         self._suspend_sent = False
@@ -300,9 +301,10 @@ class SteamIdleController:
 
     def _library_payload(self, account_id: int) -> dict:
         """The owned games cache. Dropped lazily when the account changed or the session signed out."""
-        library = self._library
-        if self._session in ("signed_out", "account_mismatch") or (library and account_id not in (0, library[0])):
-            self._library = library = self._library_error = None
+        with self._library_lock:  # state() runs in a worker thread; the lazy drop must not undo a store from the loop
+            library = self._library
+            if self._session in ("signed_out", "account_mismatch") or (library and account_id not in (0, library[0])):
+                self._library = library = self._library_error = None
         if self._library_scan_running():
             status = "scanning"
         else:
@@ -312,7 +314,8 @@ class SteamIdleController:
                 "achievementsChecking": self._index_running(), "achievementsVersion": self._index_version}
 
     def _store_library(self, account_id: int, games: list) -> None:
-        self._library, self._library_error = (account_id, games, self._clock()), None
+        with self._library_lock:
+            self._library, self._library_error = (account_id, games, self._clock()), None
 
     def _cached_games(self, account_id: int) -> list | None:
         library = self._library
