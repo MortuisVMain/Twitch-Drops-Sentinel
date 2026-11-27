@@ -34,9 +34,10 @@ import { healthButtonView, isHealthHotkey, isOpenCenterMessage } from './utils/h
 import { tabDigit, tabForDigit, digitRange, titleWithDigit, digitHotkeyAllowed } from './utils/tabHotkeys.mjs';
 import { useConsoleLogs } from './hooks/useConsoleLogs';
 import { useHeaderFit } from './hooks/useHeaderFit';
+import { donateUrl } from './utils/donate';
 
 import {
-  Check, ChevronRight, CircleHelp, Copy, History, Ellipsis, Gamepad2, Gift, Hourglass,
+  Check, ChevronRight, CircleHelp, Copy, Heart, History, Ellipsis, Gamepad2, Gift, Hourglass,
   LayoutDashboard, Minus, Moon, Palette, Pause, PictureInPicture2, Play,
   RefreshCw, Settings, Square,
 } from 'lucide-react';
@@ -1339,6 +1340,11 @@ export const App: React.FC = () => {
               <button className="more-item more-item-help" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowHelpModal(true); }}>
                 <span><CircleHelp className="ui-icon" aria-hidden="true" focusable="false" /> Справка и горячие клавиши</span>
               </button>
+              {donateUrl() && (
+                <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); window.open(donateUrl()!, '_blank'); }}>
+                  <span><Heart className="ui-icon" aria-hidden="true" focusable="false" /> Поддержать проект</span>
+                </button>
+              )}
               <button className="more-item" role="menuitem" onClick={() => { playClick(); setShowMoreMenu(false); setShowThemeMenu(true); }}>
                 <span><Palette className="ui-icon" aria-hidden="true" focusable="false" /> Тема</span>
                 <span className="more-hint"><ChevronRight className="ui-icon" aria-hidden="true" focusable="false" /></span>
