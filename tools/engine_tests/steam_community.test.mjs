@@ -378,6 +378,11 @@ test('parseGameCardsPage: drops, hours, name and entities from the card page', (
   assert.equal(done.playtimeHours, 12);
 });
 
+test('parseGameCardsPage: the real card page wraps its badge in class="badge_row depressed badge_gamecard_page"', () => {
+  assert.deepEqual(parse.parseGameCardsPage(fixture('gamecards-real-2026-11.html'), 4358690),
+    { appId: 4358690, name: '', dropsRemaining: 1, playtimeHours: 9.7 });
+});
+
 test('parseGameCardsPage: no drops text is an error, never 0 drops (0 would mark the game done)', () => {
   const synthetic = fixture('gamecards-synthetic.html');
   const dropsDiv = /<div class="badge_title_stats_drops">[\s\S]*?<\/div>/;

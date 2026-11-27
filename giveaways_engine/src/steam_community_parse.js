@@ -61,7 +61,9 @@ export const parseGameCardsPage = (html, appId) => {
   const fail = () => { throw new ParseError('gamecards_unparsed'); };
   if (typeof html != 'string' || !Number.isSafeInteger(appId) || appId <= 0) fail();
   if (!new RegExp(`/gamecards/${appId}(?![0-9])`).test(html)) fail();
-  if ((html.match(/<div class="badge_title_stats_drops">/g) ?? []).length != 1 || html.includes('class="badge_row')) fail();
+  // The card page itself wraps its badge in `badge_row depressed badge_gamecard_page`; any other badge_row is a badges-list row
+  const listRow = (html.match(/class="badge_row(?:\s[^"]*)?"/g) ?? []).some(cls => !cls.includes('badge_gamecard_page'));
+  if ((html.match(/<div class="badge_title_stats_drops">/g) ?? []).length != 1 || listRow) fail();
   const drops = /<span class="progress_info_bold">([\s\S]*?)<\/span>/.exec(divText(html, 'badge_title_stats_drops') ?? '')?.[1];
   const dropsRemaining = drops === undefined ? null : parseDropsText(squash(drops));
   const playtime = divText(html, 'badge_title_stats_playtime');
