@@ -201,9 +201,17 @@ class RequestTests(unittest.TestCase):
 
     def test_the_shared_query_constant_is_never_changed(self):
         base = GQL_QUERIES["Campaigns"]
-        rc.dashboard_query(base, True)
-        self.assertIs(base["variables"]["fetchRewardCampaigns"], False)
+        rc.dashboard_query(base, False)
+        self.assertIs(base["variables"]["fetchRewardCampaigns"], True)
         self.assertIs(GQL_QUERIES["Inventory"]["variables"]["fetchRewardCampaigns"], False)
+
+    def test_the_dashboard_request_is_the_one_twitch_web_sends(self):
+        # captured from www.twitch.tv/drops/campaigns on 2026-11-27: 115 drop campaigns, 80 games for a live account;
+        # the older hash c16bb890... with false came back almost empty (the third-party feed used to hide that)
+        base = GQL_QUERIES["Campaigns"]
+        self.assertEqual(base["extensions"]["persistedQuery"]["sha256Hash"],
+                         "69750554e0a81492f2d343558f84bdf3e324767650a2dbb6e79a3c629b4548cf")
+        self.assertIs(base["variables"]["fetchRewardCampaigns"], True)
 
 
 class SettingTests(unittest.TestCase):

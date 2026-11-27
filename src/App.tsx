@@ -269,6 +269,24 @@ export const App: React.FC = () => {
 
         setShowDiagnostics(true);
 
+      } else if (msg?.type === 'TWITCH_BROWSER_LOGIN_RESULT') {
+
+        const texts: Record<string, string> = {
+
+          ok: 'Вход выполнен, загружаем кампании Twitch',
+
+          cancelled: 'Окно входа закрыто без входа',
+
+          denied: 'Вход в Twitch отклонён',
+
+          rejected: 'Twitch не принял вход',
+
+          unreachable: 'Служба Hell Harvest не ответила, попробуйте ещё раз',
+
+        };
+
+        showToast(texts[msg.result] ?? 'Не удалось войти через окно Twitch');
+
       }
 
     };
@@ -626,6 +644,20 @@ export const App: React.FC = () => {
     };
 
   }, []);
+
+
+
+  const handleBrowserLogin = () => {
+
+    playClick();
+
+    const wv = (window as any).chrome?.webview;
+
+    if (wv && typeof wv.postMessage === 'function') wv.postMessage({ type: 'TWITCH_BROWSER_LOGIN' });
+
+    else showToast('Окно входа Twitch доступно только в приложении');
+
+  };
 
 
 
@@ -1526,6 +1558,12 @@ export const App: React.FC = () => {
 
               oauthUri={sentinelState.oauth_uri}
 
+              authClient={sentinelState.auth_client}
+
+              signedIn={Boolean(sentinelState.user_id)}
+
+              onBrowserLogin={handleBrowserLogin}
+
               rewardCampaigns={sentinelState.reward_campaigns}
               rewardWatching={sentinelState.reward_watching ?? null}
 
@@ -1866,7 +1904,7 @@ export const App: React.FC = () => {
 
                 <p className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
 
-                  Текущая версия: v{sentinelState.version || '4.4.1'}
+                  Текущая версия: v{sentinelState.version || '4.4.2'}
 
                 </p>
 

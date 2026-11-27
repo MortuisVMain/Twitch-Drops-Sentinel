@@ -76,6 +76,7 @@ class SentinelStateBridge:
         now = time()
         now_str = datetime.now().strftime("%H:%M:%S")
         clean_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
+        clean_msg = re.sub(r'\b(OAuth|Bearer)\s+[a-zA-Z0-9_\-\.]+', r'\1 [REDACTED]', clean_msg, flags=re.IGNORECASE)
         clean_msg = re.sub(r"""(auth_token|client_secret|token|password)=['"]?[a-zA-Z0-9_\-]+['"]?""", r"\1=[REDACTED]", clean_msg, flags=re.IGNORECASE)
         entry = {
             "time": now_str,

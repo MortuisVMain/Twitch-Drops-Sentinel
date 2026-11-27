@@ -89,3 +89,5 @@ giveaways_engine/data/*.log
 
 tools/dimmer_logic_check/bin/
 tools/dimmer_logic_check/obj/
+tools/twitch_token_redirect_check/bin/
+tools/twitch_token_redirect_check/obj/

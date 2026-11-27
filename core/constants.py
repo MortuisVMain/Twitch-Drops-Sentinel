@@ -365,12 +365,13 @@ GQL_QUERIES: dict[str, GQLPersistedQuery] = {
             "channelLogin": "",  # always empty string
         },
     ),
-    # returns all available campaigns
+    # returns all available campaigns; the request www.twitch.tv/drops/campaigns sends (2026-11-27). The older
+    # c16bb890... with fetchRewardCampaigns=false came back almost empty; a third-party feed had hidden that.
     "Campaigns": GQLPersistedQuery(
         "ViewerDropsDashboard",
-        "c16bb890cc8ce7647a96ee69cd313d423a378a3dedadf630a1017cde18975feb",
+        "69750554e0a81492f2d343558f84bdf3e324767650a2dbb6e79a3c629b4548cf",
         variables={
-            "fetchRewardCampaigns": False,
+            "fetchRewardCampaigns": True,
         }
     ),
     # returns extended information about a particular campaign

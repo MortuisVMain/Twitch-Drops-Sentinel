@@ -1907,6 +1907,10 @@ namespace TwitchDropsSentinel
                     // the service's address is checked again here: only https on twitch.tv, otherwise the usual sign-in page
                     OpenExternalLink(TwitchActivatePolicy.Resolve(root.TryGetProperty("uri", out var activateProp) && activateProp.ValueKind == JsonValueKind.String ? activateProp.GetString() : null), "twitch activate");
                 }
+                else if (type == "TWITCH_BROWSER_LOGIN")
+                {
+                    _ = RunTwitchBrowserLoginAsync();
+                }
                 else if (type == "APP_READY")
                 {
                     OnPageReady();
@@ -4090,6 +4094,67 @@ else
                 PostToPage(ServiceDiagnostics.FixResultJson(result, LocalApiToken.Current), "fix result");
                 RunDiagnosticsAsync(null);
             });
+        }
+
+        private bool _twitchLoginOpen;
+
+        /// <summary>
+        /// The twitch.tv sign-in window (Android client): its token goes to the service in the body of a POST, never in a URL or a log line.
+        /// The page gets TWITCH_BROWSER_LOGIN_RESULT with a result code (ok, cancelled, denied, rejected, unreachable, failed); the
+        /// service's own wording of a refusal goes to desktop_errors.log.
+        /// </summary>
+        private async Task RunTwitchBrowserLoginAsync()
+        {
+            if (_twitchLoginOpen) { TwitchLoginWindow.TryFocusExisting(); return; }
+            _twitchLoginOpen = true;
+            string result;
+            try
+            {
+                var login = await TwitchLoginWindow.ShowAsync(this, LogDesktopError);
+                if (login.Token != null)
+                {
+                    using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    using var content = new System.Net.Http.StringContent(JsonSerializer.Serialize(new { token = login.Token }), Encoding.UTF8, "application/json");
+                    using var response = await HostHttp.PostAsync($"http://127.0.0.1:{ServicePort}/api/auth/android-token", content, cts.Token);
+                    if (response.IsSuccessStatusCode) result = "ok";
+                    else
+                    {
+                        result = (int)response.StatusCode == 400 ? "rejected" : "failed";
+                        LogDesktopError("twitch login refused by the service", new InvalidOperationException(
+                            $"HTTP {(int)response.StatusCode}: {ReadServiceError(await response.Content.ReadAsStringAsync(cts.Token))}"));
+                    }
+                }
+                else if (login.Error == "access_denied") result = "denied";
+                else if (login.Error != null)
+                {
+                    result = "failed";
+                    LogDesktopError("twitch login ended with an error", new InvalidOperationException(login.Error));
+                }
+                else result = "cancelled";
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException)
+            {
+                LogDesktopError("twitch login: the service did not answer", ex);
+                result = "unreachable";
+            }
+            catch (Exception ex)
+            {
+                LogDesktopError("twitch login", ex);
+                result = "failed";
+            }
+            finally { _twitchLoginOpen = false; }
+            if (!_isShuttingDown && !IsDisposed)
+                PostToPage(JsonSerializer.Serialize(new { type = "TWITCH_BROWSER_LOGIN_RESULT", result }), "twitch login result");
+        }
+
+        private static string ReadServiceError(string body)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                return doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "";
+            }
+            catch (JsonException) { return ""; }
         }
 
         private void PostOpenHealthCenter()

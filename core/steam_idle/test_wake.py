@@ -10,7 +10,7 @@ from steam_idle.test_achievements_controller import Base as AchBase, run_of
 from steam_idle.test_controller import Env, gd
 from steam_idle.test_farm import Harness
 
-PROMPT = 0.2
+PROMPT = 2.0  # "immediate" next to a 10-minute farm tick; 0.2 s failed now and then on loaded CI runners
 
 
 async def within(predicate, seconds=PROMPT) -> bool:
