@@ -100,6 +100,7 @@ export const SHELF: Record<string, string> = {
   'Кампании наград Twitch: квесты и предложения брендов': 'Twitch reward campaigns: quests and brand offers',
   'Кампаний наград не найдено': 'No reward campaigns found',
   'Сейчас на Twitch нет кампаний наград.': 'There are no reward campaigns on Twitch right now.',
+  'Каталог игр загружается из вашего аккаунта Twitch: войдите в Twitch, и кампании появятся здесь.': 'The game catalog is loaded from your Twitch account: sign in to Twitch and the campaigns will appear here.',
   'Ещё условий:': 'More conditions:',
   'Установлено на ПК (': 'Installed on PC (',
   'Исключения': 'Exclusions',

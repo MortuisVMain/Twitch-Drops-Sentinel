@@ -227,15 +227,10 @@ class GUIMessages(TypedDict):
 
 class SentinelMessages(TypedDict):
     sync_started: str
-    startup_sync: str
-    fetched_ok: str
-    fetch_failed: str
-    api_blocked: str
     sync_complete: str
     catalog_built: str
     fetcher_refreshed: str
     idle_standby: str
-    inventory_enriched: str
     scan_steam: str
     scan_epic: str
     scan_gog: str
@@ -276,15 +271,10 @@ default_translation: Translation = {
     },
     "sentinel": {
         "sync_started": "Syncing active Twitch drops and game catalog...",
-        "startup_sync": "Executing initial startup sync for live Twitch Drops campaigns...",
-        "fetched_ok": "Successfully fetched {count} live campaigns from Twitch.",
-        "fetch_failed": "Failed to fetch live campaigns: {reason}",
-        "api_blocked": "Campaigns API unavailable; next request in {delay}s (failure #{count}).",
         "sync_complete": "Sync complete: {active} active drops found across {total} total games.",
         "catalog_built": "Built catalog with {games} games ({active} with active drops).",
         "fetcher_refreshed": "Campaigns refreshed: {installed} installed games, catalog size: {catalog}",
         "idle_standby": "Idle standby: refreshing inventory and checking newly live streamers...",
-        "inventory_enriched": "Enriched inventory with live campaigns: total {count} campaigns loaded.",
         "scan_steam": "Steam scan discovered {count} games.",
         "scan_epic": "Epic Games scan discovered {count} games.",
         "scan_gog": "GOG scan discovered {count} games.",

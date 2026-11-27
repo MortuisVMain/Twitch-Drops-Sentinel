@@ -78,6 +78,7 @@ from dpapi import load_cookie_jar, save_cookie_jar
 _clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
+_CATALOG_TASK: "asyncio.Task[None] | None" = None  # one catalog poller per process
 REWARD_FAILED_BEATS = 3  # failed beats in a row before the channel is put on cooldown
 REWARD_NO_PROGRESS_SECONDS = 600.0  # a reward watched this long without any Twitch progress is reported once
 REWARD_STALL_SECONDS = 900.0  # no good beat for this long: the reward campaign is dropped and the choice re-evaluated
@@ -506,6 +507,9 @@ class Twitch:
         self.websocket = WebsocketPool(self)
         # Maintenance task
         self._mnt_task: asyncio.Task[None] | None = None
+        # Catalog refresh: keeps the in-app catalog <= ~15 min old without a full inventory reload
+        self._catalog_refresher: Any = None
+        self._catalog_task: asyncio.Task[None] | None = None
 
     async def get_session(self) -> aiohttp.ClientSession:
         if (session := self._session) is not None:
@@ -553,6 +557,9 @@ class Twitch:
         if self._mnt_task is not None:
             self._mnt_task.cancel()
             self._mnt_task = None
+        if self._catalog_task is not None:
+            self._catalog_task.cancel()
+            self._catalog_task = None
         # stop websocket, close session and save cookies
         await self.websocket.stop(clear_topics=True)
         if self._session is not None:
@@ -2608,6 +2615,31 @@ class Twitch:
             logger.debug(f"Discovery error for {game_name}: {e}")
         return discovered
 
+    def _start_catalog_refresh(self, fetcher: Any, inventory_data: dict[str, JsonType], dashboard: dict[str, JsonType]) -> None:
+        """Remember this fetch's campaign details and make sure the light refresh task runs."""
+        from twitch_catalog import CatalogRefresher
+        if self._catalog_refresher is None:
+            self._catalog_refresher = CatalogRefresher(fetcher)
+        loop = asyncio.get_running_loop()
+        self._catalog_refresher.note_inventory({cid: c for cid, c in inventory_data.items() if cid in dashboard}, loop.time())
+        if self._catalog_task is None or self._catalog_task.done():
+            global _CATALOG_TASK
+            if _CATALOG_TASK is not None and not _CATALOG_TASK.done():
+                _CATALOG_TASK.cancel()  # a crashed engine's client is replaced without shutdown(): its poller must not live on
+            self._catalog_task = _CATALOG_TASK = asyncio.create_task(self._catalog_refresh_loop())
+
+    async def _catalog_refresh_loop(self) -> None:
+        """Every minute checks whether the catalog is 15 min old; then 1 dashboard request + details of new ids only."""
+        loop = asyncio.get_running_loop()
+        refresher = self._catalog_refresher
+
+        def request() -> Any:
+            return self.gql_request(GQL_QUERIES["Campaigns"])
+
+        while True:
+            await asyncio.sleep(60)
+            await refresher.refresh(request, self.fetch_campaigns, loop.time())
+
     async def fetch_inventory(self) -> None:
         status_update = self.gui.status.update
         status_update(_("gui", "status", "fetching_inventory"))
@@ -2655,71 +2687,11 @@ class Twitch:
                 task.cancel()
             raise
 
-        # Enrich inventory_data with all live campaigns from CampaignsFetcher
-        try:
-            from campaigns_fetcher import CAMPAIGNS_FETCHER
-            all_live = CAMPAIGNS_FETCHER.get_raw_campaigns()
-            if not all_live:
-                all_live = await CAMPAIGNS_FETCHER.fetch_async()
-            from pathlib import Path
-            t_path = Path(__file__).resolve().parent.parent / "Trophies.md"
-            if not t_path.exists():
-                t_path = Path(__file__).resolve().parent / "Trophies.md"
-            t_text = t_path.read_text(encoding="utf-8").lower() if t_path.exists() else ""
-
-            now_dt = datetime.now(timezone.utc)
-            for c in all_live:
-                if c.get("status") == "EXPIRED":
-                    continue
-                c_end = c.get("endAt")
-                if c_end:
-                    with suppress(Exception):
-                        if timestamp(c_end) <= now_dt:
-                            continue
-                box_art = c.get("gameBoxArtURL") or ""
-                for reward in c.get("rewards") or []:
-                    cid = reward.get("id")
-                    if not cid or cid in inventory_data:
-                        continue
-                    if reward.get("status") == "EXPIRED":
-                        continue
-                    r_end = reward.get("endAt")
-                    if r_end:
-                        with suppress(Exception):
-                            if timestamp(r_end) <= now_dt:
-                                continue
-                    g_info = reward.get("game") or {}
-                    gname = g_info.get("displayName") or g_info.get("name") or c.get("gameDisplayName") or ""
-                    time_drops = reward.get("timeBasedDrops") or []
-                    # Skip if fully claimed in Trophies.md
-                    if gname and time_drops and t_text:
-                        if trophies_show_completed(t_text, gname, str(reward.get("name", "")), [d.get("name", "") for d in time_drops]):
-                            continue
-
-                    reward_copy = deepcopy(reward)
-                    is_connected = False
-                    if cid in available_campaigns:
-                        is_connected = available_campaigns[cid].get("self", {}).get("isAccountConnected", False)
-                    elif not reward.get("accountLinkURL"):
-                        is_connected = True
-                    if "self" not in reward_copy:
-                        reward_copy["self"] = {"isAccountConnected": is_connected}
-                    else:
-                        reward_copy["self"]["isAccountConnected"] = is_connected
-                    if "status" not in reward_copy:
-                        reward_copy["status"] = "ACTIVE"
-                    if "game" in reward_copy and isinstance(reward_copy["game"], dict):
-                        reward_copy["game"].setdefault("boxArtURL", box_art)
-                        reward_copy["game"].setdefault("name", gname)
-                        reward_copy["game"].setdefault("displayName", gname)
-                    if not reward_copy.get("allow"):
-                        reward_copy["allow"] = {"channels": [], "isEnabled": False}
-                    elif "channels" not in reward_copy["allow"] or reward_copy["allow"]["channels"] is None:
-                        reward_copy["allow"]["channels"] = []
-                    inventory_data[cid] = reward_copy
-            logger.info(_("sentinel", "inventory_enriched").format(count=len(inventory_data)))
-        except Exception as e:
-            logger.warning(f"Error enriching inventory with CampaignsFetcher: {e}")
+        # the in-app catalog comes from these campaigns (Twitch's own data); a failure here is logged, never raised
+        from campaigns_fetcher import CAMPAIGNS_FETCHER as _catalog_fetcher
+        from twitch_catalog import publish_first_party
+        publish_first_party(_catalog_fetcher, inventory_data, available_campaigns)
+        self._start_catalog_refresh(_catalog_fetcher, inventory_data, available_campaigns)
 
         # Proactively discover active campaigns for priority games not present in inventory_data
         def _matches_any_camp(p_name: str) -> bool:

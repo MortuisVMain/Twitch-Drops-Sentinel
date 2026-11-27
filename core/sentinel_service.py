@@ -799,6 +799,7 @@ class SentinelSupervisor:
             "trophies": trophies,
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
+            "catalog_source": CAMPAIGNS_FETCHER.catalog_source,
             "installed_games": installed_games,
             "ignored_games": sorted(list(self.scanner.load_ignored_games())) if hasattr(self.scanner, "load_ignored_games") else [],
             # found covers by name, for any game the app shows without working art (no campaign, dead link)
@@ -924,7 +925,7 @@ class SentinelSupervisor:
 
     async def handle_get_catalog(self, request: web.Request) -> web.Response:
         catalog = CAMPAIGNS_FETCHER.get_catalog()
-        return web.json_response(catalog)
+        return web.json_response(catalog, headers={"X-Catalog-Source": CAMPAIGNS_FETCHER.catalog_source})
 
     async def handle_verify_game(self, request: web.Request) -> web.Response:
         query = request.query.get("query", "").strip()
@@ -1616,7 +1617,7 @@ class SentinelSupervisor:
     async def handle_sync(self, request: web.Request) -> web.Response:
         logger.info(_("sentinel", "sync_started"))
         try:
-            res = await asyncio.to_thread(CAMPAIGNS_FETCHER.sync_active_drops, True)
+            res = await asyncio.to_thread(CAMPAIGNS_FETCHER.sync_active_drops)
             CAMPAIGNS_FETCHER.refresh_installed_games()
             await self.broadcast_ws()
             active_count = res.get("active_drops_count", 0)
@@ -2174,7 +2175,7 @@ class SentinelSupervisor:
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
         else:
-            loops += [self.run_twitch_engine(), CAMPAIGNS_FETCHER.start_background_loop(), self.cover_keeper_loop(), self.giveaways.repair_task_paths()]
+            loops += [self.run_twitch_engine(), self.cover_keeper_loop(), self.giveaways.repair_task_paths()]
         await asyncio.gather(*loops, return_exceptions=True)
 
 if __name__ == "__main__":
