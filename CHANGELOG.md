@@ -4,6 +4,9 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.4.1] - 2026-11-27
+- Fixed: 4.4.0 did not start. The window stayed black with a spinner and the local service was never launched: the new light health check of the service was waited for on the window's own thread and could never finish. 4.4.0 cannot update itself out of this, so install 4.4.1 with `Hell_Harvest_Setup_v4.4.1.exe` over it (settings and sign-ins are kept).
+
 ## [4.4.0] - 2026-11-27
 - The game catalog (games with Twitch Drops, search, manual farm target) now comes from Twitch itself, from the same campaign data the farm already reads with your account; the third-party campaigns API is no longer used. A check against a live account found all of its games on the account's own Twitch drops page, plus 7 more it lacked. The catalog refreshes every 15 minutes while signed in and is kept across restarts; before the first Twitch sign-in it is empty and says so.
 - Giveaways no longer download a browser on first use: a new profile uses Microsoft Edge, which ships with Windows (or Chrome). Existing profiles stay on the browser they were made with, so sign-ins are kept; the bundled Chromium is downloaded only when you pick it.

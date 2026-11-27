@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.4.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.4.1", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -5222,10 +5222,12 @@ def test_host_and_page_carry_the_local_api_token():
     assert "Arguments = $\"-X utf8 \\\"{scriptPath}\\\"\"" in spawn and "LocalApiToken" not in spawn.split("Arguments =", 1)[1].split("\n", 1)[0], "never on the command line"
     assert "client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);" in form, "the shared host client sends the header"
     assert form.count("new System.Net.Http.HttpClient") == 1 and "new HttpClient" not in form, "every host call (both health probes and the shutdown) goes through that one client"
-    assert form.count("HostHttp.") >= 3, "both health probes and the shutdown call use the shared client"
-    probe = form.split("ProbeServiceAsync(CancellationToken ct)", 1)[1].split("CheckBackendAliveAsync", 1)[0]
-    assert "28492/api/ping" in probe and "NotFound" in probe and "28492/api/state" in probe, "liveness uses /api/ping and falls back to /api/state on an older service"
-    assert form.count("ProbeServiceAsync(cts.Token)") == 2 and form.count("28492/api/state") == 1, "the watchdog and the startup check both probe through it"
+    assert "ServiceProbe.ProbeAsync(HostHttp, \"http://127.0.0.1:28492\", ct)" in form and "HostHttp.PostAsync(" in form, "both health probes and the shutdown call use the shared client"
+    probe = (WORKSPACE / "desktop" / "ServiceProbe.cs").read_text(encoding="utf-8")
+    assert "/api/ping" in probe and "NotFound" in probe and "/api/state" in probe, "liveness uses /api/ping and falls back to /api/state on an older service"
+    # v4.4.0 froze at start: the startup check blocks the UI thread on the probe, so no await in it may resume on that thread
+    assert len(re.findall(r"=\s*await |return await ", probe)) == probe.count(".ConfigureAwait(false)") == 2, "every await in ServiceProbe is ConfigureAwait(false)"
+    assert form.count("ProbeServiceAsync(cts.Token)") == 2 and "28492/api/state" not in form, "the watchdog and the startup check both probe through it"
     assert "LogDesktopError" not in token_cs and "File.Write" not in token_cs and "Console." not in token_cs, "the secret is never written anywhere"
 
     first_navigate = form.index("CoreWebView2.Navigate(")
