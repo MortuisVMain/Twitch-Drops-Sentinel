@@ -86,10 +86,9 @@ class Webhooks:
             logger.warning("Webhook settings %s are unreadable, notifications to Telegram/Discord are off: %s",
                            self._store_path, exc, exc_info=True)
 
-    def _save(self) -> None:
+    def _save(self, tg: dict, dc: dict) -> None:
         if self._store_path is None:
             return
-        tg, dc = self._config["telegram"], self._config["discord"]
         data = {"telegram": {"enabled": tg["enabled"], "chat_id": tg["chat_id"], "token": _seal(tg["token"])},
                 "discord": {"enabled": dc["enabled"], "url": _seal(dc["url"])}}
         self._store_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,8 +141,8 @@ class Webhooks:
                     dc["enabled"] = bool(p["enabled"])
                 if dc["enabled"] and not dc["url"]:
                     raise WebhookError("для Discord нужен адрес вебхука")
+            self._save(tg, dc)  # first: a save that fails (DPAPI) must leave the old settings in use
             self._config["telegram"], self._config["discord"] = tg, dc
-            self._save()
         return self.public()
 
     # --- delivery ---------------------------------------------------------------------------------------------------

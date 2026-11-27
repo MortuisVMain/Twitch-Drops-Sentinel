@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import webhooks
+from dpapi import DpapiError
 from notifications import ToastGate
 from webhooks import WebhookError, Webhooks
 
@@ -48,6 +49,15 @@ class WebhookSettings(unittest.TestCase):
         with self.assertRaisesRegex(WebhookError, "нужны"):
             hooks.update({"telegram": {"enabled": True}})
         self.assertFalse(self.store.exists(), "a refused change saves nothing")
+
+    def test_a_save_that_cannot_encrypt_leaves_the_old_settings_in_use(self):
+        hooks = self.make()
+        before = hooks.public()
+        with mock.patch.object(webhooks, "protect_bytes", side_effect=DpapiError("DPAPI failed")):
+            with self.assertRaises(DpapiError):
+                hooks.update({"telegram": {"token": TOKEN, "chat_id": "-1001", "enabled": True}})
+        self.assertEqual(hooks.public(), before, "the unsaved token must not be used until restart")
+        self.assertFalse(self.store.exists())
 
     def test_secrets_never_reach_the_ui_and_survive_a_restart(self):
         public = self.make().update({"telegram": {"token": TOKEN, "chat_id": "-1001", "enabled": True},
