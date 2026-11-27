@@ -6,6 +6,7 @@ Ensures portable_runtime/python is present for packaging standalone releases.
 Used by GitHub Actions CI/CD and developer environments.
 """
 
+import hashlib
 import sys
 import shutil
 import zipfile
@@ -17,6 +18,18 @@ WORKSPACE = Path(__file__).resolve().parent.parent
 PORTABLE_DIR = WORKSPACE / "portable_runtime"
 PYTHON_DIR = PORTABLE_DIR / "python"
 EMBED_URL = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip"
+# SHA-256 of the file above (python.org publishes no checksum for it; computed from a download and re-verified).
+EMBED_SHA256 = "8d3f33be9eb810f23c102f08475af2854e50484b8e4e06275e937be61ce3d2fb"
+
+
+def download_verified(url, dest, sha256):
+    """Download url to dest; on a SHA-256 mismatch delete the file and raise."""
+    urllib.request.urlretrieve(url, dest)
+    digest = hashlib.sha256(Path(dest).read_bytes()).hexdigest()
+    if digest != sha256.lower():
+        Path(dest).unlink(missing_ok=True)
+        raise RuntimeError(f"SHA-256 mismatch for {url}: expected {sha256}, got {digest}")
+
 
 def setup_portable_runtime():
     if (PYTHON_DIR / "python.exe").exists():
@@ -31,7 +44,7 @@ def setup_portable_runtime():
     zip_dest = PORTABLE_DIR / "python_embed.zip"
 
     print(f"[*] Downloading Python 3.12 embeddable from {EMBED_URL}...")
-    urllib.request.urlretrieve(EMBED_URL, zip_dest)
+    download_verified(EMBED_URL, zip_dest, EMBED_SHA256)
 
     print("[*] Extracting embeddable runtime...")
     with zipfile.ZipFile(zip_dest, "r") as z:
