@@ -849,14 +849,9 @@ namespace TwitchDropsSentinel
 
 
 
-        /// <summary>Liveness probe: the light /api/ping, and /api/state only when an older service answers 404 (host and service can be updated apart).</summary>
-        private static async Task<System.Net.Http.HttpResponseMessage> ProbeServiceAsync(CancellationToken ct)
-        {
-            var res = await HostHttp.GetAsync("http://127.0.0.1:28492/api/ping", ct);
-            if (res.StatusCode != System.Net.HttpStatusCode.NotFound) return res;
-            res.Dispose();
-            return await HostHttp.GetAsync("http://127.0.0.1:28492/api/state", ct);
-        }
+        /// <summary>Liveness probe (see ServiceProbe): safe to block the UI thread on.</summary>
+        private static Task<System.Net.Http.HttpResponseMessage> ProbeServiceAsync(CancellationToken ct) =>
+            ServiceProbe.ProbeAsync(HostHttp, "http://127.0.0.1:28492", ct);
 
         private async Task<bool> CheckBackendAliveAsync()
 
