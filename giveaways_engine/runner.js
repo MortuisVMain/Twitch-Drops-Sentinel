@@ -228,9 +228,10 @@ function ensureBrowserEngine() {
     return false;
   }
   fs.rmSync(incompleteMark, { force: true });
-  // Chrome or Edge can do the work without it: src/browser.js falls back on them and downloads Chromium as a last resort
+  // Edge (on every Windows) or Chrome do the work: nothing is downloaded from a third-party CDN unless the user chose the bundled Chromium
+  if (String(process.env.FGC_BROWSER ?? '').trim().toLowerCase() !== 'chromium') return true;
   const chromium = run('npx patchright install chromium');
-  if (chromium !== 0) console.warn(`[SENTINEL] ⚠ Chromium не скачался (код ${chromium}), будут использованы Chrome или Edge.`);
+  if (chromium !== 0) console.warn(`[SENTINEL] ⚠ Chromium не скачался (код ${chromium}), запуск раздач не удастся, пока браузер не скачан.`);
   return true;
 }
 

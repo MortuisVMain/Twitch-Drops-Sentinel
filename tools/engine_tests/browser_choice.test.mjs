@@ -13,7 +13,8 @@ const ENGINE = path.join(ROOT, 'giveaways_engine');
 const load = file => import(pathToFileURL(path.join(ENGINE, 'src', file)).href);
 const choice = await load('browser_choice.js');
 const { launchContext } = await load('browser.js');
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 // CI does not install the engine's dependencies (lowdb ...), so these tests use a cfg of their own: the profile comes from the
 // same profileDir() that src/config.js calls. The real config.js is only checked where those dependencies exist.
 const cfg = { automation: 'patchright', get dir() { return { browser: choice.profileDir(process.env, name => path.join('data', name)) }; } };
@@ -31,14 +32,16 @@ const recorder = failures => {
   };
   return { calls, launch };
 };
-const run = (browser, failures, { platform = 'win32', options = { channel: 'chrome' } } = {}) => {
+const legacyState = { recorded: null, legacy: true };
+const run = (browser, failures, { platform = 'win32', options = { channel: 'chrome' }, auto = legacyState } = {}) => {
   const rec = recorder(failures);
   const lines = [];
   let installs = 0;
   const install = async () => { installs++; delete failures.bundled; };
   const log = { log: s => lines.push(s), warn: s => lines.push(s), error: s => lines.push(s) };
-  const promise = choice.launchWithPolicy({ launch: rec.launch, options: { ...options }, browser, platform, install, log });
-  return { rec, lines, promise, installs: () => installs };
+  const recorded = [];
+  const promise = choice.launchWithPolicy({ launch: rec.launch, options: { ...options }, browser, platform, install, log, auto: { ...auto, record: name => recorded.push(name) } });
+  return { rec, lines, promise, installs: () => installs, recorded };
 };
 
 test('resolveBrowserChoice: auto when the value is missing or empty, the four known values as is, anything else is auto and reported', () => {
@@ -106,7 +109,7 @@ test('explicit chrome that fails for another reason keeps that error: it is not 
   assert.deepEqual(r.rec.calls, ['chrome']);
 });
 
-test('auto keeps the old fallback: chrome, then Edge, then the bundled Chromium (and downloads it when it is absent)', async () => {
+test('auto on a profile that already exists keeps the old order: chrome, then Edge, then an already installed bundled Chromium', async () => {
   let r = run('auto', { chrome: missing('chrome') });
   assert.equal((await r.promise).launchedWith, 'msedge');
   assert.deepEqual(r.rec.calls, ['chrome', 'msedge']);
@@ -114,12 +117,6 @@ test('auto keeps the old fallback: chrome, then Edge, then the bundled Chromium 
   r = run('auto', { chrome: missing('chrome'), msedge: missing('msedge') });
   assert.equal((await r.promise).launchedWith, 'bundled');
   assert.deepEqual(r.rec.calls, ['chrome', 'msedge', 'bundled']);
-  assert.equal(r.installs(), 0);
-
-  r = run('auto', { chrome: missing('chrome'), msedge: missing('msedge'), bundled: noBinary() });
-  assert.equal((await r.promise).launchedWith, 'bundled');
-  assert.deepEqual(r.rec.calls, ['chrome', 'msedge', 'bundled', 'bundled']);
-  assert.equal(r.installs(), 1);
 
   r = run('auto', { chrome: missing('chrome') }, { platform: 'linux' });
   assert.equal((await r.promise).launchedWith, 'bundled');
@@ -128,6 +125,64 @@ test('auto keeps the old fallback: chrome, then Edge, then the bundled Chromium 
   r = run('auto', {});
   assert.equal((await r.promise).launchedWith, 'chrome');
   assert.deepEqual(r.rec.calls, ['chrome']);
+});
+
+test('auto on a fresh profile starts with Edge, the browser every Windows has', async () => {
+  const fresh = { recorded: null, legacy: false };
+  let r = run('auto', {}, { auto: fresh });
+  assert.equal((await r.promise).launchedWith, 'msedge');
+  assert.deepEqual(r.rec.calls, ['msedge']);
+  assert.deepEqual(r.recorded, ['msedge']);
+
+  r = run('auto', { msedge: missing('msedge') }, { auto: fresh });
+  assert.equal((await r.promise).launchedWith, 'chrome');
+  assert.deepEqual(r.rec.calls, ['msedge', 'chrome']);
+});
+
+test('auto remembers the browser that worked: it goes first next time, so the profile never changes browser by itself', async () => {
+  for (const recorded of ['chrome', 'msedge', 'chromium']) {
+    const r = run('auto', {}, { auto: { recorded, legacy: false } });
+    const got = (await r.promise).launchedWith;
+    assert.equal(got, recorded == 'chromium' ? 'bundled' : recorded);
+    assert.equal(r.rec.calls.length, 1);
+  }
+  const r = run('auto', {}, { auto: legacyState });
+  await r.promise;
+  assert.deepEqual(r.recorded, ['chrome'], 'an old profile gets its browser written down on the first successful run');
+});
+
+test('auto never downloads a browser: a missing bundled Chromium is an error that names the explicit choice', async () => {
+  const r = run('auto', { msedge: missing('msedge'), chrome: missing('chrome'), bundled: noBinary() }, { auto: { recorded: null, legacy: false } });
+  await assert.rejects(r.promise, error => error instanceof choice.BrowserUnavailableError && /Проверить готовность/.test(error.message));
+  assert.equal(r.installs(), 0);
+  const r2 = run('auto', { bundled: noBinary(), msedge: missing('msedge'), chrome: missing('chrome') }, { auto: { recorded: 'chromium', legacy: false } });
+  await assert.rejects(r2.promise, choice.BrowserUnavailableError);
+  assert.equal(r2.installs(), 0, 'a recorded Chromium that vanished is not downloaded again behind the back of the user');
+});
+
+test('autoOrder: recorded first, else the old order for an existing profile, else Edge first; Edge only on Windows', () => {
+  assert.deepEqual(choice.autoOrder({ recorded: null, legacy: false }, 'win32'), ['msedge', 'chrome', 'chromium']);
+  assert.deepEqual(choice.autoOrder({ recorded: null, legacy: true }, 'win32'), ['chrome', 'msedge', 'chromium']);
+  assert.deepEqual(choice.autoOrder({ recorded: 'chromium', legacy: true }, 'win32'), ['chromium', 'chrome', 'msedge']);
+  assert.deepEqual(choice.autoOrder({ recorded: null, legacy: false }, 'linux'), ['chrome', 'chromium']);
+});
+
+test('readAutoState: no profile is fresh, a profile with Local State is old, the marker wins and an unknown marker is ignored', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'auto_state_'));
+  try {
+    const profile = path.join(dir, 'p');
+    assert.deepEqual(choice.readAutoState(profile), { recorded: null, legacy: false });
+    mkdirSync(profile);
+    assert.deepEqual(choice.readAutoState(profile), { recorded: null, legacy: false }, 'an empty folder is still fresh');
+    writeFileSync(path.join(profile, 'Local State'), '{}');
+    assert.deepEqual(choice.readAutoState(profile), { recorded: null, legacy: true });
+    writeFileSync(path.join(profile, choice.AUTO_MARKER), 'msedge\n');
+    assert.deepEqual(choice.readAutoState(profile), { recorded: 'msedge', legacy: true });
+    writeFileSync(path.join(profile, choice.AUTO_MARKER), 'firefox');
+    assert.deepEqual(choice.readAutoState(profile), { recorded: null, legacy: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('chromium: launched without a channel, downloaded through the existing path when absent, never Chrome or Edge', async () => {
@@ -179,7 +234,7 @@ const profileOf = dir => path.basename(dir);
 const storeOptions = () => ({ channel: 'chrome', headless: true, args: [] });
 
 test('launchContext opens the profile of the selected browser and clears cookies in that same profile', async () => {
-  for (const [value, profile, channel] of [[undefined, 'browser', 'chrome'], ['auto', 'browser', 'chrome'], ['chrome', 'browser', 'chrome'],
+  for (const [value, profile, channel] of [[undefined, 'browser', 'msedge'], ['auto', 'browser', 'msedge'], ['chrome', 'browser', 'chrome'],
     ['msedge', 'browser-msedge', 'msedge'], ['chromium', 'browser-chromium', 'bundled']]) {
     await withEnv({ ...(value ? { FGC_BROWSER: value } : {}), FGC_SWITCH_ACCOUNT: 'steam' }, async () => {
       const { seen, importEngine } = stubEngine();
@@ -207,7 +262,7 @@ test('launchContext: BROWSER_DIR still wins for the profile, an invalid value ru
       const { seen, importEngine } = stubEngine();
       await launchContext(cfg, storeOptions(), { importEngine });
       assert.deepEqual(seen.dirs.map(profileOf), ['browser']);
-      assert.deepEqual(seen.channels, ['chrome']);
+      assert.deepEqual(seen.channels, ['msedge'], 'an invalid value is auto, and a fresh profile starts with Edge');
     } finally {
       console.warn = warn;
     }
