@@ -1,5 +1,6 @@
 import { Download } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { useConfirm } from '../ConfirmDialog';
 import { type SortKey, type SortState, type StatsPeriod, gamesCsv, nextSort, periodTotals, sortGames, weekBars } from './idleStats.mjs';
 import { hoursNumber } from './steamIdleText';
 import { resetIdleStats, useIdleStats } from './useIdleStats';
@@ -12,6 +13,7 @@ const dayLabel = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString
 
 /** Hours, games, cards and achievements the app counted, with weekly bars, a sortable per-game table, CSV and a reset. */
 export const StatsPanel: React.FC = () => {
+  const { ask, confirmDialog } = useConfirm();
   const [period, setPeriod] = useState<StatsPeriod>('7');
   const [sort, setSort] = useState<SortState>({ key: 'last', dir: 'desc' });
   const { stats, failed, loading, reload } = useIdleStats(period);
@@ -32,12 +34,13 @@ export const StatsPanel: React.FC = () => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   const reset = async () => {
-    if (!window.confirm(RESET_CONFIRM)) return;
+    if (!(await ask(RESET_CONFIRM, 'Сбросить статистику'))) return;
     if (await resetIdleStats()) reload();
   };
 
   return (
     <section className="titanium-island sidle-stats" aria-labelledby="sidle-stats-title">
+      {confirmDialog}
       <div className="sidle-preview-head">
         <h2 id="sidle-stats-title" className="sidle-title">Статистика</h2>
         <div className="sidle-seg" role="group" aria-label="Период">

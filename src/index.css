@@ -975,7 +975,7 @@
   .health-btn { position: relative; flex-shrink: 0; }
   .health-btn.health-amber { color: var(--led-amber); border-color: var(--led-amber); }
   .health-btn.health-rose { color: var(--led-rose); border-color: var(--led-rose); }
-  .health-badge { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--led-rose); color: var(--bg-island); font-size: var(--fs-xs); font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px var(--bg-island); }
+  .health-badge { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--led-rose); color: var(--bg-chassis-base); font-size: var(--fs-xs); font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px var(--bg-chassis-base); }
   .more-menu {
     position: absolute; top: calc(100% + 8px); right: 0; min-width: 250px; z-index: 60;
     display: none; flex-direction: column; gap: 2px; padding: 6px;
@@ -1613,7 +1613,7 @@
     transition: all 0.18s ease; position: relative; overflow: hidden;
   }
   .store-pod:hover {
-    border-color: var(--border-focus); transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+    border-color: var(--led-mint); transform: translateY(-1px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
   }
   .store-pod.selected {
     border-color: var(--led-mint);
@@ -1644,7 +1644,7 @@
     color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
     transition: all 0.15s ease;
   }
-  .claimed-tab-pill:hover { border-color: var(--border-focus); color: var(--text-primary); }
+  .claimed-tab-pill:hover { border-color: var(--led-mint); color: var(--text-primary); }
   .claimed-tab-pill.active {
     background: rgba(58, 210, 159, 0.12); border-color: var(--led-mint); color: var(--led-mint);
   }
@@ -1665,7 +1665,7 @@
     transition: all 0.15s ease; min-width: 0;
   }
   .claimed-compact-card:hover {
-    border-color: var(--border-focus); background: rgba(255, 255, 255, 0.03); transform: translateY(-1px);
+    border-color: var(--led-mint); background: rgba(255, 255, 255, 0.03); transform: translateY(-1px);
   }
   .claimed-store-badge-icon {
     width: 28px; height: 28px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center;
@@ -1893,7 +1893,7 @@
 
   .win-btn:hover {
     background: rgba(255, 255, 255, 0.12);
-    color: var(--text-heading);
+    color: var(--text-primary);
     border-color: var(--border-main);
     transform: translateY(-1px);
   }
@@ -1961,15 +1961,15 @@
 
   .scheduler-day-chip:hover {
     border-color: rgba(58, 210, 159, 0.4);
-    color: var(--text-heading);
+    color: var(--text-primary);
     background: rgba(35, 47, 43, 0.8);
     transform: translateY(-1px);
   }
 
   .scheduler-day-chip.active {
     background: rgba(58, 210, 159, 0.16);
-    border-color: var(--accent-mint, #3AD29F);
-    color: var(--accent-mint, #3AD29F);
+    border-color: var(--led-mint);
+    color: var(--led-mint);
     box-shadow: 0 0 8px rgba(58, 210, 159, 0.22);
   }
 

@@ -177,6 +177,13 @@ namespace TwitchDropsSentinel
                 return;
             }
 
+            if (RestartHandoff.ShouldWaitForMutex(isNewInstance, args) && _singleInstanceMutex != null)
+            {
+                // Started by the restart of the previous window, which still holds the mutex until its process is gone.
+                isNewInstance = RestartHandoff.TryAcquire(_singleInstanceMutex, RestartHandoff.MutexWaitMs);
+                if (!isNewInstance) LogCrash("RestartHandoff", new TimeoutException("the previous window still holds the single-instance mutex after " + RestartHandoff.MutexWaitMs + " ms"));
+            }
+
             if (!isNewInstance && !TryReplaceOlderCopy())
             {
                 // App already running! Wake existing instance from tray and exit immediately

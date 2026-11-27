@@ -30,9 +30,9 @@ export interface HardwareGuard {
   is_paused: boolean;
   schedule_paused?: boolean; // paused because now is outside the farm schedule
   schedule_next?: string | null; // local ISO time the schedule next starts or stops farming
-  ping_ms: number;
+  ping_ms: number | null; // null = not measured
   cpu_percent: number;
-  gpu_percent: number;
+  gpu_percent: number | null; // null = not measured
 }
 
 export interface SentinelStats {

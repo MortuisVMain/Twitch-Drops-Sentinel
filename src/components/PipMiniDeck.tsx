@@ -2,12 +2,13 @@ import { Ban, Gamepad2, Pin, Radio, RefreshCw, SkipForward } from 'lucide-react'
 import React from 'react';
 import { ActiveDrop } from '../types';
 import { isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
+import { useTickedDrop } from '../hooks/useTickedDrop';
 
 // The mini window (PiP) deck, split out of App.tsx without behavior change.
 export interface PipMiniDeckProps {
   activeDrop: ActiveDrop | null | undefined;
   activeGameBoxArt: string | null | undefined;
-  progressPct: number;
+  paused: boolean;
   watchingChannel: string | null | undefined;
   isTopMost: boolean;
   onHeaderMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
@@ -23,8 +24,10 @@ const hidePipCover = (img: HTMLImageElement) => {
 };
 
 export const PipMiniDeck: React.FC<PipMiniDeckProps> = ({
-  activeDrop, activeGameBoxArt, progressPct, watchingChannel, isTopMost, onHeaderMouseDown, onToggleTopMost, onSwitchStreamer, onBanStreamer,
+  activeDrop: rawDrop, activeGameBoxArt, paused, watchingChannel, isTopMost, onHeaderMouseDown, onToggleTopMost, onSwitchStreamer, onBanStreamer,
 }) => {
+  const activeDrop = useTickedDrop(rawDrop, paused);
+  const progressPct = activeDrop?.progress_percent || 0;
   const circumference = 201;
   const strokeDashoffset = circumference - (progressPct / 100) * circumference;
   return (

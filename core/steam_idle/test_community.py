@@ -23,6 +23,7 @@ class CommunityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.pidfile = Path(self.temp.name) / "pids.txt"
         self.addCleanup(force_kill, self.pidfile)
+        community.reset_failure_streaks()
 
     def fake(self, mode):
         return [sys.executable, "-S", "-X", "utf8", str(FAKE), mode, str(self.pidfile)]
@@ -194,6 +195,47 @@ class CommunityTests(unittest.TestCase):
         kill_in_flight()
 
 
+    def fail(self, mode="noisy", call=read_drops):
+        with self.assertRaises(CommunityError):
+            call(self.fake(mode))
+
+    def test_an_identical_repeat_is_logged_at_debug_only(self):
+        self.fail()
+        with self.assertLogs("steam_idle.community", level="DEBUG") as logged:
+            self.fail()
+            self.fail()
+        self.assertTrue(all(r.levelname == "DEBUG" for r in logged.records), logged.output)
+        self.assertTrue(any("failed:unparsed_row" in r.getMessage() and "3 times" in r.getMessage() for r in logged.records),
+                        logged.output)
+
+    def test_the_first_failure_keeps_the_full_stderr_tail(self):
+        with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+            self.fail()
+        self.assertTrue(any("diag line 30" in r.getMessage() for r in logged.records))
+
+    def test_a_success_logs_one_recovery_line_and_rearms_the_first_failure(self):
+        self.fail()
+        self.fail()
+        with self.assertLogs("steam_idle.community", level="INFO") as logged:
+            read_drops(self.fake("ok"))
+        self.assertEqual([(r.levelname, r.getMessage()) for r in logged.records],
+                         [("INFO", "community drops recovered after 2 failures")])
+        with self.assertLogs("steam_idle.community", level="WARNING") as again:
+            self.fail()
+        self.assertEqual([r.levelname for r in again.records], ["ERROR", "WARNING"])
+
+    def test_a_different_code_logs_loudly_again(self):
+        self.fail("noisy")
+        with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+            self.fail("signed_out")
+        self.assertIn("signed_out", " ".join(r.getMessage() for r in logged.records))
+
+    def test_each_verb_has_its_own_streak(self):
+        self.fail("noisy", read_drops)
+        with self.assertLogs("steam_idle.community", level="WARNING"):
+            self.fail("noisy", read_library)
+
+
 class AccountMatchTests(unittest.TestCase):
     ID = "76561198000000001"
 
@@ -242,6 +284,7 @@ class ReadGamesTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.pidfile = Path(self.temp.name) / "pids.txt"
         self.addCleanup(force_kill, self.pidfile)
+        community.reset_failure_streaks()
 
     def fake(self, mode):
         return [sys.executable, "-S", "-X", "utf8", str(FAKE), mode, str(self.pidfile)]

@@ -1,5 +1,6 @@
 import { HardDrive, Plus, Search, Star, X, Zap } from 'lucide-react';
 import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { GameItem } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
 import { useModalFocus } from '../hooks/useModalFocus';
@@ -48,9 +49,10 @@ export const CatalogFocusModal: React.FC<CatalogFocusModalProps> = ({
   }), [forceCandidates, catalogModalSearch, catalogModalTab, priorityList]);
 
   if (!isOpen) return null;
-  return (
+  // Out of .main-stage's stacking context so the header cannot paint over the dialog
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+      className="fixed inset-0 z-[150] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
       onClick={() => { playClick(); onClose(); }}
     >
       <div 
@@ -71,7 +73,7 @@ export const CatalogFocusModal: React.FC<CatalogFocusModalProps> = ({
             <span className="led-dot amber" />
             <div>
               <h3 id="catalog-title" className="text-sm font-bold tracking-[0.04em] text-[var(--text-primary)]">
-                <Zap className="ui-icon" aria-hidden="true" focusable="false" /> ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam • Каталог игр Twitch & Steam
+                <Zap className="ui-icon" aria-hidden="true" focusable="false" /> ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam
               </h3>
               <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
                 Все действующие кампании Twitch Drops ({activeTwitchDropsGames.length} игр в эфире)
@@ -180,7 +182,7 @@ export const CatalogFocusModal: React.FC<CatalogFocusModalProps> = ({
                     <img
                       src={boxArtUrl}
                       alt={g.name}
-                      className="w-9 h-12 object-cover rounded-md border border-white/10 shrink-0 bg-[var(--bg-chassis)]"
+                      className="w-9 h-12 object-cover rounded-md border border-white/10 shrink-0 bg-[var(--bg-chassis-base)]"
                       crossOrigin={isSteamArt(boxArtUrl) ? 'anonymous' : undefined}
                       onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, g.name)) img.style.display = 'none'; }}
                       onError={(e) => { const img = e.currentTarget; if (!retryCover(img, g.name)) img.style.display = 'none'; }}
@@ -253,6 +255,7 @@ export const CatalogFocusModal: React.FC<CatalogFocusModalProps> = ({
           </span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

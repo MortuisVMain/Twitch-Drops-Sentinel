@@ -197,3 +197,18 @@ class ActivityRoutesTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThreadProbeController(StubController):
+    def state(self):
+        import threading
+        return {"thread": threading.get_ident()}
+
+
+class StateOffLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_state_runs_in_a_worker_thread(self):
+        import threading
+        routes = SteamIdleRoutes(ThreadProbeController())
+        status, body = reply(await routes.state(FakeRequest()))
+        self.assertEqual(status, 200)
+        self.assertNotEqual(body["thread"], threading.get_ident())

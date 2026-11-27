@@ -995,7 +995,6 @@ export const App: React.FC = () => {
 
   const activeDrop = sentinelState.active_drop;
 
-  const progressPct = activeDrop?.progress_percent || 0;
 
   const activeGameBoxArt = useMemo(() => {
     if (!activeDrop?.game) return undefined;
@@ -1480,7 +1479,7 @@ export const App: React.FC = () => {
       <PipMiniDeck
         activeDrop={activeDrop}
         activeGameBoxArt={activeGameBoxArt}
-        progressPct={progressPct}
+        paused={sentinelState.hardware.is_paused}
         watchingChannel={sentinelState.watching_channel}
         isTopMost={isTopMost}
         onHeaderMouseDown={handleHeaderMouseDown}
@@ -1713,6 +1712,7 @@ export const App: React.FC = () => {
               updateCheckFailure={updateCheckFailure}
               updateProgress={updateProgress}
               appVersion={sentinelState.version || updateInfo?.local_version}
+              showToast={showToast}
             />
 
           )}

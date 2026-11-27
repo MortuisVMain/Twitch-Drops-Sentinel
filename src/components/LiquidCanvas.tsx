@@ -47,6 +47,8 @@ interface SilkOrb {
   c: string;
 }
 
+import { canDrawFrame, needsFrameLoop } from '../utils/backdropLoop.mjs';
+
 export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
   backdropType = '3d',
   reliefMode = 'hex-magma',
@@ -54,6 +56,9 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
   opacity = 0.85,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const opacityRef = useRef(opacity);
+  opacityRef.current = opacity;
+  const wakeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -459,9 +464,11 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       }
     };
 
+    let running = false;
     const render = (time: number) => {
-      if (!isVisible || document.hidden || opacity <= 0.01) {
-        animId = requestAnimationFrame(render);
+      // Idle frames are not rescheduled: wake() restarts the loop when the tab or the opacity comes back
+      if (!canDrawFrame(isVisible, document.hidden, opacityRef.current)) {
+        running = false;
         return;
       }
 
@@ -469,22 +476,18 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       const h = canvas.height;
 
       if (w <= 0 || h <= 0) {
-        animId = requestAnimationFrame(render);
+        running = false;
         return;
       }
 
       try {
-        if (backdropType === '3d') {
-          if (reliefMode === 'hex-magma') drawHexPrisms3D(time, w, h, false);
-          else if (reliefMode === 'hex-theme') drawHexPrisms3D(time, w, h, true);
-          else if (reliefMode === 'tectonic-lava') drawTectonicLava3D(time, w, h);
-          else if (reliefMode === 'topo-damascus') drawTopoDamascus3D(time, w, h);
-          else if (reliefMode === 'carbon-weave') drawCarbonWeave3D(time, w, h);
-          else if (reliefMode === 'pcb-3d') drawPcb3D(time, w, h);
-          else if (reliefMode === 'liquid-silk' || reliefMode === 'apple-luna') drawLiquidSilk2D(w, h);
-        } else {
-          ctx.clearRect(0, 0, w, h);
-        }
+        if (reliefMode === 'hex-magma') drawHexPrisms3D(time, w, h, false);
+        else if (reliefMode === 'hex-theme') drawHexPrisms3D(time, w, h, true);
+        else if (reliefMode === 'tectonic-lava') drawTectonicLava3D(time, w, h);
+        else if (reliefMode === 'topo-damascus') drawTopoDamascus3D(time, w, h);
+        else if (reliefMode === 'carbon-weave') drawCarbonWeave3D(time, w, h);
+        else if (reliefMode === 'pcb-3d') drawPcb3D(time, w, h);
+        else if (reliefMode === 'liquid-silk' || reliefMode === 'apple-luna') drawLiquidSilk2D(w, h);
       } catch (err) {
         console.error('LiquidCanvas draw frame error:', err);
       }
@@ -492,7 +495,14 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
       animId = requestAnimationFrame(render);
     };
 
-    animId = requestAnimationFrame(render);
+    const wake = () => {
+      if (running || !needsFrameLoop(backdropType, reliefMode)) return;
+      running = true;
+      animId = requestAnimationFrame(render);
+    };
+    wakeRef.current = wake;
+    if (needsFrameLoop(backdropType, reliefMode)) wake();
+    else ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     let pendingX = mouseX;
     let pendingY = mouseY;
@@ -522,16 +532,23 @@ export const LiquidCanvas: React.FC<LiquidCanvasProps> = ({
 
     const handleVisibilityChange = () => {
       isVisible = !document.hidden;
+      wake();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       cancelAnimationFrame(animId);
+      wakeRef.current = null;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', initGenerators);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [backdropType, reliefMode, themeId]);
+
+  // A fade back in (opacity above the idle threshold) restarts a loop that stopped while the canvas was invisible
+  useEffect(() => {
+    wakeRef.current?.();
+  }, [opacity]);
 
   return (
     <canvas

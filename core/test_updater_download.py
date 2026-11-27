@@ -131,3 +131,30 @@ class DownloadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BadArchiveTests(unittest.TestCase):
+    def test_a_corrupt_member_ends_in_the_error_stage_and_removes_the_staging_dir(self):
+        import io
+        import zipfile
+        from unittest import mock
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("core/new_module.py", "x = 1\n")
+        data = buf.getvalue()
+        url = "https://github.com/MortuisVMain/x/releases/download/v9/Patch.zip"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upd = updater.GitHubUpdater()
+            with mock.patch.object(updater, "PROJECT_DIR", root), \
+                    mock.patch.object(updater, "get_optional_github_token", lambda: ""), \
+                    mock.patch.object(updater, "download_file", lambda u, h, path, op, st: Path(path).write_bytes(data)), \
+                    mock.patch.object(zipfile.ZipFile, "testzip", lambda self: "core/new_module.py"):
+                ok, message = upd._install_update([url], {url: hashlib.sha256(data).hexdigest()})
+            self.assertFalse(ok)
+            self.assertIn("core/new_module.py", message)
+            self.assertEqual(upd._status["stage"], "error")
+            self.assertTrue(upd._status["error_message"])
+            self.assertFalse(upd._status["is_updating"])
+            self.assertFalse((root / "_staging").exists(), "the half-downloaded staging dir must not be left behind")

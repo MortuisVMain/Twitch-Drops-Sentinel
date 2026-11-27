@@ -220,4 +220,7 @@ export const APP: Record<string, string> = {
   'Дроп Twitch': 'Twitch drop',
   'Бесплатная игра': 'Free game',
   'Раздачи не загрузились: показаны только дропы Twitch.': 'Giveaways did not load: only Twitch drops are shown.',
+  'Подтверждение': 'Confirmation',
+  'Подтвердить': 'Confirm',
+  'Выполнить': 'Run',
 };

@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from .batch import BatchPhase, Outcome, pick, under_threshold
-from .community import CommunityError, GameDrops, farmable
+from .community import CommunityError, FailureStreaks, GameDrops, farmable
 from .estimate import estimate
 from .first_drop import START_HOURS_BELOW, drop_hours
 from .first_seen import FirstSeenStore
@@ -81,6 +81,7 @@ class CardFarm:
                  on_game_drops: Callable[[GameDrops, int], None] = lambda game, count: None):
         self._rules, self._read_drops, self._factory, self._clock = rules, read_drops, presence_factory, clock
         self._read_games = read_games  # None: every recheck reads every badge page
+        self._card_failures = FailureStreaks()  # a card-page failure that keeps repeating is logged once
         self._on_drops = on_drops  # called with the number of cards that dropped, whenever some were seen
         self._on_game_drops = on_game_drops  # (game, cards): a decrease confirmed by two reads that both listed the game
         self._on_first_drop = on_first_drop  # (game, playtime hours): a game held alone from ~0 h dropped its first card
@@ -479,8 +480,13 @@ class CardFarm:
         try:
             got = self._read_games(ids)
         except CommunityError as error:  # even signed_out: a full read confirms it before the farm stops
-            logger.warning("card pages read failed (%s); reading every badge page instead", error.code)
+            if self._card_failures.failed("card pages", error.code) == 1:
+                logger.warning("card pages read failed (%s); reading every badge page instead", error.code)
+            else:
+                logger.debug("card pages read failed again (%s); reading every badge page instead", error.code)
             return self._read()
+        if healed := self._card_failures.succeeded("card pages"):
+            logger.info("card pages read recovered after %d failures", healed)
         self._failures, self._last_error, self._last_read = 0, None, self._clock()
         self._stale = True
         return merge_games(self._last_drops, got, ids)

@@ -1,5 +1,6 @@
 import { ClipboardCopy, Folder, History, Hourglass, Lock, Moon, Package, Plus, Power, RefreshCw, Stethoscope, Target, Timer, Trash2, TriangleAlert, X, Zap } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
 import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, getTextScale, setTextScale } from '../utils/textScale';
@@ -30,6 +31,7 @@ interface SettingsStudioProps {
   updateCheckFailure?: string | null;
   updateProgress?: UpdateProgressStatus | null;
   appVersion?: string;
+  showToast?: (msg: string) => void;
 }
 
 export const SettingsStudio: React.FC<SettingsStudioProps> = ({
@@ -47,6 +49,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   updateCheckFailure,
   updateProgress,
   appVersion,
+  showToast,
 }) => {
   const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
@@ -190,10 +193,10 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     try {
       const res = await fetch(`http://127.0.0.1:28492${action.path}`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      alert(action.done);
+      showToast?.(action.done);
     } catch (err) {
       console.error(`SettingsStudio: ${action.path} failed`, err);
-      alert(action.failed);
+      showToast?.(action.failed);
     }
   };
 
@@ -1054,9 +1057,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         </div>
 
       {/* Diagnostic Report Modal (diagModal) */}
-      {showDiagModal && (
+      {showDiagModal && createPortal(
         <div 
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-in fade-in"
+          className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-in fade-in"
           onClick={() => setShowDiagModal(false)}
         >
           <div 
@@ -1106,7 +1109,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

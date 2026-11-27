@@ -165,7 +165,7 @@ async def hydrate_installed_games() -> dict[str, Any]:
             installed = []
 
     resolved_count = 0
-    connector = aiohttp.TCPConnector(ssl=False)
+    connector = aiohttp.TCPConnector()
     async with aiohttp.ClientSession(connector=connector) as session:
         for entry in installed:
             name = entry.get("name")
@@ -241,7 +241,7 @@ async def twitch_cover(session: aiohttp.ClientSession, title: str) -> str | None
 async def keep_covers_alive(games: list) -> int:
     """One pass of the cover keeper over the catalog with the real network."""
     from cover_keeper import COVER_KEEPER
-    connector = aiohttp.TCPConnector(ssl=False)
+    connector = aiohttp.TCPConnector()
     async with aiohttp.ClientSession(connector=connector) as session:
         async def head(url: str) -> bool:
             return await head_ok(session, url)
