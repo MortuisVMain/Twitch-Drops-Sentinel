@@ -229,7 +229,7 @@ export const buildReport = (
   const reportCtx: TextContext = { ...ctx, hideAccount: true, engineInstall: resp.engineInstall };
   const groups = groupItems(resp.items);
   const out = [
-    tr('Twitch Drops Sentinel: готовность раздач'),
+    tr('Hell Harvest: готовность раздач'),
     `${tr('Версия приложения')}: ${appVersion || '?'}`,
     ...(resp.checkedAt ? [`${tr('Проверено')}: ${ctx.formatDate(resp.checkedAt) || resp.checkedAt}`] : []),
     `${tr('Итог')}: ${tr(summaryText(countTodo(resp.items)))}`,

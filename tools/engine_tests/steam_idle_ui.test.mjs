@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { refundNote, releaseQuestion } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
+const { refundNote, releaseQuestion, etaText, thresholdHint, parseSuggestion, parseAutoPause } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'steamIdleLogic.mjs')).href);
 const { parseExcludeList } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'excludeParse.mjs')).href);
 
 const ok = (text, ids) => assert.deepEqual(parseExcludeList(text), { ids, bad: null }, JSON.stringify(text));
@@ -83,7 +83,7 @@ const bundleOf = async (entry) => {
   return import(pathToFileURL(outfile).href);
 };
 const { finishedNoteText } = await bundleOf('achievementsText.ts');
-const { refusalText } = await bundleOf('steamIdleText.ts');
+const { refusalText, farmStatsSegments } = await bundleOf('steamIdleText.ts');
 
 test('the anti-cheat notes and refusal have their own sentences', () => {
   assert.equal(finishedNoteText('protected_app'), 'Игра с античитом: достижения в ней не выдаются.');
@@ -171,5 +171,112 @@ test('an empty deny field is not an error, a bad one is', () => {
     'https://store.steampowered.com.evil.example/app/730', 'https://steamcommunity.com/app/730', 'ftp://store.steampowered.com/app/730',
     'https://store.steampowered.com/agecheck/app/730']) {
     assert.deepEqual(parseDenyTarget(text), { appId: null, bad: true }, text);
+  }
+});
+
+const { parseLogReply, mergeEntries, clockTime, copyReport, farmStateLine, LOG_CAP } = await import(pathToFileURL(path.join(ROOT, 'src', 'components', 'steamIdle', 'activityLog.mjs')).href);
+
+const entry = (seq, level = 'info', text = `line ${seq}`) => ({ seq, ts: '2026-11-22T10:15:30Z', level, text });
+
+test('a log reply must carry entries of the contract shape and a lastSeq', () => {
+  assert.deepEqual(parseLogReply({ entries: [entry(1)], lastSeq: 1 }), { entries: [entry(1)], lastSeq: 1 });
+  assert.deepEqual(parseLogReply({ entries: [], lastSeq: 0 }), { entries: [], lastSeq: 0 });
+  for (const bad of [null, [], {}, { entries: [] }, { entries: {}, lastSeq: 1 }, { entries: [], lastSeq: '1' },
+    { entries: [{ ...entry(1), level: 'debug' }], lastSeq: 1 }, { entries: [{ ...entry(1), text: 5 }], lastSeq: 1 },
+    { entries: [{ ...entry(1), seq: 'x' }], lastSeq: 1 }, { entries: [{ ...entry(1), ts: 1 }], lastSeq: 1 }]) {
+    assert.equal(parseLogReply(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('merging appends only newer entries and keeps the newest 500', () => {
+  assert.deepEqual(mergeEntries([entry(1), entry(2)], [entry(2), entry(3)]).map((e) => e.seq), [1, 2, 3]);
+  assert.deepEqual(mergeEntries([], [entry(5)]).map((e) => e.seq), [5]);
+  const many = mergeEntries([], Array.from({ length: LOG_CAP + 20 }, (_, i) => entry(i + 1)));
+  assert.equal(many.length, 500);
+  assert.deepEqual([many[0].seq, many[499].seq], [21, 520]);
+});
+
+test('the time column is HH:MM:SS in local time and survives a bad stamp', () => {
+  const ts = '2026-11-22T10:15:30Z';
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  assert.equal(clockTime(ts), `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`);
+  assert.equal(clockTime('nope'), '--:--:--');
+});
+
+test('the farm line names the state, phase, held game and last error', () => {
+  const farm = { state: 'farming', phase: 'cards', current: { appId: 620, name: 'Portal 2', dropsRemaining: 3, heldSeconds: 5 }, batch: [], lastError: null };
+  assert.equal(farmStateLine(farm, { state: 'idle' }), 'Farm: farming, phase cards, holding Portal 2 (620); achievements: idle');
+  assert.equal(farmStateLine({ state: 'batching', phase: 'hours', current: null, batch: [{}, {}, {}], lastError: 'no_hours' }, undefined),
+    'Farm: batching, phase hours, 3 games in the batch, last error no_hours');
+  assert.equal(farmStateLine({ state: 'idle', phase: null, current: null, batch: [], lastError: null }, undefined), 'Farm: idle');
+});
+
+test('the copy text is a header, the state line and one HH:MM:SS LEVEL line per entry', () => {
+  const now = new Date(2026, 10, 22, 13, 5, 9);
+  const text = copyReport({ appVersion: '3.9.2', now, state: 'Farm: idle', entries: [entry(1, 'info', 'a'), entry(2, 'warning', 'b'), entry(3, 'error', 'c')] });
+  const lines = text.split('\n');
+  assert.match(lines[0], /^Hell Harvest v3\.9\.2 — Steam IDLE log — 2026-11-22 13:05:09$/);
+  assert.equal(lines[1], 'Farm: idle');
+  assert.match(lines[2], /^\d\d:\d\d:\d\d INFO a$/);
+  assert.match(lines[3], /^\d\d:\d\d:\d\d WARNING b$/);
+  assert.match(lines[4], /^\d\d:\d\d:\d\d ERROR c$/);
+  assert.equal(copyReport({ appVersion: undefined, now, state: 'Farm: idle', entries: [] }).split('\n')[0], 'Hell Harvest — Steam IDLE log — 2026-11-22 13:05:09');
+});
+
+test('etaText: minutes, hours with minutes, and days with hours beyond 48 h', () => {
+  assert.equal(etaText(0.5), '30 мин');
+  assert.equal(etaText(2), '2 ч');
+  assert.equal(etaText(5.5), '5 ч 30 мин');
+  assert.equal(etaText(0.01), '1 мин');
+  assert.equal(etaText(48), '48 ч');
+  assert.equal(etaText(52.4), '2 дн 4 ч');
+  assert.equal(etaText(72), '3 дн');
+  assert.equal(etaText(71.7), '3 дн', 'the hours round up into a whole day');
+  for (const bad of [Number.NaN, -1, Infinity, undefined, null]) assert.equal(etaText(bad), '', String(bad));
+});
+
+test('the farm stats line: cards left, time, today and this run, with Russian plurals', () => {
+  assert.deepEqual(farmStatsSegments({ estimate: { dropsRemaining: 23, hours: 5.5 }, droppedToday: 12, droppedThisRun: 3 }),
+    ['Осталось ~23 карточки', '≈ 5 ч 30 мин', 'сегодня выпало 12 (за запуск 3)']);
+  for (const [n, word] of [[1, 'карточка'], [2, 'карточки'], [5, 'карточек'], [11, 'карточек'], [21, 'карточка'], [24, 'карточки']]) {
+    assert.equal(farmStatsSegments({ estimate: { dropsRemaining: n, hours: 1 } })[0], `Осталось ~${n} ${word}`, String(n));
+  }
+  assert.deepEqual(farmStatsSegments({ estimate: { dropsRemaining: 100, hours: 60 }, droppedToday: 0, droppedThisRun: 0 }),
+    ['Осталось ~100 карточек', '≈ 2 дн 12 ч', 'сегодня выпало 0 (за запуск 0)']);
+});
+
+test('the farm stats line drops what is unknown: older payloads, nothing left, no time', () => {
+  assert.deepEqual(farmStatsSegments({}), []);
+  assert.deepEqual(farmStatsSegments({ estimate: { dropsRemaining: 0, hours: 0 }, droppedToday: 4 }), ['сегодня выпало 4']);
+  assert.deepEqual(farmStatsSegments({ estimate: { dropsRemaining: 3, hours: 0 } }), ['Осталось ~3 карточки']);
+  assert.deepEqual(farmStatsSegments({ droppedToday: 2, droppedThisRun: 1 }), ['сегодня выпало 2 (за запуск 1)']);
+  assert.deepEqual(farmStatsSegments({ droppedThisRun: 1 }), ['за запуск выпало 1']);
+});
+
+test('the threshold hint says "no restriction, set 0" or names the hours to set, with a decimal comma', () => {
+  assert.equal(thresholdHint({ kind: 'unrestricted', suggestedHours: 0, samples: 3 }),
+    'Похоже, аккаунт без ограничений: первая карточка падает примерно через 30 минут. Поставить 0 — фаза набора часов не нужна.');
+  assert.equal(thresholdHint({ kind: 'restricted', suggestedHours: 1.5, samples: 4 }), 'Первая карточка падает примерно через 1,5 ч — поставить 1,5?');
+  assert.equal(thresholdHint({ kind: 'restricted', suggestedHours: 3, samples: 3 }), 'Первая карточка падает примерно через 3 ч — поставить 3?');
+  assert.equal(thresholdHint(null), null);
+  assert.equal(thresholdHint(undefined), null);
+});
+
+test('a suggestion from the service is used only when it has the contract shape', () => {
+  assert.deepEqual(parseSuggestion({ kind: 'restricted', suggestedHours: 2.5, samples: 5 }), { kind: 'restricted', suggestedHours: 2.5, samples: 5 });
+  assert.deepEqual(parseSuggestion({ kind: 'unrestricted', suggestedHours: 0, samples: 3 }), { kind: 'unrestricted', suggestedHours: 0, samples: 3 });
+  for (const bad of [null, undefined, 5, 'x', [], {}, { kind: 'weird', suggestedHours: 1, samples: 3 }, { kind: 'restricted', suggestedHours: 11, samples: 3 },
+    { kind: 'restricted', suggestedHours: -1, samples: 3 }, { kind: 'restricted', suggestedHours: 1.25, samples: 3 }, { kind: 'restricted', suggestedHours: '2', samples: 3 },
+    { kind: 'restricted', suggestedHours: 1, samples: 'x' }, { kind: 'unrestricted', suggestedHours: 1, samples: 3 }, { kind: 'restricted', suggestedHours: 0, samples: 3 }]) {
+    assert.equal(parseSuggestion(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('an auto-pause from the service is used only for the user_playing reason with numbers', () => {
+  assert.deepEqual(parseAutoPause({ reason: 'user_playing', appId: 730, since: 12.5 }), { reason: 'user_playing', appId: 730, since: 12.5 });
+  for (const bad of [null, undefined, 3, {}, { reason: 'other', appId: 1, since: 1 }, { reason: 'user_playing', appId: 'x', since: 1 },
+    { reason: 'user_playing', appId: 1, since: Number.NaN }, { reason: 'user_playing', appId: 1 }]) {
+    assert.equal(parseAutoPause(bad), null, JSON.stringify(bad));
   }
 });

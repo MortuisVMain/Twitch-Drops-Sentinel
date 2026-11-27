@@ -1,5 +1,5 @@
 /**
- * Sentinel Game Box Art Registry
+ * Hell Harvest Game Box Art Registry
  * High-resolution official Steam Library posters (600x900), Steam Headers (460x215),
  * and Twitch CDN box arts (285x380) for all priority games and catalog titles.
  * Audited against official Valve Steam Store & SteamDB APIs.

@@ -39,7 +39,7 @@ export const AchAllGames: React.FC<{ s: SteamIdleState; games: SteamIdleLibraryG
         {parsed.bad !== null && <span id="sidle-exclude-err" className="sidle-err">Не AppID: <b>{parsed.bad.length > 14 ? `${parsed.bad.slice(0, 14)}…` : parsed.bad}</b></span>}
       </div>
       {total !== null && ids !== null && <p className="sidle-meta"><span>будет обработано игр: <b className="tabular">{total}</b></span></p>}
-      {!loaded && <p className="sidle-text">Сначала загрузите список игр в блоке «Одна игра».</p>}
+      {!loaded && <p className="sidle-text">Сначала загрузите список игр в блоке «Игры с достижениями».</p>}
       <div className="sidle-actions">
         <button ref={opener} type="button" className="tactile-btn" aria-disabled={openOff} aria-expanded={open} onClick={() => { if (!openOff) setOpen(true); }}>
           Получить недостающие во всех играх

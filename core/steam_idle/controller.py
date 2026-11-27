@@ -5,6 +5,7 @@ None on success or a refusal code from the service contract; no account identifi
 """
 import asyncio
 import logging
+import math
 import random
 import shutil
 import sys
@@ -15,25 +16,40 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import achievements, community
+from .achievement_index import CACHE_FILE_NAME as ACH_INDEX_FILE_NAME, AchievementIndex
 from ._helper import command as build_command, kill_tree, spawn
+from .activity import attach as attach_activity_log
 from .achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from .achievements import AchievementsError
 from .achievements_run import ACHIEVEMENTS_ACK_KEY, AchievementsRun
-from .community import CommunityError
+from .batch import run_all
+from .community import CommunityError, GameDrops
+from .drops_daily import DailyDrops
 from .farm import CardFarm, FarmRules
+from .first_drop import MIN_SAMPLES, FirstDropSamples, verdict
 from .first_seen import FILE_NAME as FIRST_SEEN_FILE_NAME, FirstSeenStore
 from .node_locator import find_node
 from .interrupted import RECORD_FILE_NAME, InterruptedStore
+from .play_watch import PlayWatch
 from .presence import Presence
 from .protection import (BUILTIN, CACHE_FILE_NAME, MAX_USER_DENYLIST, USER_DENYLIST_KEY, ProtectionChecker, clean_user_denylist,
                          is_builtin)
+from .run_events import NOTIFY_KEY, RunEvents
+from .stats import STATS_FILE_NAME, StatsRecorder
 from .wake import Wake
 
 logger = logging.getLogger(__name__)
 
 RISK_ACK_KEY = "steam_idle_risk_ack"
+HOURS_KEY = "steam_idle_hours_until_drops"
+PAUSE_KEY = "steam_idle_pause_while_playing"
+DEFAULT_HOURS, MAX_HOURS = 3.0, 10.0  # ArchiSteamFarm's HoursUntilCardDrops default; the setting's upper bound
 _STEAM_ID_BASE = 76561197960265728
 _REGISTRY_KEY = r"Software\Valve\Steam\ActiveProcess"
+_STEAM_KEY = r"Software\Valve\Steam"
+_WATCH_SECONDS = 60.0  # how often a run looks for a game the user started themselves
+_FARM_PAUSABLE = frozenset({"scanning", "farming", "batching", "waiting"})
+_ABSENT = object()  # a setting the request did not mention
 _HELPER_CANDIDATES = (
     Path("steam_idle") / "SteamIdleProbe.exe",
     Path("tools") / "steam_idle_probe" / "bin" / "Release" / "net10.0-windows" / "SteamIdleProbe.exe",
@@ -48,6 +64,10 @@ _SESSION_BY_CODE = {"signed_out": "signed_out", "account_mismatch": "account_mis
 
 
 _PREVIEW_CAP = 200
+
+
+def _valid_hours(value: object) -> bool:
+    return type(value) in (int, float) and 0 <= value <= MAX_HOURS and math.isfinite(value)  # range first: 10**400 overflows isfinite
 
 
 def steam_id64(account_id: int) -> str:
@@ -95,10 +115,10 @@ def find_tools(app_root: Path, engine_root: Path, which: Callable[[str], str | N
     return Tools(None, helper, (node, str(script)))
 
 
-def _registry_value(name: str) -> int | None:
+def _registry_value(name: str, path: str = _REGISTRY_KEY) -> int | None:
     import winreg
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REGISTRY_KEY) as key:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
             return winreg.QueryValueEx(key, name)[0]
     except OSError as error:  # Steam never ran for this user: a normal state
         logger.debug("steam registry value %s not readable: %s", name, error)
@@ -118,6 +138,16 @@ def read_steam_client(read_value: Callable[[str], int | None] = _registry_value,
     return SteamClient(True, user if type(user) is int and user > 0 else 0)
 
 
+def read_running_app_id(read_value: Callable[[str, str], int | None] = _registry_value) -> int | None:
+    """The app id Steam reports as running (0: none; None: unreadable, which says nothing about a game). Whether this
+    also shows the games the app's own helper processes hold is unverified, which is why the caller subtracts the app's
+    held ids and debounces."""
+    value = read_value("RunningAppID", _STEAM_KEY)
+    if value is None:
+        return None
+    return value if type(value) is int and value > 0 else 0
+
+
 class HeldPresence:
     """The farm's presence interface (`start(app_id)`) bound to one helper and one account."""
 
@@ -134,9 +164,11 @@ class HeldPresence:
         return self._presence.is_running()
 
 
-async def run_login(prefix: Sequence[str]) -> int | None:
-    """Run `<node> steam-community.js login` (its browser window is the visible part) until it exits."""
-    proc = spawn(build_command(prefix, "login"))
+async def run_login(prefix: Sequence[str], expected_steam_id64: str | None = None) -> int | None:
+    """Run `<node> steam-community.js login [--expect=<id>]` (its browser window is the visible part) until it exits.
+
+    With an expected id the window signs out a session of another account instead of closing on it."""
+    proc = spawn(build_command(prefix, "login", *([f"--expect={expected_steam_id64}"] if expected_steam_id64 else [])))
     try:
         proc.stdin.close()
         return await asyncio.to_thread(proc.wait)
@@ -158,11 +190,26 @@ class SteamIdleController:
                  uniform: Callable[[float, float], float] = random.uniform, protection: ProtectionChecker | None = None,
                  data_dir: Path | None = None, wall_clock: Callable[[], float] = time.time,
                  first_seen: FirstSeenStore | None = None, engine_installed: Callable[[], bool] = lambda: True,
-                 module_enabled: Callable[[], bool] = lambda: True):
+                 module_enabled: Callable[[], bool] = lambda: True, achievement_index: AchievementIndex | None = None,
+                 read_games: Callable[..., list] | None = None, running_app: Callable[[], int] | None = None,
+                 notify: Callable[[str, str, str, str], object] = lambda *args: None):
+        self._index = achievement_index  # without one every game counts as unknown and nothing is asked
+        self._index_task = None
+        self._index_version = 0  # goes up when a lookup ends, so the page reads the list again even if it never saw it run
         self._get_setting, self._set_setting, self._module_enabled = get_setting, set_setting, module_enabled
         self._protection = protection or ProtectionChecker(None, _never)  # without one no request is ever made
         self._find_tools, self._client_state, self._engine_installed = find_tools, client_state, engine_installed
         self._read_drops_fn, self._read_library_fn, self._read_status_fn = read_drops, read_library, read_status
+        self._read_games_fn = read_games  # None: the farm's rechecks read every badge page
+        self._wall_clock = wall_clock
+        self._daily = DailyDrops(get_setting, set_setting, wall_clock)
+        self._stats = StatsRecorder(None if data_dir is None else data_dir / STATS_FILE_NAME, clock, wall_clock)
+        self._first_drops = FirstDropSamples(get_setting, set_setting)
+        self._events = RunEvents(notify, lambda: self._flag(NOTIFY_KEY), self._daily)
+        self._running_app = running_app  # None: no detector (not Windows, or the inert backend), nothing is watched
+        self._play = PlayWatch()
+        self._auto: dict | None = None  # the pause the watch made: {"farm": bool, "achv": bool, "since": clock time}
+        self._watch_task = None
         self._presence_factory, self._run_login, self._clock, self._sleep = presence_factory, run_login, clock, sleep
         self._kill_reads = kill_reads
         self._step_done = threading.Event()  # set while no farm step is running in the worker thread
@@ -170,8 +217,11 @@ class SteamIdleController:
         self._wake = Wake()
         self._first_seen = first_seen or FirstSeenStore(None, wall_clock)
         self._first_seen.bind_account(lambda: self._run_account)  # the farm's holds follow the account it runs for
+        self._rules_injected = rules is not None  # injected rules (tests) fix the hours phase; the setting is for the app
         self._farm = CardFarm(rules or FarmRules(), self._read_drops, self._new_presence, clock, self._hold_guard,
-                              on_command=self._wake.set, refund=self._first_seen)
+                              on_command=self._wake.set, refund=self._first_seen,
+                              read_games=self._read_games if read_games else None, on_drops=self._count_drops,
+                              on_first_drop=self._record_first_drop, on_game_drops=self._record_game_drops)
         self._achv = AchievementsRun(
             gate=self._read_gate, get_setting=get_setting, set_setting=set_setting,
             risk_acknowledged=lambda: bool(get_setting(RISK_ACK_KEY, False)),
@@ -182,10 +232,12 @@ class SteamIdleController:
             session_error=self._session_error,
             is_closed=lambda: self._closed, steam_id=steam_id64, clock=clock, uniform=uniform, sleep=sleep,
             protection=self._protection, user_denied=lambda app_id: app_id in self._user_denylist(), wall_clock=wall_clock,
-            store=InterruptedStore(None if data_dir is None else data_dir / RECORD_FILE_NAME))
+            store=InterruptedStore(None if data_dir is None else data_dir / RECORD_FILE_NAME),
+            on_unlocked=self._record_unlocks)
         self._library_task = None
         self._library: tuple[int, list, float] | None = None  # account id, owned games, read time
         self._library_error: str | None = None
+        self._library_lock = threading.Lock()
         self._session, self._checked_account, self._checked_at = "unknown", 0, None
         self._task = self._login_task = self._check_task = None
         self._suspend_sent = False
@@ -201,12 +253,22 @@ class SteamIdleController:
         self._preview_error: str | None = None
         self._deny_cache: tuple[str, list[int]] | None = None  # repr of the stored list, its cleaned form
 
+    def farm_state(self) -> str:
+        """The card farm's state alone ("idle", "farming", "needs_login"...), without probing Steam."""
+        return self._farm.status()["state"]
+
     # payload
     def state(self) -> dict:
         """`busy` is true while the farm or an achievements run is active: turning the module off would stop it."""
         tools = self._find_tools() if self._module_enabled() else Tools("module_disabled")  # off: nothing is probed
         client = self._client_state() if tools.unavailable is None else SteamClient(False, 0)
         farm = self._farm.status()
+        farm["hoursUntilDrops"] = self._hours_setting()
+        account = client.account_id or self._run_account
+        farm["droppedToday"] = self._daily.today(account)
+        farm["thresholdSuggestion"] = self._suggestion(account, farm["hoursUntilDrops"])
+        farm["pauseWhilePlaying"], farm["notify"] = self._flag(PAUSE_KEY), self._flag(NOTIFY_KEY)
+        farm["autoPause"] = self._auto_payload()
         if self._run_error and farm["state"] in ("stopped", "needs_login"):
             farm["lastError"] = self._run_error
         age = None if self._checked_at is None else self._clock() - self._checked_at
@@ -227,20 +289,33 @@ class SteamIdleController:
             "busy": self._running() or self._achv.active(),
         }
 
+    def _flag(self, key: str) -> bool:
+        """A boolean setting that is on unless stored as exactly False."""
+        value = self._get_setting(key, True)
+        return value if type(value) is bool else True
+
+    def _suggestion(self, account: int, hours: float) -> dict | None:
+        samples = self._first_drops.samples(account)
+        found = verdict(samples, hours)
+        return None if found is None else {**found, "samples": len(samples)}
+
     def _library_payload(self, account_id: int) -> dict:
         """The owned games cache. Dropped lazily when the account changed or the session signed out."""
-        library = self._library
-        if self._session in ("signed_out", "account_mismatch") or (library and account_id not in (0, library[0])):
-            self._library = library = self._library_error = None
+        with self._library_lock:  # state() runs in a worker thread; the lazy drop must not undo a store from the loop
+            library = self._library
+            if self._session in ("signed_out", "account_mismatch") or (library and account_id not in (0, library[0])):
+                self._library = library = self._library_error = None
         if self._library_scan_running():
             status = "scanning"
         else:
             status = "failed" if self._library_error else "ready" if library else "none"
         return {"count": len(library[1]) if library else None, "status": status,
-                "ageSeconds": None if library is None else self._clock() - library[2]}
+                "ageSeconds": None if library is None else self._clock() - library[2],
+                "achievementsChecking": self._index_running(), "achievementsVersion": self._index_version}
 
     def _store_library(self, account_id: int, games: list) -> None:
-        self._library, self._library_error = (account_id, games, self._clock()), None
+        with self._library_lock:
+            self._library, self._library_error = (account_id, games, self._clock()), None
 
     def _cached_games(self, account_id: int) -> list | None:
         library = self._library
@@ -296,8 +371,13 @@ class SteamIdleController:
             return refusal
         self._run_tools, self._run_account, self._expected = tools, client.account_id, steam_id64(client.account_id)
         self._run_error, self._library_fetched = None, False
+        self._events.begin_run(str(int(self._wall_clock())))
+        self._stats.restart_clock()  # the time since the last run (or a crash) is never credited
+        if not self._rules_injected:
+            self._farm.set_hours_until_drops(self._hours_setting())
         self._farm.start()
         self._task = asyncio.get_running_loop().create_task(self._run_loop())
+        self._ensure_watch()
         return None
 
     def _read_gate(self, achievements_ack: bool = False) -> tuple[str | None, Tools, SteamClient | None]:
@@ -343,6 +423,31 @@ class SteamIdleController:
             return "module_disabled"
         return self._achv.set_settings(min_minutes, max_minutes, skip_hidden)
 
+    def set_farm_settings(self, hours_until_drops: object = _ABSENT, *, pause_while_playing: object = _ABSENT,
+                          notify: object = _ABSENT) -> str | None:
+        """Any of: the playtime a game needs before its cards drop (applies from the next run; 0 turns the hours phase
+        off), whether the farm steps aside while the user plays, whether Steam IDLE notifications are sent. All values
+        are checked before any is stored."""
+        if not self._module_enabled():
+            return "module_disabled"
+        given = {key: value for key, value in ((HOURS_KEY, hours_until_drops), (PAUSE_KEY, pause_while_playing),
+                                               (NOTIFY_KEY, notify)) if value is not _ABSENT}
+        if not given or not all(_valid_hours(value) if key == HOURS_KEY else type(value) is bool
+                                for key, value in given.items()):
+            return "invalid_request"
+        for key, value in given.items():
+            self._set_setting(key, float(value) if key == HOURS_KEY else value)
+        if pause_while_playing is False:
+            self._release_auto("setting turned off")
+        return None
+
+    def _hours_setting(self) -> float:
+        value = self._get_setting(HOURS_KEY, DEFAULT_HOURS)
+        if _valid_hours(value):
+            return float(value)
+        logger.warning("stored %s is invalid (%r); using %s", HOURS_KEY, value, DEFAULT_HOURS)
+        return DEFAULT_HOURS
+
     def library_scan(self) -> str | None:
         """Read the owned games on demand; same gates as scan."""
         refusal, tools, client = self._read_gate()
@@ -356,9 +461,29 @@ class SteamIdleController:
         if self._library is None:
             return None
         user = set(self._user_denylist())
+        index = self._index
+        self._start_index_fill([g.app_id for g in self._library[1]])
         return [{"appId": g.app_id, "name": g.name, "playtimeMinutes": g.playtime_minutes,
-                 "protected": is_builtin(g.app_id) or g.app_id in user, "userDenied": g.app_id in user}
+                 "protected": is_builtin(g.app_id) or g.app_id in user, "userDenied": g.app_id in user,
+                 "hasAchievements": None if index is None else index.known(g.app_id),
+                 "achievements": None if index is None else index.progress(g.app_id)}
                 for g in self._library[1]]
+
+    def _index_running(self) -> bool:
+        return self._index_task is not None and not self._index_task.done()
+
+    def _start_index_fill(self, app_ids: list[int]) -> None:
+        """Ask the store, in the background, which listed games have achievements; the page reads the list again once
+        `achievementsChecking` turns false. Runs from a request handler, so a loop is running."""
+        if self._index is None or self._closed or self._index_running() or not self._index.missing(app_ids):
+            return
+        self._index_task = asyncio.get_running_loop().create_task(self._fill_index(app_ids))
+
+    async def _fill_index(self, app_ids: list[int]) -> None:
+        try:
+            await self._index.fill(app_ids)
+        finally:
+            self._index_version += 1
 
     # the user's own anti-cheat games, merged with the built-in table
     def _user_denylist(self) -> list[int]:
@@ -413,15 +538,25 @@ class SteamIdleController:
 
     async def achievements_of(self, app_id: int) -> list[dict] | str:
         """Live read of one game's achievements: a refusal code, or the list; AchievementsError when the read failed."""
-        return await self._achv.read(app_id)
+        result = await self._achv.read(app_id)
+        if self._index is not None and isinstance(result, list):
+            # the game's own list beats the store's category and gives the card its progress
+            self._index.record(app_id, sum(1 for a in result if a["achieved"]), len(result))
+        return result
 
     def start_achievements(self, plan: SelectedPlan | GamePlan | LibraryPlan) -> str | None:
-        return self._achv.start(plan)
+        refusal = self._achv.start(plan)
+        if refusal is None:
+            self._ensure_watch()
+        return refusal
 
     def resume_interrupted(self, library_confirmed: bool) -> str | None:
         if not self._module_enabled():
             return "module_disabled"
-        return self._achv.resume_interrupted(library_confirmed)
+        refusal = self._achv.resume_interrupted(library_confirmed)
+        if refusal is None:
+            self._ensure_watch()
+        return refusal
 
     def discard_interrupted(self) -> str | None:
         """Allowed while the module is off: it only forgets a record, so the user can clear a banner they cannot continue."""
@@ -429,12 +564,15 @@ class SteamIdleController:
         return None
 
     def stop_achievements(self) -> str | None:
+        self._take_over("achv")
         return self._forward_achv(self._achv.stop, allowed_off=True)
 
     def pause_achievements(self) -> str | None:
+        self._take_over("achv")
         return self._forward_achv(self._achv.pause)
 
     def resume_achievements(self) -> str | None:
+        self._take_over("achv")
         return self._forward_achv(self._achv.resume)
 
     def skip_achievements(self) -> str | None:
@@ -449,12 +587,15 @@ class SteamIdleController:
         return None
 
     def stop(self) -> str | None:
+        self._take_over("farm")
         return self._forward("stop", allowed_off=True)
 
     def pause(self) -> str | None:
+        self._take_over("farm")
         return self._forward("pause")
 
     def resume(self) -> str | None:
+        self._take_over("farm")
         return self._forward("resume")
 
     def skip(self) -> str | None:
@@ -534,7 +675,7 @@ class SteamIdleController:
 
     def _tasks(self) -> list:
         return [task for task in (self._task, self._login_task, self._check_task, self._scan_task, self._library_task,
-                                  self._achv.task) if task is not None]
+                                  self._index_task, self._achv.task) if task is not None]
 
     async def shutdown(self) -> None:
         """Close the farm and the achievements queue for good (nothing new is written), end the tasks and any read in
@@ -543,7 +684,7 @@ class SteamIdleController:
         self._closed = True
         self._farm.close()
         self._achv.close()
-        tasks = [task for task in self._tasks() if not task.done()]
+        tasks = [task for task in (*self._tasks(), self._watch_task) if task is not None and not task.done()]
         for task in tasks:
             task.cancel()
         if tasks:
@@ -552,6 +693,7 @@ class SteamIdleController:
             await asyncio.wait_for(asyncio.to_thread(self._wind_down), _RELEASE_SECONDS + _UNLOCK_WAIT_SECONDS + 1.0)
         except asyncio.TimeoutError:
             logger.error("releasing the held game timed out on shutdown")
+        await asyncio.to_thread(self._announce, self._close_stats)  # the time up to the release, then the file
 
     def _wind_down(self) -> None:
         """Thread: kill the in-flight reads, let a blocked step finish (the closed farm holds nothing), release all."""
@@ -609,23 +751,23 @@ class SteamIdleController:
         return presence
 
     def _release_presences(self) -> None:
-        for presence in list(self._live):
-            try:
-                if presence.is_running():
-                    presence.stop()
-            except Exception:  # shutdown must still release the rest
-                logger.error("releasing a held game failed", exc_info=True)
+        """Stop every held game at once: each stop can take seconds, and a full batch must fit the shutdown budget."""
+        run_all(list(self._live), self._release_one)
+
+    @staticmethod
+    def _release_one(presence: object) -> None:
+        try:
+            if presence.is_running():
+                presence.stop()
+        except Exception:  # shutdown must still release the rest
+            logger.error("releasing a held game failed", exc_info=True)
 
     def _read_drops(self) -> list:
         """The farm's drops reader: bound to the run's account; the library count is read once per run after it."""
         try:
             drops = self._read_drops_fn(self._run_tools.community, expected_steam_id64=self._expected)
         except CommunityError as error:
-            if error.code in _SESSION_BY_CODE:
-                self._session = _SESSION_BY_CODE[error.code]
-            if error.code == "account_mismatch":
-                self._run_error = error.code
-                raise CommunityError("signed_out") from error  # the farm ends in needs_login
+            self._on_run_read_error(error)
             raise
         self._checked_at = self._clock()
         self._store_preview(self._run_account, drops)
@@ -637,6 +779,160 @@ class SteamIdleController:
             except CommunityError as error:
                 logger.error("library read failed: %s", error.code)
         return drops
+
+    def _read_games(self, app_ids: list[int]) -> list:
+        """The farm's cheap reader: just these games' card pages, bound to the run's account like _read_drops. A failure
+        says nothing about the session yet: the farm falls back to a full read, which decides."""
+        games = self._read_games_fn(self._run_tools.community, app_ids, expected_steam_id64=self._expected)
+        self._checked_at = self._clock()
+        return games
+
+    def _on_run_read_error(self, error: CommunityError) -> None:
+        """Note what a failed read says about the session; an account mismatch reaches the farm as a sign-out."""
+        if error.code in _SESSION_BY_CODE:
+            self._session = _SESSION_BY_CODE[error.code]
+        if error.code == "account_mismatch":
+            self._run_error = error.code
+            raise CommunityError("signed_out") from error  # the farm ends in needs_login
+
+    def _count_drops(self, count: int) -> None:
+        self._daily.add(self._run_account, count)
+
+    def _record_game_drops(self, game: GameDrops, count: int) -> None:
+        """Step thread: cards of one game confirmed by two reads, for the statistics."""
+        self._announce(self._stats.add_cards, self._run_account, game.app_id, game.name, count)
+
+    def _record_unlocks(self, account: int, app_id: int, name: str, count: int) -> None:
+        self._announce(self._stats.add_achievements, account, app_id, name, count)
+
+    def _close_stats(self) -> None:
+        """Nothing is held any more: credit the time up to now, then write the file."""
+        self._stats.tick(self._run_account, {})
+        self._stats.flush(force=True)
+
+    def _tick_stats(self) -> None:
+        self._stats.tick(self._run_account, self._farm.held_games())
+
+    def stats_report(self, period: str) -> dict:
+        """The statistics of the active Steam account (the run's when Steam reports none) for "7", "30" or "all"."""
+        return self._stats.report(self._client_state().account_id or self._run_account, period)
+
+    def stats_reset(self) -> str | None:
+        if not self._module_enabled():
+            return "module_disabled"
+        self._stats.reset(self._client_state().account_id or self._run_account)
+        return None
+
+    def _record_first_drop(self, game: GameDrops, hours: float) -> None:
+        """Step thread: keep the playtime at the first card of a game farmed alone from zero hours (see first_drop.py)."""
+        try:
+            count = self._first_drops.add(self._run_account, hours)
+        except Exception:
+            logger.error("first-drop sample for %s could not be stored", game.name, exc_info=True)
+            return
+        if count:
+            logger.info("First drop in %s after %.1f h (sample %s)", game.name, hours,
+                        f"{count}/{MIN_SAMPLES}" if count <= MIN_SAMPLES else count)
+
+    # a game the user plays themselves: the farm steps aside (a pause of its own kind) and goes on when it is closed
+    def _ensure_watch(self) -> None:
+        """Start the once-a-minute look at Steam's RunningAppID for as long as a run is on; runs from a command handler."""
+        if self._running_app is None or self._closed or (self._watch_task is not None and not self._watch_task.done()):
+            return
+        self._watch_task = asyncio.get_running_loop().create_task(self._watch_loop())
+
+    async def _watch_loop(self) -> None:
+        try:
+            while self._running() or self._achv.active():
+                await asyncio.sleep(_WATCH_SECONDS)
+                try:
+                    self.check_user_game()
+                except Exception:  # one bad look must not end the watch and leave the run paused for good
+                    logger.error("steam idle play watch check failed", exc_info=True)
+        finally:
+            if self._closed:  # shutdown: the runs are closed, nothing to resume
+                self._auto = None
+                self._play.reset()
+            else:  # what is still paused by us goes on; a stopped run just has nothing to resume
+                self._release_auto("watch ended")
+
+    def check_user_game(self) -> None:
+        """One look at the running game: pause for one the user started, resume once it has been closed for a while."""
+        if self._running_app is None:
+            return
+        if not self._flag(PAUSE_KEY):
+            self._release_auto("setting turned off")
+            return
+        if self._auto is not None and not self._still_ours():
+            self._auto = None  # stopped or ended some other way: not ours to resume
+            self._play.reset()
+        try:
+            running = self._running_app()
+            running = None if running is None else int(running)
+        except Exception:
+            logger.warning("the running game could not be read", exc_info=True)
+            return
+        if running is None:  # unreadable is not "no game": it must not count as a close
+            return
+        action = self._play.observe(running, self._held_ids(), self._clock())
+        if action is None:
+            return
+        if action[0] == "pause":
+            self._pause_for_user(action[1])
+        else:
+            self._release_auto("game closed")
+
+    def _held_ids(self) -> frozenset[int]:
+        current = self._achv.payload()["run"].get("current")
+        return self._farm.held_ids() | (frozenset({current["appId"]}) if current else frozenset())
+
+    def _pause_for_user(self, app_id: int) -> None:
+        farm_on = self._running() and self._farm.status()["state"] in _FARM_PAUSABLE
+        achv_on = self._achv.active() and self._achv.payload()["run"]["state"] != "paused"
+        if not (farm_on or achv_on):
+            self._play.reset()  # nothing running, or already paused by hand: no pause of ours
+            return
+        if farm_on:
+            self._farm.pause()
+        if achv_on:
+            self._achv.pause()
+        self._auto = {"farm": farm_on, "achv": achv_on, "since": self._clock()}
+        name = self._game_name(app_id)
+        logger.info("Paused: you are playing %s", f"{name} ({app_id})" if name else f"app {app_id}")
+
+    def _still_ours(self) -> bool:
+        """The pause the watch made is still in force (the farm or the achievements run still shows paused)."""
+        auto = self._auto
+        return auto is not None and ((auto["farm"] and self._farm.status()["state"] == "paused")
+                                     or (auto["achv"] and self._achv.payload()["run"]["state"] == "paused"))
+
+    def _release_auto(self, why: str) -> None:
+        """Resume what the watch paused, and only that; a pause made by hand is never touched."""
+        auto, self._auto = self._auto, None
+        self._play.reset()
+        if auto is None:
+            return
+        if auto["farm"] and self._farm.status()["state"] == "paused":
+            self._farm.resume()
+        if auto["achv"] and self._achv.payload()["run"]["state"] == "paused":
+            self._achv.resume()
+        logger.info("Resumed: %s", why)
+
+    def _take_over(self, side: str) -> None:
+        """A command from the user on `side` ("farm" or "achv"): that half of the pause becomes theirs. The other half
+        stays the watch's to resume; once none is left the game that caused it is ignored until it closes."""
+        if self._auto is None or not self._auto[side]:
+            return
+        self._auto = {**self._auto, side: False}
+        if not (self._auto["farm"] or self._auto["achv"]):
+            self._auto = None
+            self._play.dismiss()
+
+    def _auto_payload(self) -> dict | None:
+        auto, paused = self._auto, self._play.paused
+        if auto is None or paused is None or not self._still_ours():
+            return None
+        return {"reason": "user_playing", "appId": paused[0], "since": max(self._clock() - auto["since"], 0.0)}
 
     def _hold_guard(self) -> str | None:
         """Runs in the step thread right before a game is held: the client must still be on the run's account."""
@@ -660,13 +956,24 @@ class SteamIdleController:
                     self._run_error = "account_changed"
                     self._farm.stop()
                 self._wake.clear()  # a command from here on ends the sleep below at once
+                self._announce(self._events.daily_summary, self._run_account)
                 delay = await asyncio.to_thread(self._step)
+                await asyncio.to_thread(self._announce, self._tick_stats)  # a due file write stays off the event loop
+                self._announce(self._events.observe, self._farm.status(), self._run_error, self._run_account)
                 if self._farm.status()["state"] in _ENDED and delay > 0 and not self._farm.pending():
                     return
                 await self._wake.sleep(self._sleep, min(delay, _TICK_SECONDS))
         except Exception:
             logger.error("steam idle farm loop crashed", exc_info=True)
             await self._abort_run()
+
+    @staticmethod
+    def _announce(notice: Callable[..., None], *args: object) -> None:
+        """A notification problem must never stop the farm."""
+        try:
+            notice(*args)
+        except Exception:
+            logger.error("steam idle notification check failed", exc_info=True)
 
     async def _abort_run(self) -> None:
         """After a crash: release every live presence directly and report the farm stopped; never raises."""
@@ -676,6 +983,8 @@ class SteamIdleController:
             self._farm.abort("internal_error")
         except Exception:
             logger.error("steam idle crash cleanup failed", exc_info=True)
+        # After the farm stopped holding games, so a late tick cannot credit them again
+        await asyncio.to_thread(self._announce, self._close_stats)
 
     async def _do_library_scan(self, tools: Tools, account_id: int) -> None:
         """One owned-games read in a worker thread; a failure keeps the previous list and records the error."""
@@ -697,8 +1006,9 @@ class SteamIdleController:
             self._store_library(account_id, games)
 
     async def _do_login(self, tools: Tools) -> None:
+        before = self._client_state()  # the account the web session has to match; none when the client is signed out
         try:
-            await self._run_login(tools.community)
+            await self._run_login(tools.community, steam_id64(before.account_id) if before.signed_in else None)
         except OSError:
             logger.error("sign-in window could not be started", exc_info=True)
             self._session = "error"
@@ -764,8 +1074,10 @@ def _active_account() -> int:
 
 def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[..., object],
                       set_setting: Callable[[str, object], None], inert: bool = False,
-                      module_enabled: Callable[[], bool] = lambda: True) -> SteamIdleController:
+                      module_enabled: Callable[[], bool] = lambda: True,
+                      notify: Callable[[str, str, str, str], object] = lambda *args: None) -> SteamIdleController:
     """Real dependencies, or an inert backend (test mode) that reports unsupported and never touches the system."""
+    attach_activity_log()  # the console reads what the module logs; attached once, whatever the number of controllers
     if inert:
         return SteamIdleController(
             module_enabled=module_enabled,
@@ -776,8 +1088,10 @@ def create_controller(app_root: Path, engine_root: Path, get_setting: Callable[.
     return SteamIdleController(
         module_enabled=module_enabled, engine_installed=lambda: engine_installed(engine_root),
         protection=ProtectionChecker(app_root / CACHE_FILE_NAME), data_dir=app_root,
+        achievement_index=AchievementIndex(app_root / ACH_INDEX_FILE_NAME),
         first_seen=FirstSeenStore(app_root / FIRST_SEEN_FILE_NAME, time.time, claimant=_active_account()),
         get_setting=get_setting, set_setting=set_setting, find_tools=lambda: find_tools(app_root, engine_root, fallback=find_node),
         client_state=read_steam_client, read_drops=community.read_drops, read_library=community.read_library,
+        read_games=community.read_games,
         read_status=community.read_status, presence_factory=HeldPresence, run_login=run_login, clock=time.monotonic,
-        kill_reads=_kill_reads, read_achievements=achievements.read_achievements, unlock=achievements.unlock_achievements)
+        notify=notify, running_app=read_running_app_id if sys.platform == "win32" else None, kill_reads=_kill_reads, read_achievements=achievements.read_achievements, unlock=achievements.unlock_achievements)

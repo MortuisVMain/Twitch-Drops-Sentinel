@@ -135,7 +135,7 @@ PING_TIMEOUT = timedelta(seconds=10)
 ONLINE_DELAY = timedelta(seconds=120)
 WATCH_INTERVAL = timedelta(seconds=20)
 # Strings
-WINDOW_TITLE = f"Twitch Drops Sentinel v{__version__} [Mortuis_V_Studio]"
+WINDOW_TITLE = f"Hell Harvest v{__version__} [Mortuis_V_Studio]"
 # Logging
 LOGGING_LEVELS = {
     0: logging.ERROR,

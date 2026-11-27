@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel v3.0 — Comprehensive Verification Suite
+Hell Harvest v3.0 — Comprehensive Verification Suite
 Mortuis_V_Studio
 
 Validates:
@@ -37,8 +37,13 @@ WORKSPACE = Path(__file__).resolve().parent
 # On a CI runner there is no exe, no cookies, no journal and no live Twitch: gates that need them print an
 # explicit SKIP instead of failing (set CI=1 locally to rehearse it).
 IN_CI = os.environ.get("CI", "").lower() in ("1", "true", "yes")
+# The user's own files (exe, journal, cookies, giveaways database) live only in their working folder. A git
+# worktree or fresh clone on the dev PC has none of them either, so the same explicit SKIPs apply there too.
+NO_USER_DATA = IN_CI or not (WORKSPACE / "Trophies.md").exists()
 # test_giveaways_hub_integration reads the claimed-games inventory of the user's own giveaways database
 CI_LIVE_ONLY: set = {"test_giveaways_hub_integration"}
+# Gates that need the internet (live Twitch search). SUITE_OFFLINE=1 skips them loudly, for a run without network.
+NETWORK_GATES: set = {"test_search_games_and_box_art_cache"}
 
 # The suite never touches the user's live data, config, cookies or the live service on port 28492.
 # It copies the code and a read-only snapshot of the data into a temp project root and runs its own
@@ -83,14 +88,14 @@ def _build_sandbox():
     for name in ("config.json", "config.default.json", "Trophies.md"):
         if (WORKSPACE / name).exists():
             shutil.copy2(WORKSPACE / name, root / name)
-    if IN_CI:
+    if NO_USER_DATA:
         # a fresh checkout has neither the user's config nor the trophy journal: start from the defaults
         if not (root / "config.json").exists() and (root / "config.default.json").exists():
             shutil.copy2(root / "config.default.json", root / "config.json")
         if not (root / "Trophies.md").exists():
             (root / "Trophies.md").write_text("# \U0001f3c6 \u0416\u0443\u0440\u043d\u0430\u043b \u0422\u0440\u043e\u0444\u0435\u0435\u0432\n\n| \u0414\u0430\u0442\u0430 | \u0418\u0433\u0440\u0430 | \u0414\u0440\u043e\u043f | \u041a\u0430\u043c\u043f\u0430\u043d\u0438\u044f | \u0421\u0442\u0430\u0442\u0443\u0441 |\n|---|---|---|---|---|\n", encoding="utf-8")
     if (WORKSPACE / "data").exists():
-        shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups"))
+        shutil.copytree(WORKSPACE / "data", root / "data", ignore=shutil.ignore_patterns("browser", "*cookie*", "backups", "webhooks.json", "signin_state.json", "rollback"))
     engine_src = WORKSPACE / "giveaways_engine"
     if engine_src.exists():
         shutil.copytree(engine_src, root / "giveaways_engine", ignore=shutil.ignore_patterns("node_modules", "browser", "screenshots", "*.log"))
@@ -98,6 +103,23 @@ def _build_sandbox():
 
 
 SANDBOX = _build_sandbox()
+
+# Big files split into modules (without behavior change): a source check on the original file also sees the modules split
+# out of it, so a check keeps working wherever the code it looks for now lives. Paths are relative to the original file.
+SPLIT_MODULES: dict = {
+    "sentinel_service.py": ["service_system.py", "service_games.py"],
+    "App.tsx": ["components/CommandPalette.tsx", "components/PipMiniDeck.tsx"],
+    "LiveDashboard.tsx": ["CatalogFocusModal.tsx"],
+}
+
+
+def src_text(path: Path) -> str:
+    """The source of `path` plus the modules split out of it (SPLIT_MODULES)."""
+    path = Path(path)
+    parts = [path.read_text(encoding="utf-8")]
+    for extra in SPLIT_MODULES.get(path.name, []):
+        parts.append((path.parent / extra).read_text(encoding="utf-8"))
+    return "\n".join(parts)
 TEST_PORT = _free_port()
 BASE_URL = f"http://127.0.0.1:{TEST_PORT}"
 _LIVE_HASHES = {path: _sha256(path) for path in LIVE_PROTECTED}
@@ -122,8 +144,8 @@ def test_artifacts():
     app_ico = WORKSPACE / "assets" / "app.ico"
     cookies_jar = WORKSPACE / "core" / "cookies.jar"  # existence check only
 
-    if IN_CI and not exe_path.exists():
-        print("      SKIP: TwitchDropsSentinel.exe is built later in the pipeline, not present on the runner")
+    if NO_USER_DATA and not exe_path.exists():
+        print("      SKIP: TwitchDropsSentinel.exe is built later in the pipeline, not present in a fresh checkout")
     else:
         assert exe_path.exists(), f"EXE missing: {exe_path}"
         exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
@@ -136,7 +158,7 @@ def test_artifacts():
     assert html_kb > 200, "dist/index.html appears incomplete!"
 
     assert app_ico.exists(), "app.ico missing!"
-    if IN_CI and not cookies_jar.exists():
+    if NO_USER_DATA and not cookies_jar.exists():
         print("      SKIP: cookies.jar is a private user file and never lives in the repository")
     else:
         assert cookies_jar.exists(), "cookies.jar missing!"
@@ -266,8 +288,8 @@ def test_core_service_api():
     with safe_urlopen(v_req, timeout=10.0) as res:
         assert res.status == 200
         v_res = json.loads(res.read().decode("utf-8"))
-        if IN_CI and v_res.get("verified") is not True:
-            print("      SKIP: /api/verify-game needs the live Twitch catalog, which a CI runner does not have")
+        if NO_USER_DATA and v_res.get("verified") is not True:
+            print("      SKIP: /api/verify-game needs the live Twitch catalog, which a fresh checkout does not have")
         else:
             assert v_res.get("verified") is True
             assert "Desert" in v_res.get("canonical_name", "")
@@ -279,7 +301,7 @@ def test_core_service_api():
         assert res.status == 200
         c_res = json.loads(res.read().decode("utf-8"))
         assert isinstance(c_res, list)
-        if IN_CI and len(c_res) <= 50:
+        if NO_USER_DATA and len(c_res) <= 50:
             print("      SKIP: a catalog of more than 50 games needs the user's installed games and live Twitch data")
         else:
             assert len(c_res) > 50
@@ -319,16 +341,16 @@ def test_prd_compliance():
     prd_path = WORKSPACE / "docs" / "internal" / "PRD_SENTINEL_V3.md"
     assert prd_path.exists(), "PRD_SENTINEL_V3.md missing!"
     content = prd_path.read_text(encoding="utf-8")
-    assert "Twitch Drops Sentinel" in content
+    assert "Twitch Drops Sentinel" in content  # the PRD is a historical document and keeps the old name
     assert "Mortuis_V" in content
     assert "E:\\Games Cracked" not in content, "Public PRD must not contain cracked tags!"
-    print("      Project: Twitch Drops Sentinel v3.1")
+    print("      Project: Hell Harvest v3.1")
     print("      Author: Mortuis_V / Mortuis_V_Studio")
     print("      PRD Structure: PASS [OK]")
 
 def test_branding_check():
     print("[7/10] Testing Brand Identity...")
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
     
     assert "Mortuis_V" in app_tsx
@@ -691,7 +713,7 @@ def test_universal_game_scanner():
 def test_route_aliases_and_directory_management():
     print("[21/22] Testing Route Aliases & Directory Management Endpoints...")
     # Verify that sentinel_service.py has all requested route aliases
-    service_code = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_code = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "/api/scan-games" in service_code, "Route alias /api/scan-games must be registered"
     assert "/api/open-trophies-file" in service_code, "Route alias /api/open-trophies-file must be registered"
     assert "/api/sync" in service_code, "Route /api/sync must be registered"
@@ -710,7 +732,7 @@ def test_audio_mute_and_release_safety():
     assert "sentinel_muted" in audio_hook, "sentinel_muted must be persisted in localStorage"
 
     # 2. Verify Topbar has mute button
-    app_code = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_code = src_text(WORKSPACE / "src" / "App.tsx")
     assert "Volume2" in app_code and "VolumeX" in app_code, "App.tsx must include Volume icons"
     assert "toggleMute" in app_code, "App.tsx must wire toggleMute"
 
@@ -749,7 +771,7 @@ def test_argon_public_hardening_and_resilience():
     assert "ShowInTaskbar = false" not in mainform_cs, "MainForm.cs must never mutate ShowInTaskbar to prevent RecreateHandle()"
 
     # 3. Sleep guard and endpoints in sentinel_service.py
-    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "set_sleep_guard" in service_py, "sentinel_service.py must include set_sleep_guard"
     assert "ES_SYSTEM_REQUIRED" in service_py, "set_sleep_guard must use ES_SYSTEM_REQUIRED"
     assert "/api/autostart" in service_py, "sentinel_service.py must register /api/autostart"
@@ -800,10 +822,10 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "3.8.0", f"Version mismatch: {__version__}"
-    assert parse_version("3.8.0") == (3, 8, 0)
+    assert __version__ == "4.3.0", f"Version mismatch: {__version__}"
+    assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
-    assert parse_version("v3.8.0") > parse_version("3.5.6")
+    assert parse_version("v3.9.0") > parse_version("3.5.6")
     assert not check_and_apply_pending_exe_update(), "Should return False when no .update file is pending"
 
     # 2. Verify protected blacklist in updater
@@ -812,7 +834,7 @@ def test_github_updater_and_zero_mock_telemetry():
     assert "config.json" in PROTECTED_PATHS
 
     # 3. Verify zero fake hardware telemetry in LiveDashboard.tsx
-    live_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    live_tsx = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     for fake_str in ["RTX 5070 Ti", "Cold (38°C)", "1.2 Watt", "Direct ISP", "14 ms Stealth"]:
         assert fake_str not in live_tsx, f"Found mock hardware telemetry in LiveDashboard.tsx: {fake_str}"
 
@@ -821,7 +843,7 @@ def test_github_updater_and_zero_mock_telemetry():
     assert "minmax(380px, 460px) 1fr" in css_content, "Bento grid must be 2 columns"
 
     # 5. Verify App.tsx has update modal and real telemetry
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "updateInfo" in app_tsx, "App.tsx must have updater state"
     assert "showUpdateModal" in app_tsx, "App.tsx must have update modal"
     assert "version-pro" not in app_tsx, "The header carries no version badge"
@@ -842,7 +864,7 @@ def test_hardware_guard_false_positive_and_installed_clear():
     print("[25/25] Testing Hardware Guard Anti-False-Positive & Installed Clear...")
     
     # 1. Verify sentinel_service.py contains SYSTEM_NON_GAME_EXES and no blind auto-injection
-    svc_code = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    svc_code = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "SYSTEM_NON_GAME_EXES" in svc_code
     assert "happ.exe" in svc_code
     assert "mscopilot.exe" in svc_code
@@ -853,11 +875,11 @@ def test_hardware_guard_false_positive_and_installed_clear():
     assert "games_to_pause" not in svc_code.split("def games_folder_rescan_loop")[1].split("def ")[0]
 
     # 2. Verify App.tsx has no duplicate top alert banner
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "Hardware Guard: Обнаружена игра" not in app_tsx, "App.tsx must not contain duplicate gaming alert banner"
 
     # 3. Verify LiveDashboard.tsx has 1-click ignore button
-    live_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    live_tsx = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "handleIgnoreDetectedProcess" in live_tsx, "LiveDashboard must contain handleIgnoreDetectedProcess"
     assert "Это не игра (Игнорировать)" in live_tsx, "LiveDashboard must contain ignore button text"
 
@@ -912,7 +934,7 @@ def test_channel_points_clipboard_and_feature_toggles():
     assert "Clipboard.SetText" in main_cs, "MainForm.cs must copy to system clipboard"
 
     # 2. Verify core/sentinel_service.py has clipboard endpoint and feature flags
-    svc_code = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    svc_code = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "/api/clipboard/copy" in svc_code, "sentinel_service.py must register /api/clipboard/copy"
     assert "handle_clipboard_copy" in svc_code, "sentinel_service.py must implement handle_clipboard_copy"
     assert "claim_channel_points" in svc_code, "load_settings must support claim_channel_points"
@@ -921,7 +943,7 @@ def test_channel_points_clipboard_and_feature_toggles():
     assert "streamer_watchdog_enabled" in svc_code, "load_settings must support streamer_watchdog_enabled"
 
     # 3. Verify core/twitch.py has CommunityPoints topic, claim mutation & feature gates
-    twitch_code = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_code = src_text(SANDBOX / "core" / "twitch.py")
     assert "CommunityPoints" in twitch_code, "twitch.py must subscribe to CommunityPoints topic"
     assert "claim_channel_points_if_available" in twitch_code, "twitch.py must implement claim_channel_points_if_available"
     assert "ClaimCommunityPoints" in twitch_code, "twitch.py must define ClaimCommunityPoints mutation"
@@ -1136,7 +1158,7 @@ def test_game_scanner_deduplication_and_trophies_clear():
 
         assert trophies_file.exists(), "Trophies.md must exist after clearing"
         content = trophies_file.read_text(encoding="utf-8")
-        assert "# 🏆 Журнал Трофеев Twitch Drops Sentinel" in content
+        assert "# 🏆 Журнал Трофеев Hell Harvest" in content
         lines = [l for l in content.splitlines() if l.strip()]
         assert len(lines) <= 5, "Cleared Trophies.md must contain only the header table"
     finally:
@@ -1157,7 +1179,7 @@ def test_game_scanner_deduplication_and_trophies_clear():
 def test_sleep_guard_watchdog_and_account_protection():
     print("[29/29] Testing Sleep Guard, WebSocket Probe Watchdog, Log Rotation & Account Protection...")
     # 1. Sleep Guard in core/twitch.py
-    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = src_text(SANDBOX / "core" / "twitch.py")
     assert "SLEEP GUARD" in twitch_py, "twitch.py must contain SLEEP GUARD log"
     assert "raw_step_elapsed > 60.0" in twitch_py, "twitch.py must clamp sleep gap when raw_step_elapsed > 60s"
     assert "streamer_watch_start += sleep_gap" in twitch_py, "twitch.py must adjust streamer_watch_start by sleep_gap"
@@ -1176,7 +1198,7 @@ def test_sleep_guard_watchdog_and_account_protection():
     assert ".old" in mainform_cs, "MainForm.cs must archive old log with .old suffix"
 
     # 4. Logout / Account Switcher
-    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "/api/auth/logout" in service_py, "sentinel_service.py must register /api/auth/logout"
     assert "handle_logout" in service_py, "sentinel_service.py must implement handle_logout"
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
@@ -1191,7 +1213,7 @@ def test_sleep_guard_watchdog_and_account_protection():
     assert "<TriangleAlert className=\"ui-icon\" aria-hidden=\"true\" focusable=\"false\" /> Требуется привязка" in shelf_tsx, "GameShelf must display the 'Требуется привязка' badge"
 
     # 6. SmartScreen Unblock in Launcher
-    launcher_bat = (WORKSPACE / "Запустить_Twitch_Drops_Sentinel.bat").read_text(encoding="utf-8")
+    launcher_bat = (WORKSPACE / "Запустить_Hell_Harvest.bat").read_text(encoding="utf-8")
     assert "Unblock-File" in launcher_bat, "Launcher must run Unblock-File to prevent SmartScreen popups"
 
     print("      Sleep Guard, WebSocket Watchdog, Log Rotation & Account Protection: ALL PASS [OK]")
@@ -1211,11 +1233,11 @@ def test_r6s_showcase_acl_and_strict_priority_guard():
     assert "len(self.allowed_channels) <= 10" in inv_py, "inventory.py _base_can_earn must check len(allowed_channels) <= 10"
 
     # 3. Verify core/twitch.py discovers live streams for games with showcase ACLs
-    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = src_text(SANDBOX / "core" / "twitch.py")
     assert "len(campaign.allowed_channels) <= 10" in twitch_py, "twitch.py must add campaign.game to no_acl when ACL <= 10"
 
     # 4. Verify LiveDashboard.tsx keeps all games visible in default ALL tab
-    dashboard_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dashboard_tsx = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "Все (${sortedQueuedCampaigns.length})" in dashboard_tsx, "LiveDashboard must display 'Все' tab with full count"
     assert "if (shelfFilter === 'ALL') return true;" in dashboard_tsx, "LiveDashboard ALL tab must return true"
 
@@ -1232,7 +1254,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     print("[31/31] Testing Giveaways Store Persistence & Single-Location Dynamic Version...")
 
     # 1. Verify sentinel_service.py returns version in state and defaults giveaways stores
-    sentinel_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    sentinel_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert '"version": self.get_app_version()' in sentinel_py, "sentinel_service must include version in get_full_state"
     assert '"giveaways_selected_stores"' in sentinel_py, "sentinel_service must include giveaways_selected_stores in load_settings"
     assert '"giveaways_headless"' in sentinel_py, "sentinel_service must include giveaways_headless in load_settings"
@@ -1240,7 +1262,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     # 2. Verify updater.py dynamic local version reading and cache invalidation
     updater_py = (SANDBOX / "core" / "updater.py").read_text(encoding="utf-8")
     assert "def get_live_local_version()" in updater_py, "updater.py must contain get_live_local_version"
-    assert "local_ver = parse_version(live_current)" in updater_py, "updater.py must compare against live_current"
+    assert "local_ver = version_key(live_current)" in updater_py, "updater.py must compare against live_current"
     assert "self._cached_result = None" in updater_py, "updater.py must invalidate cache on update apply"
 
     # 3. Verify GiveawaysView.tsx two-tier persistence
@@ -1250,7 +1272,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     assert "onUpdateSettings" in gv_tsx, "GiveawaysView must support onUpdateSettings"
 
     # 4. Verify App.tsx uses dynamic version in sidebar only and removed from footer
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "appVersion={sentinelState.version || updateInfo?.local_version}" in app_tsx, "App.tsx must pass the dynamic sentinelState version to Settings"
     assert "Sentinel v{" not in app_tsx, "App.tsx must not contain hardcoded version string in footer"
 
@@ -1258,7 +1280,7 @@ def test_giveaways_stores_persistence_and_version_standardization():
     help_tsx = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
     assert "Sentinel v3.0" not in help_tsx, "HelpModal must not contain hardcoded Sentinel v3.0"
     settings_tsx = (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
-    assert "Twitch Drops Sentinel v{" not in settings_tsx, "SettingsStudio header must not have hardcoded version string"
+    assert "Hell Harvest v{" not in settings_tsx, "SettingsStudio header must not have hardcoded version string"
 
     # 6. Verify live REST API /api/state returns dynamic version
     ensure_test_service()
@@ -1292,7 +1314,7 @@ def test_game_shelf_claimed_tab_and_trophies_integration():
     assert "claimedTrophiesByGame" in shelf_tsx, "GameShelf must have claimedTrophiesByGame mapping"
 
     # 4. Verify App.tsx passes trophies and onOpenVaultFile to GameShelf
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "trophies={sentinelState.trophies}" in app_tsx, "App.tsx must pass trophies to GameShelf"
     assert "onOpenVaultFile={handleOpenVaultFile}" in app_tsx, "App.tsx must pass onOpenVaultFile to GameShelf"
 
@@ -1357,12 +1379,12 @@ def test_twitch_drops_sync_and_active_filter():
     assert "filterMode === 'drops'" in shelf_tsx and "isCampaignRunning(g)" in shelf_tsx, "Active campaigns tab must filter with isCampaignRunning"
 
     # 5. Test App.tsx passes onShowToast and onManualRefresh
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "onShowToast={showToast}" in app_tsx, "App.tsx must pass onShowToast to GameShelf"
     assert "onManualRefresh={handleManualRefresh}" in app_tsx, "App.tsx must pass onManualRefresh to GameShelf"
 
     # 6. Test sentinel_service routes
-    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "/api/campaigns/sync" in service_py, "sentinel_service must register /api/campaigns/sync"
     assert "handle_sync" in service_py, "sentinel_service must have handle_sync"
 
@@ -1388,7 +1410,7 @@ def test_shelf_removed_tab_and_startup_sync():
     assert "test_gate34_game" not in ignored_after, "Game must be removed from ignored set after unignore_game"
 
     # 2. Test sentinel_service endpoints and full state keys
-    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "/api/installed-games/restore" in service_py, "sentinel_service must register /api/installed-games/restore"
     assert "/api/ignored-games/restore" in service_py, "sentinel_service must register /api/ignored-games/restore"
     assert "/api/ignored-games" in service_py, "sentinel_service must register /api/ignored-games"
@@ -1416,7 +1438,7 @@ def test_shelf_removed_tab_and_startup_sync():
     assert "inExcluded ?" in search_tsx and "inRemoved ?" in search_tsx and "disabled={true}" in search_tsx, "GameSearchAutocomplete must disable button for excluded/removed"
 
     # 6. Test App.tsx passes ignoredGames
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "ignoredGames={sentinelState.ignored_games}" in app_tsx, "App.tsx must pass ignoredGames to GameShelf"
 
     # 7. Test live REST endpoint for ignored games & restore
@@ -1436,11 +1458,11 @@ def test_telemetry_cleanliness_giveaways_self_containment_and_screendimmer_suite
     print("[35/35] Verifying Telemetry Cleanliness, Giveaways Self-Containment & ScreenDimmer Integration...")
 
     # 1. Zero Noise Telemetry Purge
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "telemetry-pill" not in app_tsx, "App.tsx topbar must not contain telemetry-pill"
     assert "0% GPU" not in app_tsx, "App.tsx must not contain 0% GPU telemetry"
 
-    dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash_tsx = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "metric-pills" not in dash_tsx, "LiveDashboard must not contain metric-pills container"
     assert "0.8 GB" not in dash_tsx, "LiveDashboard must not contain '0.8 GB сэкономлено'"
     assert "Spade Stealth: 0% GPU" not in dash_tsx, "LiveDashboard must not contain Spade Stealth GPU mock"
@@ -1539,14 +1561,14 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     print("[36/36] Verifying Manual Game Farm Override & Native Hardware ScreenDimmer Pro...")
 
     # 1. Backend Core Twitch & SentinelService verification
-    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = src_text(SANDBOX / "core" / "twitch.py")
     assert "self.forced_game" in twitch_py, "Twitch client must have self.forced_game"
     assert "set_forced_game" in twitch_py, "Twitch client must implement set_forced_game"
     assert "clear_forced_game" in twitch_py, "Twitch client must implement clear_forced_game"
     assert "FORCED FARM" in twitch_py, "Twitch client must log [FORCED FARM] transitions"
     assert "smart_game_match" in twitch_py, "Twitch client must use safe smart_game_match"
 
-    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "/api/farm/force" in service_py, "SentinelService must expose /api/farm/force"
     assert "/api/farm/cancel-force" in service_py, "SentinelService must expose /api/farm/cancel-force"
     assert "handle_force_farm" in service_py, "SentinelService must implement handle_force_farm"
@@ -1601,7 +1623,8 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     assert "NotifyWebviewDimmerState" in main_cs, "MainForm.cs must implement NotifyWebviewDimmerState"
     assert "DIMMER_STATE_CHANGED" in main_cs, "MainForm.cs must emit DIMMER_STATE_CHANGED"
     assert "SetThreadExecutionState" in main_cs, "MainForm.cs must configure AwayMode during blackout"
-    assert "MouseDown" in main_cs and "KeyDown" in main_cs, "BlackoutOverlayForm must dismiss on mouse click or key press"
+    assert "KeyDown" in main_cs and "Keys.Escape" in main_cs, "BlackoutOverlayForm must dismiss on Esc / Alt+Backspace"
+    assert not re.search(r"Mouse\w*\s*\+=\s*\(s,\s*e\)\s*=>\s*_onDismiss", main_cs), "BlackoutOverlayForm must not dismiss on a mouse click (UI promises Esc / Alt+Backspace only)"
 
     # 4. Frontend ScreenDimmerView.tsx & LiveDashboard.tsx verification
     dimmer_tsx = (WORKSPACE / "src" / "components" / "ScreenDimmerView.tsx").read_text(encoding="utf-8")
@@ -1617,7 +1640,7 @@ def test_manual_farm_override_and_native_screendimmer_suite():
     help_tsx_keys = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
     assert "выход из блэкаута" in help_tsx_keys and "Колесо мыши над диском" in help_tsx_keys, "the Hotkeys help tab lists every dimmer hotkey"
 
-    dash_tsx = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash_tsx = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "Выбрать игру для фарма <ChevronDown" in dash_tsx, "LiveDashboard must contain the 'Выбрать игру для фарма' button"
     assert "Фарм вне очереди" in dash_tsx, "LiveDashboard must contain clear title 'Фарм вне очереди'"
     assert "activeTwitchDropsGames" in dash_tsx, "LiveDashboard must filter only active Twitch Drops games"
@@ -1698,7 +1721,8 @@ def test_update_check_failure_is_visible_and_retried():
         headers["X-RateLimit-Reset"] = str(int(clock["now"] + reset_in))
         return urllib.error.HTTPError(updater.REPO_API_URL, 403, "rate limit exceeded", headers, None)
 
-    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "html_url": "https://example.test/r",
+               "assets": [{"name": "full.zip", "browser_download_url": "https://example.test/full.zip", "url": ""}]}  # a release is offered once its ZIP is up
     saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time)
     capture = _Capture()
     updater.logger.addHandler(capture)
@@ -1769,7 +1793,7 @@ def test_update_check_failure_is_visible_and_retried():
         UPDATER.check_for_updates = original
     assert data["update_available"] is False and data["local_version"] and "simulated crash" in data["error"], data
 
-    app_tsx = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app_tsx = src_text(WORKSPACE / "src" / "App.tsx")
     assert "setInterval(pollUpdates, UPDATE_POLL_MS)" in app_tsx, "App.tsx must repeat the check while the app sits in the tray"
     assert "'visibilitychange'" in app_tsx, "App.tsx must check when the window is shown again"
     assert "announcedUpdateRef" in app_tsx, "the periodic check must not reopen a dismissed update window"
@@ -1852,7 +1876,7 @@ def test_console_messages_follow_configured_language():
     finally:
         _.set_language("English")
 
-    service_py = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "apply_engine_language" in service_py
 
 
@@ -2010,7 +2034,7 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
 
 def test_queue_wait_message_counts_the_whole_queue():
     print("[audit F-033] Queue wait message must count the whole queue, not priority[:4]...")
-    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = src_text(SANDBOX / "core" / "twitch.py")
     assert 'priority[:4]' not in twitch_py, "twitch.py must not truncate the queue in the wait message"
     for key in ("queue_no_campaigns_strict", "queue_no_campaigns", "queue_waiting_status"):
         assert f'_("sentinel", "{key}")' in twitch_py, f"twitch.py must use the localized key {key}"
@@ -2062,7 +2086,7 @@ def test_console_folds_progress_and_repeated_lines():
     assert len([r for r in rows if r[0].startswith("Drop получено")]) == 2, "different drops must stay separate"
     assert data["total"] == 11 and len(rows) == 5, rows
     # the copy handler must keep working on the full journal
-    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "safeRecentLogs.map((l) =>" in dash, "Copy must use the full journal"
     shutil.rmtree(out_dir, ignore_errors=True)
 
@@ -2187,7 +2211,7 @@ def test_console_folds_sync_cycles_but_never_important_events():
     assert fold[1][1].startswith("Drop получено") and fold[3][1].startswith("Не удалось") and fold[5][1] == "Ошибка движка Twitch"
     assert d["raw"] == d["total"] - 0 or d["raw"] <= d["total"], "expandSync keeps the lines unfolded"
     assert d["raw"] > len(fold), "the Core filter must show more rows than the folded view"
-    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "safeRecentLogs.map((l) =>" in dash, "Copy must still use the full journal"
     shutil.rmtree(out_dir, ignore_errors=True)
 
@@ -2350,7 +2374,7 @@ def test_queue_filter_only_with_campaigns():
     assert d["s0"] == d["c0"]["total"] and d["s1"] == d["c1"]["total"] and d["se"] == d["ce"]["total"], d   # the parts always add up to the total
     # no stored value starts as "all" (the legacy switch is not migrated: "action" would hide running games); a stored value wins; unknown falls back to "all"
     assert d["p"] == ["all", "available", "none", "action", "all", "all", "all"], d["p"]
-    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "sentinel_queue_filter" in dash and "sentinel_queue_only_campaigns" not in dash, "only the new key is used; the legacy key is neither read nor migrated"
     assert "filterLogs(safeRecentLogs, 'ALL')" in dash, "[audit] the collapsed console line always takes the ALL view, not the chip-filtered one"
     assert "toggleQueueOnlyCampaigns" not in dash and "(с кампаниями:" not in dash, "the old toggle and counter are gone"
@@ -2439,7 +2463,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
     assert d["watch"] == ["Просмотр канала: abc"] and d["claim"] == ["Забран трофей"], (d["watch"], d["claim"])
     assert "[TRAY] Icon: idle" in d["core"] and "  [tray] Icon: farming" in d["core"], d["core"]   # "Core" shows them (the service logs them at INFO)
     assert d["tray"] == [True, False, False, False], d["tray"]           # only a leading [TRAY]; other brackets untouched
-    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "aria-expanded={!consoleCollapsed}" in dash and "onClick={toggleConsole}" in dash, "the console toggle exposes aria-expanded"
     assert "CONSOLE_COLLAPSED_KEY" in dash and "resolveConsoleCollapsed(consoleChoice)" in dash, "the stored choice decides, collapsed by default"
     assert "console.warn('LiveDashboard: не удалось сохранить состояние консоли'" in dash, "a failed save is reported, not swallowed"
@@ -2451,7 +2475,7 @@ def test_console_collapse_tray_filter_and_plain_labels():
         assert old not in dash, old
     shelf = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
     assert "Вне очереди" in shelf and "Фармить сейчас" in shelf and "НЕ В ОЧЕРЕДИ" not in shelf and "СТАНДАРТ" not in shelf, "the rocker names what the position really is"
-    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app = src_text(WORKSPACE / "src" / "App.tsx")
     css = (WORKSPACE / "src" / "index.css").read_text(encoding="utf-8")
     assert "relief-chip" not in app and "relief-chip" not in css and "FLAT-2D" not in app, "the backdrop chip is gone from the header"
     giv = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
@@ -2525,8 +2549,8 @@ def test_toast_gate_dedup_switch_and_priming():
     inventory_py = (core / "inventory.py").read_text(encoding="utf-8")
     assert "NOTIFIER.notify(" in inventory_py and "send_toast_msg" not in inventory_py, "claims must go through the gate"
     assert "tray.notify(claim_text" not in inventory_py, "the second, ungated claim toast must be gone"
-    assert "_notify_queue_events(priority, exclude)" in (core / "twitch.py").read_text(encoding="utf-8")
-    assert "set_native_toasts(" in (core / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "_notify_queue_events(priority, exclude)" in src_text(core / "twitch.py")
+    assert "set_native_toasts(" in src_text(core / "sentinel_service.py")
     shutil.rmtree(work, ignore_errors=True)
 
 
@@ -2545,7 +2569,7 @@ def test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies():
     assert trophies_show_completed(journal, "Albion Online", "Dragonfire 9 - #6/7", drops + ["Extra Chest"]) is False
     assert trophies_show_completed(journal, "Albion Online", "", drops) is False
     assert trophies_show_completed(journal, "Another Game", "Dragonfire 9 - #6/7", drops) is False
-    twitch_py = (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_py = src_text(SANDBOX / "core" / "twitch.py")
     assert twitch_py.count("trophies_show_completed(") == 2 and "drops_claimed >= len(time_drops)" not in twitch_py
 
 
@@ -2643,14 +2667,14 @@ def test_queue_row_shows_why_a_campaign_cannot_be_farmed():
         print("      (node/esbuild not available: label check skipped)")
     # every reason string the service can produce has an English translation
     en = (WORKSPACE / "src" / "i18n" / "en" / "state.ts").read_text(encoding="utf-8")
-    sources = (WORKSPACE / "core" / "utils.py").read_text(encoding="utf-8") + (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    sources = (WORKSPACE / "core" / "utils.py").read_text(encoding="utf-8") + src_text(WORKSPACE / "core" / "sentinel_service.py")
     farmability = re.search(r"def campaign_farmability.*?(?=\ndef )", sources, re.S).group(0)
     reasons = re.findall(r'return False, "([^"]+)"', farmability)
     assert len(reasons) >= 4, reasons
     reasons += re.findall(r'\["not_farmable_reason"\] = "([^"]+)"', sources)
     for reason in reasons:
         assert f"'{reason}':" in en, f"no English translation for the reason: {reason}"
-    row = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    row = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "title={item.state.kind === 'none' ? item.state.reason : undefined}" in row, "the full reason is in the row's title"
     print("      Reason caption: PASS [OK]")
 
@@ -2720,7 +2744,7 @@ def test_remaining_watch_minutes_helper_and_deadline_facts():
         assert len(warned) == 1 and warned[0].exc_info, "one warning with a traceback, not one per poll"
     finally:
         utils_logger.removeHandler(handler)
-    service = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "campaign_remaining_watch_minutes" in service and 'g["remaining_watch_minutes"]' in service, "the service adds the field next to progress_percent"
     assert service.count('g.pop("remaining_watch_minutes", None)') == 2, "[audit] cached catalog dicts lose a stale value when it is unknown or the campaign is not in the inventory"
 
@@ -2761,7 +2785,7 @@ def test_remaining_watch_minutes_helper_and_deadline_facts():
     assert d["past"]["verdict"] == "late", d["past"]
     shutil.rmtree(out_dir, ignore_errors=True)
 
-    board = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    board = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "deadlineFacts(" in board and "До конца" in board and "Не успеть:" in board and "время просмотра неизвестно" in board
     assert "успеете" not in board, "a verdict of 'enough' is never promised"
     ui_types = (WORKSPACE / "src" / "types.ts").read_text(encoding="utf-8")
@@ -2954,7 +2978,7 @@ def test_cover_search_names_and_non_game_filter():
     from game_scanner import NON_GAME_NAMES
     assert NON_GAME_NAMES.search("PlayStation\u00ae Accessories") and NON_GAME_NAMES.search("REDlauncher")
     assert not NON_GAME_NAMES.search("Cyberpunk 2077") and not NON_GAME_NAMES.search("Hearthstone")
-    svc = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    svc = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "NON_GAME_NAMES.search(" in svc, "scanned utilities must be hidden from the catalog"
 
 
@@ -3043,7 +3067,7 @@ def test_config_files_saved_with_a_bom_still_load():
     path = work / "settings.json"
     path.write_bytes(b"\xef\xbb\xbf" + '{"language": "English"}'.encode("utf-8"))
     assert json_load(path, {"language": "Русский"})["language"] == "English"
-    svc = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    svc = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert 'open(CONFIG_FILE, "r", encoding="utf-8-sig")' in svc, "config.json must be read with utf-8-sig"
     shutil.rmtree(work, ignore_errors=True)
 
@@ -3090,7 +3114,7 @@ def test_login_code_copy_and_activate_link():
     assert d["link"] == "https://www.twitch.tv/activate?device-code=ABCD1234"
     assert d["linkAlready"] == "https://www.twitch.tv/activate?device-code=ABCD1234"
     assert d["linkNoUri"] == "https://www.twitch.tv/activate?device-code=AB%20CD"
-    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    dash = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "'Скопировано'" in dash and "Не удалось скопировать, выделите код вручную" in dash and "userSelect: 'all'" in dash
     shutil.rmtree(out_dir, ignore_errors=True)
 
@@ -3154,7 +3178,7 @@ def test_giveaways_readiness_window_texts_report_and_counts():
         "  epochLogin: R.itemText(it('login', 'ok', { account: 'a', confirmedAt: 1700000000000 }, null, 'epic'), ctx),\n"
         "  engineWarned: R.itemText(it('engine', 'ok'), { ...ctx, engineInstall: { running: false, error: 'Chromium warning' } }),\n"
         "  engineStatus: [R.itemStatus(it('engine', 'ok'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'todo'), { running: false, error: 'EPERM' }), R.itemStatus(it('engine', 'ok'), { running: false, error: null }), R.itemStatus(it('engine', 'ok'), { running: true, error: 'EPERM' }), R.itemStatus(it('node', 'ok'), { running: false, error: 'EPERM' })],\n"
-        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.8.0'),\n"
+        "  warnReport: R.buildReport({ ...resp, engineInstall: { running: false, error: 'EPERM' }, items: [it('engine', 'ok')] }, ctx, '3.9.0'),\n"
         "  todo: R.countTodo(items), todoNone: R.countTodo([]), todoWarnOnly: R.countTodo([it('browser', 'warning'), it('scheduler', 'info')]),\n"
         "  groups: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.map((i) => i.id)])),\n"
         "  sitesOk: R.allSitesOk([it('site', 'ok'), it('site', 'ok')]), sitesMixed: R.allSitesOk(grouped.sites), sitesEmpty: R.allSitesOk([]),\n"
@@ -3638,7 +3662,7 @@ def test_scheduler_refuses_an_old_node_and_task_paths_follow_the_install():
         if original_fgc_path is not None:
             os.environ["FGC_PATH"] = original_fgc_path
 
-    service = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "self.giveaways.repair_task_paths()" in service, "the service must check the task paths when it starts"
     assert service.index("if TEST_MODE:\n            logger.info(\"SENTINEL_TEST_MODE") < service.index("self.giveaways.repair_task_paths()"), \
         "the check must stay out of the test daemon: its sandbox path must never reach a real task"
@@ -4306,7 +4330,7 @@ def test_switch_account_forgets_only_that_store():
     assert len(spawned) == count, "a refused sign-in must not start anything"
 
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
-    assert "window.confirm(" in view and "handleStoreAuth(store.id, true)" in view and "?switch=1" in view, "the button must ask first, then switch"
+    assert "ask(SWITCH_ACCOUNT_CONFIRM" in view and "handleStoreAuth(store.id, true)" in view and "?switch=1" in view, "the button must ask first, then switch"
     print("      Switch account: ALL PASS [OK]")
 
 
@@ -4733,7 +4757,7 @@ def test_keyboard_palette_help_farm_and_log_prefix():
     assert d["onlyPrefix"] == "[STATUS]", "a line that is only the prefix must not turn empty"
     assert d["regexLevel"] == "x" and d["notRegex"] == "[AxB] x", "the level is text, not a pattern"
 
-    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    app = src_text(WORKSPACE / "src" / "App.tsx")
     assert 'role="switch"' in app and "aria-checked={!sentinelState.hardware.is_paused}" in app, "FARM must be a real switch"
     assert '<div \n              className={`power-rocker' not in app.replace("\r\n", "\n"), "FARM is not reachable from a keyboard as a div"
     assert "e.nativeEvent.isComposing" in app, "arrows and Enter must not break IME input"
@@ -4742,14 +4766,14 @@ def test_keyboard_palette_help_farm_and_log_prefix():
         assert "useModalFocus(" in (WORKSPACE / "src" / "components" / name).read_text(encoding="utf-8"), name
     help_modal = (WORKSPACE / "src" / "components" / "HelpModal.tsx").read_text(encoding="utf-8")
     assert 'aria-labelledby="help-title"' in help_modal and 'id="help-title"' in help_modal, "the dialog needs its visible title as a name"
-    view = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    view = src_text(WORKSPACE / "src" / "components" / "LiveDashboard.tsx")
     assert "withoutLevelPrefix(log.message, cat)" in view, "the console must show the level once"
     # review 14: every modal overlay is a real dialog, so hotkeys stay off behind it and Esc/Tab work inside it
     for name, title_id in (("App.tsx", "update-title"), ("components/LiveDashboard.tsx", "catalog-title"), ("components/SettingsStudio.tsx", "diag-title")):
-        src = (WORKSPACE / "src" / name).read_text(encoding="utf-8")
+        src = src_text(WORKSPACE / "src" / name)
         assert f'aria-labelledby="{title_id}"' in src and f'id="{title_id}"' in src, f"{name}: the dialog needs its visible title as a name"
         assert 'aria-modal="true"' in src and "useModalFocus(" in src, f"{name}: modal and focus trap"
-    palette = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    palette = src_text(WORKSPACE / "src" / "App.tsx")
     assert "defaultPaletteIndex(navActions.length)" in palette, "review 13: Enter right after typing runs only a navigation entry"
     print("      Keyboard and log prefix: ALL PASS [OK]")
 
@@ -4797,6 +4821,10 @@ def test_update_sources_and_token_scope():
 
     class _Resp(io.BytesIO):
         headers = {"Content-Length": str(len(payload))}
+        status = 200
+
+        def geturl(self):
+            return good[0]
 
         def __enter__(self):
             return self
@@ -4911,7 +4939,7 @@ def test_atomic_settings_write_keeps_the_old_file():
     atomic_json.atomic_write_json(target, {"name": "кириллица"})
     raw_text = target.read_bytes()
     assert not raw_text.startswith(b"\xef\xbb\xbf") and json.loads(raw_text.decode("utf-8")) == {"name": "кириллица"}
-    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    source = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert "from settings import default_settings" not in source, "reset must use the supervisor's defaults, not the engine's"
     assert 'with open(CONFIG_FILE, "w"' not in source, "config.json must not be opened for writing before the data is ready"
     print("      Atomic settings: ALL PASS [OK]")
@@ -4945,7 +4973,7 @@ def test_profile_backup_is_complete():
     (root / "data" / "dimmer_state.json").unlink()
     missing = profile_backup.write_backup(out, entries)
     assert missing == ["config.json"], f"only what is required counts as missing: {missing}"
-    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    source = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert '"status": "partial"' in source, "an incomplete backup must not read as a success"
     print("      Profile backup: ALL PASS [OK]")
 
@@ -4994,7 +5022,7 @@ def test_auto_shutdown_can_be_cancelled_and_engine_flags_apply():
     engine_flags.apply_engine_flags(client, {})
     assert (client.claim_channel_points_enabled, client.auto_claim_drops_enabled, client.streamer_watchdog_enabled) == (True, True, True), "defaults stay on"
 
-    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    source = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert source.count("apply_engine_flags(self.twitch_client, self.settings)") == 2, "start and save must share one path"
     start = source.index("self.twitch_client = Twitch(settings)")
     assert start < source.index("apply_engine_flags(self.twitch_client, self.settings)", start) < source.index("await self.twitch_client.run()", start), "flags before run()"
@@ -5110,7 +5138,7 @@ def test_local_api_token_guards_every_route_when_the_host_sets_one():
 
         # Normal routes: none / wrong / empty
         wrong = token[:-1] + ("A" if token[-1] != "A" else "B")
-        for path, method, body in (("/api/state", "GET", None), ("/api/v1/steam-idle/ack", "POST", b"{}"), ("/api/shutdown", "POST", b"{}")):
+        for path, method, body in (("/api/state", "GET", None), ("/api/ping", "GET", None), ("/api/v1/steam-idle/ack", "POST", b"{}"), ("/api/shutdown", "POST", b"{}")):
             code, _h, answer = call(path, method, body=body)
             assert code == 401 and json.loads(answer) == {"error": "unauthorized"}, (path, "no token", code, answer[:100])
             code, _h, _a = call(path, method, {"X-Sentinel-Token": wrong}, body)
@@ -5119,6 +5147,8 @@ def test_local_api_token_guards_every_route_when_the_host_sets_one():
             assert code == 401, (path, "empty token", code)
         code, _h, _a = call("/api/state", headers=good)
         assert code == 200, f"the right token must pass: {code}"
+        code, _h, answer = call("/api/ping", headers=good)
+        assert code == 200 and json.loads(answer)["ok"] is True, f"the light liveness answer with the right token: {code} {answer[:100]}"
         code, _h, answer = call("/api/v1/steam-idle/state", headers=good)
         assert code == 200, f"a Steam IDLE read with the right token: {code} {answer[:100]}"
         code, _h, answer = call("/api/v1/steam-idle/farm/stop", "POST", {**good, "Content-Type": "application/json"}, b"{}")
@@ -5179,7 +5209,7 @@ def test_local_api_token_guards_every_route_when_the_host_sets_one():
     assert token not in captured and token not in logged, "the token value must never be logged"
     assert "Local API token: required" in captured + logged, "the active mode is logged once at start"
 
-    source = (SANDBOX / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    source = src_text(SANDBOX / "core" / "sentinel_service.py")
     assert source.index("take_api_token(") < source.index("GiveawaysOrchestrator()"), "taken out of the environment before any child process exists"
     print("      Local API token: ALL PASS [OK]")
 
@@ -5196,7 +5226,12 @@ def test_host_and_page_carry_the_local_api_token():
     spawn = form[start:form.index("_pythonBackendProcess = Process.Start(psi)", start)]
     assert "psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current;" in spawn, "the child gets the secret through its environment"
     assert "Arguments = $\"-X utf8 \\\"{scriptPath}\\\"\"" in spawn and "LocalApiToken" not in spawn.split("Arguments =", 1)[1].split("\n", 1)[0], "never on the command line"
-    assert form.count("LocalApiToken.HeaderName") >= 3, "both health probes and the shutdown call send the header"
+    assert "client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);" in form, "the shared host client sends the header"
+    assert form.count("new System.Net.Http.HttpClient") == 1 and "new HttpClient" not in form, "every host call (both health probes and the shutdown) goes through that one client"
+    assert form.count("HostHttp.") >= 3, "both health probes and the shutdown call use the shared client"
+    probe = form.split("ProbeServiceAsync(CancellationToken ct)", 1)[1].split("CheckBackendAliveAsync", 1)[0]
+    assert "28492/api/ping" in probe and "NotFound" in probe and "28492/api/state" in probe, "liveness uses /api/ping and falls back to /api/state on an older service"
+    assert form.count("ProbeServiceAsync(cts.Token)") == 2 and form.count("28492/api/state") == 1, "the watchdog and the startup check both probe through it"
     assert "LogDesktopError" not in token_cs and "File.Write" not in token_cs and "Console." not in token_cs, "the secret is never written anywhere"
 
     first_navigate = form.index("CoreWebView2.Navigate(")
@@ -5605,7 +5640,8 @@ def test_concurrent_update_checks_share_one_request():
             thread.start()
         return threads, results
 
-    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "assets": [], "html_url": "https://example.test/r"}
+    release = {"tag_name": "v99.0.0", "name": "v99", "body": "notes", "html_url": "https://example.test/r",
+               "assets": [{"name": "full.zip", "browser_download_url": "https://example.test/full.zip", "url": ""}]}  # a release is offered once its ZIP is up
     saved = (updater.CACHE_FILE, updater.get_optional_github_token, updater.urllib.request.build_opener, updater.time,
              getattr(updater, "CHECK_WAIT_SECONDS", None))
     updater.CACHE_FILE = work / "cache.json"
@@ -5788,7 +5824,7 @@ def test_giveaways_empty_store_choice_starts_nothing():
     assert outcome[0] == "started" and outcome[1] == list(gc.DEFAULT_CLAIM_STORES), outcome
     shutil.rmtree(engine, ignore_errors=True)
 
-    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service = src_text(WORKSPACE / "core" / "sentinel_service.py")
     handler = service.split("async def handle_giveaways_claim", 1)[1].split("async def handle_giveaways_abort", 1)[0]
     assert 'body.get("stores")' in handler and '"epic", "gog"' not in handler, "the handler must pass the choice through untouched"
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
@@ -5929,7 +5965,7 @@ def test_review_fixes_in_the_service():
     assert settings == {"x": 2, "l": [1, 2]}
     shutil.rmtree(d, ignore_errors=True)
 
-    source = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    source = src_text(WORKSPACE / "core" / "sentinel_service.py")
     assert "save_transaction(" in source.split("def save_settings", 1)[1].split("def load_trophies", 1)[0], "save_settings writes both files in one transaction"
     for name in ("handle_post_settings", "handle_reset_settings", "handle_add_game_directory", "handle_remove_game_directory"):
         body = source.split(f"async def {name}", 1)[1].split("\n    async def ", 1)[0]
@@ -6056,6 +6092,7 @@ def test_reward_campaigns_setting_state_and_request():
         "    twitch_client = None\n"
         "    hardware_state = {}\n"
         "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    health_watch = SimpleNamespace(state=lambda: {'enabled': True, 'hours': 1, 'problems': 0, 'lastRun': None})\n"
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
@@ -6111,7 +6148,7 @@ def test_reward_campaigns_setting_state_and_request():
     res = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, 'core'); import sentinel_service as s; print(s.SentinelSupervisor.load_settings(None)['reward_campaigns_enabled'])"],
                          cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert res.returncode == 0 and res.stdout.strip().splitlines()[-1] == "False", f"a non-bool in config.json reads as off: {res.stdout[-300:]} {res.stderr[-300:]}"
-    twitch_src = (WORKSPACE / "core" / "twitch.py").read_text(encoding="utf-8")
+    twitch_src = src_text(WORKSPACE / "core" / "twitch.py")
     assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True)' in twitch_src, "reward campaigns come from their own request"
     assert 'self.gql_request(GQL_QUERIES["Inventory"])' in twitch_src, "the inventory request is untouched"
     assert 'response = await self.gql_request(GQL_QUERIES["Campaigns"])' in twitch_src, "drop campaigns keep the plain dashboard request (true returns no dropCampaigns)"
@@ -6138,6 +6175,7 @@ def test_reward_campaigns_queue_force_hide_and_categories_api():
         "    twitch_client = None\n"
         "    hardware_state = {}\n"
         "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    health_watch = SimpleNamespace(state=lambda: {'enabled': True, 'hours': 1, 'problems': 0, 'lastRun': None})\n"
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
@@ -6235,6 +6273,7 @@ def test_reward_campaigns_daily_slot_and_auto_queue_settings():
         "    twitch_client = None\n"
         "    hardware_state = {}\n"
         "    scanner = SimpleNamespace(load_ignored_games=lambda: set())\n"
+        "    health_watch = SimpleNamespace(state=lambda: {'enabled': True, 'hours': 1, 'problems': 0, 'lastRun': None})\n"
         "    def __init__(self): self.settings = s.SentinelSupervisor.load_settings(None)\n"
         "    def save_settings(self): s.SentinelSupervisor.save_settings(self)\n"
         "    def apply_engine_language(self): pass\n"
@@ -6326,6 +6365,97 @@ def test_reward_campaigns_unit_tests():
             sys.modules.pop(name, None)
     assert result.wasSuccessful(), f"reward campaign unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
     print(f"      reward campaign unit tests ({result.testsRun} run): PASS [OK]")
+
+
+# core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
+CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel", "test_farm_schedule", "test_webhooks", "test_signin_watch", "test_update_rollback"]
+
+
+def test_core_feature_unit_tests():
+    print(f"[core] unit tests {', '.join(CORE_UNIT_MODULES)} against the sandbox copy of core...")
+    import io
+    import unittest
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    try:
+        suite = unittest.defaultTestLoader.loadTestsFromNames(CORE_UNIT_MODULES)
+        assert suite.countTestCases() > 0, "no core unit tests were found"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in CORE_UNIT_MODULES:
+            sys.modules.pop(name, None)
+    assert result.wasSuccessful(), f"core unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      core unit tests ({result.testsRun} run): PASS [OK]")
+
+
+def test_profile_restore_api_stages_a_checked_backup():
+    print("[backup] /api/backups lists backups; /api/backup/restore refuses bad names and stages a real backup for the next start...")
+    ensure_test_service()
+
+    def call(path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(BASE_URL + path, data=data, method="GET" if body is None else "POST",
+                                     headers={"Connection": "close", "User-Agent": "Sentinel-Test", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    status, made = call("/api/backup", {})
+    assert status == 200 and made.get("filename"), made
+    status, listed = call("/api/backups")
+    assert status == 200 and any(b["name"] == made["filename"] for b in listed["backups"]), listed
+    assert call("/api/backup/restore", {"name": "../config.json"})[0] == 400, "a path is never accepted as a backup name"
+    assert call("/api/backup/restore", {"name": "missing.zip"})[0] == 404
+    pending = SANDBOX / "data" / "restore_pending"
+    try:
+        status, staged = call("/api/backup/restore", {"name": made["filename"]})
+        assert status == 200 and staged.get("restart_required") and "config.json" in staged["files"], staged
+        assert (pending / "restore.json").is_file(), "the restore waits for the next start"
+        assert (SANDBOX / "data" / "backups" / staged["safety"]).is_file(), "the current profile is saved first"
+    finally:
+        shutil.rmtree(pending, ignore_errors=True)
+    print("      profile restore API: PASS [OK]")
+
+
+def test_farm_schedule_pauses_outside_the_window():
+    print("[schedule] farm_schedule is cleaned on POST and pauses farming outside its window...")
+    ensure_test_service()
+
+    def call(path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(BASE_URL + path, data=data, method="GET" if body is None else "POST",
+                                     headers={"Connection": "close", "User-Agent": "Sentinel-Test", "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as res:
+            return json.loads(res.read().decode("utf-8"))
+
+    def hardware_until(paused, budget=20.0):
+        deadline = time.time() + budget
+        while time.time() < deadline:
+            hw = call("/api/state")["hardware"]
+            if hw.get("schedule_paused") is paused:
+                return hw
+            time.sleep(0.5)
+        raise AssertionError(f"schedule_paused never became {paused}: {hw}")
+
+    try:
+        saved = call("/api/settings", {"farm_schedule": {"enabled": True, "days": [9, "x"], "start": "99:00", "end": "07:30"}})["settings"]
+        assert saved["farm_schedule"] == {"enabled": True, "days": [], "start": "01:00", "end": "07:30"}, saved["farm_schedule"]
+        hw = hardware_until(True)
+        assert hw["is_paused"] is True and hw.get("schedule_next") is None, hw
+        call("/api/settings", {"farm_schedule": {"enabled": True, "days": [0, 1, 2, 3, 4, 5, 6], "start": "00:00", "end": "00:00"}})
+        hw = hardware_until(False)
+        assert hw.get("schedule_next"), "inside a window the end time is reported"
+    finally:
+        call("/api/settings", {"farm_schedule": {"enabled": False, "days": [0, 1, 2, 3, 4, 5, 6], "start": "01:00", "end": "09:00"}})
+    hardware_until(False)
+    print("      farm schedule: PASS [OK]")
 
 
 def test_steam_idle_module_follows_the_tab_setting_once_per_change():
@@ -6632,7 +6762,7 @@ def test_settings_post_does_not_wait_for_the_module_sync():
     assert got["done"] == [[False], 0], f"it finishes once and forgets itself: {got['done']}"
     assert got["cancelled"] == [[True], 0], f"shutdown cancels a sync in flight: {got['cancelled']}"
     assert got["failed"] == [0, True], f"a failing sync is logged and dropped: {got['failed']}"
-    source = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    source = src_text(WORKSPACE / "core" / "sentinel_service.py")
     assert "_cancel_module_syncs()" in source.split("async def _on_app_shutdown", 1)[1].split("async def handle_ws", 1)[0], "the app shutdown cancels the syncs"
     shutil.rmtree(work, ignore_errors=True)
     print("      background module sync: PASS [OK]")
@@ -6931,6 +7061,10 @@ def test_update_archive_is_checked_against_the_published_sha256():
         def __init__(self, body):
             super().__init__(body)
             self.headers = {"Content-Length": str(len(body))}
+            self.status = 200
+
+        def geturl(self):
+            return download_url
 
         def __enter__(self):
             return self
@@ -7010,7 +7144,7 @@ def test_update_archive_is_checked_against_the_published_sha256():
     ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", other)), urls=(download_url, api_url))
     assert ok is False and page in message and "Контрольная сумма" in message, message
     assert before == after, "a mismatching archive must leave every file and folder as it was"
-    assert downloads(requests) == [download_url], f"a mismatch is not a network error, no retry on the other address: {requests}"
+    assert set(downloads(requests)) == {download_url}, f"a mismatch is not a network error, no retry on the other address: {requests}"
 
     # digest missing: refused before any download
     ok, message, requests, before, after = run(listing(asset("Patch_9.9.9.zip", None)))
@@ -7346,7 +7480,7 @@ def test_channel_point_chest_uses_the_real_login_state():
     finally:
         twitch.logger.removeHandler(capture)
         STATE_BRIDGE.channel_points_earned = earned
-    assert "is_logged_in" not in (SANDBOX / "core" / "twitch.py").read_text(encoding="utf-8"), "no reference to the undefined is_logged_in remains"
+    assert "is_logged_in" not in src_text(SANDBOX / "core" / "twitch.py"), "no reference to the undefined is_logged_in remains"
     print("      Channel points claim: PASS [OK]")
 def test_diagnostic_report_shows_the_real_drop_and_a_readable_journal():
     print("[report] the diagnostic report reads the keys add_drop writes and folds the journal tail...")
@@ -7748,7 +7882,7 @@ def test_console_journal_keeps_five_hours_and_serves_only_new_lines():
         gui_headless.time = saved_time
 
     # The endpoint: registered, reads the cursor from the query, refuses nonsense with 400
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(WORKSPACE / "core" / "sentinel_service.py")
     assert 'add_get("/api/logs", self.handle_get_logs)' in service_py, "GET /api/logs must be routed"
     assert "**STATE_BRIDGE.state_log_fields()" in service_py and '"recent_logs": STATE_BRIDGE.recent_logs,' not in service_py,         "get_full_state must send the short tail, not the whole journal"
     live = gui_headless.STATE_BRIDGE
@@ -7809,7 +7943,7 @@ def test_service_log_file_rotates_and_stays_utf8():
     assert "Фарм продолжается: строка 119" in target.read_text(encoding="utf-8"), "the newest lines are in the base file"
 
     # The service itself logs through it, to the same path as before
-    service_py = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service_py = src_text(WORKSPACE / "core" / "sentinel_service.py")
     assert 'make_file_log_handler(CORE_DIR / "sentinel_service.log")' in service_py
     assert "logging.FileHandler(CORE_DIR" not in service_py, "a plain FileHandler grows forever (70 MB seen)"
     # Rotated copies are runtime data too: not committed, not packaged into a release
@@ -8328,6 +8462,301 @@ def test_steam_idle_package_unit_tests():
     print(f"      steam_idle unit tests ({result.testsRun} run): PASS [OK]")
 
 
+def test_steam_idle_statistics_wiring_and_routes():
+    print("[steam idle] Statistics: unit module, service routes, tab section, history tiles, English strings, UI logic tests...")
+    core = WORKSPACE / "core"
+    assert (core / "steam_idle" / "test_stats.py").is_file(), "the statistics unit tests are part of the steam_idle discovery"
+    service = (core / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/v1/steam-idle/stats", steam_idle.stats)' in service and 'add_post("/api/v1/steam-idle/stats/reset", steam_idle.stats_reset)' in service
+    controller = (core / "steam_idle" / "controller.py").read_text(encoding="utf-8")
+    assert "StatsRecorder(None if data_dir is None else data_dir / STATS_FILE_NAME" in controller and "on_game_drops=self._record_game_drops" in controller
+    assert "asyncio.to_thread(self._announce, self._close_stats)" in controller, "shutdown and a crash write the file off the event loop"
+    view = (WORKSPACE / "src" / "components" / "SteamIdleView.tsx").read_text(encoding="utf-8")
+    assert "<StatsPanel />" in view
+    panel = (WORKSPACE / "src" / "components" / "steamIdle" / "StatsPanel.tsx").read_text(encoding="utf-8")
+    assert "await ask(RESET_CONFIRM" in panel and 'aria-sort=' in panel and "gamesCsv(" in panel
+    history = (WORKSPACE / "src" / "components" / "HistoryModal.tsx").read_text(encoding="utf-8")
+    assert "/stats?period=" in history and "historyCsv(items)" in history, "history tiles read the statistics; the history CSV is unchanged"
+    assert "'Сбросить статистику'" in (WORKSPACE / "src" / "i18n" / "en" / "steamIdle.ts").read_text(encoding="utf-8")
+    ensure_test_service()
+
+    def call(method, path):
+        req = urllib.request.Request(BASE_URL + path, data=b"{}" if method == "POST" else None, method=method,
+                                     headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    for period in ("7", "30", "all"):
+        status, report = call("GET", f"/api/v1/steam-idle/stats?period={period}")
+        assert status == 200 and report["period"] == period and set(report) == {"period", "totals", "weeks", "games"}, report
+        assert len(report["weeks"]) == 12 and set(report["totals"]) == {"farmSeconds", "games", "cards", "achievements"}, report
+    assert call("GET", "/api/v1/steam-idle/stats?period=5")[0] == 400, "an unknown period is refused"
+    assert call("POST", "/api/v1/steam-idle/stats/reset")[0] == 200
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "steam_idle_stats.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"statistics UI logic tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Steam IDLE statistics: PASS [OK]")
+
+
+def test_other_copies_cleanup_unit_tests_and_service_wiring():
+    print("[startup copies] Finder, cleanup, import and routes: unit modules, live API in test mode, source wiring...")
+    import io
+    import unittest
+    core_dir = SANDBOX / "core"
+    added_path = str(core_dir) not in sys.path
+    if added_path:
+        sys.path.insert(0, str(core_dir))
+    try:
+        suite = unittest.TestSuite()
+        for pattern in ("test_startup_copies.py", "test_startup_copies_routes.py", "test_copy_import.py"):
+            suite.addTests(unittest.defaultTestLoader.discover(str(core_dir), pattern=pattern, top_level_dir=str(core_dir)))
+        assert suite.countTestCases() >= 40, f"only {suite.countTestCases()} startup-copies tests were discovered"
+        stream = io.StringIO()
+        result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    finally:
+        if added_path:
+            sys.path.remove(str(core_dir))
+        for name in ("startup_copies", "startup_copies_routes", "copy_import", "test_startup_copies", "test_startup_copies_routes", "test_copy_import"):
+            sys.modules.pop(name, None)
+    assert result.wasSuccessful(), f"startup-copies unit tests failed: {len(result.failures)} failures, {len(result.errors)} errors\n{stream.getvalue()}"
+    print(f"      startup-copies unit tests ({result.testsRun} run): PASS [OK]")
+
+    ensure_test_service()
+
+    def call(method, path, body=None):
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(BASE_URL + path, data=data, method=method, headers={"Content-Type": "application/json", "Connection": "close", "User-Agent": "Sentinel-Test"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read().decode("utf-8"))
+
+    status, state = call("GET", "/api/startup-copies?rescan=1")
+    assert status == 200 and state["status"] == "ok" and state["findings"] == [], "test mode sees nothing on the machine (the null backend)"
+    assert {"copies", "installerHint", "ownData", "thisVersion", "autostartOwner"} <= set(state), sorted(state)
+    assert call("POST", "/api/startup-copies/remove", {"id": "not-an-id"})[0] == 400
+    assert call("POST", "/api/startup-copies/remove", {"id": "0" * 12})[0] == 404, "an unknown id is a 404, never an action"
+    assert call("POST", "/api/startup-copies/close", {"id": "0" * 12})[0] == 404
+    assert call("POST", "/api/startup-copies/import", {"dir": str(SANDBOX / "nowhere")})[0] == 404
+    print("      Live /api/startup-copies in test mode: PASS [OK]")
+
+    service = src_text(WORKSPACE / "core" / "sentinel_service.py")
+    for route in ("/api/startup-copies", "/api/startup-copies/remove", "/api/startup-copies/move-autostart", "/api/startup-copies/close",
+                  "/api/startup-copies/import", "/api/startup-copies/dismiss-hint"):
+        assert f'"{route}"' in service, f"{route} is registered"
+    assert "startup_copies.NullBackend() if TEST_MODE else startup_copies.SystemBackend()" in service, "a test run never touches the real machine"
+    assert "apply_import_at_start()" in service and service.index("    apply_import_at_start()") < service.index("    apply_restore_at_start()"), "the import is applied before settings load"
+    assert "self.startup_copies_check()" in service, "the start check runs once per start"
+    print("      Service wiring: PASS [OK]")
+
+    sdks = ""
+    if shutil.which("dotnet"):
+        sdks = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True, timeout=60).stdout
+    if not any(line.startswith("10.") for line in sdks.splitlines()):
+        print("      SKIP: the start-conflict check needs the .NET SDK 10 (dotnet run); the source checks below still run")
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="start_conflict_check_", dir=SANDBOX))
+        proj = WORKSPACE / "tools" / "start_conflict_check" / "StartConflictCheck.csproj"
+        res = subprocess.run(
+            ["dotnet", "run", "--project", str(proj), "-c", "Release", "-o", str(out_dir / "bin"),
+             f"-p:BaseIntermediateOutputPath={out_dir / 'obj'}{os.sep}", f"-p:MSBuildProjectExtensionsPath={out_dir / 'obj'}{os.sep}"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        assert res.returncode == 0, (res.stdout + res.stderr)[-1500:]
+        assert "ALL START CONFLICT CHECKS PASSED" in res.stdout, res.stdout[-800:]
+        print("      Start-conflict logic check (dotnet run): PASS [OK]")
+    program = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    start = program.split("public static void Main", 1)[1]
+    assert "!isNewInstance && !TryReplaceOlderCopy()" in start and "PostMessage(HWND_BROADCAST, WM_SENTINEL_SHOW" in start, "a refused start still wakes the running copy unless it replaced it"
+    assert "StartConflict.Resolve(" in program and "StartConflict.CloseVerified(" in program and "Kill(entireProcessTree: true)" in program, "the shell uses the tested logic"
+    assert "WM_CLOSE" in program and ".CloseMainWindow()" not in program, "the polite close reaches hidden windows too (a tray copy has no main window)"
+    assert start.index("ApplicationConfiguration.Initialize()") < start.index("TryReplaceOlderCopy()"), "visual styles and DPI are set up before the question is shown"
+    assert "MessageBoxDefaultButton.Button2" in program, "the question defaults to No"
+    assert "StartConflict.AcquireAfter(_singleInstanceMutex" in program, "the mutex is taken over after the old copy is gone"
+    print("      Program.cs uses the start-conflict logic: PASS [OK]")
+
+
+def test_service_diagnostics_feature_is_wired():
+    print("[diagnostics] Check button: host messages, tool, UI, translations...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    diag = (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8")
+    assert 'type == "RUN_DIAGNOSTICS"' in form and 'type == "CLOSE_OTHER_SERVICE"' in form and 'type == "OPEN_LOGS_FOLDER"' in form, "the host answers the three diagnostics messages"
+    assert "_backendStarts.Record()" in form and "ServiceDiagnostics.ResolveBackend(" in form, "every start is recorded and the paths come from the shared helper"
+    assert "Task.Run(" in form.split("private void RunDiagnosticsAsync", 1)[1][:400], "diagnostics run off the UI thread"
+    assert "TryCloseOther(" in form and "trackedPid == pid" in diag and 'StartsWith("python"' in diag, "only a foreign python on the port can be closed"
+    assert "DIAGNOSTICS_RESULT" in diag and "Sanitize(" in diag and "%USERPROFILE%" in diag and "7656" in diag, "the report is sanitized"
+    assert "excludedportrange" in diag and "net stop winnat" in diag, "reserved port ranges are checked"
+    assert (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").exists()
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert "RUN_DIAGNOSTICS" in panel and "RESTART_SENTINEL" in panel and "OPEN_LOGS_FOLDER" in panel and "CLOSE_OTHER_SERVICE" in panel
+    assert "onOpenHealthCenter?.()" in dash, "the banner opens the health center"
+    assert "'Проверить': 'Check'" in (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    print("      Check button wiring: PASS [OK]")
+
+
+def test_service_restarts_have_one_owner():
+    print("[restarts] One owner of service restarts: the Exited handler only notifies, no kill on a quick check, crash backoff, config template ships...")
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    policy_path = WORKSPACE / "desktop" / "BackendRestartPolicy.cs"
+    assert policy_path.exists(), "the restart policy file must exist"
+    policy = policy_path.read_text(encoding="utf-8")
+    assert "System.Diagnostics" not in policy and "System.Windows.Forms" not in policy, "the policy is pure: no Process, no WinForms"
+    exited = form.split("proc.Exited +=", 1)[1].split(";", 1)[0]
+    assert "EnsurePythonBackendRunning" not in exited and "Task.Delay" not in exited, "the Exited handler never restarts the service itself"
+    assert "BeginInvoke(new Action(() => OnBackendExited(pid)))" in form, "an exit is handed to the UI thread"
+    assert "Task.Delay(2000).ContinueWith" not in form, "the old self-feeding restart path is gone"
+    ensure = form.split("private void EnsurePythonBackendRunning()", 1)[1].split("private void ApplyRestartDecision", 1)[0]
+    assert "Kill(" not in ensure and "CleanupStalePort28492" not in ensure, "the startup probe never kills anything"
+    assert "FromMilliseconds(400)" in ensure and "_pythonBackendProcess" not in ensure, "the 400 ms probe only reports to the policy"
+    for name in ("QuickCrashesBeforeBackoff = 3", "BackoffPause = TimeSpan.FromSeconds(60)", "StartGrace = TimeSpan.FromSeconds(60)", "FailuresBeforeRestart = 4"):
+        assert name in policy, name
+    assert "CrashBackoffUntil" in (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8") and "crashBackoff" in form, "the diagnostics row knows about the pause"
+    assert "BackendRestartPolicy.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    release = (WORKSPACE / "tools" / "create_clean_release.py").read_text(encoding="utf-8")
+    assert release.count('"config.default.json"') >= 3, "the release and the hot patch ship config.default.json"
+    print("      Restart ownership: PASS [OK]")
+
+
+def test_health_check_is_wired():
+    print("[health] Health check: service checks, route, host merge, grouped panel, translations...")
+    health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert '"/api/v1/health"' in service and "self.handle_get_health" in service, "the route is registered behind the shared token middleware"
+    assert "health.note_settings_error(" in service and "OAUTH_CODES.note(" in (WORKSPACE / "core" / "gui_headless.py").read_text(encoding="utf-8")
+    assert "RUN_BUDGET_SECONDS" in health and "asyncio.wait_for(" in health and "exc_info=True" in health, "budget, per-check timeout, logged crashes"
+    for area in ("twitch", "steam", "giveaways", "network", "updates", "settings", "system"):
+        assert f'"{area}"' in health, f"area {area} has checks"
+    for write in ("SetValueEx", "DeleteValue", "KEY_ALL_ACCESS", "KEY_WRITE", "subprocess", "webbrowser", ".validate(", "_validate("):
+        assert write not in health, f"health checks are read-only: {write} must not appear"
+    diag = (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8")
+    assert "/api/v1/health" in diag and "ParseHealthResponse(" in diag and "FetchHealth(" in diag and "area = c.Area" in diag, "the host merges the service checks"
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    assert "groupChecks(checks)" in panel and "countProblems(checks)" in panel and "<ServiceDiagnosticsPanel" in (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Проблем:': 'Problems:'" in en and "'Проверка работы': 'Health check'" in en
+    print("      Health check wiring: PASS [OK]")
+
+
+def test_health_fixes_are_wired():
+    print("[health fixes] One-click fixes: whitelist, route, confirms, host relay, window data reset, panel, translations...")
+    health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    ids = ("twitch_relogin", "steam_login", "giveaways_reinstall", "autostart_repair", "settings_restore", "logs_trim")
+    table = health.split("FIXES: dict[str, Fix]", 1)[1].split("_fix_running = False", 1)[0]
+    assert all(f'Fix("{fix_id}"' in table for fix_id in ids) and table.count('Fix("') == len(ids), "the whitelist holds exactly the documented fixes"
+    assert "twitch_open_code" not in table, "the page-side fix has no service action"
+    assert 'add_post("/api/v1/health/fix", self.handle_post_health_fix)' in service and "health.run_fix(" in service, "the route runs only the whitelist"
+    assert 'logger.info("health fix %s: ok' in health and "health fix %s: refused" in health and "health fix %s: failed" in health, "every fix is logged as 'health fix <id>: <result>'"
+    for existing in ("self.handle_logout", "self.steam_idle.login()", "self.giveaways.install_engine()", "set_autostart_status(True)", "self.handle_reset_settings",
+                     "write_backup(", "stage_restore(zip_path"):
+        assert existing in service.split("def _fix_context", 1)[1].split("async def handle_post_health_fix", 1)[0], f"the fix reuses {existing}"
+    assert "http://127.0.0.1" not in service.split("def _fix_context", 1)[1].split("async def handle_post_health_fix", 1)[0], "no HTTP call to itself"
+    for confirmed in ("CONFIRM_RELOGIN", "CONFIRM_SETTINGS", "CONFIRM_LOGS"):
+        assert f"{confirmed})" in health, f"{confirmed} is attached to its fix"
+    assert 'ROTATED_LOG = re.compile(r"^sentinel_service\\.log\\.\\d+$")' in health, "only rotated logs are trimmed, never the active one"
+    restore = health.split("async def _restore_settings", 1)[1].split("async def _can_trim_logs", 1)[0]
+    assert restore.index("actions.list_backups") < restore.index("actions.save_profile_backup") < restore.index("actions.stage_restore") < restore.index("actions.reset_settings"), "the backup of the current settings comes before any restore or reset"
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    host = (WORKSPACE / "desktop" / "HealthFixHost.cs").read_text(encoding="utf-8")
+    diag = (WORKSPACE / "desktop" / "ServiceDiagnostics.cs").read_text(encoding="utf-8")
+    assert 'type == "HEALTH_FIX"' in form and "RunHealthFixAsync(" in form and "ServiceDiagnostics.PostFix(" in form and "FixResultJson(" in form, "the host relays the fix and answers FIX_RESULT"
+    assert "Task.Run(" in form.split("private void RunHealthFixAsync", 1)[1][:200] and "RunDiagnosticsAsync(null)" in form.split("private void RunHealthFixAsync", 1)[1], "the fix runs off the UI thread, then the checks run again"
+    assert 'type == "OPEN_TWITCH_ACTIVATE"' in form and "TwitchActivatePolicy.Resolve(" in form, "the sign-in page address is checked by the host"
+    assert form.index("WebViewDataReset.ApplyPending(") < form.index("Directory.CreateDirectory(userDataFolder)") < form.index("CoreWebView2Environment.CreateAsync(null, userDataFolder)"), "the reset runs before WebView2 opens the folder"
+    assert "IsAllowedFolder(folder, localAppData)" in host and "ReparsePoint" in host and "Directory.Delete(folder, true)" in host and host.count("Directory.Delete(") == 1, "only the exact, non-link folder is deleted"
+    assert "/api/v1/health/fix?lang=" in diag and "ParseFixResponse(" in diag and "Sanitize(c.Fix.Label" in diag, "the relay is a token-bearing POST and its answer is parsed and sanitized"
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    assert "planFix(" in panel and "await ask(plan.confirm" in panel and "controlsBusy(" in panel and "parseFixResult(" in panel and "noticeOrphan(" in panel, "the panel confirms, disables and shows the notice"
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Выполняем исправление…': 'Running the fix…'" in en and "'Перезапустить приложение': 'Restart the app'" in en
+    assert "ServiceDiagnostics.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8") and "HealthFixHost.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    print("      Health fixes wiring: PASS [OK]")
+
+
+def test_health_watch_is_wired():
+    print("[health watch] Background health watch: settings, loop, filter, notify gate, state, dot, translations...")
+    watch = (WORKSPACE / "core" / "health_watch.py").read_text(encoding="utf-8")
+    health = (WORKSPACE / "core" / "health.py").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert "HOURS_CHOICES = (1, 4, 12, 24)" in watch and "FIRST_RUN_SECONDS = 300" in watch, "four intervals, first run after five minutes"
+    assert "def background_checks" in health and 'entry.area != "network"' in health, "the background set leaves the network checks out"
+    assert "health.run_health(self._health_context(lang), health.background_checks())" in service, "the watch reuses run_health with the filter"
+    assert "health_watch.normalize_settings(data)" in service and '"health_watch": self.health_watch.state()' in service, "validated on POST, shown in the state"
+    loop = service.split("async def health_watch_loop", 1)[1].split("async def ", 1)[0]
+    assert "self.health_watch_loop()," in service and "while self.is_running" in loop and "await asyncio.sleep(1)" in loop, "a loop that checks is_running every second"
+    assert 'NOTIFIER.notify("health_watch"' in service, "announcements go through the shared toast gate"
+    assert "self.health_watch.record_manual(" in service, "the panel's own check updates the count"
+    cfg = json.loads((WORKSPACE / "config.default.json").read_text(encoding="utf-8"))
+    assert cfg["health_watch_enabled"] is True and cfg["health_watch_hours"] == 1
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "healthButtonView(sentinelState.health_watch)" in app and 'className="health-badge"' in app, "the state moved from the menu button to the header health button"
+    assert "<HealthWatchCard" in (WORKSPACE / "src" / "components" / "SettingsStudio.tsx").read_text(encoding="utf-8")
+    assert "'Следить за работой в фоне'" in (WORKSPACE / "src" / "i18n" / "en" / "settings.ts").read_text(encoding="utf-8")
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "health_watch_ui.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"health watch UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Health watch wiring: PASS [OK]")
+
+
+def test_health_center_is_wired():
+    print("[health center] Health center: header button, sections, history, exports, toast click, hotkey, translations...")
+    app = (WORKSPACE / "src" / "App.tsx").read_text(encoding="utf-8")
+    panel = (WORKSPACE / "src" / "components" / "ServiceDiagnosticsPanel.tsx").read_text(encoding="utf-8")
+    parts = (WORKSPACE / "src" / "components" / "HealthCenterParts.tsx").read_text(encoding="utf-8")
+    dash = (WORKSPACE / "src" / "components" / "LiveDashboard.tsx").read_text(encoding="utf-8")
+    assert 'id="healthCenterBtn"' in app and "healthButtonView(sentinelState.health_watch)" in app and 'className="health-badge"' in app, "the header button carries the state and the failure badge"
+    assert "healthBtn.label" in app and "healthBtn.title" in app, "aria-label and title describe the state"
+    assert 'className="header-more-wrap pip-hide"' in app and "pip-hide health-btn" in app, "hidden in PIP mode like the other header buttons"
+    more = app.split('id="moreMenuBtn"', 1)[1].split('role="menu"', 1)[0]
+    assert "more-dot" not in more and "Проверка работы" not in app.split('role="menu"', 1)[1].split("</div>", 1)[0], "the dot and the menu item left the more menu"
+    assert "isHealthHotkey(e)" in app and "isOpenCenterMessage(msg)" in app and "type: 'APP_READY'" in app, "hotkey, host open message, ready signal"
+    assert "id: 'open-health'" in app and "title: 'Центр проверки'" in app, "command palette entry"
+    assert "onOpenHealthCenter" in dash and "<ServiceDiagnosticsPanel" not in dash, "the banner button opens the app-wide center"
+    assert 'role="tablist"' in panel and 'role="tab"' in panel and 'role="tabpanel"' in panel and "nextSection(section, e.key)" in panel, "keyboard accessible sections"
+    for section in ("SummarySection", "DeveloperSection", "MaintenanceSection"):
+        assert section in parts and f"<{section}" in panel, f"{section} is drawn by the center"
+    for message in ("SAVE_HEALTH_REPORT", "COLLECT_HEALTH_LOGS", "REPORT_HEALTH_PROBLEM"):
+        assert message in panel, f"the page asks for {message}"
+    assert "<HealthWatchCard" in panel and "/api/v1/health/history" in panel, "the watch switch is reused, the history is fetched"
+    form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
+    prog = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
+    host = (WORKSPACE / "desktop" / "HealthCenterHost.cs").read_text(encoding="utf-8")
+    for message in ('type == "APP_READY"', 'type == "SAVE_HEALTH_REPORT"', 'type == "COLLECT_HEALTH_LOGS"', 'type == "REPORT_HEALTH_PROBLEM"'):
+        assert message in form, f"the host handles {message}"
+    assert "Task.Run(" in form.split("private void RunHealthExportAsync", 1)[1][:400], "exports run off the UI thread"
+    nav = form.split("private void OnNavigationStarting", 1)[1].split("private void ", 1)[0]
+    assert nav.count("_pageReady = false;") == 2, "a reload makes the page not ready again, so a toast click waits for APP_READY"
+    export = form.split("private void RunHealthExportAsync", 1)[1].split("private void PostToPage", 1)[0]
+    assert "HealthExport.DesktopFolder(" in export and "BuildLogZipUnique(" in export and "_exportGuard.TryEnter(" in export, "safe Desktop, collision-proof names, one run per action"
+    assert "HealthExport.TryReveal(" in export and "UniquePath" not in export, "a reveal failure does not fail the export"
+    assert "HealthExport.IsAllowedIssueUrl(url)" in form and "OPEN_HEALTH_CENTER" in form and "WM_SENTINEL_HEALTH" in form, "issue link checked before opening; toast activation reaches the page"
+    assert "HealthLaunch.EnsureRegistered(new CurrentUserProtocolStore()" in prog and "PostMessage(HWND_BROADCAST, WM_SENTINEL_HEALTH" in prog, "the scheme is registered by the app (HKCU) and a second start hands the click over"
+    assert "Registry.CurrentUser" in host and "LocalMachine" not in host and "ClassesRoot" not in host, "only the current user's registry is touched"
+    assert "HealthCenterHost.cs" in (WORKSPACE / "tools" / "service_diagnostics_check" / "ServiceDiagnosticsCheck.csproj").read_text(encoding="utf-8")
+    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    assert 'add_get("/api/v1/health/history", self.handle_get_health_history)' in service and "history=self.health_history" in service
+    assert 'launch="health"' in service, "the problem toast opens the center"
+    gui = (WORKSPACE / "core" / "gui_headless.py").read_text(encoding="utf-8")
+    assert 'TOAST_LAUNCH_URIS = {"health": "hellharvest://health"}' in gui and "SENTINEL_TOAST_LAUNCH" in gui, "only a fixed address can ride on a toast"
+    en = (WORKSPACE / "src" / "i18n" / "en" / "diagnostics.ts").read_text(encoding="utf-8")
+    assert "'Центр проверки': 'Health center'" in en and "'Собрать логи': 'Collect logs'" in en
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--test", str(WORKSPACE / "tools" / "engine_tests" / "health_center.test.mjs")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        assert res.returncode == 0, f"health center UI tests failed:\n{res.stdout[-2000:]}\n{res.stderr[-600:]}"
+    print("      Health center wiring: PASS [OK]")
+
+
 def test_installer_script_keeps_its_promises():
     print("[installer] Inno Setup script: per-user, fixed AppId, mutex, both languages, data kept, no launcher...")
     iss = (WORKSPACE / "installer" / "TwitchDropsSentinel.iss").read_text(encoding="utf-8")
@@ -8335,10 +8764,18 @@ def test_installer_script_keeps_its_promises():
     assert "AppId={{18419608-0A2A-4C0A-9B06-78DA6D8F921C}" in iss, "AppId is fixed forever: changing it breaks upgrades"
     assert re.search(r"(?m)^PrivilegesRequired=lowest$", iss), "per-user install"
     assert "PrivilegesRequiredOverridesAllowed" not in iss, "no switching to an all-users install"
-    assert r"DefaultDirName={localappdata}\Programs\Twitch Drops Sentinel" in iss
+    assert r"DefaultDirName={localappdata}\Programs\Hell Harvest" in iss and "UsePreviousAppDir=yes" in iss, "new installs go to Hell Harvest, upgrades stay in their folder"
+    assert '#define AppName "Hell Harvest"' in iss and "OutputBaseFilename=Hell_Harvest_Setup_v" in iss
+    assert '#define AppExe "TwitchDropsSentinel.exe"' in iss, "old updaters swap the exe by this name"
+    assert r'Type: files; Name: "{autoprograms}\Twitch Drops Sentinel.lnk"' in iss and r'Type: files; Name: "{autodesktop}\Twitch Drops Sentinel.lnk"' in iss, "an upgrade deletes the old product-name shortcuts"
+    assert iss.index("[InstallDelete]") < iss.index(r'{autoprograms}\Twitch Drops Sentinel.lnk') < iss.index("[UninstallDelete]")
+    assert "Запустить_Hell_Harvest.bat" in iss
     assert "UsePreviousAppDir=yes" in iss and "ArchitecturesAllowed=x64compatible" in iss
     assert r"AppMutex=Global\TwitchDropsSentinel_v3_Mutex" in iss and "#ifndef TEST_BUILD" in iss, "running app is detected unless it is the check build"
     assert "CloseApplications=yes" in iss
+    # an elevated setup could write to Program Files, but the app runs as the user and crash-loops there (seen 2026-11-22)
+    assert "function ProtectedDir" in iss and "{commonpf64}" in iss and "{commonpf32}" in iss and "CustomMessage('DirProtected')" in iss
+    assert "russian.DirHint=" in iss and "english.DirHint=" in iss and "CustomMessage('DirHint')" in iss, "the folder page must say which folders work"
     program = (WORKSPACE / "desktop" / "Program.cs").read_text(encoding="utf-8")
     assert r"Global\TwitchDropsSentinel_v3_Mutex" in program, "installer mutex must match the host's single-instance mutex"
     assert 'Name: "russian"' in iss and 'Name: "english"' in iss
@@ -8355,8 +8792,21 @@ def test_installer_script_keeps_its_promises():
     assert "nowait postinstall skipifsilent" in iss, "no launch after a silent install"
     assert "TwitchDropsSentinel.update" in iss, "a stale pending exe update must not survive an upgrade"
     assert "RunValue = 'TwitchDropsSentinel'" in iss and "RegDeleteValue" in iss
-    service = (WORKSPACE / "core" / "sentinel_service.py").read_text(encoding="utf-8")
+    service = src_text(WORKSPACE / "core" / "sentinel_service.py")
     assert 'winreg.QueryValueEx(key, "TwitchDropsSentinel")' in service, "autostart value name the installer removes"
+    # info pages: per-language RTF (ASCII with \\uN escapes, so no BOM is needed) and a checked-by-default "open the guide" box
+    for lang in ("ru", "en"):
+        for page in ("before", "after"):
+            name = f"info_{page}_{lang}.rtf"
+            assert f'Info{page.capitalize()}File: "{name}"' in iss, f"{name} must be wired into [Languages]"
+            raw = (WORKSPACE / "installer" / name).read_bytes()
+            assert raw.startswith(b"{\\rtf1") and raw.isascii(), f"{name} is an ASCII RTF"
+    assert "\\u1055?" in (WORKSPACE / "installer" / "info_before_ru.rtf").read_text(encoding="ascii"), "Cyrillic is written as RTF escapes"
+    guide_runs = [l for l in iss.splitlines() if l.startswith("Filename:") and "{cm:OpenGuide}" in l]
+    assert len(guide_runs) == 2 and all("shellexec nowait postinstall skipifsilent" in l and "unchecked" not in l for l in guide_runs), "the guide box is checked by default, never silent"
+    assert any("Languages: russian" in l and "%D0%98%D0%9D%D0%A1%D0%A2%D0%A0%D0%A3%D0%9A%D0%A6%D0%98%D0%AF.md" in l for l in guide_runs) and any("Languages: english" in l and "docs/GUIDE.md" in l for l in guide_runs)
+    for guide in ("GUIDE.md", "\u0418\u041d\u0421\u0422\u0420\u0423\u041a\u0426\u0418\u042f.md"):
+        assert (WORKSPACE / "docs" / guide).is_file(), f"docs/{guide} must exist for the installer link"
     print("      installer script static checks: PASS [OK]")
 
 
@@ -8510,34 +8960,82 @@ if __name__ == "__main__":
         test_host_opens_the_log_file_from_its_own_path,
         test_argon_v3_5_hardening_suite,
         test_steam_idle_package_unit_tests,
+        test_steam_idle_statistics_wiring_and_routes,
+        test_other_copies_cleanup_unit_tests_and_service_wiring,
         test_reward_campaigns_unit_tests,
+        test_core_feature_unit_tests,
+        test_profile_restore_api_stages_a_checked_backup,
+        test_farm_schedule_pauses_outside_the_window,
         test_reward_campaigns_setting_state_and_request,
         test_reward_campaigns_queue_force_hide_and_categories_api,
         test_reward_campaigns_daily_slot_and_auto_queue_settings,
+        test_service_diagnostics_feature_is_wired,
+        test_service_restarts_have_one_owner,
+        test_health_check_is_wired,
+        test_health_fixes_are_wired,
+        test_health_watch_is_wired,
+        test_health_center_is_wired,
         test_installer_script_keeps_its_promises,
     ]
-    # Gates that only make sense with the user's own data, exe or live Twitch. On a CI runner they are skipped
-    # loudly, never silently; CI_COLLECT=1 runs everything and lists what would fail (used to refresh this set).
-    failed = []
-    for gate in GATES:
-        if IN_CI and gate.__name__ in CI_LIVE_ONLY:
-            print(f"      SKIP [{gate.__name__}]: needs the user's data, the exe or live Twitch; not available on a CI runner")
+    # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.
+    # --fail-fast (or SUITE_FAIL_FAST=1) stops at the first failure like before. -k SUBSTR (repeatable) runs only
+    # the gates whose name contains it; --list prints the gate names. Gates that need the user's own data skip on
+    # CI and in a fresh checkout, network gates skip with SUITE_OFFLINE=1; both say so, never silently.
+    import argparse
+    import traceback
+    parser = argparse.ArgumentParser(description="Hell Harvest verification suite")
+    parser.add_argument("-k", dest="only", action="append", default=[], help="run only gates whose name contains this (repeatable)")
+    parser.add_argument("--fail-fast", action="store_true", default=os.environ.get("SUITE_FAIL_FAST") == "1")
+    parser.add_argument("--list", action="store_true", help="print the gate names and exit")
+    args = parser.parse_args()
+    if args.list:
+        print("\n".join(gate.__name__ for gate in GATES))
+        sys.exit(0)
+    selected = [g for g in GATES if not args.only or any(part in g.__name__ for part in args.only)]
+    if not selected:
+        print(f"No gate matches {args.only}; --list shows the names.")
+        sys.exit(2)
+    offline = os.environ.get("SUITE_OFFLINE") == "1"
+    failed: list = []
+    skipped: list = []
+    timings: list = []
+    for gate in selected:
+        if NO_USER_DATA and gate.__name__ in CI_LIVE_ONLY:
+            print(f"      SKIP [{gate.__name__}]: needs the user's data, the exe or live Twitch; not available in a fresh checkout")
+            skipped.append(gate.__name__)
             continue
-        if os.environ.get("CI_COLLECT") == "1":
-            try:
-                gate()
-            except Exception as exc:  # noqa: BLE001 - collecting, reported below
-                failed.append(gate.__name__)
-                print(f"      COLLECT-FAIL [{gate.__name__}]: {type(exc).__name__}: {exc}")
-        else:
+        if offline and gate.__name__ in NETWORK_GATES:
+            print(f"      SKIP [{gate.__name__}]: needs the internet; SUITE_OFFLINE=1")
+            skipped.append(gate.__name__)
+            continue
+        started = time.time()
+        try:
             gate()
+        except Exception as exc:  # noqa: BLE001 - every gate runs; failures are listed below
+            if args.fail_fast:
+                raise
+            print(f"      FAIL [{gate.__name__}]: {type(exc).__name__}: {str(exc)[:500]}")
+            traceback.print_exc(limit=-3)
+            failed.append((gate.__name__, f"{type(exc).__name__}: {str(exc).splitlines()[0][:200] if str(exc) else ''}"))
+        finally:
+            timings.append((time.time() - started, gate.__name__))
+    print("=" * 65)
+    ran = len(selected) - len(skipped)
+    print(f"  {ran - len(failed)} passed, {len(failed)} failed, {len(skipped)} skipped, of {len(selected)} gates")
+    slowest = sorted(timings, reverse=True)[:5]
+    print("  Slowest: " + ", ".join(f"{name} {secs:.1f}s" for secs, name in slowest))
     if failed:
-        print("CI_COLLECT failures:", failed)
+        print("  FAILED GATES:")
+        for name, reason in failed:
+            print(f"    - {name}: {reason}")
+        print("=" * 65)
+        if SUITE_PROC is not None:
+            SUITE_PROC.terminate()
         sys.exit(1)
     assert_live_data_untouched()
     print("      Live user files untouched (sha256 identical): PASS [OK]")
     print("=" * 65)
-    print(f"  ALL {len(GATES)} VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
+    print(f"  ALL {len(selected) - len(skipped)} VERIFICATION GATES PASSED WITH EXIT CODE 0! [SUCCESS]")
     print("=" * 65)
     if SUITE_PROC is not None:
         SUITE_PROC.terminate()

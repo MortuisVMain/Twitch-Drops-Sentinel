@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SteamIdleState } from '../../types';
 import { LoadState, initialLoad, loadFailed, loadOk, loadRetry } from '../../utils/dataLoad';
 import { isLibraryStatus, parseAchievements, parseDenylist } from './achievementsParse';
+import { parseAutoPause, parseSuggestion } from './steamIdleLogic.mjs';
 import { refusalApplies } from './steamIdleText';
 
 export const BASE = 'http://127.0.0.1:28492/api/v1/steam-idle';
@@ -10,12 +11,12 @@ const SLOW_POLL_MS = 15000;
 const SLOW_AFTER_FAILS = 3;
 const COMMAND_TIMEOUT_MS = 15000;
 
-export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip' | 'release'
+export type SteamIdleCommand = 'ack' | 'login' | 'check' | 'scan' | 'start' | 'stop' | 'pause' | 'resume' | 'skip' | 'release' | 'farmSettings'
   | 'achAck' | 'achSettings' | 'libScan' | 'achStart' | 'achStop' | 'achPause' | 'achResume' | 'achSkip'
   | 'achResumeInterrupted' | 'achDiscardInterrupted' | 'denyAdd' | 'denyRemove';
 const PATHS: Record<SteamIdleCommand, string> = {
   ack: '/ack', login: '/login', check: '/check', scan: '/scan',
-  start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip', release: '/farm/release',
+  start: '/farm/start', stop: '/farm/stop', pause: '/farm/pause', resume: '/farm/resume', skip: '/farm/skip', release: '/farm/release', farmSettings: '/farm/settings',
   achAck: '/achievements/ack', achSettings: '/achievements/settings', libScan: '/library/scan', achStart: '/achievements/start',
   achStop: '/achievements/stop', achPause: '/achievements/pause', achResume: '/achievements/resume', achSkip: '/achievements/skip',
   achResumeInterrupted: '/achievements/resume-interrupted', achDiscardInterrupted: '/achievements/discard-interrupted',
@@ -55,6 +56,8 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     && Array.isArray(farm.done) && farm.done.every(hasGame)
     && Array.isArray(farm.failed) && farm.failed.every((g) => hasGame(g) && typeof g.reason === 'string')
     && (farm.refundHeld === undefined || (Array.isArray(farm.refundHeld) && farm.refundHeld.every((g) => hasGame(g) && typeof g.reason === 'string' && isNum(g.daysLeft))))
+    && (farm.batch === undefined || (Array.isArray(farm.batch) && farm.batch.every((g) => hasGame(g) && isNum(g.dropsRemaining) && isNum(g.playtimeHours))))
+    && optNum(farm.hoursUntilDrops) && (farm.batchDisabled === undefined || farm.batchDisabled === null || typeof farm.batchDisabled === 'string')
     && optNum(farm.totalDropsRemaining) && optNumOrNull(farm.lastReadAgeSeconds)
     && (farm.lastError === null || typeof farm.lastError === 'string')
     && (json.library === undefined || (isRec(json.library) && isNumOrNull(json.library.count)
@@ -78,13 +81,24 @@ export const parseState = (json: unknown): SteamIdleState | null => {
     farm: {
       ...base.farm,
       refundHeld: Array.isArray(farm.refundHeld) ? base.farm.refundHeld : [],
+      batch: Array.isArray(farm.batch) ? base.farm.batch : [],
       totalDropsRemaining: isNum(farm.totalDropsRemaining) ? farm.totalDropsRemaining : 0,
       lastReadAgeSeconds: isNum(farm.lastReadAgeSeconds) ? farm.lastReadAgeSeconds : null,
+      estimate: isRec(farm.estimate) && isNum(farm.estimate.dropsRemaining) && isNum(farm.estimate.hours)
+        ? { dropsRemaining: farm.estimate.dropsRemaining, hours: farm.estimate.hours } : undefined,
+      droppedToday: isNum(farm.droppedToday) ? farm.droppedToday : undefined,
+      droppedThisRun: isNum(farm.droppedThisRun) ? farm.droppedThisRun : undefined,
+      thresholdSuggestion: parseSuggestion(farm.thresholdSuggestion),
+      autoPause: parseAutoPause(farm.autoPause),
+      pauseWhilePlaying: typeof farm.pauseWhilePlaying === 'boolean' ? farm.pauseWhilePlaying : undefined,
+      notify: typeof farm.notify === 'boolean' ? farm.notify : undefined,
     },
     library: {
       count: isRec(json.library) && isNum(json.library.count) ? json.library.count : null,
       ...(isRec(json.library) && isLibraryStatus(json.library.status) ? { status: json.library.status } : {}),
       ...(isRec(json.library) && isNum(json.library.ageSeconds) ? { ageSeconds: json.library.ageSeconds } : {}),
+      ...(isRec(json.library) && typeof json.library.achievementsChecking === 'boolean' ? { achievementsChecking: json.library.achievementsChecking } : {}),
+      ...(isRec(json.library) && isNum(json.library.achievementsVersion) ? { achievementsVersion: json.library.achievementsVersion } : {}),
     },
   };
 };

@@ -14,14 +14,19 @@
 // ?logs=5h|<n> serves a journal of n lines (default 3000) spread over the last ~5 hours through GET /api/logs?after=<seq>&session=<id> like the service does, while /api/state carries
 // only its last 50 lines and the cursor (log_seq, log_session). Requests land in window.__logRequests; window.__pushLog(k) adds k lines, window.__restartLogs() simulates a service restart (new session, numbers start again). tools/check_console_logs.cjs.
 // ?steamidle=ack|signedout|idle|farming|suspended|paused|done|error|unavailable|mismatch|enginemissing serves the Steam IDLE tab in that scenario (default farming; enginemissing has community.session "engine_missing": the browser engine of the giveaways is not installed); slow answers the first state after 8 s, down never answers; hang (farming) never answers any command; badstate has farm.state "exploding"; nolibrary (farming) omits the library key; idle also serves a ready card-games preview of 6 games, previewempty|previewscanning|previewfailed serve the other preview states and POST scan moves none -> scanning -> ready (1.5 s).
+// ?steamidle=batching is the hours phase: five games collecting playtime toward hoursUntilDrops (3 h), farm.state "batching", phase "hours"; batchingmore has eight games, batchingdisabled has batchDisabled "no_hours" while one game is farmed. Every scenario serves hoursUntilDrops (default 3); POST /farm/settings validates {hoursUntilDrops} 0..10 like the service.
+// ?steamidle=suggest|suggestzero serve the idle farm with the hint under the hours setting (restricted: set 1,5; unrestricted: set 0) and its Apply button; autopause is the paused farm that stopped itself because the user plays a game (farm.autoPause). Every scenario serves the two switches pauseWhilePlaying and notify (both on); POST /farm/settings takes any subset of {hoursUntilDrops, pauseWhilePlaying, notify}.
+// ?steamidle=farmingdays serves a long estimate (104 cards, 52.4 h: days and hours); nostats serves the farming scenario without estimate, droppedToday and droppedThisRun (an older service).
 // ?steamidle=farmingmore is the farming scenario plus two refund-held games (card with the "Фармить всё равно" button) and two failed ones (reasons no_progress and presence_lost).
 // ?steamidle=achgate|achidle|achrunning|achwaiting|achstopped|achdone|achnolib|achbig|achbadshape|noach serves the Achievements section (open it with the switch under the readiness row): achgate has achievements.acknowledged false; achidle is ready with a 30-game library (game 1: 40 achievements, 12 achieved, 6 hidden, long texts; game 2: 5; game 3: none); achrunning unlocking 3 of 9 with a queue of 4; achwaiting waiting 720 s; achstopped stopped with unlock_uncertain; achdone a finished list of 5 notes; achnolib library status none (POST /library/scan: none -> scanning -> ready in 1.5 s); achbig every game has 260 locked achievements; achbadshape has achievements.run.state "exploding" (the section is hidden, the Cards section still renders); noach omits the achievements key (older service: no switch); achdeny is achidle with three entries on the user's own anti-cheat list (Pale Harbor is always on the built-in table; POST /denylist/add|remove work).
+// The Log panel (collapsed until opened; the choice lives in localStorage sentinel_steamidle_log_open) is served by GET /log?after=<seq> and POST /log/clear: ?steamidlelog=empty serves no entries, live adds one entry per poll, fail answers 500; the default is 14 sample entries of all three levels.
 // ?steamidlepost=<code> (for example busy, steam_not_running) makes every Steam IDLE command (ack, login, check, the farm ones and the achievements ones) answer 409 with that code. Commands land in window.__steamIdlePosts, with their bodies in window.__steamIdleBodies.
 // ?steamidleget=<code> makes GET /library and GET /achievements (answered after 400 ms) answer 409 with that code (for example not_ready, steam_not_running).
 // ?tabsoff=shelf,giveaways,steamidle,dimmer serves settings with those header tabs turned off (giveaways through giveaways_enabled: false, the others through disabled_tabs); any subset works. window.__fixtureSettings is the settings object the next state poll serves: change disabled_tabs on it to turn a tab off while the page runs.
 // POST /api/settings merges the posted fields into window.__fixtureSettings, so a switch in Settings holds across state polls. ?steamidlebusy=1|0 sets busy on GET /api/v1/steam-idle/state (default: true while the farm is farming, paused or suspended).
 // ?rewards=1 serves reward_campaigns_enabled: true with six synthetic reward campaigns carrying the farming fields (one with a game, one subs-only, one with a very long name that is done today, one farmable with a guessed category, one with category null, one hidden); ?rewards=empty turns it on with an empty list. Without it the setting is absent (off) and reward_campaigns is [], like the service; switching it in Settings serves the campaigns (or none for empty), as the service does. With it, hidden_reward_campaigns is ['rc6'] and reward_campaign_categories {}; POST /api/settings with those keys, priority_games ('reward:<id>' entries) and POST /api/farm/force|cancel-force behave like the service (force of rc2 (no category), rc3 (done today) answers 400 with a Russian message; rc1/rc4 are accepted and set forced_game and reward_watching); window.__fixturePosts lists every one of these POSTs. reward_daily_slot (default on) and reward_auto_queue (default off) are posted like any setting and held; rc4 shows day 3 of 6 and rc1 shows today's badge received. For the dashboard's watching branch use ?pip=idle (no active drop).
 // ?host=1 fakes the WebView2 host: window.chrome.webview.postMessage records every message in window.__hostMessages.
+// ?copies=found|own|empty|hint|error serves the Settings block "Другие копии в автозапуске": found is five findings of three copies (an autostart value, a giveaways task, a shortcut to a deleted folder, a machine-wide value, a running exe; two copies can be imported); own is found with settings and a sign-in of this copy (the import asks first); empty has none; hint is empty with the installer hint; error answers 500. Default: empty without the hint. POSTs land in window.__copiesPosts and remove/close/move change the served state.
 (function () {
   var q = new URLSearchParams(location.search);
   if (q.get('host') === '1') {
@@ -64,7 +69,7 @@
       claimed_drops: 0, total_drops: 4, farmable: true, allowed_channels: [] });
   }
   var state = {
-    version: '3.8.0', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
+    version: '3.9.0', connected: true, user_id: '1', username: 'A_Very_Long_Twitch_Username_2026',
     status_text: 'Фарм: ' + LONG[0], watching_channel: 'extraordinarilylongchannelnamethatgoesonandon',
     available_channels: [1, 2, 3].map(function (n) {
       return { id: 'c' + n, name: 'long_streamer_channel_name_number_' + n, game: LONG[n], viewers: 12345 * n, drops_enabled: true, online: true, acl_based: false };
@@ -263,10 +268,10 @@
     if (reset) after = 0;
     return { session: journal.session, last_seq: journal.seq, reset: reset, entries: journal.entries.filter(function (e) { return e.seq > after; }) };
   }
-  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.8.0', remote_version: '3.9.0', release_notes: '', error: null } : { update_available: false, local_version: '3.8.0', remote_version: '3.8.0', error: null };
+  var update = q.get('update') === '1' ? { update_available: true, local_version: '3.9.0', remote_version: '3.10.0', release_notes: '', error: null } : { update_available: false, local_version: '3.9.0', remote_version: '3.9.0', error: null };
   // the plain-text diagnostic report: many lines, a few of them very long (paths, URLs), like the real one
   function diagReport() {
-    var out = ['==================================================', 'TWITCH DROPS SENTINEL v3.8.0 - DIAGNOSTIC REPORT', '==================================================', 'OS: Windows 11 (Build 10.0.26300)', 'Active Drop Name: Pouch of Violet Dust', 'RECENT LOGS:'];
+    var out = ['==================================================', 'TWITCH DROPS SENTINEL v3.9.0 - DIAGNOSTIC REPORT', '==================================================', 'OS: Windows 11 (Build 10.0.26300)', 'Active Drop Name: Pouch of Violet Dust', 'RECENT LOGS:'];
     for (var n = 0; n < 120; n++) out.push('[06:' + (10 + n % 50) + ':00] [INFO] Line ' + n + (n % 17 === 0 ? ' C:/Users/someone/AppData/Local/Programs/TwitchDropsSentinel/core/cookies.jar [PRESENT] ' + new Array(12).join('segment-of-a-very-long-unbroken-path-name/') : ''));
     out.push('END OF DIAGNOSTIC REPORT');
     return out.join('\n');
@@ -281,7 +286,7 @@
   var si = {
     available: true, unavailableReason: null, riskAcknowledged: true, steam: { running: true, signedIn: true },
     community: { session: 'signed_in', checkedAgeSeconds: 40 },
-    farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false },
+    farm: { state: 'idle', current: null, queue: [], done: [], failed: [], totalDropsRemaining: 0, lastReadAgeSeconds: null, lastError: null, paused: false, suspended: false, phase: null, batch: [], hoursUntilDrops: 3, batchDisabled: null, estimate: { dropsRemaining: 0, hours: 0 }, droppedToday: 12, droppedThisRun: 0, thresholdSuggestion: null, autoPause: null, pauseWhilePlaying: true, notify: true },
     library: { count: 30, status: 'ready', ageSeconds: 120 },
     achievements: {
       acknowledged: true, settings: { minMinutes: 0, maxMinutes: 0, skipHidden: true },
@@ -301,12 +306,14 @@
   function siTotal() {
     var f = si.farm;
     f.totalDropsRemaining = f.queue.reduce(function (n, g) { return n + g.dropsRemaining; }, 0) + (f.current ? f.current.dropsRemaining : 0);
+    f.estimate = { dropsRemaining: f.totalDropsRemaining, hours: Math.round((f.totalDropsRemaining * 0.5 + (f.phase === 'hours' ? 2.4 : 0)) * 10) / 10 };
+    f.droppedThisRun = f.state === 'idle' ? 0 : 3;
   }
   function siHold() {
     var f = si.farm;
     if (!f.queue.length) { f.current = null; f.state = 'done'; siTotal(); return; }
     f.current = Object.assign({ heldSeconds: 0 }, f.queue.shift());
-    f.state = 'farming'; f.paused = false; f.suspended = false; f.lastError = null; siTotal();
+    f.state = 'farming'; f.phase = 'cards'; f.batch = []; f.paused = false; f.suspended = false; f.lastError = null; siTotal();
   }
   function siFill() {
     var f = si.farm;
@@ -318,7 +325,10 @@
     'Ironbark Dispatch', 'Sundial Heist', 'Fennel & Flint', 'Cinder Choir', 'Westerly', 'Halcyon Mine', 'Thistledown', 'Orrery', 'Nightjar Yard', 'Underhill Post'];
   function siDenied(id) { return si.denylist.entries.some(function (e) { return e.appId === id; }); }
   // game 5 (Pale Harbor) is on the built-in anti-cheat table; the user's own list marks the others
-  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { var id = 910100 + i, own = siDenied(id); return { appId: id, name: n, playtimeMinutes: (i * 137) % 2400, protected: own || i === 5, userDenied: own }; }); }
+  // hasAchievements: game 3 (none, like its list) and every 9th from 4 are false and hidden by the picker, the last one unknown;
+  // achievements (progress of the last read): game 1 12 of 40, every 4th from 2 all 8 of 8, every 4th from 4 none of 8
+  function siLibProgress(i) { return i === 0 ? { achieved: 12, total: 40 } : i % 4 === 1 ? { achieved: 8, total: 8 } : i % 4 === 3 ? { achieved: 0, total: 8 } : null; }
+  function siLibGames() { return SI_LIB_NAMES.map(function (n, i) { var id = 910100 + i, own = siDenied(id), none = i === 2 || i % 9 === 4; return { appId: id, name: n, playtimeMinutes: (i * 137) % 2400, protected: own || i === 5, userDenied: own, hasAchievements: none ? false : i === SI_LIB_NAMES.length - 1 ? null : true, achievements: none ? (i === 2 ? { achieved: 0, total: 0 } : null) : siLibProgress(i) }; }); }
   // POST /denylist/add|remove: the service's checks (one appId key, whole number, a built-in game is refused, 500 at most)
   function siDenyCommand(cmd, body) {
     var id = body && Object.keys(body).join(',') === 'appId' ? body.appId : null;
@@ -396,6 +406,15 @@
   else if (siMode === 'unavailable') { si.available = false; si.unavailableReason = 'helper_missing'; si.steam = { running: false, signedIn: false }; si.community = { session: 'unknown', checkedAgeSeconds: null }; si.library = { count: null, status: 'none', ageSeconds: null }; }
   else if (siMode === 'badstate') { siFill(); si.farm.state = 'exploding'; siTotal(); }
   else if (siMode === 'farming' || siMode === 'slow' || siMode === 'hang' || siMode === 'nolibrary') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; si.farm.current.dropsRemaining = 3; siTotal(); si.farm.totalDropsRemaining = 14; }
+  else if (siMode === 'batching' || siMode === 'batchingmore') {
+    siFill(); si.farm.state = 'batching'; si.farm.phase = 'hours'; si.farm.current = null;
+    si.farm.queue = (siMode === 'batchingmore' ? [0, 1, 2, 3, 4, 5, 6, 3] : [0, 1, 2, 3, 4]).map(function (i, n) { return Object.assign(siGame(i, 2 + n % 3), { appId: 910000 + n }); });
+    si.farm.batch = si.farm.queue.map(function (g, n) { return { appId: g.appId, name: g.name, dropsRemaining: g.dropsRemaining, playtimeHours: [0.5, 1.2, 2.4, 3, 0][n % 5] }; });
+    siTotal();
+  }
+  else if (siMode === 'farmingdays') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal(); si.farm.estimate = { dropsRemaining: 104, hours: 52.4 }; si.farm.totalDropsRemaining = 104; si.farm.droppedToday = 1; si.farm.droppedThisRun = 1; }
+  else if (siMode === 'nostats') { siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal(); delete si.farm.estimate; delete si.farm.droppedToday; delete si.farm.droppedThisRun; }
+  else if (siMode === 'batchingdisabled') { siFill(); siHold(); si.farm.batchDisabled = 'no_hours'; si.farm.current.heldSeconds = 600; siTotal(); }
   else if (siMode === 'farmingmore') {
     siFill(); siHold(); si.farm.current.heldSeconds = 1840; siTotal();
     si.farm.refundHeld = [{ appId: 910007, name: 'Tidewrack', reason: 'refund_window', daysLeft: 1.4 }, { appId: 910008, name: SI_NAMES[3], reason: 'refund_window', daysLeft: 6 }];
@@ -403,6 +422,9 @@
   }
   else if (siMode === 'suspended') { siFill(); si.farm.state = 'suspended'; si.farm.suspended = true; siTotal(); }
   else if (siMode === 'paused') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; siTotal(); }
+  else if (siMode === 'autopause') { siFill(); si.farm.state = 'paused'; si.farm.paused = true; si.farm.autoPause = { reason: 'user_playing', appId: 292030, since: 95 }; siTotal(); }
+  else if (siMode === 'suggest') si.farm.thresholdSuggestion = { kind: 'restricted', suggestedHours: 1.5, samples: 4 };
+  else if (siMode === 'suggestzero') si.farm.thresholdSuggestion = { kind: 'unrestricted', suggestedHours: 0, samples: 3 };
   else if (siMode === 'done') { si.farm.state = 'done'; si.farm.done = [0, 1, 2, 3, 4].map(siDone); si.farm.lastReadAgeSeconds = 20; }
   else if (siMode === 'error') { si.farm.state = 'stopped'; si.farm.lastError = 'read_failed'; si.farm.done = [siDone(5)]; si.farm.failed = [{ appId: 910003, name: SI_NAMES[3], reason: 'no_progress' }]; si.farm.lastReadAgeSeconds = 400; }
   function siReply(status, body) {
@@ -410,6 +432,7 @@
   }
   function siCommand(cmd) {
     var f = si.farm;
+    if (cmd === 'farm/resume' || cmd === 'farm/stop' || cmd === 'farm/pause') f.autoPause = null;
     if (cmd === 'ack') si.riskAcknowledged = true;
     else if (cmd === 'login') si.community = { session: 'login_open', checkedAgeSeconds: null };
     else if (cmd === 'scan') {
@@ -419,8 +442,9 @@
       }
     }
     else if (cmd === 'check') si.community = { session: si.community.session === 'login_open' ? 'login_open' : 'signed_in', checkedAgeSeconds: 0 };
+    else if (cmd === 'farm/start' && f.queue.length && si.farm.hoursUntilDrops > 0 && siMode.indexOf('batching') === 0) { f.state = 'batching'; f.phase = 'hours'; f.batchDisabled = null; f.batch = f.queue.map(function (g) { return { appId: g.appId, name: g.name, dropsRemaining: g.dropsRemaining, playtimeHours: 0 }; }); }
     else if (cmd === 'farm/start') { if (!f.queue.length && !f.current) siFill(); f.done = f.done.slice(0, 2); f.failed = []; siHold(); }
-    else if (cmd === 'farm/stop') { f.state = 'stopped'; f.current = null; f.paused = false; }
+    else if (cmd === 'farm/stop') { f.state = 'stopped'; f.current = null; f.paused = false; f.phase = null; f.batch = []; }
     else if (cmd === 'farm/pause') { if (f.current) f.queue.unshift({ appId: f.current.appId, name: f.current.name, dropsRemaining: f.current.dropsRemaining }); f.current = null; f.state = 'paused'; f.paused = true; }
     else if (cmd === 'farm/resume') siHold();
     else if (cmd === 'farm/skip') { if (f.current) f.done.push({ appId: f.current.appId, name: f.current.name }); siHold(); }
@@ -464,12 +488,35 @@
     } else if (cmd === 'achievements/stop') { r.state = 'stopped'; r.current = null; r.queue = []; r.paused = false; r.nextUnlockInSeconds = null; }
     return null;
   }
+  var siLogMode = q.get('steamidlelog'), siLogSeq = 0, siLogEntries = [], siLogGets = 0;
+  function siLogAdd(level, text, agoSeconds) {
+    siLogSeq += 1;
+    siLogEntries.push({ seq: siLogSeq, ts: new Date(Date.now() - agoSeconds * 1000).toISOString(), level: level, text: text });
+  }
+  if (siLogMode !== 'empty') {
+    [['info', 'Farm run started', 840], ['info', 'Scan: 6 games with drops, 1 refund-held', 838],
+     ['info', 'Collecting playtime for 5 games, threshold 3.0 h', 837], ['info', 'Lanternfall Chronicles joined the playtime batch', 836],
+     ['info', 'Brass Meridian joined the playtime batch', 835], ['info', 'Lanternfall Chronicles: 0.4 h -> 1.1 h', 600],
+     ['info', 'Brass Meridian: 2.8 h -> 3.2 h', 599], ['info', 'Brass Meridian left the playtime batch (3.2 h)', 599],
+     ['warning', 'Presence for Hollow Orchard Tactics lost, restarting', 420], ['warning', 'Game failed: Quiet Foundry (910004): presence_lost', 300],
+     ['info', 'Playtime phase finished', 120], ['info', 'Idling Brass Meridian (910001), 2 drops left', 119],
+     ['error', 'drops read failed: read_timeout', 60], ['info', 'Brass Meridian: drops 2 -> 1', 20]
+    ].forEach(function (r) { siLogAdd(r[0], r[1], r[2]); });
+  }
   function steamIdleFetch(path, init, fullUrl) {
     var cmd = path.slice('/api/v1/steam-idle/'.length);
+    if (cmd === 'log' && !(init && init.method === 'POST')) {
+      if (siLogMode === 'fail') return siReply(500, { error: 'failed' });
+      var after = new URLSearchParams(String(fullUrl).split('?')[1] || '').get('after');
+      siLogGets += 1;
+      if (siLogMode === 'live' && siLogGets > 1) siLogAdd('info', 'Brass Meridian: poll ' + siLogGets, 0);
+      return siReply(200, { entries: siLogEntries.filter(function (e) { return after === null || e.seq > Number(after); }), lastSeq: siLogSeq });
+    }
     if (init && init.method === 'POST') {
       window.__steamIdlePosts.push(cmd);
       var posted = init.body ? JSON.parse(init.body) : null;
       window.__steamIdleBodies.push({ cmd: cmd, body: posted });
+      if (cmd === 'log/clear') { siLogEntries = []; return siReply(200, { ok: true }); }
       if (siMode === 'hang') return new Promise(function (res, rej) {
         if (init.signal) init.signal.addEventListener('abort', function () { rej(new DOMException('Aborted', 'AbortError')); });
       });
@@ -480,6 +527,12 @@
       } else if (si.achievements && (cmd.indexOf('achievements/') === 0 || cmd === 'library/scan')) {
         var refused = siAchCommand(cmd, posted);
         if (refused) return siReply(refused[0], { error: refused[1] });
+      } else if (cmd === 'farm/settings') {
+        var keys = posted ? Object.keys(posted) : [];
+        var known = { hoursUntilDrops: function (v) { return typeof v === 'number' && v >= 0 && v <= 10; }, pauseWhilePlaying: function (v) { return typeof v === 'boolean'; }, notify: function (v) { return typeof v === 'boolean'; } };
+        if (!keys.length || keys.some(function (k) { return !known[k] || !known[k](posted[k]); })) return siReply(400, { error: 'invalid_request' });
+        keys.forEach(function (k) { si.farm[k] = posted[k]; });
+        if (si.farm.thresholdSuggestion && si.farm.thresholdSuggestion.suggestedHours === si.farm.hoursUntilDrops) si.farm.thresholdSuggestion = null;
       } else siCommand(cmd);
       return siReply(cmd === 'library/scan' ? 202 : 200, { ok: true });
     }
@@ -501,12 +554,57 @@
     if (siMode === 'slow' && siCalls === 1) return new Promise(function (res) { setTimeout(function () { res(siReply(200, body)); }, SLOW_MS); });
     return siReply(200, body);
   }
+  // Settings block "other copies": GET/POST /api/startup-copies/* (see the header, ?copies=)
+  var copiesMode = q.get('copies') || 'empty';
+  window.__copiesPosts = [];
+  function W(p) { return p.split('/').join(String.fromCharCode(92)); }
+  var OLD_A = W('C:/Users/mortu/Downloads/Twitch Drops Sentinel 3.7.0 (старая копия с очень длинным названием папки)'), OLD_B = W('D:/Games/Tools/Sentinel 3.9.2'), GONE = W('E:/Temp/Sentinel 3.5.0');
+  var RUN_KEY = 'Software/Microsoft/Windows/CurrentVersion/Run';
+  function finding(id, kind, name, dir, version, over) {
+    return Object.assign({ id: id, kind: kind, name: name, target: dir + W('/TwitchDropsSentinel.exe'), copyDir: dir, version: version, dirExists: true, removable: true, closable: false, location: W('HKCU/' + RUN_KEY), pid: null, ownsAutostart: false }, over || {});
+  }
+  var copiesFindings = (copiesMode === 'found' || copiesMode === 'own') ? [
+    finding('aaaaaaaaaaa1', 'run_value', 'TwitchDropsSentinel', OLD_A, '3.7.0', { ownsAutostart: true }),
+    finding('aaaaaaaaaaa2', 'scheduler_task', 'FreeGamesClaimerStudio-8adcfd31', OLD_A, '3.7.0', { location: 'Task Scheduler' + String.fromCharCode(92) + 'FreeGamesClaimerStudio-8adcfd31' }),
+    finding('aaaaaaaaaaa3', 'startup_link', 'TwitchDropsSentinel.lnk', GONE, null, { dirExists: false, target: GONE + W('/start_sentinel_silent.bat'), location: W('C:/Users/mortu/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/TwitchDropsSentinel.lnk') }),
+    finding('aaaaaaaaaaa4', 'hklm_run', 'Sentinel for all', OLD_B, '3.9.2', { removable: false, location: W('HKLM/' + RUN_KEY) }),
+    finding('aaaaaaaaaaa5', 'process', 'TwitchDropsSentinel.exe', OLD_B, '3.9.2', { removable: false, closable: true, location: 'pid 4242', pid: 4242 }),
+  ] : [];
+  function copiesState() {
+    var owner = copiesFindings.filter(function (f) { return f.ownsAutostart; })[0] || null;
+    var dirs = {};
+    copiesFindings.forEach(function (f) { if (f.copyDir && !dirs[f.copyDir]) dirs[f.copyDir] = { dir: f.copyDir, version: f.version, running: false, exists: f.dirExists !== false, importable: false }; });
+    copiesFindings.forEach(function (f) { if (f.kind === 'process') dirs[f.copyDir].running = true; });
+    Object.keys(dirs).forEach(function (d) { dirs[d].importable = dirs[d].exists && !dirs[d].running; });
+    return { status: 'ok', findings: copiesFindings, autostartOwner: owner, copies: Object.keys(dirs).map(function (d) { return dirs[d]; }), scannedAt: 1, thisVersion: '3.10.0', thisDir: W('C:/Apps/Sentinel 3.10.0'),
+      ownData: { nonDefaultConfig: copiesMode === 'own', signedIn: copiesMode === 'own' }, installerHint: { show: copiesMode === 'hint' || copiesMode === 'found', url: 'https://github.com/MortuisVMain/Twitch-Drops-Sentinel/releases/latest' } };
+  }
+  function copiesReply(status, body) { return Promise.resolve({ ok: status < 400, status: status, json: function () { return Promise.resolve(body); }, text: function () { return Promise.resolve(JSON.stringify(body)); } }); }
+  function copiesFetch(path, init) {
+    var sub = path.slice('/api/startup-copies'.length);
+    if (copiesMode === 'error') return copiesReply(500, { status: 'error', message: 'fixture: the service failed' });
+    if (!init || init.method !== 'POST') return copiesReply(200, copiesState());
+    var body = init.body ? JSON.parse(init.body) : {};
+    window.__copiesPosts.push({ path: sub, body: body });
+    if (sub === '/remove' && body.all) { copiesFindings = copiesFindings.filter(function (f) { return !f.removable; }); }
+    else if (sub === '/remove' || sub === '/close') {
+      var known = copiesFindings.some(function (f) { return f.id === body.id; });
+      if (!known) return copiesReply(404, { status: 'error', message: 'запись не найдена, обновите список' });
+      copiesFindings = copiesFindings.filter(function (f) { return f.id !== body.id; });
+    }
+    else if (sub === '/move-autostart') { copiesFindings = copiesFindings.map(function (f) { return Object.assign({}, f, { ownsAutostart: false }); }); }
+    else if (sub === '/import' && copiesMode === 'own' && body.confirm !== true) return copiesReply(409, { status: 'confirm_required', ownData: copiesState().ownData });
+    else if (sub === '/import') return copiesReply(200, { status: 'ok', restart_required: true });
+    else if (sub === '/dismiss-hint') { copiesMode = 'empty'; return copiesReply(200, { status: 'ok' }); }
+    return copiesReply(200, copiesState());
+  }
   var routes = { '/api/updates/check': update, '/api/state': state, '/api/v1/dimmer/state': dimmer, '/api/v1/giveaways/state': giveaways, '/api/game-directories': { directories: state.settings.game_directories } };
   var gMode = q.get('giveaways'), dMode = q.get('dimmer'), gCalls = 0, SLOW_MS = 8000;
   function failing(status) { return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } }); }
   window.fetch = function (url, init) {
     var path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     if (path.indexOf('/api/v1/steam-idle/') === 0) return steamIdleFetch(path, init, url);
+    if (path.indexOf('/api/startup-copies') === 0) return copiesFetch(path, init);
     // Farm now: a reward target is refused with a Russian message like the service does (not farmable, done today, earned)
     if ((path === '/api/farm/force' || path === '/api/farm/cancel-force') && init && init.method === 'POST') {
       var farmBody = init.body ? JSON.parse(init.body) : {};

@@ -4,6 +4,69 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-11-27
+- Steam IDLE reads the card page of the farmed game again: the cheap check every 10 minutes failed on every run ("gamecards_unparsed") because Steam's page wraps its badge in a row class the parser treated as the badges list, so each check read every badge page instead. A failure that repeats is now logged once, then quietly, with one line when it recovers.
+- Restart from the app no longer sometimes just closes it: the new copy waits for the old one to let go instead of taking it for a running copy. On exit the app gives the service up to 21 seconds, so Steam IDLE can release the games it holds, instead of killing it after 2.5 seconds.
+- Fixed: the "Lock" choice of the auto-shutdown did nothing; a damaged update archive left the updater on "extracting"; a health notification could repeat a problem you had just fixed; a single mouse click ended the blackout although the screen says Esc or Alt+Backspace.
+- Screen fixes: the 40-segment progress meter lights up, the Health center badge count is readable, the game catalog and the diagnostics report open above the header, colours that were missing in some themes are set. The stage chip shows the real drop stage, and values the app does not measure show "-" instead of invented numbers.
+- Confirmations (reset statistics, switch account, run a fix) are in-app dialogs instead of browser pop-ups.
+- Less background work: the window checks the service with a light request, polls only when the live connection is down, redraws the countdown without redrawing the whole app, stops the animated backdrop when hidden, and lets WebView2 use less memory while in the tray. The service reads Trophies.md only when it changed.
+- Hardening: certificate checks are on for cover-art requests, cookies are never saved unencrypted if Windows encryption fails (the previous file is kept), settings files are flushed to disk before they replace the old ones.
+
+## [4.2.1] - 2026-11-26
+- Fixed a restart storm of the local service: after any exit the app started a new service every 2 seconds, killed each one while it was still starting, and kept issuing new Twitch sign-in codes and browser tabs. Now only one place decides about restarts, a starting service is never killed, and a service that crashes three times right after its start is left alone for 60 seconds (the Health center says so). The Twitch activation page opens at most once per 10 minutes.
+- When the window page crashes (WebView2 158, released by Microsoft on 26 Nov, crashes with STATUS_ACCESS_VIOLATION), the app reloads it by itself instead of leaving the "This page is having a problem" screen up; at most 3 reloads per 5 minutes, each one written to desktop_errors.log.
+- Installs now include config.default.json (the template of default settings), so the service no longer reports it as unreadable on every start; the update patch delivers it to existing installs.
+
+## [4.2.0] - 2026-11-25
+- Steam IDLE keeps statistics from this version on: farm hours, cards dropped and achievements unlocked, per game and per day, for the current Steam account (kept for a year). The new "Statistics" section in the Steam IDLE tab shows the totals for 7 days, 30 days or all time, weekly bars, a sortable per-game table, a CSV export and a reset. The "History and statistics" window shows the same totals next to your drops and free games.
+- The Health check is now the Health center, with its own stethoscope button next to More (grey when all is well, amber with warnings, red with the number of failures; Ctrl+Shift+H and the quick commands open it too). The dot and the menu item were moved there from the More menu.
+- The Health center has four sections: Summary (overall state, time of the last check, "Check now" and the last 20 problems found or fixed), Checks (the rows and one-click fixes as before), For developers and Maintenance (restart the app, open the logs folder, reset the window data and the background watch switch with its interval).
+- For developers: "Save report to a file" puts the cleaned report on the Desktop, "Collect logs" builds a ZIP of cleaned copies of the service, desktop and crash logs (the last 5 MB of each, with a README of what is inside) on the Desktop, and "Report a problem" copies the report and opens a prefilled new issue on GitHub; the report itself is never put in the link.
+- A click on the notification about a new failure opens the Health center (the app registers a hellharvest:// link for the current Windows user to make this work and removes it on uninstall).
+- New service address GET /api/v1/health/history returns the last 20 problems found or fixed by background and manual checks.
+
+## [4.1.0] - 2026-11-25
+- A new "Health check" item in the More menu runs read-only checks of Twitch and Steam sign-in, giveaways, network, updates, settings and disk, groups the results by area and lets you copy a report.
+- The Health check now offers one-click fixes next to the problem it found: sign in to Twitch again, open the sign-in page and copy the code, sign in to Steam, reinstall the giveaways engine, repair autostart, restore the settings from a backup, delete old logs and reset the window data. Anything that erases something asks first and says what is lost, and the settings are backed up before they are restored.
+- New setting "Watch the app in the background" (on by default, every 1, 4, 12 hours or once a day): the app quietly runs the read-only checks, shows a dot on the More button and a problem count next to "Health check", and sends one notification about each new failure. It first looks about five minutes after the start; the network checks are left out. Turning it off stops it completely.
+
+## [4.0.1] - 2026-11-24
+- The built-in updater now resumes after network drops and downloads in parallel parts, so slow connections to GitHub no longer make it restart from zero.
+- The dashboard's "service unavailable" banner gets a Check button that tells what is wrong and what to do, with restart, logs folder and a copyable report.
+- The app no longer restarts its local service just because it answers slowly (for example on a slower PC at the first start). Before, each restart began the Twitch sign-in again, so a new code and a new browser tab appeared every few seconds and the code could not be entered.
+
+## [4.0.0] - 2026-11-22
+- The app is now called Hell Harvest, with new icons. Updates, settings and sign-ins carry over.
+- A full user guide in Russian (docs/ИНСТРУКЦИЯ.md) and English (docs/GUIDE.md); the in-app help gains a Steam IDLE tab and a link to the guide; the installer explains what the app does and the first steps, and can open the guide when it finishes.
+
+## [3.11.0] - 2026-11-22
+- Settings: a new block "Other copies in autostart" finds old copies of the app that still start with Windows, run, hold the giveaways task or leave a v2 Startup shortcut; remove their entries (each one is backed up first), close a running old copy, move the autostart to this copy or import the data of an old copy. Entries of copies whose folder is gone are removed automatically at start.
+- Starting a second copy now offers to close an older copy running from another folder; Settings hints at the installer, which updates in place, when this copy sits in Downloads or has left others behind.
+
+## [3.10.0] - 2026-11-22
+- Steam IDLE, card farm: a playtime phase for restricted accounts (new, or after refunds), which get no cards from a game before it has a few hours. Games under the threshold are idled together, up to 32 at once, until each has the hours, then farmed one at a time as before. New setting "Hours before first card drop" (default 3, 0 turns the phase off). If Steam counts no playtime for an hour, the run falls back to one game at a time and says so.
+- Steam IDLE: a Log panel shows what the module is doing (games idled, drops, playtime, errors) with Copy for bug reports and Clear; Steam IDs and file paths are masked.
+- Steam IDLE: rechecks read only the farmed games' card pages (a full badge scan runs at start and hourly), far fewer requests on big libraries; the farm panel shows cards left, an estimated time and cards dropped today.
+- Steam IDLE: after a few games the app suggests the right playtime threshold for your account (restricted or not); farming pauses while you play a game yourself and resumes when you close it; notifications (also to Telegram/Discord) when all cards are collected, when farming stops on an error, and a daily drop summary.
+
+## [3.9.2] - 2026-11-22
+- Game Shelf: reward campaigns get their own "Reward campaigns" tab, so long condition lists no longer stretch the game grid; a card shows two conditions and a "More conditions" toggle.
+- Interface: cards of one kind line up on every tab (badges, statuses and buttons at the same height whatever the title length): giveaways, dashboard, queue, shelf, Dimmer and Steam IDLE.
+- Giveaways: Epic Games now also claims paid games that are 100% off outside the weekly giveaway block (a publisher's own sale, e.g. "Contractor: The Clean Up Part II"). The store is searched at most every 6 hours; free-to-play games are never taken. GOG games at 100% off are listed in the log with their link (and in a notification, once each); they are not claimed automatically.
+- Steam IDLE, Achievements: the game list shows only games with achievements (the store is asked once per 100 games, answers are cached for weeks), with a search placeholder, Not finished / Finished filters and "Show more" instead of a hard cap of 50. Each game row shows its progress (X of Y, all unlocked, none yet) and an anti-cheat label. The chosen game opens in a panel next to the list with its progress and achievements; "Leave alone (anti-cheat)" became a clear switch "Never unlock achievements in this game". Run state and pace sit side by side at the top, with plain labels.
+
+## [3.9.1] - 2026-11-22
+- Installer: refuses Program Files and the Windows folder even when run as administrator. The app always runs as the user and cannot write there, so such a copy failed on every start with "local service unavailable". The folder page now explains which folders work and why.
+- Updates: a new release is offered only once its ZIP is uploaded (the build takes a few minutes after the release appears), and the app asks again every two minutes meanwhile. Before, Install did nothing in that window.
+- Notifications inside the app (toasts) are shown again at the bottom of the window, above open dialogs; they were drawn unstyled at the end of the page and could not be seen.
+- Queue notifications work again: the toasts for a started queue campaign, a campaign waiting for the account link, and the warning that a campaign will end before the queue reaches it never fired (the check was built but never run).
+
+## [3.9.0] - 2026-11-22
+- Notifications and safety: Telegram and Discord copies of the app's notifications (secrets stored encrypted), a notification when a sign-in is lost, a warning when a queued game's campaign will close before the queue reaches it, a "Roll back to v…" button after an update, restore of a profile backup, and an opt-in beta update channel.
+- Farming and stats: a daily farm schedule (quiet hours, may run past midnight) with a "Farm now" button, and a History and stats window with weekly totals and a CSV export.
+- Under the hood: the verification suite runs every gate and prints a summary, and the biggest source files are split into modules. Nothing changes for the user.
+
 ## [3.8.0] - 2026-11-21
 - Reward campaigns (opt-in, off by default): Sentinel fetches Twitch reward campaigns (quests and brand offers), shows them on the dashboard and the Game Shelf with their deadline and goal, can queue and watch their category in a daily slot, and follows Twitch's own progress. Drops Twitch already confirmed are no longer claimed again.
 - Installer: moves settings from an old unpacked copy, offers Node.js LTS through winget, and refuses a folder without write access. Each installed copy now has its own giveaways Task Scheduler task, so one copy no longer shows, switches or removes another's; the 3.7.0 task moves to the new name with its days, time and on/off state.

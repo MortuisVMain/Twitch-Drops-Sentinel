@@ -1,9 +1,9 @@
 // Status lines built by hooks/ and utils/ (toasts, console summary, campaign labels, idle hero text)
 export const STATE: Record<string, string> = {
-  'Подключение к локальному сервису Sentinel...': 'Connecting to the local Sentinel service...',
-  'Локальный сервис Sentinel недоступен': 'The local Sentinel service is unavailable',
+  'Подключение к локальному сервису Hell Harvest...': 'Connecting to the local Hell Harvest service...',
+  'Локальный сервис Hell Harvest недоступен': 'The local Hell Harvest service is unavailable',
   'Пользовательская / Twitch Drops': 'Custom / Twitch Drops',
-  'В данный момент нет готовых к зачислению дропов. Sentinel автоматически заберет дроп при достижении 100%.': 'No drops are ready to claim right now. Sentinel will claim a drop automatically at 100%.',
+  'В данный момент нет готовых к зачислению дропов. Hell Harvest автоматически заберет дроп при достижении 100%.': 'No drops are ready to claim right now. Hell Harvest will claim a drop automatically at 100%.',
   'Синхронизация инвентаря и активных кампаний...': 'Syncing the inventory and active campaigns...',
   'Данные Twitch Drops успешно обновлены': 'Twitch Drops data refreshed',
   'Локальное состояние актуализировано': 'Local state updated',
@@ -29,7 +29,7 @@ export const STATE: Record<string, string> = {
   'привяжите аккаунт': 'link your account',
   'нет кампании': 'no campaign',
   'Синхронизация': 'Sync',
-  'Очередь пуста: добавьте игры, чтобы Sentinel мог их фармить': 'The queue is empty: add games so Sentinel can farm them',
+  'Очередь пуста: добавьте игры, чтобы Hell Harvest мог их фармить': 'The queue is empty: add games so Hell Harvest can farm them',
   'идёт': 'running',
   'Трофеи': 'Trophies',
   'пока нет наград': 'no rewards yet',

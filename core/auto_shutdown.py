@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List, NamedTuple, Optional
+import logging
+import subprocess
+from typing import Any, Callable, Iterable, List, NamedTuple, Optional
+
+logger = logging.getLogger(__name__)
 
 COUNTDOWN_SECONDS = 60
 
@@ -27,6 +31,25 @@ def priority_drops_done(inventory: Iterable[Any], priority_games: List[str], rew
                 if not drop.is_claimed:
                     return False
     return found
+
+
+def _lock_workstation() -> None:
+    import ctypes
+
+    if not ctypes.windll.user32.LockWorkStation():
+        raise OSError("LockWorkStation failed")
+
+
+def run_power_action(mode: str, popen: Callable[..., Any] = subprocess.Popen, lock_workstation: Callable[[], None] = _lock_workstation) -> None:
+    """Performs the chosen mode ('shutdown' | 'sleep' | 'lock'); popen and lock_workstation are seams for tests."""
+    if mode == "shutdown":
+        popen(["shutdown", "/s", "/t", "0"])
+    elif mode == "sleep":
+        popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+    elif mode == "lock":
+        lock_workstation()
+    else:
+        logger.warning("Luna Auto-Shutdown: unknown mode %r, nothing was done", mode)
 
 
 def next_countdown(countdown: Optional[int], enabled: bool, done: bool, fired: bool = False) -> Step:

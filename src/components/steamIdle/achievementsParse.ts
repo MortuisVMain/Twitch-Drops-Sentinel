@@ -36,10 +36,13 @@ export const parseAchievements = (v: unknown): SteamIdleAchievements | null => {
 export const isLibraryStatus = (v: unknown): v is SteamIdleLibraryStatus => typeof v === 'string' && LIBRARY_STATUSES.includes(v);
 
 const optBool = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
+const optProgress = (v: unknown): boolean => v === undefined || v === null
+  || (isRec(v) && isNum(v.achieved) && isNum(v.total) && v.achieved >= 0 && v.achieved <= v.total);
 
 export const parseLibrary = (json: unknown): SteamIdleLibraryGame[] | null => {
   if (!isRec(json) || !Array.isArray(json.games)) return null;
-  return json.games.every((g) => isGame(g) && isNum(g.playtimeMinutes) && optBool(g.protected) && optBool(g.userDenied))
+  return json.games.every((g) => isGame(g) && isNum(g.playtimeMinutes) && optBool(g.protected) && optBool(g.userDenied)
+    && (g.hasAchievements === null || optBool(g.hasAchievements)) && optProgress(g.achievements))
     ? (json.games as SteamIdleLibraryGame[]) : null;
 };
 

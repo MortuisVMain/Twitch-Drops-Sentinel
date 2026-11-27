@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel — installed game discovery
+Hell Harvest — installed game discovery
 Author: Mortuis_V_Studio
 
 Multi-platform resilient game scanner for Windows 10/11:

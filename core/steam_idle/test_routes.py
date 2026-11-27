@@ -2,6 +2,7 @@
 import json
 import unittest
 
+from steam_idle.activity import ActivityLog
 from steam_idle.routes import SteamIdleRoutes
 
 
@@ -18,6 +19,10 @@ class StubController:
 
     def acknowledge_achievements(self, accepted):
         self.calls.append(("acknowledge_achievements", accepted))
+        return self.refusal
+
+    def set_farm_settings(self, **given):
+        self.calls.append(("set_farm_settings", given))
         return self.refusal
 
     def release_held(self, app_id):
@@ -40,8 +45,8 @@ class StubController:
 
 
 class FakeRequest:
-    def __init__(self, body=None, error=None):
-        self.body, self.error = body, error
+    def __init__(self, body=None, error=None, query=None):
+        self.body, self.error, self.query = body, error, query or {}
 
     async def json(self):
         if self.error:
@@ -111,6 +116,37 @@ class RoutesTests(unittest.IsolatedAsyncioTestCase):
                         routes.farm_resume, routes.farm_skip):
             self.assertEqual(reply(await handler(FakeRequest())), (409, {"error": "risk_not_acknowledged"}))
 
+    async def test_farm_settings_pass_the_hours_through(self):
+        for body in ({"hoursUntilDrops": 2.5}, {"hoursUntilDrops": 0}):
+            self.assertEqual(reply(await self.routes.farm_settings(FakeRequest(body))), (200, {"ok": True}))
+        self.assertEqual(self.controller.calls, [("set_farm_settings", {"hours_until_drops": 2.5}),
+                                                 ("set_farm_settings", {"hours_until_drops": 0})])
+
+    async def test_farm_settings_take_any_known_subset_of_the_three_settings(self):
+        bodies = [{"pauseWhilePlaying": False}, {"notify": True},
+                  {"hoursUntilDrops": 1, "pauseWhilePlaying": True, "notify": False}]
+        for body in bodies:
+            self.assertEqual(reply(await self.routes.farm_settings(FakeRequest(body))), (200, {"ok": True}))
+        self.assertEqual(self.controller.calls, [
+            ("set_farm_settings", {"pause_while_playing": False}), ("set_farm_settings", {"notify": True}),
+            ("set_farm_settings", {"hours_until_drops": 1, "pause_while_playing": True, "notify": False})])
+
+    async def test_farm_settings_reject_malformed_bodies_with_400(self):
+        bad = [FakeRequest(error=json.JSONDecodeError("x", "", 0)), FakeRequest(None), FakeRequest([]), FakeRequest({}),
+               FakeRequest({"hoursUntilDrops": 1, "extra": 1}), FakeRequest({"hours": 1}),
+               FakeRequest({"pauseWhilePlaying": True, "extra": 1}), FakeRequest({"Notify": True})]
+        for request in bad:
+            self.assertEqual(reply(await self.routes.farm_settings(request)), (400, {"error": "invalid_request"}))
+        self.assertEqual(self.controller.calls, [])
+
+    async def test_farm_settings_invalid_value_answers_400_and_a_refusal_409(self):
+        routes = SteamIdleRoutes(StubController("invalid_request"))
+        self.assertEqual(reply(await routes.farm_settings(FakeRequest({"hoursUntilDrops": -1}))),
+                         (400, {"error": "invalid_request"}))
+        routes = SteamIdleRoutes(StubController("module_disabled"))
+        self.assertEqual(reply(await routes.farm_settings(FakeRequest({"hoursUntilDrops": 1}))),
+                         (409, {"error": "module_disabled"}))
+
     async def test_release_answers_200_and_passes_the_app_id(self):
         self.assertEqual(reply(await self.routes.farm_release(FakeRequest({"appId": 20}))), (200, {"ok": True}))
         self.assertEqual(self.controller.calls, [("release_held", 20)])
@@ -128,5 +164,51 @@ class RoutesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.controller.calls, [])
 
 
+class ActivityRoutesTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.log = ActivityLog()
+        self.controller = StubController("module_disabled")  # the log must work with the module off
+        self.routes = SteamIdleRoutes(self.controller, self.log)
+        for text in ("a", "b", "c"):
+            self.log.add("info", text)
+
+    async def test_log_returns_all_entries_and_the_last_seq_without_after(self):
+        status, body = reply(await self.routes.log(FakeRequest()))
+        self.assertEqual(status, 200)
+        self.assertEqual([e["text"] for e in body["entries"]], ["a", "b", "c"])
+        self.assertEqual((body["lastSeq"], set(body["entries"][0])), (3, {"seq", "ts", "level", "text"}))
+        self.assertEqual(self.controller.calls, [])
+
+    async def test_log_after_returns_only_newer_entries(self):
+        status, body = reply(await self.routes.log(FakeRequest(query={"after": "2"})))
+        self.assertEqual((status, [e["text"] for e in body["entries"]], body["lastSeq"]), (200, ["c"], 3))
+        status, body = reply(await self.routes.log(FakeRequest(query={"after": "3"})))
+        self.assertEqual((status, body), (200, {"entries": [], "lastSeq": 3}))
+
+    async def test_log_rejects_a_non_integer_after_with_400(self):
+        for bad in ("x", "1.5", "", "-1", "1e3", "99999999999999999999999"):
+            self.assertEqual(reply(await self.routes.log(FakeRequest(query={"after": bad}))),
+                             (400, {"error": "invalid_request"}), bad)
+
+    async def test_clear_empties_the_log_and_keeps_the_seq(self):
+        self.assertEqual(reply(await self.routes.log_clear(FakeRequest())), (200, {"ok": True}))
+        self.assertEqual(reply(await self.routes.log(FakeRequest())), (200, {"entries": [], "lastSeq": 3}))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThreadProbeController(StubController):
+    def state(self):
+        import threading
+        return {"thread": threading.get_ident()}
+
+
+class StateOffLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_state_runs_in_a_worker_thread(self):
+        import threading
+        routes = SteamIdleRoutes(ThreadProbeController())
+        status, body = reply(await routes.state(FakeRequest()))
+        self.assertEqual(status, 200)
+        self.assertNotEqual(body["thread"], threading.get_ident())

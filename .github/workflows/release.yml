@@ -44,7 +44,20 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Read the release tag (an annotated tag whose message has [skip tests] skips the suite)
+        id: tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          git fetch --force --depth=1 origin "+${env:GITHUB_REF}:${env:GITHUB_REF}"
+          $type = git for-each-ref $env:GITHUB_REF --format='%(objecttype)'
+          $message = git for-each-ref $env:GITHUB_REF --format='%(contents)'
+          $skip = $type -eq 'tag' -and [bool]($message -match '\[skip tests\]')
+          if ($skip) { Write-Output '::notice::The tag message asks to skip the verification suite: it was run locally on this commit before tagging.' }
+          "skip=$($skip.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Run verification suite (release is not built when it fails)
+        if: steps.tag.outputs.skip != 'true'
         env:
           CI: '1'
         run: python test_sentinel_suite.py
@@ -73,16 +86,16 @@ jobs:
       - name: Package Release Archives
         run: |
           python tools/create_clean_release.py
-          if (-not (Test-Path Twitch_Drops_Sentinel_Setup_v*.exe)) { throw 'The installer was not built' }
+          if (-not (Test-Path Hell_Harvest_Setup_v*.exe)) { throw 'The installer was not built' }
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            Twitch_Drops_Sentinel_*_Public_Release.zip
-            Twitch_Drops_Sentinel_Setup_v*.exe
-            Twitch_Drops_Sentinel_Patch_*.zip
+            Hell_Harvest_*_Public_Release.zip
+            Hell_Harvest_Setup_v*.exe
+            Hell_Harvest_Patch_*.zip
           draft: false
           prerelease: false
           generate_release_notes: true

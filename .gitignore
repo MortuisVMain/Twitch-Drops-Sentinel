@@ -1,4 +1,4 @@
-# Twitch Drops Sentinel: keep personal data, logs and build output out of Git
+# Hell Harvest: keep personal data, logs and build output out of Git
 
 # Session tokens
 *cookie*.jar
@@ -32,15 +32,18 @@ dist_release/
 publish/
 publish_exe/
 backups/
+restore_pending/
 scratch/
 
 # User state and local config
 config.json
+data/webhooks.json
 steam_idle_*.json
 steam_idle_*.json.corrupt
 core/settings.json
 Trophies.md
 data/*.json
+data/rollback/
 data/browser/
 !data/.gitkeep
 

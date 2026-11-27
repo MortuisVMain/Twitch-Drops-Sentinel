@@ -1,9 +1,9 @@
 """
-Twitch Drops Sentinel — release archive builder
+Hell Harvest — release archive builder
 
 Builds clean, standalone distributions without personal data:
-1. Full release ZIP (Twitch_Drops_Sentinel_v<version>_Public_Release.zip)
-2. Hot-patch ZIP (Twitch_Drops_Sentinel_Patch_v<version>.zip) for the built-in updater
+1. Full release ZIP (Hell_Harvest_v<version>_Public_Release.zip)
+2. Hot-patch ZIP (Hell_Harvest_Patch_v<version>.zip) for the built-in updater
 """
 
 import os
@@ -24,14 +24,14 @@ from version import __version__
 
 WORKSPACE = Path(__file__).resolve().parent.parent
 DIST_STAGING = WORKSPACE / "dist_release"
-RELEASE_DIR = DIST_STAGING / f"Twitch Drops Sentinel v{__version__}"
-ZIP_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Public_Release.zip"
-PATCH_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Patch_v{__version__}.zip"
-PATCH_OUTPUT_ALT = WORKSPACE / f"Twitch_Drops_Sentinel_v{__version__}_Patch.zip"
+RELEASE_DIR = DIST_STAGING / f"Hell Harvest v{__version__}"
+ZIP_OUTPUT = WORKSPACE / f"Hell_Harvest_v{__version__}_Public_Release.zip"
+PATCH_OUTPUT = WORKSPACE / f"Hell_Harvest_Patch_v{__version__}.zip"
+PATCH_OUTPUT_ALT = WORKSPACE / f"Hell_Harvest_v{__version__}_Patch.zip"
 SHA256_OUTPUT = WORKSPACE / "SHA256SUMS.txt"
 LICENSE_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.md")
 INSTALLER_SCRIPT = WORKSPACE / "installer" / "TwitchDropsSentinel.iss"
-INSTALLER_OUTPUT = WORKSPACE / f"Twitch_Drops_Sentinel_Setup_v{__version__}.exe"
+INSTALLER_OUTPUT = WORKSPACE / f"Hell_Harvest_Setup_v{__version__}.exe"
 ISCC_CANDIDATES = (
     r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     r"C:\Program Files\Inno Setup 6\ISCC.exe",
@@ -150,7 +150,7 @@ def create_release():
     # 6. Clean Default Trophies.md
     print("[*] Generating clean Trophies.md template...")
     trophies_content = (
-        "# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n"
+        "# 🏆 Журнал Трофеев Hell Harvest\n\n"
         "Здесь автоматически сохраняется история всех наград, собранных на вашем Twitch аккаунте.\n\n"
         "| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n"
         "| :--- | :--- | :--- | :--- | :--- |\n"
@@ -184,11 +184,16 @@ def create_release():
     )
     (RELEASE_DIR / "config.json").write_text(clean_config, encoding="utf-8")
 
+    # 7b. The template the service reads for "untouched defaults" (core/sentinel_service.py: _config_defaults, load_settings)
+    default_template = WORKSPACE / "config.default.json"
+    assert default_template.exists(), f"Missing config template: {default_template}"
+    shutil.copy2(default_template, RELEASE_DIR / "config.default.json")
+
     # 8. 1-Click Launcher BAT
     print("[*] Copying 1-click launcher batch file with SmartScreen unblock...")
-    bat_src = WORKSPACE / "Запустить_Twitch_Drops_Sentinel.bat"
+    bat_src = WORKSPACE / "Запустить_Hell_Harvest.bat"
     assert bat_src.exists(), f"Missing launcher bat: {bat_src}"
-    shutil.copy2(bat_src, RELEASE_DIR / "Запустить_Twitch_Drops_Sentinel.bat")
+    shutil.copy2(bat_src, RELEASE_DIR / "Запустить_Hell_Harvest.bat")
 
     # 9. User Guide & Documentation
     if (WORKSPACE / "docs" / "ИНСТРУКЦИЯ.md").exists():
@@ -225,6 +230,8 @@ def create_release():
             pzf.write(exe_file, "TwitchDropsSentinel.update")
         for license_file in LICENSE_FILES:
             pzf.write(RELEASE_DIR / license_file, license_file)
+        # config.default.json is not protected: installs that never had it get it with the update
+        pzf.write(RELEASE_DIR / "config.default.json", "config.default.json")
         # Include dist/
         for file in (RELEASE_DIR / "dist").rglob("*"):
             if file.is_file():
@@ -250,7 +257,7 @@ def create_release():
     patch_mb = PATCH_OUTPUT.stat().st_size / (1024 * 1024)
     print(f"      [PASS] Hot-Patch created successfully! Size: {patch_mb:.2f} MB")
 
-    # 12b. Also produce alternate patch name (Twitch_Drops_Sentinel_v<version>_Patch.zip)
+    # 12b. Also produce alternate patch name (Hell_Harvest_v<version>_Patch.zip)
     shutil.copy2(PATCH_OUTPUT, PATCH_OUTPUT_ALT)
     print(f"      [PASS] Copied alternate patch archive: {PATCH_OUTPUT_ALT.name}")
 
@@ -271,7 +278,7 @@ def create_release():
                 assert not nl.endswith(".pma"), f"CRITICAL: Found browser metrics in {target_zip.name}! {name}"
                 assert "login data" not in nl, f"CRITICAL: Found login data in {target_zip.name}! {name}"
             # Verify clean Trophies.md content inside full release
-            if "Twitch Drops Sentinel v" in target_zip.name and not "Patch" in target_zip.name:
+            if "Hell Harvest v" in target_zip.name and not "Patch" in target_zip.name:
                 trophies_entry = [n for n in namelist if n.endswith("Trophies.md")]
                 if trophies_entry:
                     raw_trophies = zf.read(trophies_entry[0]).decode("utf-8")

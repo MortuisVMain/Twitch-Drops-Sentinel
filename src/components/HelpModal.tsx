@@ -21,10 +21,26 @@ import {
   Store,
   Layers,
   CircleHelp,
-  Lightbulb
+  Lightbulb,
+  Timer,
+  Award,
+  ScrollText,
+  PauseCircle,
+  Bell,
+  CopyCheck,
+  HardDriveDownload,
+  ListChecks,
+  BookOpen,
+  ExternalLink
 } from 'lucide-react';
 import { NavTab } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { getLang } from '../i18n';
+
+const GUIDE_URL = {
+  ru: 'https://github.com/MortuisVMain/Twitch-Drops-Sentinel/blob/main/docs/%D0%98%D0%9D%D0%A1%D0%A2%D0%A0%D0%A3%D0%9A%D0%A6%D0%98%D0%AF.md',
+  en: 'https://github.com/MortuisVMain/Twitch-Drops-Sentinel/blob/main/docs/GUIDE.md',
+};
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -36,7 +52,7 @@ interface HelpModalProps {
   digitRange?: string;
 }
 
-type HelpCategory = 'dashboard' | 'shelf' | 'giveaways' | 'dimmer' | 'settings' | 'hotkeys';
+type HelpCategory = 'dashboard' | 'shelf' | 'giveaways' | 'steamidle' | 'dimmer' | 'settings' | 'hotkeys';
 
 interface TipItem {
   icon: React.ReactNode;
@@ -54,25 +70,25 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
       {
         icon: <Zap size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Фарм без видео',
-        description: 'Sentinel общается с серверами Twitch напрямую, не скачивая видеопоток. Видеокарта не нагружается, а трафик экономится: до 2,5 ГБ в час.',
+        description: 'Hell Harvest общается с серверами Twitch напрямую, не скачивая видеопоток. Видеокарта не нагружается, а трафик экономится: до 2,5 ГБ в час.',
         badge: '0% GPU'
       },
       {
         icon: <Radio size={16} className="text-emerald-400" aria-hidden="true" focusable="false" />,
         title: 'Замена зависшего стрима',
-        description: 'Если стример закончил эфир, выключил дропы или минуты перестали идти, Sentinel сам перейдёт на другого стримера. Включается в Настройках: «Менять зависший стрим».',
+        description: 'Если стример закончил эфир, выключил дропы или минуты перестали идти, Hell Harvest сам перейдёт на другого стримера. Включается в Настройках: «Менять зависший стрим».',
         badge: 'Автозамена'
       },
       {
         icon: <Sparkles size={16} className="text-amber-400" aria-hidden="true" focusable="false" />,
         title: 'Принудительный фокус на игре',
-        description: 'Хотите забрать дроп конкретной игры вне очереди? Используйте выпадающий список «Выбрать игру для фарма» в блоке ручного фокуса. После завершения сбора Sentinel сам вернется к обычной очереди.',
+        description: 'Хотите забрать дроп конкретной игры вне очереди? Используйте выпадающий список «Выбрать игру для фарма» в блоке ручного фокуса. После завершения сбора Hell Harvest сам вернется к обычной очереди.',
         badge: 'Вне очереди'
       },
       {
         icon: <Coins size={16} className="text-amber-300" aria-hidden="true" focusable="false" />,
         title: 'Бонусные баллы канала',
-        description: 'Sentinel сам нажимает на сундуки с баллами на стримах (+50 за каждый), и вкладку браузера держать открытой не нужно. Включается в Настройках: «Собирать бонусные баллы канала».',
+        description: 'Hell Harvest сам нажимает на сундуки с баллами на стримах (+50 за каждый), и вкладку браузера держать открытой не нужно. Включается в Настройках: «Собирать бонусные баллы канала».',
         badge: '+50 очков'
       }
     ]
@@ -85,7 +101,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
       {
         icon: <Layers size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Очередь по порядку (#1, #2, #3)',
-        description: 'Sentinel фармит игры из очереди строго сверху вниз. Порядок меняется стрелками на карточке игры. Вкладка «Активные кампании» показывает только то, что идёт прямо сейчас, новые кампании с меткой «НОВАЯ» стоят первыми.',
+        description: 'Hell Harvest фармит игры из очереди строго сверху вниз. Порядок меняется стрелками на карточке игры. Вкладка «Активные кампании» показывает только то, что идёт прямо сейчас, новые кампании с меткой «НОВАЯ» стоят первыми.',
         badge: 'Порядок'
       },
       {
@@ -116,7 +132,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
       {
         icon: <KeyRound size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Вход в магазины в один клик',
-        description: 'Нажмите «Войти в аккаунт» на карточке магазина. Откроется окно браузера: войдите один раз, и сессия сохранится. Сменить аккаунт можно кнопкой на карточке.',
+        description: 'Нажмите «Войти» на карточке магазина. Откроется окно браузера: войдите один раз, и сессия сохранится. Сменить аккаунт можно кнопкой на карточке.',
         badge: 'Один раз'
       },
       {
@@ -128,7 +144,7 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
       {
         icon: <Store size={16} className="text-purple-400" aria-hidden="true" focusable="false" />,
         title: 'Бесплатные ассеты Fab и Unity Store',
-        description: 'Помимо классических игр Epic Games Store, Sentinel автоматически забирает временные бесплатные паки для Unreal Engine (Fab) и Unity Asset Store прямо на ваш аккаунт разработчика.',
+        description: 'Помимо классических игр Epic Games Store, Hell Harvest автоматически забирает временные бесплатные паки для Unreal Engine (Fab) и Unity Asset Store прямо на ваш аккаунт разработчика.',
         badge: 'UE & Unity'
       },
       {
@@ -136,6 +152,55 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
         title: 'Фоновый режим',
         description: 'Кнопка «Фоновый режим» скрывает окно браузера: сборщик работает тихо и не перехватывает мышь и клавиатуру, можно спокойно работать или играть.',
         badge: 'Без окна'
+      },
+      {
+        icon: <ListChecks size={16} className="text-sky-400" aria-hidden="true" focusable="false" />,
+        title: 'Что нужно для раздач',
+        description: 'Кнопка «Проверить готовность» показывает, чего не хватает: Node.js 20 или новее, браузерный движок, входы в магазины, автосбор по расписанию. Движок скачивается сам при первом запуске.',
+        badge: 'Проверка'
+      }
+    ]
+  },
+  steamidle: {
+    label: 'Steam IDLE',
+    icon: <Layers size={15} aria-hidden="true" focusable="false" />,
+    title: 'Советы по Steam IDLE',
+    tips: [
+      {
+        icon: <Layers size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
+        title: 'Фарм карточек Steam',
+        description: 'Нужны запущенный клиент Steam, вход на сайте Steam и подтверждённый риск. Игры идут по одной: Hell Harvest держит игру, пока выпадают карточки, потом берёт следующую. Видно, сколько карточек осталось, примерное время и сколько выпало сегодня. Это противоречит правилам Steam об автоматических наградах, риск на вашей стороне.',
+        badge: 'Карточки'
+      },
+      {
+        icon: <Timer size={16} className="text-cyan-400" aria-hidden="true" focusable="false" />,
+        title: 'Часы для ограниченных аккаунтов',
+        description: 'Новые аккаунты и аккаунты после возвратов не получают карточек, пока в игре нет нескольких часов. Пока часов мало, игры идут вместе (до 32), потом по одной. Порог задаётся полем «Часов до первой карточки», по умолчанию 3. Подсказка предложит подходящее значение, 0 выключает эту фазу.',
+        badge: 'Порог часов'
+      },
+      {
+        icon: <Award size={16} className="text-amber-400" aria-hidden="true" focusable="false" />,
+        title: 'Достижения',
+        description: 'Включаются отдельно и необратимы: выданное достижение приложение не снимет. В играх с античитом выдача запрещена, список можно дополнить своими играми. Начните с одной одиночной игры. Пауза между выдачами случайная.',
+        badge: 'Осторожно'
+      },
+      {
+        icon: <ScrollText size={16} className="text-sky-400" aria-hidden="true" focusable="false" />,
+        title: 'Журнал для отчёта об ошибке',
+        description: 'Панель «Журнал» показывает, что делает модуль: игры, карточки, часы, ошибки. «Копировать» берёт всё сразу. Steam ID и пути в нём замазаны, так что его можно приложить к сообщению о проблеме.',
+        badge: 'Копировать'
+      },
+      {
+        icon: <PauseCircle size={16} className="text-violet-400" aria-hidden="true" focusable="false" />,
+        title: 'Пауза, пока вы играете',
+        description: 'Вы запустили свою игру, и фарм отпускает свои. Он продолжится сам через пару минут после того, как вы её закроете. Выключается переключателем «Ставить фарм на паузу, пока вы играете».',
+        badge: 'Само'
+      },
+      {
+        icon: <Bell size={16} className="text-emerald-400" aria-hidden="true" focusable="false" />,
+        title: 'Уведомления о фарме',
+        description: 'Все карточки собраны, фарм остановился из-за ошибки, фаза часов отключена и дневная сводка. Приходят и в Telegram или Discord, если они подключены в Настройках.',
+        badge: 'События'
       }
     ]
   },
@@ -166,19 +231,19 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
       {
         icon: <ShieldCheck size={16} className="text-violet-400" aria-hidden="true" focusable="false" />,
         title: 'Пауза, когда вы играете',
-        description: 'Как только Sentinel замечает запущенную игру, он ставит фарм на паузу и не отнимает ресурсы у видеокарты и процессора. Закрыли игру — фарм продолжится.',
+        description: 'Как только Hell Harvest замечает запущенную игру, он ставит фарм на паузу и не отнимает ресурсы у видеокарты и процессора. Закрыли игру — фарм продолжится.',
         badge: 'Больше FPS'
       },
       {
         icon: <Clock size={16} className="text-amber-400" aria-hidden="true" focusable="false" />,
         title: 'Выключить или усыпить ПК после очереди',
-        description: 'Когда все дропы очереди получены, Sentinel за 60 секунд предупредит и выполнит выбранное действие: сон, выключение или блокировка. Кнопка «Проверить таймер» только показывает отсчёт, ПК не трогает.',
+        description: 'Когда все дропы очереди получены, Hell Harvest за 60 секунд предупредит и выполнит выбранное действие: сон, выключение или блокировка. Кнопка «Проверить таймер» только показывает отсчёт, ПК не трогает.',
         badge: 'После очереди'
       },
       {
         icon: <RefreshCw size={16} className="text-(--led-mint)" aria-hidden="true" focusable="false" />,
         title: 'Автообновление в 1 клик через GitHub',
-        description: 'Sentinel проверяет релизы на GitHub. Когда выходит новая версия, её можно поставить прямо из приложения: вход, настройки и журнал сохранятся.',
+        description: 'Hell Harvest проверяет релизы на GitHub. Когда выходит новая версия, её можно поставить прямо из приложения: вход, настройки и журнал сохранятся.',
         badge: 'Данные целы'
       },
       {
@@ -186,6 +251,30 @@ const TAB_TIPS: Record<Exclude<HelpCategory, 'hotkeys'>, { label: string; icon: 
         title: 'Диагностический отчет для поддержки',
         description: 'Если что-то работает не так, кнопка «Отчет» внизу Настроек соберёт техническую сводку без паролей и токенов — её можно отправить на разбор.',
         badge: 'Без секретов'
+      },
+      {
+        icon: <Clock size={16} className="text-cyan-400" aria-hidden="true" focusable="false" />,
+        title: 'Фарм по расписанию',
+        description: 'Выберите дни недели и часы: вне окна фарм стоит на паузе. Окно может переходить через полночь. На дашборде кнопка «Выключить расписание и фармить сейчас» снимает ограничение.',
+        badge: 'Окно фарма'
+      },
+      {
+        icon: <Bell size={16} className="text-emerald-400" aria-hidden="true" focusable="false" />,
+        title: 'Уведомления в Telegram и Discord',
+        description: 'Те же события, что и всплывающие окна Windows, можно получать в мессенджере: нужен токен бота Telegram или адрес вебхука Discord. Они хранятся зашифрованными только на этом ПК.',
+        badge: 'Мессенджеры'
+      },
+      {
+        icon: <CopyCheck size={16} className="text-amber-400" aria-hidden="true" focusable="false" />,
+        title: 'Другие копии в автозапуске',
+        description: 'Блок в Настройках находит старые папки программы, которые стартуют вместе с Windows. Запись можно убрать (оригинал сохраняется), запущенную копию закрыть, а автозапуск перенести на эту. Установщик обновляет программу на месте и копий не плодит.',
+        badge: 'Без дублей'
+      },
+      {
+        icon: <HardDriveDownload size={16} className="text-sky-400" aria-hidden="true" focusable="false" />,
+        title: 'Перенос данных и бэкап',
+        description: 'Кнопка «Перенести данные из этой копии» забирает настройки, вход и трофеи из старой копии. «Бэкап профиля (.zip)» и «Восстановить из бэкапа» сохраняют и возвращают профиль целиком.',
+        badge: 'Данные'
       }
     ]
   }
@@ -197,12 +286,13 @@ const HOTKEYS_LIST: HotkeyRow[] = [
   { key: 'Цифры', label: 'Переключение вкладок', desc: 'Цифра открывает вкладку по порядку слева направо; выключенные вкладки пропускаются', digits: true },
   { key: 'Ctrl + K', label: 'Палитра команд', desc: 'Открывает быстрый переход и поиск по играм' },
   { key: 'Ctrl + M', label: 'Режим PiP', desc: 'Переключает компактный режим окна' },
+  { key: 'Ctrl + Shift + H', label: 'Центр проверки', desc: 'Открывает проверку работы, отчёты и логи' },
   { key: 'Alt + Backspace', label: 'Сброс ручного фокуса', desc: 'Возвращает фарм из выбранной вручную игры к обычной очереди. На вкладке «Диммер» — блэкаут экранов', descWithoutDimmer: 'Возвращает фарм из выбранной вручную игры к обычной очереди' },
   { key: 'Alt + Shift + Backspace', label: 'Восстановить яркость', desc: 'Возвращает сохраненную базовую яркость дисплеев', dimmerOnly: true },
   { key: 'F5', label: 'Обновить данные', desc: 'Заново запрашивает кампании у Twitch' },
   { key: 'Esc', label: 'Закрыть модальное окно', desc: 'Мгновенное закрытие справки, каталога или окна обновления. На вкладке «Диммер» — выход из блэкаута', descWithoutDimmer: 'Мгновенное закрытие справки, каталога или окна обновления' },
   { key: 'Колесо мыши над диском', label: 'Общая яркость', desc: 'На вкладке «Диммер»: каждый щелчок колеса меняет общую яркость на 5 %', dimmerOnly: true },
-  { key: 'Клик по иконке трея', label: 'Свернуть / Развернуть', desc: 'Прячет Sentinel в системный трей Windows для тихой работы в фоне' },
+  { key: 'Клик по иконке трея', label: 'Свернуть / Развернуть', desc: 'Прячет Hell Harvest в системный трей Windows для тихой работы в фоне' },
   { key: 'Двойной клик по шапке', label: 'Оконный режим', desc: 'Переключение между полноэкранным и стандартным размером окна' },
   { key: 'Колесо мыши', label: 'Лог консоли', desc: 'Скролл ленты реального времени в терминале активности' },
 ];
@@ -217,6 +307,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
       triggerElementRef.current = document.activeElement as HTMLElement | null;
       if (activeTab === 'giveaways') setSelectedCategory('giveaways');
       else if (activeTab === 'shelf') setSelectedCategory('shelf');
+      else if (activeTab === 'steamidle') setSelectedCategory('steamidle');
       else if (activeTab === 'dimmer') setSelectedCategory('dimmer');
       else if (activeTab === 'settings') setSelectedCategory('settings');
       else setSelectedCategory('dashboard');
@@ -405,8 +496,8 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
           <div className="mt-2 p-3 px-4 rounded-xl bg-gradient-to-r from-(--bg-row) to-(--bg-chassis-base) border border-(--led-mint)/30 flex items-start gap-2.5 shrink-0">
             <ShieldCheck size={16} className="text-(--led-mint) shrink-0 mt-0.5" aria-hidden="true" focusable="false" />
             <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] leading-relaxed">
-              <strong className="text-(--text-primary) inline mr-1">Принцип автономности и безопасности Sentinel:</strong>
-              Все пароли, сессии и авторизационные токены хранятся исключительно в локальных файлах на вашем компьютере. Никаких внешних серверов, аналитики или облачных баз данных.
+              <strong className="text-(--text-primary) inline mr-1">Принцип автономности и безопасности Hell Harvest:</strong>
+              Пароли, сессии и токены хранятся только в локальных файлах на вашем компьютере. Аналитики и облачных баз нет: данные идут лишь в сервисы, которыми вы пользуетесь (Twitch, GitHub для обновлений, магазины, Steam), а в Telegram или Discord только если вы их подключили.
             </div>
           </div>
         </div>
@@ -417,6 +508,17 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, activeTab
             <kbd className="px-1.5 py-0.5 rounded bg-(--bg-well) border border-(--border-subtle) text-[length:var(--fs-xs)] tabular text-(--text-primary)">Esc</kbd>
             <span>для закрытия</span>
           </div>
+
+          <a
+            href={GUIDE_URL[getLang()]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto px-3 py-1.5 rounded-xl bg-(--bg-well) hover:bg-(--bg-row-hover) border border-(--border-subtle) text-(--text-primary) text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+          >
+            <BookOpen size={13} aria-hidden="true" focusable="false" />
+            <span>Подробная инструкция</span>
+            <ExternalLink size={12} aria-hidden="true" focusable="false" />
+          </a>
 
           <button
             onClick={handleClose}

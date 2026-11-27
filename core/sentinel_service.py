@@ -1,5 +1,5 @@
 """
-Twitch Drops Sentinel — local service for the desktop app
+Hell Harvest — local service for the desktop app
 Mortuis_V / Mortuis_V_Studio
 
 Core Microservice & Asynchronous Engine:
@@ -12,12 +12,10 @@ Core Microservice & Asynchronous Engine:
 from __future__ import annotations
 
 import asyncio
-import ctypes
 import json
 import logging
 import logging.handlers
 import os
-import platform
 import re
 import shutil
 import subprocess
@@ -46,131 +44,6 @@ PROJECT_DIR = CORE_DIR.parent
 if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
-def set_sleep_guard(enable: bool):
-    """
-    Prevents Windows from entering sleep mode while farming is active.
-    ES_CONTINUOUS: 0x80000000
-    ES_SYSTEM_REQUIRED: 0x00000001
-    Note: Does NOT set ES_DISPLAY_REQUIRED so user's monitor can turn off cleanly.
-    """
-    if sys.platform == "win32":
-        try:
-            ES_CONTINUOUS = 0x80000000
-            ES_SYSTEM_REQUIRED = 0x00000001
-            flags = (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) if enable else ES_CONTINUOUS
-            ctypes.windll.kernel32.SetThreadExecutionState(flags)
-        except Exception as e:
-            logger.debug("SetThreadExecutionState failed: %s", e)
-
-def get_autostart_status() -> tuple[bool, str]:
-    if sys.platform != "win32":
-        return False, ""
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ) as key:
-            val, _ = winreg.QueryValueEx(key, "TwitchDropsSentinel")
-            return True, str(val)
-    except FileNotFoundError:
-        return False, ""
-    except Exception:
-        return False, ""
-
-def set_autostart_status(enabled: bool) -> bool:
-    if sys.platform != "win32":
-        return False
-    try:
-        import winreg
-        exe_path = PROJECT_DIR / "TwitchDropsSentinel.exe"
-        if not exe_path.exists():
-            candidate = PROJECT_DIR / "desktop" / "publish" / "TwitchDropsSentinel.exe"
-            if candidate.exists():
-                exe_path = candidate
-        cmd = f'"{exe_path.resolve()}" --minimized'
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS) as key:
-            if enabled:
-                winreg.SetValueEx(key, "TwitchDropsSentinel", 0, winreg.REG_SZ, cmd)
-            else:
-                try:
-                    winreg.DeleteValue(key, "TwitchDropsSentinel")
-                except FileNotFoundError as e:
-                    logger.debug("Autostart registry key not present on delete: %s", e)
-        return True
-    except Exception:
-        return False
-
-_PROGRESS_COUNTER_RE = re.compile(r'^(.*?)\s*\((\d+)\s*/\s*(\d+)\)\s*$')
-
-
-def report_log_tail(logs: list, limit: int = 120) -> list:
-    """Journal entries for the report: level prefix shown once, counter runs folded, then the last `limit`."""
-    entries = []
-    for item in logs:
-        level = str(item.get('level') or 'INFO')
-        text = str(item.get('message', ''))
-        stripped = re.sub(r'^\s*(\[' + re.escape(level) + r'\]\s*)+', '', text, flags=re.IGNORECASE)
-        entries.append({'time': item.get('time', ''), 'level': level, 'message': stripped or text})
-    folded = []
-    for entry in entries:
-        match = _PROGRESS_COUNTER_RE.match(entry['message'])
-        if folded and match:
-            prev = _PROGRESS_COUNTER_RE.match(folded[-1]['message'])
-            if prev and prev.group(1) == match.group(1) and folded[-1]['level'] == entry['level']:
-                folded[-1] = entry
-                continue
-        folded.append(entry)
-    return folded[-limit:]
-
-
-def generate_sanitized_diagnostic_report(settings: dict, hardware_state: dict) -> str:
-    os_info = f"{platform.system()} {platform.release()} (Build {platform.version()})"
-    py_info = f"Python {platform.python_version()} ({platform.architecture()[0]})"
-    try:
-        ram = psutil.virtual_memory()
-        ram_info = f"Total: {round(ram.total / (1024**3), 1)} GB, Available: {round(ram.available / (1024**3), 1)} GB"
-    except Exception:
-        ram_info = "N/A"
-
-    active_drop = STATE_BRIDGE.active_drop or {}
-    streamer = STATE_BRIDGE.watching_channel or "None"
-    user_id_raw = STATE_BRIDGE.user_id or "Not logged in"
-    masked_user = f"{user_id_raw[:3]}***" if len(user_id_raw) > 3 else user_id_raw
-
-    log_lines = []
-    for log_item in report_log_tail(STATE_BRIDGE.recent_logs):
-        msg = f"[{log_item.get('time', '')}] [{log_item.get('level', 'INFO')}] {log_item.get('message', '')}"
-        sanitized_msg = re.sub(r'oauth:[a-zA-Z0-9]+', 'oauth:[REDACTED]', msg, flags=re.IGNORECASE)
-        sanitized_msg = re.sub(r'(auth_token|client_secret|token|password)=["\']?[a-zA-Z0-9_\-]+["\']?', r'\1=[REDACTED]', sanitized_msg, flags=re.IGNORECASE)
-        sanitized_msg = re.sub(r'cookies\.jar', 'cookies.jar [PRESENT]', sanitized_msg)
-        log_lines.append(sanitized_msg)
-
-    report_lines = [
-        "==================================================",
-        f"TWITCH DROPS SENTINEL v{APP_VERSION} — DIAGNOSTIC REPORT",
-        "==================================================",
-        f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"OS: {os_info}",
-        f"Runtime: {py_info}",
-        f"RAM: {ram_info}",
-        f"CPU Load: {hardware_state.get('cpu_percent', 0)}%",
-        f"Battery Status: {'On Battery' if hardware_state.get('on_battery') else 'AC Connected'}",
-        f"Gaming Guard: {'Active (Playing: ' + str(hardware_state.get('detected_game')) + ')' if hardware_state.get('is_gaming') else 'Idle'}",
-        "",
-        "--- TWITCH & FARMING STATUS ---",
-        f"Session User: {masked_user}",
-        f"Streamer Watching: {streamer}",
-        f"Active Drop Game: {active_drop.get('game', 'None')}",
-        f"Active Drop Name: {active_drop.get('name', 'None')}",
-        f"Progress: {active_drop.get('current_minutes', 0)} / {active_drop.get('required_minutes', 0)} min ({active_drop.get('progress_percent', 0)}%)" if active_drop else "Progress: no active drop",
-        f"Priority Games: {', '.join(settings.get('priority_games', [])) or 'None'}",
-        f"Installed Games Detected: {len([g for g in CAMPAIGNS_FETCHER.get_catalog() if g.get('is_installed')])}",
-        f"Game Directories: {len(settings.get('game_directories', []))} configured",
-        "",
-        "--- RECENT LOGS (SANITIZED) ---",
-        "\n".join(log_lines) if log_lines else "[No logs recorded yet]",
-        "==================================================",
-        "END OF DIAGNOSTIC REPORT"
-    ]
-    return "\n".join(report_lines)
 
 import truststore
 truststore.inject_into_ssl()
@@ -182,58 +55,43 @@ from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE, STEAM_IDLE_LIVE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
 from campaigns_fetcher import CAMPAIGNS_FETCHER
-from giveaways_controller import GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
+from giveaways_controller import ENGINE_INCOMPLETE_MARK, GiveawaysOrchestrator, BROWSER_CHOICES, parse_browser, resolve_fgc_root
+from giveaways_controller import _refusal_text as giveaways_refusal_text
 from steam_idle.controller import (SHUTDOWN_BUDGET_SECONDS as STEAM_IDLE_SHUTDOWN_BUDGET,
                                    create_controller as create_steam_idle_controller, steam_idle_backend_kind)
 from steam_idle.protection import USER_DENYLIST_KEY as STEAM_IDLE_DENYLIST_KEY
 from steam_idle.routes import SteamIdleRoutes
 from atomic_json import atomic_write_json
-from auto_shutdown import next_countdown, priority_drops_done
+from auto_shutdown import next_countdown, priority_drops_done, run_power_action
 from settings_transaction import apply_change, save_transaction
 from tab_visibility import apply_disabled_tabs, tab_enabled
 import reward_campaigns
 import reward_watch
 from engine_flags import apply_engine_flags
 from local_access import TOKEN_HEADER, host_allowed, origin_allowed, take_api_token, token_allowed
-from profile_backup import profile_entries, write_backup
+from profile_backup import BackupError, apply_pending_restore, profile_entries, stage_restore, write_backup
 from updater import is_trusted_release_url
 from giveaways_readiness import check_readiness as check_giveaways_readiness
 from game_scanner import GameScanner, NON_GAME_NAMES
-from updater import UPDATER
+from updater import UPDATE_CHANNELS, UPDATER
+import farm_schedule
+from signin_watch import SignInWatch, lost_text
 from version import __version__ as APP_VERSION
 from dimmer_controller import DimmerController
-from notifications import set_enabled as set_native_toasts
+from notifications import NOTIFIER, set_enabled as set_native_toasts
+import health
+import health_history
+import health_watch
+from webhooks import WEBHOOKS, WebhookError
 from cover_keeper import COVER_KEEPER, cover_targets, covers_by_name, shelf_names
+import copy_import
+import startup_copies
+from startup_copies_routes import StartupCopiesRoutes
+from updater import RELEASES_PAGE_URL
+from giveaways_controller import TASK_NAME as GIVEAWAYS_TASK_NAME
 
-# One file grows without limit (70 MB seen: Notepad cannot open it). The current file plus 5 backups
-# (sentinel_service.log.1 ... .5), 10 MB each, 60 MB at most, is plenty for support. Only this process writes them.
-LOG_FILE_MAX_BYTES = 10 * 1024 * 1024
-LOG_FILE_BACKUPS = 5
-
-
-def make_file_log_handler(path, max_bytes: int = LOG_FILE_MAX_BYTES, backups: int = LOG_FILE_BACKUPS) -> logging.Handler:
-    return logging.handlers.RotatingFileHandler(path, maxBytes=max_bytes, backupCount=backups, encoding="utf-8")
-
-
-class LiveLogCaptureHandler(logging.Handler):
-    def emit(self, record):
-        try:
-            msg = record.getMessage()
-            if msg and not msg.startswith("GET /api/state"):
-                lvl = record.levelname
-                if "[WATCH]" in msg or "[WATCHING]" in msg or "Watching:" in msg or "Просмотр канала:" in msg or "Подключен к трансляции" in msg:
-                    lvl = "WATCH"
-                elif "[CLAIM]" in msg or "Claimed drop" in msg or "Drop получено" in msg or "Забран трофей" in msg:
-                    lvl = "CLAIM"
-                elif "[PROGRESS]" in msg or "Прогресс" in msg:
-                    lvl = "PROGRESS"
-                elif "[LOGIN]" in msg or "OAuth" in msg or "код" in msg.lower():
-                    lvl = "AUTH"
-                elif "[STATUS]" in msg:
-                    lvl = "STATUS"
-                STATE_BRIDGE.add_log(lvl, msg)
-        except Exception:
-            pass
+from service_system import (LOG_FILE_BACKUPS, LOG_FILE_MAX_BYTES, LiveLogCaptureHandler, generate_sanitized_diagnostic_report,
+                            get_autostart_status, make_file_log_handler, report_log_tail, set_autostart_status, set_sleep_guard)
 
 log_capture = LiveLogCaptureHandler()
 
@@ -250,82 +108,43 @@ logger = logging.getLogger("SentinelService")
 
 CONFIG_FILE = PROJECT_DIR / "config.json"
 TROPHIES_FILE = PROJECT_DIR / "Trophies.md"
+BACKUP_DIR = PROJECT_DIR / "data" / "backups"
+RESTORE_PENDING_DIR = PROJECT_DIR / "data" / "restore_pending"
 
-DEFAULT_GAMES_PROCESSES = [
-    "poe2.exe", "pathofexile.exe", "pathofexile_x64.exe", "hunt.exe",
-    "cs2.exe", "csgo.exe", "rustclient.exe", "rust.exe", "deadlock.exe",
-    "valorant.exe", "valorant-win64-shipping.exe", "dota2.exe", "r5apex.exe",
-    "overwatch.exe", "rainbowsix.exe", "fortniteclient-win64-shipping.exe",
-    "warframe.x64.exe", "pubg.exe", "tslgame.exe", "witcher3.exe",
-    "cyberpunk2077.exe", "godofwarragnarok.exe", "horizonforbiddenwest.exe",
-    "spiderman2.exe", "tlou-i.exe", "tlou-ii.exe", "frostpunk2.exe",
-    "inzoi.exe", "hades2.exe", "stellaris.exe", "terraria.exe",
-    "hearthstone.exe", "starcraft.exe", "rdr2.exe", "acvalhalla.exe",
-    "deathstranding.exe", "dredge.exe", "mechanicus2.exe", "nfsunbound.exe"
-]
 
-SYSTEM_NON_GAME_EXES = {
-    "happ.exe", "spotify.exe", "telegram.exe", "firefox.exe", "chrome.exe",
-    "opera.exe", "msedge.exe", "brave.exe", "discord.exe", "utorrent.exe",
-    "torrent.exe", "qbittorrent.exe", "winscp.exe", "hwinfo64.exe", "hwinfo32.exe",
-    "gpu-z.exe", "cpu-z.exe", "update.exe", "updater.exe", "launcher.exe",
-    "ollama.exe", "ffmpeg.exe", "regorganizer.exe", "systeminformer.exe",
-    "jetbrains_client64.exe", "vcpkg.exe", "qtwebengineprocess.exe",
-    "samsungmagician.exe", "purevpn.exe", "mpc-hc64.exe", "mpc-be64.exe",
-    "vlc.exe", "explorer.exe", "taskmgr.exe", "cmd.exe", "powershell.exe",
-    "conhost.exe", "ctfmon.exe", "searchhost.exe", "startmenuexperiencehost.exe",
-    "textinputhost.exe", "shellexperiencehost.exe", "applicationframehost.exe",
-    "runtimebroker.exe", "smartscreen.exe", "securityhealthservice.exe",
-    "onedrive.exe", "googledrivesync.exe", "dropbox.exe", "notion.exe",
-    "slack.exe", "zoom.exe", "teams.exe", "obs64.exe", "obs.exe",
-    "everything.exe", "sharex.exe", "lightshot.exe", "powertoys.exe",
-    "mscopilot.exe", "copilot.exe", "cortana.exe", "widgetservice.exe",
-    "widgets.exe", "photoshop.exe", "finereader.exe", "aimp.exe", "anvir.exe",
-    "blender.exe", "c4dpy.exe", "cheatengine-x86_64.exe", "unrealeditor.exe",
-    "antigravity ide.exe", "deepseek harness.exe", "gemini.exe", "dsx.exe",
-    "asus_framework.exe", "game cheats manager.exe", "game save manager.exe",
-}
+def pick_zip_file() -> str:
+    """Windows file dialog for a backup .zip; '' when cancelled."""
+    ps_script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+        "$f.Title = 'Выберите бэкап профиля Hell Harvest'; "
+        "$f.Filter = 'Бэкап Hell Harvest (*.zip)|*.zip'; "
+        "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }"
+    )
+    res = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps_script], capture_output=True, text=True, timeout=300)
+    return res.stdout.strip()
 
-SLUG_TO_GAME_NAME = {
-    "poe2": "Path of Exile 2",
-    "poe": "Path of Exile",
-    "path of exile 2": "Path of Exile 2",
-    "rust": "Rust",
-    "hunt": "Hunt: Showdown 1896",
-    "hunt showdown": "Hunt: Showdown 1896",
-    "hunt: showdown": "Hunt: Showdown 1896",
-    "hunt1896": "Hunt: Showdown 1896",
-    "nomansky": "No Man's Sky",
-    "no mans sky": "No Man's Sky",
-    "witcher": "The Witcher 3: Wild Hunt",
-    "witcher 3": "The Witcher 3: Wild Hunt",
-    "witcher3": "The Witcher 3: Wild Hunt",
-    "the witcher 3": "The Witcher 3: Wild Hunt",
-    "cyberpunk": "Cyberpunk 2077",
-    "cyberpunk2077": "Cyberpunk 2077",
-    "hearthstone": "Hearthstone",
-    "starcraft2": "StarCraft II",
-    "rdr2": "Red Dead Redemption 2",
-    "acvalhalla": "Assassin's Creed Valhalla",
-    "inzoi": "inZOI",
-    "hogwarts": "Hogwarts Legacy",
-    "wardogs": "WARDOGS",
-    "warframe": "Warframe",
-    "tarkov": "Escape from Tarkov",
-    "eft": "Escape from Tarkov",
-    "cs2": "Counter-Strike 2",
-    "csgo": "Counter-Strike 2",
-    "dota2": "Dota 2",
-    "dota": "Dota 2",
-    "valorant": "VALORANT",
-    "apex": "Apex Legends",
-    "overwatch": "Overwatch 2",
-    "rainbowsix": "Tom Clancy's Rainbow Six Siege",
-    "r6": "Tom Clancy's Rainbow Six Siege",
-    "deadlock": "Deadlock",
-    "aion": "AION",
-    "aion2": "AION 2",
-}
+
+def apply_import_at_start() -> None:
+    """An import of an old copy's data, staged before the restart, is applied before settings, cookies or the engine load."""
+    try:
+        copied = copy_import.apply_pending_import(PROJECT_DIR)
+        if copied:
+            logger.info("Data of another copy imported at start: %d files", len(copied))
+    except Exception as e:
+        logger.error("Applying the staged import failed; this copy keeps its own data: %s", e, exc_info=True)
+
+
+def apply_restore_at_start() -> None:
+    """A restore staged before the restart is applied before settings, cookies or the engine load."""
+    try:
+        restored = apply_pending_restore(PROJECT_DIR, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH), RESTORE_PENDING_DIR)
+        if restored:
+            logger.info("Profile restored from backup at start: %s", ", ".join(restored))
+    except Exception as e:
+        logger.error("Applying the staged profile restore failed; the current profile stays: %s", e, exc_info=True)
+
+from service_games import DEFAULT_GAMES_PROCESSES, SLUG_TO_GAME_NAME, SYSTEM_NON_GAME_EXES, normalize_game_name, normalize_priority_entry
 
 def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
     """Appends the new farmable reward campaigns to the end of priority_games (when the switch is on) and saves; returns the
@@ -340,24 +159,6 @@ def apply_reward_auto_queue(service: Any) -> Optional[list[str]]:
     return added
 
 
-def normalize_priority_entry(name: str) -> str:
-    """A queue entry: a game name is normalised, a `reward:<campaignId>` key is kept as it is (normalising would destroy it)."""
-    stripped = name.strip() if isinstance(name, str) else name
-    return reward_watch.clean_key(stripped) if reward_watch.is_reward_key(stripped) else normalize_game_name(name)
-
-
-def normalize_game_name(name: str) -> str:
-    cleaned = name.strip()
-    low = cleaned.lower()
-    if low in SLUG_TO_GAME_NAME:
-        return SLUG_TO_GAME_NAME[low]
-    
-    # Check if there is an active Twitch campaign matching this name
-    matched = CAMPAIGNS_FETCHER.find_active_campaign(cleaned)
-    if matched and matched.get("gameDisplayName"):
-        return matched["gameDisplayName"]
-
-    return cleaned
 
 SUPERVISOR_DEFAULTS = {
     "auto_shutdown_on_complete": False,
@@ -365,6 +166,10 @@ SUPERVISOR_DEFAULTS = {
     "pause_on_gaming": True,
     "pause_on_battery": True,
     "native_toasts": True,
+    "health_watch_enabled": health_watch.DEFAULT_ENABLED,  # background check of sign-ins, Steam, giveaways and errors
+    "health_watch_hours": health_watch.DEFAULT_HOURS,  # how often: 1, 4, 12 or 24
+    "update_channel": "stable",
+    "farm_schedule": dict(farm_schedule.DEFAULT_SCHEDULE),
     "ui_sound_enabled": True,
     "claim_channel_points": True,
     "auto_claim_drops": True,
@@ -378,8 +183,12 @@ SUPERVISOR_DEFAULTS = {
     "giveaways_selected_stores": ["epic", "gog", "steam", "fab", "unity"],
     "giveaways_headless": True,
     "giveaways_browser": "auto",
+    "installer_hint_dismissed": False,  # the "use the installer" hint in Settings was closed
     "steam_idle_risk_ack": False,
     "steam_idle_achievements_ack": False,
+    "steam_idle_hours_until_drops": 3.0,  # hours of playtime before a restricted account gets card drops; 0 = off
+    "steam_idle_pause_while_playing": True,  # the farm steps aside while the user plays a game of their own
+    "steam_idle_notify": True,  # Steam IDLE events go to the notifier (toast, Telegram/Discord)
     "steam_idle_unlock_min_minutes": 0,
     "steam_idle_unlock_max_minutes": 0,
     "steam_idle_unlock_skip_hidden": True,
@@ -405,6 +214,40 @@ def _dimmer_off_response() -> web.Response:
     return web.json_response({"error": "module_disabled"}, status=409)
 
 
+_TROPHIES_CACHE: tuple[tuple[str, int, int], list[dict]] | None = None
+
+
+def _parse_trophies() -> list[dict]:
+    trophies = []
+    try:
+        with open(TROPHIES_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception as e:
+        logger.error(f"Error reading Trophies.md: {e}")
+        return trophies
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            continue
+        parts = [p.strip() for p in line.split("|")[1:-1]]
+        if len(parts) >= 5:
+            first_col = parts[0].lower()
+            second_col = parts[1].lower().replace("**", "")
+            if any(marker in first_col for marker in ("дата", "date", ":---", "---")):
+                continue
+            if second_col in ("игра", "game", "title"):
+                continue
+            trophies.append({
+                "id": f"tr-{i}",
+                "date": parts[0],
+                "game": parts[1].replace("**", ""),
+                "drop_name": parts[2],
+                "campaign": parts[3],
+                "status": "Claimed" if ("Забран" in parts[4] or "Claimed" in parts[4]) else parts[4],
+            })
+    return trophies[::-1]  # Latest first
+
+
 class SentinelSupervisor:
     def __init__(self):
         self.api_token = take_api_token()  # first, so no child process created below inherits it
@@ -416,6 +259,8 @@ class SentinelSupervisor:
         reward_campaigns.apply_setting(STATE_BRIDGE, self.settings)
         STATE_BRIDGE.reward_auto_queue_hook = lambda: apply_reward_auto_queue(self)
         set_native_toasts(self.settings.get("native_toasts", True))
+        UPDATER.set_channel(self.settings.get("update_channel", "stable"))
+        NOTIFIER.add_listener(WEBHOOKS.deliver)
         self.ws_clients: set[web.WebSocketResponse] = set()
         self.is_running = True
         self.force_paused = False
@@ -424,9 +269,9 @@ class SentinelSupervisor:
             "detected_game": None,
             "on_battery": False,
             "is_paused": False,
-            "ping_ms": 18,
+            "ping_ms": None,  # not measured yet; the UI shows "—"
             "cpu_percent": 12,
-            "gpu_percent": 8,
+            "gpu_percent": None,  # never measured
         }
         self.luna_countdown: Optional[int] = None
         self.luna_fired = False
@@ -438,10 +283,43 @@ class SentinelSupervisor:
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
             lambda key, value: apply_change(self.settings, lambda current: current.__setitem__(key, value), self.save_settings),
             inert=steam_idle_backend_kind(TEST_MODE, STEAM_IDLE_LIVE) == "inert",
-            module_enabled=lambda: tab_enabled(self.settings, "steamidle"))
+            module_enabled=lambda: tab_enabled(self.settings, "steamidle"), notify=NOTIFIER.notify)
         self.steam_idle_routes = SteamIdleRoutes(self.steam_idle)
+        (PROJECT_DIR / "data").mkdir(exist_ok=True)
+        self.startup_copies = startup_copies.StartupCopies(
+            startup_copies.NullBackend() if TEST_MODE else startup_copies.SystemBackend(), PROJECT_DIR, GIVEAWAYS_TASK_NAME,
+            PROJECT_DIR / "data" / "startup_cleanup_backup.json", set_autostart_status,
+            notify=lambda key, text: NOTIFIER.notify("startup_copies", key, "Hell Harvest", text))
+        self.startup_copies_routes = StartupCopiesRoutes(
+            self.startup_copies, PROJECT_DIR, self._config_defaults(), lambda: bool(self.settings.get("installer_hint_dismissed", False)),
+            lambda: apply_change(self.settings, lambda current: current.__setitem__("installer_hint_dismissed", True), self.save_settings),
+            startup_copies.downloads_dir(), APP_VERSION, RELEASES_PAGE_URL)
+        self.health_history = health_history.HealthHistory(PROJECT_DIR / "data" / "health_history.json", time.time)
+        self.health_watch = health_watch.HealthWatch(
+            PROJECT_DIR / "data" / "health_watch.json", time.time, lambda: health_watch.enabled_from(self.settings),
+            lambda: health_watch.hours_from(self.settings), self._health_watch_run,
+            lambda key, message: NOTIFIER.notify("health_watch", key, "Hell Harvest", message, launch="health"),
+            lambda: "en" if self.settings.get("language") == "English" else "ru", history=self.health_history)
         self.app.on_shutdown.append(self._on_app_shutdown)
         self._setup_routes()
+
+    @staticmethod
+    def _config_defaults() -> dict:
+        """What a fresh config.json holds: the built-in defaults over config.default.json (to tell the user's choices from untouched ones)."""
+        defaults = copy.deepcopy(SUPERVISOR_DEFAULTS)
+        try:
+            defaults.update(json.loads((PROJECT_DIR / "config.default.json").read_text(encoding="utf-8-sig")))
+        except (OSError, ValueError) as exc:
+            logger.warning("config.default.json is not readable; every setting counts as the user's: %s", exc)
+        return defaults
+
+    async def startup_copies_check(self) -> None:
+        """Once per start: dead autostart entries of other copies are removed, live ones are announced."""
+        try:
+            outcome = await asyncio.to_thread(self.startup_copies.startup_check)
+            logger.info("Other copies check: %d dead entries removed, %d findings left", len(outcome["cleaned"]), outcome["remaining"])
+        except Exception as exc:
+            logger.error("Checking for other copies failed: %s", exc, exc_info=True)
 
     def load_settings(self) -> dict:
         default_settings = copy.deepcopy(SUPERVISOR_DEFAULTS)
@@ -461,8 +339,10 @@ class SentinelSupervisor:
                     reward_campaigns.drop_invalid_setting(data)
                     default_settings.update(data)
                     apply_disabled_tabs(default_settings)
+                health.note_settings_error(None)
             except Exception as e:
                 logger.warning(f"Could not load config.json: {e}")
+                health.note_settings_error(f"{type(e).__name__}: {e}")
 
         # Sanitize games_to_pause: remove any non-game system utilities or ignored processes
         raw_pause_games = default_settings.get("games_to_pause", DEFAULT_GAMES_PROCESSES)
@@ -522,6 +402,7 @@ class SentinelSupervisor:
 
         priority_mode_val = int(self.settings.get("priority_mode", 0))
         set_native_toasts(self.settings.get("native_toasts", True))
+        UPDATER.set_channel(self.settings.get("update_channel", "stable"))
 
         # 2-3. Supervisor config and DevilXD engine settings.json (full type serialization): both or neither
         def write_supervisor():
@@ -563,37 +444,28 @@ class SentinelSupervisor:
                 logger.error(f"Error updating live twitch client settings: {e}")
 
     def load_trophies(self) -> list[dict]:
-        trophies = []
-        if TROPHIES_FILE.exists():
-            try:
-                with open(TROPHIES_FILE, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                for i, raw_line in enumerate(lines):
-                    line = raw_line.strip()
-                    if not line.startswith("|"):
-                        continue
-                    parts = [p.strip() for p in line.split("|")[1:-1]]
-                    if len(parts) >= 5:
-                        first_col = parts[0].lower()
-                        second_col = parts[1].lower().replace("**", "")
-                        if any(marker in first_col for marker in ("дата", "date", ":---", "---")):
-                            continue
-                        if second_col in ("игра", "game", "title"):
-                            continue
-                        trophies.append({
-                            "id": f"tr-{i}",
-                            "date": parts[0],
-                            "game": parts[1].replace("**", ""),
-                            "drop_name": parts[2],
-                            "campaign": parts[3],
-                            "status": "Claimed" if ("Забран" in parts[4] or "Claimed" in parts[4]) else parts[4],
-                        })
-            except Exception as e:
-                logger.error(f"Error reading Trophies.md: {e}")
-        return trophies[::-1]  # Latest first
+        """Trophies.md parsed newest first; re-read only when the file's (mtime, size) changed."""
+        global _TROPHIES_CACHE
+        try:
+            st = TROPHIES_FILE.stat()
+        except FileNotFoundError:
+            _TROPHIES_CACHE = None
+            return []
+        except OSError as e:
+            logger.error(f"Error reading Trophies.md: {e}")
+            return []
+        key = (str(TROPHIES_FILE), st.st_mtime_ns, st.st_size)
+        cached = _TROPHIES_CACHE
+        if cached is None or cached[0] != key:
+            cached = _TROPHIES_CACHE = (key, _parse_trophies())
+        return list(cached[1])
 
     def _setup_routes(self):
         self.app.router.add_get("/api/state", self.handle_get_state)
+        self.app.router.add_get("/api/ping", self.handle_ping)
+        self.app.router.add_get("/api/v1/health", self.handle_get_health)
+        self.app.router.add_post("/api/v1/health/fix", self.handle_post_health_fix)
+        self.app.router.add_get("/api/v1/health/history", self.handle_get_health_history)
         self.app.router.add_get("/api/logs", self.handle_get_logs)
         self.app.router.add_get("/api/catalog", self.handle_get_catalog)
         self.app.router.add_get("/api/verify-game", self.handle_verify_game)
@@ -627,6 +499,11 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/auth/logout", self.handle_logout)
         self.app.router.add_post("/api/logout", self.handle_logout)
         self.app.router.add_post("/api/backup", self.handle_backup_profile)
+        self.app.router.add_get("/api/webhooks", self.handle_get_webhooks)
+        self.app.router.add_post("/api/webhooks", self.handle_post_webhooks)
+        self.app.router.add_post("/api/webhooks/test", self.handle_test_webhook)
+        self.app.router.add_get("/api/backups", self.handle_list_backups)
+        self.app.router.add_post("/api/backup/restore", self.handle_restore_backup)
         self.app.router.add_post("/api/game-directories/clear-cache", self.handle_clear_installed_games)
         self.app.router.add_post("/api/settings/reset", self.handle_reset_settings)
         self.app.router.add_post("/api/restart", self.handle_restart)
@@ -635,10 +512,19 @@ class SentinelSupervisor:
         self.app.router.add_get("/api/autostart", self.handle_get_autostart)
         self.app.router.add_post("/api/autostart", self.handle_post_autostart)
         self.app.router.add_get("/api/diagnostic-report", self.handle_get_diagnostic_report)
+        copies = self.startup_copies_routes
+        self.app.router.add_get("/api/startup-copies", copies.get_state)
+        self.app.router.add_post("/api/startup-copies/remove", copies.remove)
+        self.app.router.add_post("/api/startup-copies/move-autostart", copies.move_autostart)
+        self.app.router.add_post("/api/startup-copies/close", copies.close)
+        self.app.router.add_post("/api/startup-copies/import", copies.import_data)
+        self.app.router.add_post("/api/startup-copies/dismiss-hint", copies.dismiss_hint)
         self.app.router.add_post("/api/clipboard/copy", self.handle_clipboard_copy)
         self.app.router.add_get("/api/updates/check", self.handle_check_updates)
         self.app.router.add_post("/api/updates/apply", self.handle_apply_update)
         self.app.router.add_get("/api/updates/status", self.handle_get_update_status)
+        self.app.router.add_get("/api/updates/rollback", self.handle_get_rollback)
+        self.app.router.add_post("/api/updates/rollback", self.handle_apply_rollback)
         self.app.router.add_get("/ws", self.handle_ws)
         self.app.router.add_get("/api/v1/giveaways/state", self.handle_giveaways_state)
         self.app.router.add_post("/api/v1/giveaways/claim", self.handle_giveaways_claim)
@@ -660,6 +546,8 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/dimmer/restore-baseline", self.handle_dimmer_restore_baseline)
         steam_idle = self.steam_idle_routes
         self.app.router.add_get("/api/v1/steam-idle/state", steam_idle.state)
+        self.app.router.add_get("/api/v1/steam-idle/log", steam_idle.log)
+        self.app.router.add_post("/api/v1/steam-idle/log/clear", steam_idle.log_clear)
         self.app.router.add_post("/api/v1/steam-idle/ack", steam_idle.ack)
         self.app.router.add_post("/api/v1/steam-idle/login", steam_idle.login)
         self.app.router.add_post("/api/v1/steam-idle/check", steam_idle.check)
@@ -670,12 +558,15 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/v1/steam-idle/farm/resume", steam_idle.farm_resume)
         self.app.router.add_post("/api/v1/steam-idle/farm/skip", steam_idle.farm_skip)
         self.app.router.add_post("/api/v1/steam-idle/farm/release", steam_idle.farm_release)
+        self.app.router.add_post("/api/v1/steam-idle/farm/settings", steam_idle.farm_settings)
         self.app.router.add_post("/api/v1/steam-idle/denylist/add", steam_idle.denylist_add)
         self.app.router.add_post("/api/v1/steam-idle/denylist/remove", steam_idle.denylist_remove)
         self.app.router.add_post("/api/v1/steam-idle/achievements/ack", steam_idle.achievements_ack)
         self.app.router.add_post("/api/v1/steam-idle/achievements/settings", steam_idle.achievements_settings)
         self.app.router.add_post("/api/v1/steam-idle/library/scan", steam_idle.library_scan)
         self.app.router.add_get("/api/v1/steam-idle/library", steam_idle.library)
+        self.app.router.add_get("/api/v1/steam-idle/stats", steam_idle.stats)
+        self.app.router.add_post("/api/v1/steam-idle/stats/reset", steam_idle.stats_reset)
         self.app.router.add_get("/api/v1/steam-idle/achievements", steam_idle.achievements_read)
         self.app.router.add_post("/api/v1/steam-idle/achievements/start", steam_idle.achievements_start)
         self.app.router.add_post("/api/v1/steam-idle/achievements/resume-interrupted", steam_idle.achievements_resume_interrupted)
@@ -744,7 +635,7 @@ class SentinelSupervisor:
     async def get_full_state(self) -> dict:
         trophies = self.load_trophies()
         uptime_hours = round((datetime.now().timestamp() - STATE_BRIDGE.start_time) / 3600, 1)
-        traffic_saved_mb = round(uptime_hours * 3.5 * 3600 / 8, 0) if uptime_hours > 0 else 28400
+        traffic_saved_mb = round(uptime_hours * 3.5 * 3600 / 8, 0) if uptime_hours > 0 else 0
 
         # Return actual active drop from STATE_BRIDGE without fake mocks
         active_drop = STATE_BRIDGE.active_drop
@@ -900,6 +791,7 @@ class SentinelSupervisor:
                 "total_farm_hours": uptime_hours,
             },
             "settings": self.settings,
+            "health_watch": self.health_watch.state(),
             "reward_campaigns": reward_campaigns.state_list(STATE_BRIDGE, self.settings),
             "reward_watching": getattr(STATE_BRIDGE, "reward_watching", None) if self.settings.get("reward_campaigns_enabled") is True else None,
             "slot_minutes_today": slot_minutes,
@@ -916,6 +808,112 @@ class SentinelSupervisor:
     async def handle_get_state(self, request: web.Request) -> web.Response:
         state = await self.get_full_state()
         return web.json_response(state)
+
+    async def handle_ping(self, request: web.Request) -> web.Response:
+        """Cheap liveness for the host watchdog (every ~4 s): in-memory fields only, shaped like the part of /api/state its tray tooltip reads."""
+        drop = STATE_BRIDGE.active_drop
+        active = None
+        if isinstance(drop, dict):
+            try:
+                pct = int(drop.get("progress_percent") or 0)
+            except (TypeError, ValueError):
+                pct = 0
+            active = {"game": drop.get("game") or "", "progress_percent": pct}
+        return web.json_response({
+            "ok": True,
+            "version": APP_VERSION,
+            "hardware": {"is_paused": self.hardware_state.get("is_paused") is True},
+            "active_drop": active,
+        })
+
+    def _health_context(self, lang: str) -> health.HealthContext:
+        """What the read-only health checks may look at: the service's own memory and cached state, nothing that acts."""
+        return health.HealthContext(
+            project_dir=PROJECT_DIR, log_dir=CORE_DIR, bridge=STATE_BRIDGE, steam_state=self.steam_idle.state,
+            giveaways_readiness=lambda: check_giveaways_readiness(self.giveaways, full=False),
+            # disk work stays inside the callable: the check runs it in a worker thread, not on the event loop
+            giveaways_marker=lambda: (resolve_fgc_root() / "data" / ENGINE_INCOMPLETE_MARK).exists(),
+            cached_update=lambda: UPDATER._cached_result, version=APP_VERSION, lang=lang)
+
+    async def handle_get_health(self, request: web.Request) -> web.Response:
+        """Read-only checks for the "Проверка работы" panel. Runs only when asked; ?lang=en for English texts."""
+        lang = "en" if request.query.get("lang") == "en" else "ru"
+        result = await health.run_health(self._health_context(lang))
+        self.health_watch.record_manual(result["checks"])  # the dot on the menu button follows what the panel just showed
+        return web.json_response(result)
+
+    async def handle_get_health_history(self, request: web.Request) -> web.Response:
+        """The last 20 problems found or fixed by background and manual checks, newest first."""
+        return web.json_response({"events": self.health_history.events()})
+
+    async def _health_watch_run(self, lang: str) -> dict:
+        """The background watch: the same checks as the panel, without the network ones."""
+        return await health.run_health(self._health_context(lang), health.background_checks())
+
+    async def health_watch_loop(self):
+        """Once a second looks whether a background health run is due (see health_watch); it stops with the service."""
+        while self.is_running:
+            try:
+                await self.health_watch.tick()
+            except Exception as exc:  # tick contains its own failures; this is the last guard for the loop
+                logger.error("Health watch loop pass failed: %s", exc, exc_info=True)
+            await asyncio.sleep(1)
+
+    def _fix_context(self, lang: str, request: web.Request) -> health.FixContext:
+        """What a health fix may do: this service's own functions, called directly (no HTTP to itself), nothing the whitelist in health.py does not name."""
+        async def through(handler) -> None:
+            response = await handler(request)
+            if response.status != 200:
+                try:
+                    data = json.loads(response.text)
+                except (TypeError, ValueError):
+                    data = {}
+                raise health.FixFailed(str(data.get("error") or data.get("message") or f"HTTP {response.status}"))
+
+        async def steam_login() -> None:
+            refusal = self.steam_idle.login()
+            if refusal:
+                raise health.FixFailed(str(refusal))
+
+        async def install_engine() -> str:
+            try:
+                return str((await self.giveaways.install_engine()).get("status", ""))
+            except web.HTTPException as exc:
+                raise health.FixFailed(giveaways_refusal_text(exc)) from exc
+
+        def save_profile_backup() -> Path:
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            path = BACKUP_DIR / f"sentinel_profile_before_health_fix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            write_backup(path, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH))  # whatever of the profile exists, config.json included
+            return path
+
+        def list_backups() -> list[Path]:
+            if not BACKUP_DIR.is_dir():
+                return []
+            # the fix's own safety copies are the damaged profile itself: never what a restore should pick
+            return sorted((p for p in BACKUP_DIR.glob("*.zip") if "_before_health_fix_" not in p.name), key=lambda p: p.stat().st_mtime, reverse=True)
+
+        return health.FixContext(
+            health=self._health_context(lang),
+            actions=health.FixActions(
+                sign_out_twitch=lambda: through(self.handle_logout), steam_login=steam_login, install_engine=install_engine,
+                enable_autostart=lambda: set_autostart_status(True), reset_settings=lambda: through(self.handle_reset_settings),
+                save_profile_backup=save_profile_backup, list_backups=list_backups,
+                stage_restore=lambda zip_path: stage_restore(zip_path, profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH), RESTORE_PENDING_DIR)),
+            claim_log_dirs=lambda: [PROJECT_DIR, resolve_fgc_root()])
+
+    async def handle_post_health_fix(self, request: web.Request) -> web.Response:
+        """One whitelisted fix: {"id": "..."}; ?lang=en for English texts. 400 unknown id or bad body, 409 does not apply now, 500 failed (see health.run_fix)."""
+        lang = "en" if request.query.get("lang") == "en" else "ru"
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        fix_id = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(fix_id, str):
+            return web.json_response({"ok": False, "message": "Expected {\"id\": \"<fix id>\"}." if lang == "en" else "Ожидалось {\"id\": \"<номер исправления>\"}.", "checks": []}, status=400)
+        status, payload = await health.run_fix(fix_id, self._fix_context(lang, request))
+        return web.json_response(payload, status=status)
 
     async def handle_get_logs(self, request: web.Request) -> web.Response:
         """The console journal after a cursor: ?after=<seq>&session=<id>. A missing cursor means everything."""
@@ -1022,7 +1020,12 @@ class SentinelSupervisor:
             if "excluded_games" in data:
                 data["excluded_games"] = [normalize_game_name(g) for g in data["excluded_games"]]
             apply_disabled_tabs(data)
+            if "update_channel" in data and data["update_channel"] not in UPDATE_CHANNELS:
+                data["update_channel"] = "stable"
+            if "farm_schedule" in data:
+                data["farm_schedule"] = farm_schedule.normalize(data["farm_schedule"])
             reward_campaigns.drop_invalid_setting(data)
+            health_watch.normalize_settings(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
@@ -1061,8 +1064,8 @@ class SentinelSupervisor:
                                 await drop.generate_claim()
                             res = await drop.claim()
                             if not res:
-                                # If Twitch rejects or already claimed on web, mark as claimed in Sentinel to unblock queue
-                                logger.info(f"Drop '{drop.name}' marked completed in Sentinel.")
+                                # If Twitch rejects or already claimed on web, mark as claimed in Hell Harvest to unblock queue
+                                logger.info(f"Drop '{drop.name}' marked completed in Hell Harvest.")
                                 drop.is_claimed = True
                                 drop.display()
                             claimed_any = True
@@ -1354,7 +1357,7 @@ class SentinelSupervisor:
 
     async def handle_backup_profile(self, request: web.Request) -> web.Response:
         try:
-            backup_dir = PROJECT_DIR / "data" / "backups"
+            backup_dir = BACKUP_DIR
             backup_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             zip_filename = f"sentinel_profile_backup_{ts}.zip"
@@ -1379,6 +1382,96 @@ class SentinelSupervisor:
         except Exception as e:
             logger.error(f"Error creating backup: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_list_backups(self, request: web.Request) -> web.Response:
+        """Profile backups in data/backups, newest first."""
+        try:
+            items = []
+            if BACKUP_DIR.is_dir():
+                for p in BACKUP_DIR.glob("*.zip"):
+                    st = p.stat()
+                    items.append({"name": p.name, "size": st.st_size, "modified": st.st_mtime})
+            items.sort(key=lambda i: i["modified"], reverse=True)
+            return web.json_response({"status": "ok", "backups": items, "folder": str(BACKUP_DIR)})
+        except Exception as e:
+            logger.error("Listing profile backups failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_restore_backup(self, request: web.Request) -> web.Response:
+        """Stages a profile backup to be applied at the next start: {"name": "<file in data/backups>"} or
+        {"pick": true} for a file dialog. The current profile is backed up first. The app must restart."""
+        try:
+            data = await request.json()
+            if not isinstance(data, dict):
+                return web.json_response({"status": "error", "message": "ожидался объект"}, status=400)
+            if data.get("pick"):
+                chosen = await asyncio.to_thread(pick_zip_file)
+                if not chosen:
+                    return web.json_response({"status": "cancelled"})
+                zip_path = Path(chosen)
+            else:
+                name = data.get("name")
+                if not isinstance(name, str) or not name or Path(name).name != name or not name.lower().endswith(".zip"):
+                    return web.json_response({"status": "error", "message": "неверное имя бэкапа"}, status=400)
+                zip_path = BACKUP_DIR / name
+            if not zip_path.is_file():
+                return web.json_response({"status": "error", "message": f"файл не найден: {zip_path.name}"}, status=404)
+            entries = profile_entries(PROJECT_DIR, SETTINGS_PATH, COOKIES_PATH)
+            BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            safety_name = f"sentinel_profile_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            await asyncio.to_thread(write_backup, BACKUP_DIR / safety_name, entries)
+            try:
+                staged = await asyncio.to_thread(stage_restore, zip_path, entries, RESTORE_PENDING_DIR)
+            except BackupError as e:
+                logger.warning("Profile restore refused for %s: %s", zip_path, e)
+                return web.json_response({"status": "error", "message": str(e), "safety": safety_name}, status=400)
+            logger.info("Profile restore staged from %s (%d files); current profile saved as %s", zip_path, len(staged), safety_name)
+            STATE_BRIDGE.add_log("INFO", f"Бэкап {zip_path.name} будет восстановлен при перезапуске. Текущий профиль сохранён в {safety_name}.")
+            return web.json_response({"status": "ok", "files": staged, "safety": safety_name, "restart_required": True})
+        except Exception as e:
+            logger.error("Profile restore failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_get_webhooks(self, request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok", "webhooks": WEBHOOKS.public()})
+
+    async def handle_post_webhooks(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            public = await asyncio.to_thread(WEBHOOKS.update, data)
+            logger.info("Webhook settings saved: telegram=%s discord=%s", public["telegram"]["enabled"], public["discord"]["enabled"])
+            return web.json_response({"status": "ok", "webhooks": public})
+        except WebhookError as e:
+            return web.json_response({"status": "error", "message": str(e)}, status=400)
+        except Exception as e:
+            logger.error("Saving webhook settings failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_test_webhook(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+            await asyncio.to_thread(WEBHOOKS.send_test, str(data.get("channel", "")) if isinstance(data, dict) else "")
+            return web.json_response({"status": "ok"})
+        except WebhookError as e:
+            logger.warning("Webhook test failed: %s", e)
+            return web.json_response({"status": "error", "message": str(e)}, status=400)
+        except Exception as e:
+            logger.error("Webhook test failed: %s", e, exc_info=True)
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+    async def handle_get_rollback(self, request: web.Request) -> web.Response:
+        """The update that can be rolled back ({from_version, to_version, created}) or null."""
+        from updater import rollback_info
+        return web.json_response({"status": "ok", "rollback": await asyncio.to_thread(rollback_info)})
+
+    async def handle_apply_rollback(self, request: web.Request) -> web.Response:
+        from updater import apply_rollback
+        if UPDATER.get_status().get("is_updating"):
+            return web.json_response({"status": "error", "message": "Сейчас устанавливается обновление"}, status=409)
+        ok, message = await asyncio.to_thread(apply_rollback)
+        if ok:
+            UPDATER.forget_cached_check()
+            STATE_BRIDGE.add_log("INFO", message)
+        return web.json_response({"status": "ok" if ok else "error", "message": message, "restart_required": ok}, status=200 if ok else 400)
 
     async def handle_reset_settings(self, request: web.Request) -> web.Response:
         try:
@@ -1450,7 +1543,7 @@ class SentinelSupervisor:
                 self.hardware_state["detected_game"] = None
                 self.hardware_state["is_gaming"] = False
                 on_battery = self.hardware_state.get("on_battery", False)
-                self.hardware_state["is_paused"] = self.force_paused or (on_battery and self.settings.get("pause_on_battery", True))
+                self.hardware_state["is_paused"] = self.force_paused or (on_battery and self.settings.get("pause_on_battery", True)) or bool(self.hardware_state.get("schedule_paused"))
                 if self.twitch_client and not self.hardware_state["is_paused"]:
                     self.twitch_client.sentinel_paused = False
                     logger.info(f"Hardware Guard: Process '{proc}' ignored by user. Resumed farming.")
@@ -1589,7 +1682,7 @@ class SentinelSupervisor:
                 ps_script = (
                     "Add-Type -AssemblyName System.Windows.Forms; "
                     "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                    "$f.Description = 'Выберите папку с играми для Sentinel'; "
+                    "$f.Description = 'Выберите папку с играми для Hell Harvest'; "
                     "$f.ShowNewFolderButton = $false; "
                     "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"
                 )
@@ -1613,7 +1706,7 @@ class SentinelSupervisor:
         try:
             if not TROPHIES_FILE.exists():
                 with open(TROPHIES_FILE, "w", encoding="utf-8") as f:
-                    f.write("# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n")
+                    f.write("# 🏆 Журнал Трофеев Hell Harvest\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n")
             os.startfile(str(TROPHIES_FILE))
             return web.json_response({"status": "opened"})
         except Exception as e:
@@ -1623,7 +1716,7 @@ class SentinelSupervisor:
     async def handle_clear_trophies(self, request: web.Request) -> web.Response:
         try:
             clean_header = (
-                "# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n"
+                "# 🏆 Журнал Трофеев Hell Harvest\n\n"
                 "| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n"
                 "| :--- | :--- | :--- | :--- | :--- |\n"
             )
@@ -1828,7 +1921,7 @@ class SentinelSupervisor:
             async for msg in ws:
                 pass
         finally:
-            self.ws_clients.remove(ws)
+            self.ws_clients.discard(ws)  # broadcast_ws may have dropped it already
         return ws
 
     async def broadcast_ws(self):
@@ -1878,6 +1971,10 @@ class SentinelSupervisor:
                         break
 
                 is_gaming = detected_game is not None
+                schedule = farm_schedule.normalize(self.settings.get("farm_schedule"))
+                local_now = datetime.now()
+                outside_schedule = not farm_schedule.in_window(schedule, local_now)
+                schedule_next = farm_schedule.next_change(schedule, local_now)
                 try:  # any detected game suspends Steam IDLE, even with pause_on_gaming off: a held game blocks launching it
                     self.steam_idle.set_suspended(is_gaming)
                 except Exception:
@@ -1888,7 +1985,9 @@ class SentinelSupervisor:
                     "detected_game": detected_game,
                     "on_battery": on_battery,
                     "cpu_percent": round(cpu_pct),
-                    "is_paused": self.force_paused or (is_gaming and self.settings.get("pause_on_gaming", True)) or (on_battery and self.settings.get("pause_on_battery", True)),
+                    "is_paused": self.force_paused or (is_gaming and self.settings.get("pause_on_gaming", True)) or (on_battery and self.settings.get("pause_on_battery", True)) or outside_schedule,
+                    "schedule_paused": outside_schedule,
+                    "schedule_next": schedule_next.isoformat(timespec="minutes") if schedule_next else None,
                 })
 
                 # Pause/Resume twitch client if active
@@ -1897,9 +1996,18 @@ class SentinelSupervisor:
                     if should_pause != getattr(self.twitch_client, "sentinel_paused", False):
                         self.twitch_client.sentinel_paused = should_pause
                         if should_pause:
-                            logger.info(f"Hardware Guard: Paused farming (Reason: {detected_game or 'Battery'})")
-                            if self.settings.get("native_toasts", True):
-                                send_windows_toast("Twitch Drops Sentinel", f"Пауза: обнаружена игра {detected_game}")
+                            if detected_game and self.settings.get("pause_on_gaming", True):
+                                reason, toast = detected_game, f"Пауза: обнаружена игра {detected_game}"
+                            elif outside_schedule:
+                                resume = f" Фарм продолжится в {schedule_next.strftime('%H:%M')}." if schedule_next else ""
+                                reason, toast = "Schedule", f"Пауза по расписанию фарма.{resume}"
+                            elif self.force_paused:
+                                reason, toast = "User", None
+                            else:
+                                reason, toast = "Battery", "Пауза: ноутбук работает от батареи"
+                            logger.info(f"Hardware Guard: Paused farming (Reason: {reason})")
+                            if toast and self.settings.get("native_toasts", True):
+                                send_windows_toast("Hell Harvest", toast)
                         else:
                             logger.info("Hardware Guard: Resumed farming.")
 
@@ -1938,15 +2046,46 @@ class SentinelSupervisor:
                 if step.fire:
                     mode = self.settings.get("auto_shutdown_mode", "shutdown")
                     logger.info(f"Luna Auto-Shutdown executing: {mode}")
-                    if mode == "shutdown":
-                        subprocess.Popen(["shutdown", "/s", "/t", "0"])
-                    elif mode == "sleep":
-                        subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"])
+                    run_power_action(mode)
 
             except Exception as e:
                 logger.error(f"Luna shutdown loop error: {e}")
 
             await asyncio.sleep(1)
+
+    def signin_snapshot(self) -> dict:
+        """source -> account (signed in), None (known signed out); unknown sources are left out. See signin_watch."""
+        current: dict = {}
+        if STATE_BRIDGE.oauth_code:
+            current["twitch"] = None
+        elif STATE_BRIDGE.username:
+            current["twitch"] = STATE_BRIDGE.username
+        stores, _inventory = self.giveaways._read_inventory_sync()
+        for store, meta in stores.items():
+            current[store] = meta.get("account") or None
+        farm_state = self.steam_idle.farm_state()
+        if farm_state == "needs_login":
+            current["steam_idle"] = None
+        elif farm_state not in ("idle", "done", "stopped"):
+            current["steam_idle"] = "Steam IDLE"
+        return current
+
+    async def signin_watch_loop(self):
+        """Every 5 minutes: a sign-in that was there and is gone now is announced once (toast, Telegram/Discord)."""
+        from notifications import NOTIFIER
+        watch = SignInWatch()
+        await asyncio.sleep(20)
+        while self.is_running:
+            try:
+                current = await asyncio.to_thread(self.signin_snapshot)
+                for source, account in watch.observe(current):
+                    text = lost_text(source, account)
+                    logger.warning("Sign-in lost: %s", text)
+                    STATE_BRIDGE.add_log("WARN", text)
+                    NOTIFIER.notify("signin_lost", f"{source}:{account}:{int(time.time())}", "Hell Harvest", text)
+            except Exception as exc:
+                logger.warning("Sign-in watch pass failed: %s", exc, exc_info=True)
+            await asyncio.sleep(300)
 
     async def games_folder_rescan_loop(self):
         """Silently scans game libraries every 30 minutes for newly installed titles."""
@@ -2021,13 +2160,16 @@ class SentinelSupervisor:
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", DEFAULT_SERVICE_PORT)
         await site.start()
-        logger.info(f"Twitch Drops Sentinel API running on http://127.0.0.1:{DEFAULT_SERVICE_PORT}")
+        logger.info(f"Hell Harvest API running on http://127.0.0.1:{DEFAULT_SERVICE_PORT}")
 
         # Concurrently run hardware guard, luna, twitch client, and game rescan loop
         loops = [
             self.hardware_guard_loop(),
             self.luna_autoshutdown_loop(),
             self.games_folder_rescan_loop(),
+            self.signin_watch_loop(),
+            self.health_watch_loop(),
+            self.startup_copies_check(),
         ]
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
@@ -2041,10 +2183,12 @@ if __name__ == "__main__":
         check_and_apply_pending_exe_update()
     except Exception as e:
         logger.warning(f"Error checking pending exe update: {e}")
+    apply_import_at_start()
+    apply_restore_at_start()
     supervisor = SentinelSupervisor()
     try:
         asyncio.run(supervisor.start())
     except KeyboardInterrupt:
-        logger.info("Twitch Drops Sentinel shutting down gracefully.")
+        logger.info("Hell Harvest shutting down gracefully.")
 
 

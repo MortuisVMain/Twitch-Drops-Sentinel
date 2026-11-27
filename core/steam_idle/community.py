@@ -2,7 +2,6 @@
 import collections
 import json
 import logging
-import math
 import queue
 import re
 import subprocess
@@ -19,6 +18,7 @@ logger = logging.getLogger(__name__)
 _ERROR_CODE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 _SIGNED_OUT_EXIT = 3
 _MISMATCH_EXIT = 5
+_MAX_HOURS = 1e9  # far above any real playtime; a bigger value is a protocol error
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,39 @@ class CommunityError(Exception):
     def __init__(self, code: str):
         super().__init__(f"community read failed: {code}")
         self.code = code
+
+
+class FailureStreaks:
+    """Per key (a verb) the failure code that keeps coming back and how many times in a row. The first failure of a kind
+    is logged in full, identical repeats are quiet, and the next success or a different code starts over."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._streaks: dict[str, tuple[str, int]] = {}
+
+    def failed(self, key: str, code: str) -> int:
+        """Record a failure; returns how many in a row carry this code (1 is a new kind)."""
+        with self._lock:
+            last, count = self._streaks.get(key, (None, 0))
+            count = count + 1 if last == code else 1
+            self._streaks[key] = (code, count)
+            return count
+
+    def succeeded(self, key: str) -> int:
+        """Record a success; returns how many failures in a row it ends (0 when there were none)."""
+        with self._lock:
+            return self._streaks.pop(key, (None, 0))[1]
+
+    def reset(self) -> None:
+        with self._lock:
+            self._streaks.clear()
+
+
+_STREAKS = FailureStreaks()
+
+
+def reset_failure_streaks() -> None:
+    _STREAKS.reset()
 
 
 _LIVE: "set[subprocess.Popen]" = set()  # script processes of the reads in flight
@@ -129,13 +162,13 @@ def _expect_args(expected_steam_id64: str | None) -> list[str]:
 
 
 def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: str | None = None,
-         ok_status: str = "complete") -> dict:
-    """Run `<prefix> <verb>`, return its single JSON result line once it is a complete, successful result."""
+         ok_status: str = "complete", args: Sequence[object] = ()) -> dict:
+    """Run `<prefix> <verb> [args]`, return its single JSON result line once it is a complete, successful result."""
     extra = _expect_args(expected_steam_id64)
     try:
-        proc = spawn(command(prefix, verb, *extra), stderr=subprocess.PIPE)
+        proc = spawn(command(prefix, verb, *args, *extra), stderr=subprocess.PIPE)
     except OSError as error:
-        logger.error("community %s start failed: %s", verb, error)
+        logger.error("community %s start failed: %s", verb, error.strerror or type(error).__name__)
         raise CommunityError("start_failed") from error
     with _LIVE_LOCK:
         _LIVE.add(proc)
@@ -146,11 +179,19 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
     err_reader = threading.Thread(target=_read_stderr, args=(proc.stderr, err_tail), daemon=True)
     err_reader.start()
     failure: CommunityError | None = None
+    streak = 0
     try:
         proc.stdin.close()
-        return _result(proc, lines, timeout, ok_status)
+        value = _result(proc, lines, timeout, ok_status)
+        if healed := _STREAKS.succeeded(verb):
+            logger.info("community %s recovered after %d failures", verb, healed)
+        return value
     except CommunityError as err:
-        logger.error("community %s failed: %s", verb, err.code)
+        streak = _STREAKS.failed(verb, err.code)
+        if streak == 1:
+            logger.error("community %s failed: %s", verb, err.code)
+        else:
+            logger.debug("community %s failed again: %s (%d times in a row)", verb, err.code, streak)
         failure = err
         raise
     finally:
@@ -163,7 +204,7 @@ def _run(prefix: Sequence[str], verb: str, timeout: float, expected_steam_id64: 
         if err_reader_alive:  # closing a pipe another thread is blocked on can hang; the process is already dead
             logger.warning("community %s: the stderr reader is still running, its pipe is left open", verb)
         if failure is not None:
-            logger.warning("community %s run failed: %s (exit %s); script stderr tail:\n%s", verb, failure.code,
+            logger.log(logging.WARNING if streak == 1 else logging.DEBUG, "community %s run failed: %s (exit %s); script stderr tail:\n%s", verb, failure.code,
                            proc.returncode, _stderr_tail(err_tail) or "(empty)")
         for stream in (proc.stdin, proc.stdout, None if err_reader_alive else proc.stderr):
             if stream is not None:
@@ -222,7 +263,7 @@ def _games(value: dict, build) -> list:
 def _drops_entry(entry: dict) -> GameDrops:
     app_id, name, drops, hours = entry["appId"], entry["name"], entry["dropsRemaining"], entry["playtimeHours"]
     if (not _is_int(app_id, 1) or type(name) is not str or not _is_int(drops, 0)
-            or type(hours) not in (int, float) or not math.isfinite(hours) or hours < 0):
+            or type(hours) not in (int, float) or not 0 <= hours <= _MAX_HOURS):  # range first: 10**400 overflows float()
         raise ValueError("bad drops entry")
     return GameDrops(app_id, name, drops, float(hours))
 
@@ -238,6 +279,21 @@ def read_drops(command: Sequence[str], timeout: float = 300.0,
                expected_steam_id64: str | None = None) -> list[GameDrops]:
     """Every game badge with its remaining card drops; all-or-nothing."""
     return _games(_run(command, "drops", timeout, expected_steam_id64), _drops_entry)
+
+
+def read_games(command: Sequence[str], app_ids: Sequence[int], timeout: float | None = None,
+               expected_steam_id64: str | None = None) -> list[GameDrops]:
+    """Remaining drops and playtime of just these games (their card pages, not every badge page), in the order
+    asked; all-or-nothing, and an answer for any other set of games is a protocol error."""
+    ids = list(dict.fromkeys(app_ids))
+    if not ids:
+        return []
+    if not all(_is_int(app_id, 1) for app_id in ids):
+        raise CommunityError("invalid_app_id")
+    games = _games(_run(command, "cards", timeout or 60.0 + 20.0 * len(ids), expected_steam_id64, args=ids), _drops_entry)
+    if [game.app_id for game in games] != ids:
+        raise CommunityError("protocol")
+    return games
 
 
 def read_status(command: Sequence[str], timeout: float = 120.0, expected_steam_id64: str | None = None) -> None:

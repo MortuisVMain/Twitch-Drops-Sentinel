@@ -5983,6 +5983,11 @@ var writeRunReport = (games, extra = {}) => {
   }
 };
 
+// src/discounts.js
+var GOG_CATALOG_URL = "https://catalog.gog.com/v1/catalog?limit=48&order=asc:price&discounted=eq:true&price=between:0,0&productType=in:game,pack&countryCode=US&locale=en-US&currencyCode=USD";
+var SCAN_INTERVAL_MS = 6 * 60 * 60 * 1e3;
+var gogHundredOff = (products) => (Array.isArray(products) ? products : []).filter((p) => Number(p?.price?.finalMoney?.amount) === 0 && Number(p?.price?.baseMoney?.amount) > 0).map((p) => ({ title: p.title, url: p.storeLink || `https://www.gog.com/en/game/${p.slug}` }));
+
 // gog.js
 var screenshot = (...a) => resolve(cfg.dir.screenshots, "gog", ...a);
 var URL_CLAIM = "https://www.gog.com/en";
@@ -5991,6 +5996,25 @@ var pastelGreen = source_default.hex("#77dd77");
 var pastelBlue = source_default.hex("#add8e6");
 console.log(datetime(), "started checking gog");
 var db = await jsonDb("gog.json", {});
+try {
+  const res = await fetch(GOG_CATALOG_URL, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }, signal: AbortSignal.timeout(1e4) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const found = gogHundredOff((await res.json())?.products);
+  if (!found.length) console.log("[GOG] No paid games at 100% off in the store.");
+  else {
+    console.log(`[GOG] Games at 100% off in the store (add them on their page):
+  ${found.map((g) => `${lavender(g.title)} ${pastelBlue(g.url)}`).join("\n  ")}`);
+    const seen = await jsonDb("gog-hundred-off.json", {});
+    const fresh = found.filter((g) => !seen.data[g.url]);
+    if (fresh.length) {
+      await notify(`gog: games at 100% off, add them on their page:<br>${fresh.map((g) => `<a href="${g.url}">${g.title}</a>`).join("<br>")}`);
+      for (const g of fresh) seen.data[g.url] = datetime();
+      await seen.write();
+    }
+  }
+} catch (err) {
+  console.warn(`[GOG] Could not search the store for games at 100% off: ${err.message}`);
+}
 if (!cfg.show && !process.env.FGC_FORCE) {
   try {
     const gogRes = await fetch("https://www.gog.com/en", {

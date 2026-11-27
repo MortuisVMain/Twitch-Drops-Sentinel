@@ -91,7 +91,7 @@ def test_updater_flow():
         user_cookie.write_text('# Netscape HTTP Cookie File - USER PRIVATE TOKEN', encoding="utf-8")
 
         # Copy the actual hot-patch zip
-        patch_zip = WORKSPACE / "Twitch_Drops_Sentinel_Patch_v3.1.zip"
+        patch_zip = WORKSPACE / "Hell_Harvest_Patch_v3.1.zip"
         assert patch_zip.exists(), "Patch zip missing!"
 
         # Extract using the exact logic from updater

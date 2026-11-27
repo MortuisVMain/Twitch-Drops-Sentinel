@@ -1,4 +1,4 @@
-import { Ban, ChevronRight, ClipboardCopy, FileText, HardDrive, Play, Plus, SkipForward, Star, Zap } from 'lucide-react';
+import { Ban, ChevronRight, ClipboardCopy, FileText, Play, Plus, SkipForward, Stethoscope, Zap } from 'lucide-react';
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { 
   KeyRound, ShieldAlert, Copy, Check, ExternalLink, RefreshCw, 
@@ -7,17 +7,19 @@ import {
 } from 'lucide-react';
 import { ActiveDrop, HardwareGuard, SentinelStats, SentinelSettings, SentinelLogEntry, GameItem, TrophyItem, ConnectionPhase, RewardCampaign } from '../types';
 import { useTactileAudio } from '../hooks/useTactileAudio';
-import { useModalFocus } from '../hooks/useModalFocus';
 import { CartridgeCover } from './GameShelf';
 import { RewardCampaignsGroup } from './RewardCampaignsGroup';
 import { RewardQueueRow } from './RewardQueueRow';
+import { CatalogFocusModal } from './CatalogFocusModal';
 import { gameQueueEntries, hiddenRewardIds, isRewardQueueEntry, queueItems, rewardProgressPercent, rewardQueueStatus, rewardTargetLine, rewardTodayText, usableRewardCampaigns, visibleRewardCampaigns } from '../utils/rewardCampaigns.mjs';
 import { TargetMoreMenu } from './TargetMoreMenu';
 import { resolveGameBoxArt, registerDynamicBoxArt, smartGameMatch, isBlankCover, isSteamArt, retryCover } from '../utils/gameBoxArts';
 import { computeIdleInfo, formatTimeLeft, isOffQueueCandidate, pluralRu, shortGameName } from '../utils/idleInfo';
 import { deadlineFacts } from '../utils/campaignFacts';
+import { queueDeadlineRisks } from '../utils/queueDeadline.mjs';
 import { collapseLogs, CONSOLE_COLLAPSED_KEY, CONSOLE_FILTER_KEY, type ConsoleFilter, filterLogs, hostCanOpenLogFile, openLogFile, parseConsoleFilter, resolveConsoleCollapsed, withoutLevelPrefix } from '../utils/consoleLog';
 import { activateUrl, copyText } from '../utils/loginCode';
+import { useTickedDrop } from '../hooks/useTickedDrop';
 import { primaryChipIndex, sortOffQueue, splitQueueRows } from '../utils/dashboardLayout';
 import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueView, type CampaignState, type QueueFilter } from '../utils/campaignState';
 
@@ -25,6 +27,8 @@ import { campaignLabel, getCampaignState, parseQueueFilter, queueCounts, queueVi
 const OVERRIDE_CARD_MIN_REM = 12.5;
 
 export interface LiveDashboardProps {
+  /** The "Проверить" button of the service-unavailable banner opens the app-wide health center. */
+  onOpenHealthCenter?: () => void;
   activeDrop: ActiveDrop | null;
   connected?: boolean;
   connectionPhase?: ConnectionPhase;
@@ -100,6 +104,7 @@ const QUEUE_FILTER_EMPTY: Record<QueueFilter, string> = {
 };
 
 export const LiveDashboard: React.FC<LiveDashboardProps> = ({
+  onOpenHealthCenter,
   activeDrop,
   connected = false,
   connectionPhase = connected ? 'connected' : 'unavailable',
@@ -172,14 +177,9 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   };
   const [shelfFilter, setShelfFilter] = useState('ALL');
   const [showFullCatalogModal, setShowFullCatalogModal] = useState(false);
-  const catalogDialogRef = useRef<HTMLDivElement>(null);
-  useModalFocus(showFullCatalogModal, catalogDialogRef, () => setShowFullCatalogModal(false), 'input');
-  const [catalogModalSearch, setCatalogModalSearch] = useState('');
-  const [catalogModalTab, setCatalogModalTab] = useState<'ALL' | 'TOP' | 'INSTALLED'>('ALL');
   const safeAllGames = useMemo(() => (Array.isArray(allGames) ? allGames : []), [allGames]);
   const safeRecentLogs = useMemo(() => (Array.isArray(recentLogs) ? recentLogs : []), [recentLogs]);
   const safeAvailableChannels = useMemo(() => (Array.isArray(availableChannels) ? availableChannels : []), [availableChannels]);
-  const activeTwitchDropsGames = useMemo(() => safeAllGames.filter(g => g.has_drops && g.is_active_now), [safeAllGames]);
   const filterQueuedItem = (item: any) => {
     if (shelfFilter === 'ALL') return true;
     return true;
@@ -270,9 +270,19 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     return resolveGameBoxArt(activeGame, match?.box_art);
   }, [activeGame, safeAllGames]);
 
+  // Stage of the campaign: only from the engine's own drop counts, never invented
+  const activeGameRow = useMemo(() => {
+    if (!activeGame) return undefined;
+    return safeAllGames.find((g) => safeLower(g.name) === safeLower(activeGame))
+      || safeAllGames.find((g) => smartGameMatch(g.name, activeGame));
+  }, [activeGame, safeAllGames]);
+  const stageTotal = activeGameRow?.total_drops ?? 0;
+  const stageLabel = stageTotal > 0 ? `ЭТАП ${Math.min(stageTotal, (activeGameRow?.claimed_drops ?? 0) + 1)} ИЗ ${stageTotal}` : null;
+
   // Progress metrics
-  const progressPct = Math.min(100, Math.max(0, activeDrop?.progress_percent || 0));
-  const currentMinutes = activeDrop?.current_minutes || 0;
+  const tickedDrop = useTickedDrop(activeDrop, hardware.is_paused);
+  const progressPct = Math.min(100, Math.max(0, tickedDrop?.progress_percent || 0));
+  const currentMinutes = tickedDrop?.current_minutes || 0;
   const requiredMinutes = activeDrop?.required_minutes || 240;
   const remainingMinutes = Math.max(0, requiredMinutes - currentMinutes);
   const etaMinutes = remainingMinutes > 0 ? remainingMinutes : 0;
@@ -295,18 +305,18 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     if (!forcedGame || !isRewardQueueEntry(forcedGame)) return forcedGame;
     return queueItems([forcedGame], rewardCampaigns, null)[0]?.name ?? forcedGame;
   }, [forcedGame, rewardCampaigns]);
-  const topPriorityCount = activeTwitchDropsGames.filter((game) =>
-    priorityList.some((name) => safeLower(name) === safeLower(game.name))
-  ).length;
-  const installedActiveCount = activeTwitchDropsGames.filter((game) => game.is_installed).length;
-  const forceCandidates = useMemo(() => safeAllGames.filter((g) => g.has_drops || g.is_installed), [safeAllGames]);
-
-  const modalFilteredGames = useMemo(() => forceCandidates.filter((game) => {
-    if (catalogModalSearch.trim() && !safeLower(game.name).includes(safeLower(catalogModalSearch))) return false;
-    if (catalogModalTab === 'TOP' && !priorityList.some((name) => safeLower(name) === safeLower(game.name))) return false;
-    if (catalogModalTab === 'INSTALLED' && !game.is_installed) return false;
-    return true;
-  }), [forceCandidates, catalogModalSearch, catalogModalTab, priorityList]);
+  // queue games that close before the queue reaches and finishes them (the farming game goes first); an estimate
+  const queueRisks = useMemo(() => {
+    const order = activeGame
+      ? [...gamePriority.filter((n) => safeLower(n) === safeLower(activeGame)), ...gamePriority.filter((n) => safeLower(n) !== safeLower(activeGame))]
+      : gamePriority;
+    const rows = order.map((name) => {
+      const match = allGames.find((g) => safeLower(g.name) === safeLower(name) || smartGameMatch(g.name, name));
+      const live = Boolean(match && match.has_drops && match.is_active_now && !match.is_finished && match.is_account_connected !== false && match.farmable !== false);
+      return { key: safeLower(name), endAtIso: live ? match?.drops_end_at : null, watchMinutes: live ? match?.remaining_watch_minutes : null };
+    });
+    return queueDeadlineRisks(rows, Date.now());
+  }, [gamePriority, allGames, activeGame]);
 
   const queueCampaigns = useMemo(() => {
     const list: Array<{
@@ -642,29 +652,19 @@ const filteredLogs = useMemo(() => {
                   title={`Кликните для переключения фарма на ${item.name} · ${item.drop}`}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
-                    <img
-                      className="box-thumb"
-                      src={item.art}
-                      alt={item.name}
-                      style={{ width: '34px', height: '34px', borderRadius: '6px' }}
-                      crossOrigin={isSteamArt(item.art) ? 'anonymous' : undefined}
-                      onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, item.name)) img.style.display = 'none'; }}
-                      onError={(e) => { const img = e.currentTarget; if (!retryCover(img, item.name)) img.style.display = 'none'; }}
-                    />
+                    {/* the slot keeps its place when there is no cover, so every name starts at the same x */}
+                    <span className="queue-thumb-slot" aria-hidden="true">
+                      <img
+                        src={item.art}
+                        alt=""
+                        crossOrigin={isSteamArt(item.art) ? 'anonymous' : undefined}
+                        onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, item.name)) img.style.display = 'none'; }}
+                        onError={(e) => { const img = e.currentTarget; if (!retryCover(img, item.name)) img.style.display = 'none'; }}
+                      />
+                    </span>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
                         <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
-                        {item.priorityIndex >= 0 && (
-                          <span
-                            className="tabular"
-                            role="img"
-                            title={`Место в очереди: ${item.priorityIndex + 1}`}
-                            aria-label={`Место в очереди: ${item.priorityIndex + 1}`}
-                            style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 'var(--fs-xs)', fontWeight: 700, lineHeight: 1.2, padding: '0 5px', borderRadius: '4px', border: '1px solid var(--border-subtle)', background: 'var(--bg-well)', color: 'var(--text-secondary)' }}
-                          >
-                            #{item.priorityIndex + 1}
-                          </span>
-                        )}
                       </div>
                       <div title={item.state.kind === 'none' ? item.state.reason : undefined} style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {item.state.kind === 'link' ? (
@@ -680,11 +680,36 @@ const filteredLogs = useMemo(() => {
                           campaignLabel(item.state)
                         )}
                       </div>
+                      {item.state.kind === 'running' && queueRisks.has(safeLower(item.name)) && (() => {
+                        const risk = queueRisks.get(safeLower(item.name))!;
+                        const left = formatTimeLeft(risk.msLeft);
+                        const watch = formatTimeLeft(risk.watchMinutes * 60000);
+                        const why = risk.alone
+                          ? `Кампания закроется через ${left}, а смотреть ещё ${watch}: все дропы не успеть. Это оценка.`
+                          : `Кампания закроется через ${left}. Игры выше в очереди займут ${formatTimeLeft(risk.aheadMinutes * 60000)}, своих ${watch}. Поднимите её выше, чтобы успеть. Это оценка.`;
+                        return (
+                          <div className="queue-deadline-risk" role="note" title={why} style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-amber)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {risk.alone ? `не успеть: закроется через ${left}` : `не успеет в очереди · закроется через ${left}`}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
-                    <span className="tabular" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                    {item.priorityIndex >= 0 && (
+                      <span
+                        className="tabular"
+                        role="img"
+                        title={`Место в очереди: ${item.priorityIndex + 1}`}
+                        aria-label={`Место в очереди: ${item.priorityIndex + 1}`}
+                        style={{ flexShrink: 0, fontSize: 'var(--fs-xs)', fontWeight: 700, lineHeight: 1.2, padding: '0 5px', borderRadius: '4px', border: '1px solid var(--border-subtle)', background: 'var(--bg-well)', color: 'var(--text-secondary)' }}
+                      >
+                        #{item.priorityIndex + 1}
+                      </span>
+                    )}
+                    {/* fixed-width, right-aligned: the percentages of all rows stand in one column */}
+                    <span className="tabular" style={{ minWidth: '3.2em', textAlign: 'right', fontSize: 'var(--fs-xs)', fontWeight: 700, color: item.state.kind !== 'none' && item.pct > 0 ? 'var(--led-mint)' : 'var(--text-muted)' }}>
                       {item.state.kind === 'none' ? '—' : `${item.pct}%`}
                     </span>
 
@@ -714,6 +739,7 @@ const filteredLogs = useMemo(() => {
                         </button>
                       </div>
                     )}
+                    {item.priorityIndex < 0 && onReorderPriority && <span className="reorder-rocker-slot" aria-hidden="true" />}
                   </div>
                 </div>
   );
@@ -728,15 +754,18 @@ const filteredLogs = useMemo(() => {
     <div id="view-dashboard" className="view-tab active">
       {starting && (
         <div className="ending-soon-radar mb-2.5" role="status" style={{ borderColor: 'var(--border-main)', justifyContent: 'flex-start', color: 'var(--text-secondary)' }}>
-          Запускаем службу Sentinel…
+          Запускаем службу Hell Harvest…
         </div>
       )}
       {!connected && !starting && (
         <div className="ending-soon-radar mb-2.5 border-rose-500/40" role="status">
-          <strong style={{ color: 'var(--led-rose)' }}>Локальный сервис Sentinel недоступен.</strong>
+          <strong style={{ color: 'var(--led-rose)' }}>Локальный сервис Hell Harvest недоступен.</strong>
           <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
             Данные и действия обновятся после подключения.
           </span>
+          <button className="tactile-btn ml-auto" onClick={() => onOpenHealthCenter?.()}>
+            <Stethoscope className="ui-icon" aria-hidden="true" focusable="false" /> Проверить
+          </button>
         </div>
       )}
       {/* 1. HARDWARE GUARD AUTOPAUSE BANNER */}
@@ -757,6 +786,31 @@ const filteredLogs = useMemo(() => {
           >
             <Zap className="ui-icon" aria-hidden="true" focusable="false" /> Это не игра (Игнорировать)
           </button>
+        </div>
+      )}
+
+      {/* 1b. FARM SCHEDULE PAUSE BANNER */}
+      {hardware.schedule_paused && !hardware.detected_game && (
+        <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in" role="status">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
+            <span className="led-dot amber" />
+            <strong className="tabular" style={{ color: 'var(--led-amber)' }}>ПАУЗА ПО РАСПИСАНИЮ:</strong>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              {hardware.schedule_next
+                ? `Сейчас вне окна фарма. Фарм продолжится ${new Date(hardware.schedule_next).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`
+                : 'В расписании не выбран ни один день, фарм не начнётся.'}
+            </span>
+          </div>
+          {onUpdateSettings && settings.farm_schedule && (
+            <button
+              className="tactile-btn active-amber"
+              style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
+              onClick={() => { playClick(); onUpdateSettings({ farm_schedule: { ...settings.farm_schedule!, enabled: false } }); }}
+              title="Выключить расписание и фармить сейчас"
+            >
+              <Play className="ui-icon" aria-hidden="true" focusable="false" /> Фармить сейчас
+            </button>
+          )}
         </div>
       )}
 
@@ -1100,7 +1154,7 @@ const filteredLogs = useMemo(() => {
               {/* Middle Drop Info & Quick Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px 6px', flexWrap: 'wrap' }}>
-                  <span className="version-chip">ЭТАП 2 ИЗ 3</span>
+                  {stageLabel && <span className="version-chip">{stageLabel}</span>}
                   <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} id="heroMins">
                     {currentMinutes} ИЗ {requiredMinutes} МИН
                   </span>
@@ -1207,7 +1261,7 @@ const filteredLogs = useMemo(() => {
               <div className="campaign-stages-3">
                 <div className="stage-pill done">
                   <span><Check className="ui-icon" aria-hidden="true" focusable="false" /> 1. Начальная награда</span>
-                  <span className="tabular">100%</span>
+                  <span className="tabular" title="Нет данных по этапам">—</span>
                 </div>
                 <div className="stage-pill active">
                   <span><Play className="ui-icon" aria-hidden="true" focusable="false" /> 2. {activeTitle || 'Текущая цель'}</span>
@@ -1215,14 +1269,14 @@ const filteredLogs = useMemo(() => {
                 </div>
                 <div className="stage-pill">
                   <span style={{ color: 'var(--text-muted)' }}>3. Финальный трофей</span>
-                  <span className="tabular" style={{ color: 'var(--text-muted)' }}>0%</span>
+                  <span className="tabular" style={{ color: 'var(--text-muted)' }} title="Нет данных по этапам">—</span>
                 </div>
               </div>
               <div className="led-strip-40" id="ledMatrix40">
                 {Array.from({ length: 40 }).map((_, i) => (
                   <span
                     key={i}
-                    className={`led-seg ${i < Math.round((progressPct / 100) * 40) ? 'lit' : ''}`}
+                    className={`led-cell${i < Math.round((progressPct / 100) * 40) ? ' lit-mint' : ''}`}
                   />
                 ))}
               </div>
@@ -1507,213 +1561,18 @@ const filteredLogs = useMemo(() => {
       </div>
 
       {/* Full Catalog Modal (Rich Apple Luna 2.0 Dialog) */}
-      {showFullCatalogModal && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
-          onClick={() => { playClick(); setShowFullCatalogModal(false); }}
-        >
-          <div 
-            ref={catalogDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="catalog-title"
-            tabIndex={-1}
-            className="w-full max-w-2xl bg-[var(--bg-island)] border border-[var(--border-main)] rounded-2xl shadow-2xl p-5 space-y-3.5 max-h-[85vh] flex flex-col outline-none"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-subtle)'
-            }}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <span className="led-dot amber" />
-                <div>
-                  <h3 id="catalog-title" className="text-sm font-bold tracking-[0.04em] text-[var(--text-primary)]">
-                    <Zap className="ui-icon" aria-hidden="true" focusable="false" /> ВЫБОР ИГРЫ ДЛЯ РУЧНОГО ФОКУСА • Каталог игр Twitch & Steam • Каталог игр Twitch & Steam
-                  </h3>
-                  <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)]">
-                    Все действующие кампании Twitch Drops ({activeTwitchDropsGames.length} игр в эфире)
-                  </div>
-                </div>
-              </div>
-              <button 
-                aria-label="Закрыть"
-                className="tactile-btn" 
-                style={{ height: '26px', width: '26px', padding: 0 }} 
-                onClick={() => { playClick(); setShowFullCatalogModal(false); }}
-              >
-                <X className="ui-icon" aria-hidden="true" focusable="false" />
-              </button>
-            </div>
-
-            {/* Currently Forced Game Alert */}
-            {forcedGame && (
-              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 shrink-0">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="led-dot amber animate-pulse" />
-                  <span className="text-[var(--text-secondary)]">
-                    Сейчас принудительно фармится: <strong className="text-amber-400">{forcedLabel}</strong>
-                  </span>
-                </div>
-                <button
-                  className="tactile-btn active-amber"
-                  style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
-                  onClick={() => {
-                    playClick();
-                    onCancelForceFarm?.();
-                  }}
-                >
-                  <X className="ui-icon" aria-hidden="true" focusable="false" /> Сбросить в авто
-                </button>
-              </div>
-            )}
-
-            {/* Search Input and Filter Pills */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
-              <div className="relative flex-1">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" aria-hidden="true" focusable="false" />
-                <input
-                  type="text"
-                  placeholder="Поиск по названию игры (например, Rust, Witcher, PoE, Cyberpunk)..."
-                  value={catalogModalSearch}
-                  onChange={(e) => setCatalogModalSearch(e.target.value)}
-                  className="w-full pl-8 pr-8 py-1.5 rounded-xl bg-[var(--bg-well)] border border-[var(--border-main)] text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--led-mint)]"
-                />
-                {catalogModalSearch && (
-                  <button 
-                    onClick={() => setCatalogModalSearch('')} 
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 min-h-6 text-[var(--text-muted)] hover:text-white"
-                  >
-                    <X className="ui-icon" aria-hidden="true" focusable="false" />
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  className={`tactile-btn ${catalogModalTab === 'ALL' ? 'active-mint' : ''}`}
-                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
-                  onClick={() => { playClick(); setCatalogModalTab('ALL'); }}
-                >
-                  Все ({activeTwitchDropsGames.length})
-                </button>
-                <button
-                  className={`tactile-btn ${catalogModalTab === 'TOP' ? 'active-mint' : ''}`}
-                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
-                  onClick={() => { playClick(); setCatalogModalTab('TOP'); }}
-                >
-                  <Star className="ui-icon" aria-hidden="true" focusable="false" /> Очередь ({topPriorityCount})
-                </button>
-                <button
-                  className={`tactile-btn ${catalogModalTab === 'INSTALLED' ? 'active-mint' : ''}`}
-                  style={{ fontSize: 'var(--fs-xs)', padding: '0 10px' }}
-                  onClick={() => { playClick(); setCatalogModalTab('INSTALLED'); }}
-                >
-                  <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> На ПК ({installedActiveCount})
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable Games List */}
-            <div className="obsidian-well p-2 flex-1 overflow-y-auto space-y-1.5 min-h-[260px]">
-              {modalFilteredGames.length === 0 ? (
-                <div className="text-center py-12 text-[var(--text-muted)] text-xs space-y-1.5">
-                  <p>Игры с таким названием не найдены среди активных кампаний.</p>
-                  <p className="text-[length:var(--fs-xs)]">Попробуйте изменить поисковый запрос или переключить фильтр.</p>
-                </div>
-              ) : (
-                modalFilteredGames.map((g) => {
-                  const isForced = forcedGame === g.name;
-                  const isTop = priorityList.some((p) => typeof p === 'string' && safeLower(p) === safeLower(g.name));
-                  const boxArtUrl = resolveGameBoxArt(g.name, g.box_art);
-                  return (
-                    <div 
-                      key={g.name}
-                      className={`flex items-center justify-between p-2 rounded-xl transition-all border ${
-                        isForced 
-                          ? 'bg-amber-500/10 border-amber-500/40 shadow-sm' 
-                          : 'bg-black/20 hover:bg-white/[0.04] border-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <img
-                          src={boxArtUrl}
-                          alt={g.name}
-                          className="w-9 h-12 object-cover rounded-md border border-white/10 shrink-0 bg-[var(--bg-chassis)]"
-                          crossOrigin={isSteamArt(boxArtUrl) ? 'anonymous' : undefined}
-                          onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, g.name)) img.style.display = 'none'; }}
-                          onError={(e) => { const img = e.currentTarget; if (!retryCover(img, g.name)) img.style.display = 'none'; }}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                              {g.name}
-                            </span>
-                            {isTop && (
-                              <span className="px-1.5 py-0.5 rounded text-[length:var(--fs-xs)] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
-                                <Star className="ui-icon" aria-hidden="true" focusable="false" /> Очередь
-                              </span>
-                            )}
-                            {g.is_installed && (
-                              <span className="px-1.5 py-0.5 rounded text-[length:var(--fs-xs)] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                                <HardDrive className="ui-icon" aria-hidden="true" focusable="false" /> УСТАНОВЛЕНА
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[length:var(--fs-xs)] text-[var(--text-muted)] truncate mt-0.5">
-                            {g.category || 'Активная кампания Twitch Drops'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0 ml-3">
-                        <button
-                          className={`tactile-btn ${isTop ? 'active-amber' : ''}`}
-                          style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 8px' }}
-                          onClick={() => {
-                            playClick();
-                            if (isTop) {
-                              onRemoveFromPriority?.(g.name);
-                            } else {
-                              onAddToPriority?.(g.name);
-                            }
-                          }}
-                          title={isTop ? 'Удалить из приоритетной очереди' : 'Добавить в очередь'}
-                        >
-                          {isTop ? <Star className="ui-icon" aria-hidden="true" focusable="false" /> : <Plus className="ui-icon" aria-hidden="true" focusable="false" />} {isTop ? 'В очереди' : 'В ОЧЕРЕДЬ'}
-                        </button>
-                        <button 
-                          className={`tactile-btn ${isForced ? 'active-amber' : 'active-mint'}`}
-                          style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', padding: '0 10px' }}
-                          onClick={() => {
-                            playClick();
-                            if (isForced) {
-                              onCancelForceFarm?.();
-                            } else {
-                              onForceFarm?.(g.name);
-                              setShowFullCatalogModal(false);
-                            }
-                          }}
-                        >
-                          {isForced ? <X className="ui-icon" aria-hidden="true" focusable="false" /> : <Zap className="ui-icon" aria-hidden="true" focusable="false" />} {isForced ? 'Отмена' : 'Фармить сейчас'}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between text-[length:var(--fs-xs)] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)] shrink-0">
-              <span>Показано: {modalFilteredGames.length} из {forceCandidates.length} игр</span>
-              <span className="text-[length:var(--fs-xs)] text-[var(--text-secondary)]">
-                Фокус переключает бота на выбранную игру вне очереди
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      <CatalogFocusModal
+        isOpen={showFullCatalogModal}
+        onClose={() => setShowFullCatalogModal(false)}
+        allGames={safeAllGames}
+        priorityList={priorityList}
+        forcedGame={forcedGame}
+        forcedLabel={forcedLabel}
+        onAddToPriority={onAddToPriority}
+        onRemoveFromPriority={onRemoveFromPriority}
+        onForceFarm={onForceFarm}
+        onCancelForceFarm={onCancelForceFarm}
+      />
 
     </div>
   );

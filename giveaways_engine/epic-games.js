@@ -6,8 +6,9 @@ import { existsSync, writeFileSync } from 'fs';
 import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT, recordClaimStat, getStatsSummary, loginHint, markSignedIn, markSignedOut } from './src/util.js';
 import { cfg } from './src/config.js';
 import { clickOnlyIfFree } from './src/checkout.js';
-import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, confirmEpicAccount, isEpicLoginPage, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
+import { CTA_SELECTOR, acceptEuAgreement, acceptEulaIfShown, clickGetIfFree, confirmEpicAccount, isEpicLoginPage, enterParentalPin, fetchFreePromoSlugs, pageOrderTarget, slugFromUrl, promoFreeForPage, recordRefusal, settleModals } from './src/orders.js';
 import { writeRunReport } from './src/runsummary.js';
+import { findEpicHundredOff, scanDue } from './src/discounts.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
 
@@ -20,6 +21,8 @@ const pastelBlue = chalk.hex('#add8e6'); // color for URLs
 console.log(datetime(), 'started checking epic-games');
 
 const db = await jsonDb('epic-games.json', {});
+// When the store was last searched for paid games at 100% off: the pre-flight cannot search it (Epic refuses requests from outside a browser)
+const scanDb = await jsonDb('epic-games-scan.json', {});
 
 // Pre-flight check: query Epic Games free promo catalog API before launching browser
 if (!cfg.show && !process.env.FGC_FORCE) {
@@ -47,8 +50,11 @@ if (!cfg.show && !process.env.FGC_FORCE) {
 
           if (allClaimed) {
             console.log(`[Pre-Flight] All ${activeFreeGames.length} active Epic Games freebies already in library: ${activeFreeGames.map(g => `"${g.title}"`).join(', ')}.`);
-            console.log('[Pre-Flight] Skipping browser launch (fast exit in <500ms).');
-            process.exit(0);
+            if (!scanDue(scanDb.data.lastScan)) {
+              console.log('[Pre-Flight] Store searched for other 100%-off games less than 6 h ago. Skipping browser launch (fast exit in <500ms).');
+              process.exit(0);
+            }
+            console.log('[Pre-Flight] Searching the store for other games at 100% off...');
           }
         }
       }
@@ -227,9 +233,26 @@ try {
   // Alternative: parse the json loaded to build the page https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions
   // i.e. filter data.Catalog.searchStore.elements for .promotions.promotionalOffers being set and build URL with .catalogNs.mappings[0].pageSlug or .urlSlug if not set to some wrong id like it was the case for spirit-of-the-north-f58a66 - this is also what's done here: https://github.com/claabs/epicgames-freegames-node/blob/938a9653ffd08b8284ea32cf01ac8727d25c5d4c/src/puppet/free-games.ts#L138-L213
   const urlSlugs = await Promise.all((await game_loc.elementHandles()).map(a => a.getAttribute('href')));
-  const urls = urlSlugs.map(s => 'https://store.epicgames.com' + s);
+  const giveawayUrls = urlSlugs.map(s => 'https://store.epicgames.com' + s);
   // avoid console.log(array): util.inspect escapes the color codes and wraps strings in its own green
-  console.log(`Free games:\n  ${urls.map(u => pastelBlue(u)).join('\n  ')}`);
+  console.log(`Free games:\n  ${giveawayUrls.map(u => pastelBlue(u)).join('\n  ')}`);
+  // Paid games at 100% off outside the giveaway block (e.g. a publisher's own sale): claimed like the weekly ones
+  let hundredOffUrls = [];
+  try {
+    const hundredOff = await findEpicHundredOff(page);
+    scanDb.data.lastScan = new Date().toISOString();
+    await scanDb.write();
+    const known = new Set(giveawayUrls.map(slugFromUrl));
+    const owned = g => ['claimed', 'existed', 'manual'].includes(db.data[user][g.slug]?.status);
+    const extra = hundredOff.filter(g => !known.has(g.slug) && !owned(g));
+    const ownedCount = hundredOff.filter(g => !known.has(g.slug) && owned(g)).length;
+    if (extra.length) console.log(`Other games at 100% off:\n  ${extra.map(g => `${lavender(g.title)} ${pastelBlue(g.url)}`).join('\n  ')}`);
+    else console.log(`No other games at 100% off${ownedCount ? ` (${ownedCount} already in library)` : ''}.`);
+    hundredOffUrls = extra.map(g => g.url);
+  } catch (err) {
+    console.error(`Could not search the store for other games at 100% off: ${err.message}`);
+  }
+  const urls = [...giveawayUrls, ...hundredOffUrls];
   // Epic's promotions list, read once: a "Get" is clicked only if this (or the price block of the page) says the game is free
   const promoSlugs = await fetchFreePromoSlugs();
 

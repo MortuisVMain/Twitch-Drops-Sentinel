@@ -16,14 +16,23 @@ export interface ActiveDrop {
   reward?: boolean; // the hero shows a reward campaign watch, not a drops campaign
 }
 
+export interface FarmSchedule {
+  enabled: boolean;
+  days: number[]; // Monday = 0
+  start: string; // "HH:MM", local time
+  end: string; // end <= start runs past midnight; equal = the whole day
+}
+
 export interface HardwareGuard {
   is_gaming: boolean;
   detected_game: string | null;
   on_battery: boolean;
   is_paused: boolean;
-  ping_ms: number;
+  schedule_paused?: boolean; // paused because now is outside the farm schedule
+  schedule_next?: string | null; // local ISO time the schedule next starts or stops farming
+  ping_ms: number | null; // null = not measured
   cpu_percent: number;
-  gpu_percent: number;
+  gpu_percent: number | null; // null = not measured
 }
 
 export interface SentinelStats {
@@ -83,6 +92,10 @@ export interface SentinelSettings {
   pause_on_gaming: boolean;
   pause_on_battery: boolean;
   native_toasts: boolean;
+  health_watch_enabled?: boolean; // background "Проверка работы"; default true
+  health_watch_hours?: 1 | 4 | 12 | 24; // how often it runs; default 1
+  update_channel?: 'stable' | 'beta'; // beta: pre-releases are offered too
+  farm_schedule?: FarmSchedule; // quiet hours: farm only inside the window
   ui_sound_enabled?: boolean;
   claim_channel_points?: boolean;
   auto_claim_drops?: boolean;
@@ -181,6 +194,7 @@ export interface FullSentinelState {
   hardware: HardwareGuard;
   stats: SentinelStats;
   settings: SentinelSettings;
+  health_watch?: { enabled: boolean; hours: number; problems: number; fails?: number; lastRun: number | null; lastManual?: number | null }; // problems = fail + warn of the last background or manual check
   reward_campaigns?: RewardCampaign[]; // empty while the setting is off
   reward_watching?: { id: string; name: string } | null; // the reward campaign being watched right now
   slot_minutes_today?: number; // minutes the daily reward slot took today (UTC), before drops
@@ -274,11 +288,13 @@ export interface GiveawaysStateResponse {
 
 export type NavTab = 'dashboard' | 'shelf' | 'giveaways' | 'steamidle' | 'dimmer' | 'settings';
 
-export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped';
+export type SteamIdleFarmState = 'idle' | 'scanning' | 'farming' | 'waiting' | 'paused' | 'suspended' | 'needs_login' | 'done' | 'stopped' | 'batching';
 export type SteamIdleCommunitySession = 'unknown' | 'checking' | 'signed_in' | 'signed_out' | 'login_open' | 'account_mismatch' | 'engine_missing' | 'error';
 
 export interface SteamIdleQueuedGame { appId: number; name: string; dropsRemaining: number }
 export interface SteamIdleCurrentGame extends SteamIdleQueuedGame { heldSeconds: number }
+/** A game collecting playtime in the hours phase: playtimeHours counts toward the stored hoursUntilDrops. */
+export interface SteamIdleBatchGame { appId: number; name: string; dropsRemaining: number; playtimeHours: number }
 export interface SteamIdleFailedGame { appId: number; name: string; reason: string }
 /** A game kept out of the queue because it may still be refundable. */
 export interface SteamIdleHeldGame { appId: number; name: string; reason: 'refund_window'; daysLeft: number }
@@ -314,8 +330,27 @@ export interface SteamIdleState {
     paused: boolean;
     suspended: boolean;
     refundHeld: SteamIdleHeldGame[];
+    /** 'hours' while batching, 'cards' while farming one game. Absent in an older service. */
+    phase?: 'hours' | 'cards' | null;
+    batch?: SteamIdleBatchGame[];
+    /** Playtime a game needs before cards drop (0..10, 0 = the hours phase is off). Absent in an older service: the setting is then hidden. */
+    hoursUntilDrops?: number;
+    /** 'no_hours': Steam did not count playtime, the run switched to one game at a time. */
+    batchDisabled?: string | null;
+    /** Cards left and a rough time to farm them (half an hour a card plus the playtime still needed). Absent in an older service. */
+    estimate?: { dropsRemaining: number; hours: number };
+    /** Cards that dropped today for this account, and in the current run. Absent in an older service. */
+    droppedToday?: number;
+    droppedThisRun?: number;
+    /** What the first card drops say about the account: set this many hours (0 = no restriction). Null/absent: nothing to suggest. */
+    thresholdSuggestion?: { kind: 'restricted' | 'unrestricted'; suggestedHours: number; samples: number } | null;
+    /** The farm paused itself because the user plays a game; it resumes when that game closes. Null/absent: not paused by the watch. */
+    autoPause?: { reason: 'user_playing'; appId: number; since: number } | null;
+    /** The two switches of the farm settings. Absent in an older service: the switches are then hidden. */
+    pauseWhilePlaying?: boolean;
+    notify?: boolean;
   };
-  library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null };
+  library: { count: number | null; status?: SteamIdleLibraryStatus; ageSeconds?: number | null; achievementsChecking?: boolean; achievementsVersion?: number };
   preview?: SteamIdlePreview;
   /** Absent when the service is older than achievements: the Achievements switch item is then hidden. */
   achievements?: SteamIdleAchievements;
@@ -354,6 +389,10 @@ export interface SteamIdleLibraryGame {
   protected?: boolean;
   /** On the user's own list; absent in an older service. */
   userDenied?: boolean;
+  /** Whether the game has Steam achievements (store data); null while unknown, absent in an older service. */
+  hasAchievements?: boolean | null;
+  /** The account's progress from the last time the game's list was read; null when it was never read. */
+  achievements?: { achieved: number; total: number } | null;
 }
 /** One achievement from GET /achievements. */
 export interface SteamIdleAchievement { apiName: string; name: string; description: string; hidden: boolean; achieved: boolean; unlockTime: number | null }
@@ -396,6 +435,8 @@ export interface UpdateCheckResult {
   download_url: string;
   asset_api_url?: string;
   html_url: string;
+  prerelease?: boolean; // the offered version is a GitHub pre-release (beta channel)
+  channel?: 'stable' | 'beta';
   /** Why the check failed; the other fields then hold the last known result */
   error?: string;
 }

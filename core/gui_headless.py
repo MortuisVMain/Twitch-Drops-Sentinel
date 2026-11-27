@@ -8,14 +8,19 @@ import subprocess
 import sys
 import unicodedata
 import uuid
-from time import time
+from time import monotonic as _monotonic, time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from translate import _
+from health import OAUTH_CODES
 
 logger = logging.getLogger("TwitchDrops.HeadlessGUI")
+
+# A service that keeps restarting asks for a new Twitch code each time; one activation tab per 10 minutes is enough, the toast still carries each code.
+ACTIVATION_TAB_INTERVAL = 600.0
+_last_activation_tab_at: Optional[float] = None
 
 # Journal kept for the console, "copy logs" and the diagnostic report. Counter runs are folded on write (one hourly sync
 # alone writes ~104 "(n/104)" lines). Lines are kept by age: the console must show at least the last 5 hours of farming,
@@ -34,7 +39,7 @@ class SentinelStateBridge:
         self.user_id: str = ""
         self.username: str = ""
         self.active_drop: Optional[dict] = None
-        self.status_text: str = "Инициализация Sentinel..."
+        self.status_text: str = "Инициализация Hell Harvest..."
         self.tray_icon: str = "idle"
         self.watching_channel: Optional[str] = None
         self.available_channels: list[dict] = []
@@ -131,12 +136,17 @@ TOAST_SCRIPT = (
     "$n = $t.GetElementsByTagName('text'); "
     "$n.Item(0).InnerText = $env:SENTINEL_TOAST_TITLE; "
     "$n.Item(1).InnerText = $env:SENTINEL_TOAST_MESSAGE; "
+    "if ($env:SENTINEL_TOAST_LAUNCH) { $t.DocumentElement.SetAttribute('activationType', 'protocol'); $t.DocumentElement.SetAttribute('launch', $env:SENTINEL_TOAST_LAUNCH) }; "
     "$toast = [Windows.UI.Notifications.ToastNotification]::new($t); "
-    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Twitch Drops Sentinel').Show($toast);"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Hell Harvest').Show($toast);"
 )
 
 
 TOAST_TEXT_LIMIT = 256
+
+# What a click on a toast opens: the app registers this scheme for the current user at its start (desktop/HealthCenterHost.cs).
+# Only these fixed addresses can ride on a toast; callers pass the key, never an address.
+TOAST_LAUNCH_URIS = {"health": "hellharvest://health"}
 
 
 def _toast_text(value) -> str:
@@ -145,8 +155,8 @@ def _toast_text(value) -> str:
     return text[:TOAST_TEXT_LIMIT]
 
 
-def send_windows_toast(title: str, message: str):
-    """Sends a native Windows 10/11 toast via PowerShell WinRT.
+def send_windows_toast(title: str, message: str, launch: Optional[str] = None):
+    """Sends a native Windows 10/11 toast via PowerShell WinRT. launch: a key of TOAST_LAUNCH_URIS; a click on the toast then opens that address.
 
     The script is a constant: title and message come from campaign authors, so they travel in the child's
     environment and are read with $env:, never spliced into code (PowerShell also treats U+2018..U+201B as quotes).
@@ -156,6 +166,13 @@ def send_windows_toast(title: str, message: str):
     env = dict(os.environ)
     env["SENTINEL_TOAST_TITLE"] = _toast_text(title)
     env["SENTINEL_TOAST_MESSAGE"] = _toast_text(message)
+    env.pop("SENTINEL_TOAST_LAUNCH", None)
+    if launch is not None:
+        uri = TOAST_LAUNCH_URIS.get(launch)
+        if uri:
+            env["SENTINEL_TOAST_LAUNCH"] = uri
+        else:
+            logger.warning("Toast launch key %r is not known, the toast has no click action", launch)
     try:
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
@@ -198,7 +215,7 @@ class HeadlessTray:
         STATE_BRIDGE.tray_icon = icon_name
         logger.info(f"[TRAY] Icon: {icon_name}")
 
-    def notify(self, text: str, title: str = "Twitch Drops Sentinel"):
+    def notify(self, text: str, title: str = "Hell Harvest"):
         send_windows_toast(title, text)
 
     def stop(self):
@@ -383,6 +400,7 @@ class HeadlessLoginForm:
     def update(self, text: str, user_id: Any = None, username: Any = None):
         logger.info(f"[LOGIN] {text} (User ID: {user_id}, Username: {username})")
         if user_id:
+            OAUTH_CODES.clear()  # signed in: earlier codes are not a restart loop any more
             STATE_BRIDGE.user_id = str(user_id)
             STATE_BRIDGE.oauth_code = None
             STATE_BRIDGE.oauth_uri = None
@@ -399,17 +417,29 @@ class HeadlessLoginForm:
         logger.info(f"[LOGIN] OAuth Device Code needed: {code} at {uri}")
         STATE_BRIDGE.oauth_code = str(code)
         STATE_BRIDGE.oauth_uri = str(uri)
+        OAUTH_CODES.note(code)  # the health check counts new codes: a sign-in that restarts keeps issuing them
         STATE_BRIDGE.status_text = _("sentinel", "login_required_status").format(code=code)
         STATE_BRIDGE.add_log("AUTH", _("sentinel", "login_code_log").format(code=code, uri=uri))
-        send_windows_toast("Twitch Drops Sentinel — Авторизация", f"Код авторизации: {code}\nОткройте Twitch в браузере для подтверждения")
+        try:  # through the gate: honours the notifications switch, reaches Telegram/Discord, once per code
+            from notifications import NOTIFIER
+            NOTIFIER.notify("twitch_login", str(code), "Hell Harvest — Авторизация",
+                            f"Нужен вход в Twitch. Код авторизации: {code}. Откройте Twitch в браузере для подтверждения")
+        except Exception as exc:
+            logger.warning("Twitch sign-in notification failed: %s", exc, exc_info=True)
         if os.environ.get("SENTINEL_NO_BROWSER") == "1":
             logger.warning("SENTINEL_NO_BROWSER: the Twitch activation page was not opened")
             return
+        global _last_activation_tab_at
+        now = _monotonic()
+        if _last_activation_tab_at is not None and now - _last_activation_tab_at < ACTIVATION_TAB_INTERVAL:
+            logger.warning("Twitch activation page not opened again: the last tab was opened %.0f s ago", now - _last_activation_tab_at)
+            return
+        _last_activation_tab_at = now
         try:
             import webbrowser
             webbrowser.open(str(uri))
         except Exception as e:
-            logger.debug(f"Failed to auto-open browser: {e}")
+            logger.warning("Failed to auto-open browser: %s", e, exc_info=True)
 
     def config(self, **kwargs):
         pass
@@ -442,7 +472,7 @@ class HeadlessMockWidget:
 
 class HeadlessGUIManager:
     """
-    Headless GUI Manager for Twitch Drops Sentinel.
+    Headless GUI Manager for Hell Harvest.
     Implements the exact interface required by TwitchDrops core without opening Tkinter.
     Provides live telemetry to the React UI.
     """
@@ -532,4 +562,4 @@ class HeadlessGUIManager:
 
     def grab_attention(self, sound=False):
         if sound:
-            send_windows_toast("Twitch Drops Sentinel", "Требуется внимание пользователя.")
+            send_windows_toast("Hell Harvest", "Требуется внимание пользователя.")

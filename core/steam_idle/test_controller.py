@@ -1,6 +1,8 @@
 """Offline checks for the service-facing controller: every dependency is a fake, nothing sleeps for real."""
 import asyncio
+import datetime
 import json
+import logging
 import re
 import tempfile
 import threading
@@ -10,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from steam_idle import protection
+from steam_idle.activity import ActivityHandler
 from steam_idle.achievements import Achievement, UnlockResult, _outcome
 from steam_idle.community import CommunityError, GameDrops, OwnedGame
 from steam_idle.controller import (SteamClient, SteamIdleController, Tools, create_controller, find_tools,
@@ -20,7 +23,9 @@ from steam_idle.first_seen import FILE_NAME as FIRST_SEEN_FILE, FirstSeenStore
 ACCOUNT, OTHER = 38734272, 1234567
 BASE_ID = 76561197960265728
 FARM_KEYS = {"state", "current", "queue", "done", "failed", "totalDropsRemaining", "lastReadAgeSeconds",
-             "lastError", "paused", "suspended", "refundHeld"}
+             "lastError", "paused", "suspended", "refundHeld", "batch", "phase", "hoursUntilDrops", "batchDisabled",
+             "droppedThisRun", "estimate", "droppedToday", "thresholdSuggestion", "autoPause", "pauseWhilePlaying",
+             "notify"}
 REFUSALS = {"risk_not_acknowledged", "unavailable", "steam_not_running", "steam_signed_out",
             "community_signed_out", "account_mismatch", "busy"}
 
@@ -71,8 +76,9 @@ class Env:
         self.library = [OwnedGame(1, "a", 0), OwnedGame(2, "b", 0), OwnedGame(3, "c", 0)]
         self.library_calls = self.drops_calls = 0
         self.expected_seen, self.status_calls, self.status_error = [], [], None
-        self.presences, self.login_commands, self.login_gate = [], [], None
+        self.presences, self.login_commands, self.login_expected, self.login_gate = [], [], [], None
         self.now, self.sleeps, self.on_sleep, self.freeze_at = 1000.0, [], None, None
+        self.rules = FarmRules(recheck_seconds=10.0)  # None: the controller builds its own and applies the settings
         self.read_gate, self.read_entered, self.kills, self.start_error = None, threading.Event(), 0, None
         self.read_threads = []
         self.ach, self.ach_calls, self.unlock_calls, self.unlock_script = {}, [], [], None
@@ -82,17 +88,22 @@ class Env:
         self.first_seen = None
         self.engine_installed = True
         self.module_enabled = True
+        self.achievement_index = None
+        self.games, self.games_calls = None, []  # a list of answers makes the controller read single games' card pages
+        self.watch, self.running, self.notified = False, 0, []  # watch: the controller reads RunningAppID from `running`
         self.__dict__.update(over)
         self.ctl = SteamIdleController(
             get_setting=lambda key, default=False: self.settings.get(key, default),
             set_setting=self.settings.__setitem__,
             find_tools=lambda: self.tools, client_state=self.read_client,
             read_drops=self.read_drops, read_library=self.read_library, read_status=self.read_status,
-            presence_factory=self.make_presence, run_login=self.run_login,
-            clock=lambda: self.now, sleep=self.sleep, rules=FarmRules(recheck_seconds=10.0), kill_reads=self.kill_reads,
+            read_games=self.read_games if self.games is not None else None, presence_factory=self.make_presence, run_login=self.run_login,
+            clock=lambda: self.now, sleep=self.sleep, rules=self.rules, kill_reads=self.kill_reads,
             read_achievements=self.read_achievements, unlock=self.unlock_achievements, protection=self.protection,
             data_dir=self.data_dir, wall_clock=self.wall_clock, first_seen=self.first_seen,
-            engine_installed=lambda: self.engine_installed, module_enabled=lambda: self.module_enabled)
+            engine_installed=lambda: self.engine_installed, module_enabled=lambda: self.module_enabled,
+            achievement_index=self.achievement_index, running_app=(lambda: self.running) if self.watch else None,
+            notify=lambda *args: self.notified.append(args))
 
     def kill_reads(self):
         """Stands in for killing the node child: the blocked read returns."""
@@ -136,6 +147,13 @@ class Env:
             raise item
         return item
 
+    def read_games(self, command, app_ids, expected_steam_id64=None):
+        self.games_calls.append((list(app_ids), expected_steam_id64))
+        item = self.games.pop(0) if len(self.games) > 1 else self.games[0]
+        if isinstance(item, Exception):
+            raise item
+        return item
+
     def read_library(self, command, expected_steam_id64=None):
         self.library_calls += 1
         return self.library
@@ -149,8 +167,9 @@ class Env:
         self.presences.append(FakePresence(self, helper, steam_id))
         return self.presences[-1]
 
-    async def run_login(self, command):
+    async def run_login(self, command, expected_steam_id64=None):
         self.login_commands.append(tuple(command))
+        self.login_expected.append(expected_steam_id64)
         if self.login_gate is not None:
             await self.login_gate.wait()
 
@@ -263,10 +282,60 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(state["steam"]), {"running", "signedIn"})
         self.assertEqual(set(state["community"]), {"session", "checkedAgeSeconds"})
         self.assertEqual(set(state["farm"]), FARM_KEYS)
-        self.assertEqual(set(state["library"]), {"count", "status", "ageSeconds"})
+        self.assertEqual(set(state["library"]), {"count", "status", "ageSeconds", "achievementsChecking", "achievementsVersion"})
         dumped = json.dumps(state)
         self.assertIsNone(re.search(r"\d{17}", dumped))
         self.assertIsNone(re.search(str(ACCOUNT), dumped))
+
+    # hours-until-drops setting and the batch phase
+    async def test_hours_until_drops_defaults_to_three(self):
+        ctl = self.make()
+        self.assertEqual(ctl.state()["farm"]["hoursUntilDrops"], 3.0)
+
+    async def test_farm_settings_are_stored_and_exposed(self):
+        ctl = self.make()
+        for value, stored in ((2.5, 2.5), (0, 0.0), (10, 10.0)):
+            with self.subTest(value=value):
+                self.assertIsNone(ctl.set_farm_settings(value))
+                self.assertEqual(self.env.settings["steam_idle_hours_until_drops"], stored)
+                self.assertEqual(ctl.state()["farm"]["hoursUntilDrops"], stored)
+
+    async def test_farm_settings_reject_bad_values_and_keep_the_old_one(self):
+        ctl = self.make()
+        ctl.set_farm_settings(4)
+        for bad in (-0.1, 10.5, "3", True, False, None, float("nan"), float("inf"), 10 ** 400, [1], {}):
+            with self.subTest(value=bad):
+                self.assertEqual(ctl.set_farm_settings(bad), "invalid_request")
+        self.assertEqual(self.env.settings["steam_idle_hours_until_drops"], 4.0)
+        self.assertEqual(ctl.state()["farm"]["hoursUntilDrops"], 4.0)
+
+    async def test_farm_settings_are_refused_while_the_module_is_off(self):
+        ctl = self.make(module_enabled=False)
+        self.assertEqual(ctl.set_farm_settings(2), "module_disabled")
+        self.assertNotIn("steam_idle_hours_until_drops", self.env.settings)
+
+    async def test_the_stored_hours_setting_drives_the_next_run(self):
+        ctl = self.make(rules=None, drops=[[GameDrops(100, "a", 2, 0.5), GameDrops(200, "b", 1, 0.5)]])
+        self.env.signed_in()
+        ctl.set_farm_settings(3)
+        self.assertEqual(ctl.start(), None)
+        for _ in range(300):
+            if sum(p.running for p in self.env.presences) == 2:
+                break
+            await asyncio.sleep(0.01)
+        self.assertEqual(sorted(p.app_id for p in self.env.presences if p.running), [100, 200])
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["state"], farm["phase"], len(farm["batch"])), ("batching", "hours", 2))
+        self.assertIs(ctl.state()["busy"], True)
+
+    async def test_a_zero_setting_keeps_one_game_at_a_time(self):
+        ctl = self.make(rules=None, drops=[[GameDrops(100, "a", 2, 0.5), GameDrops(200, "b", 1, 0.5)]])
+        self.env.signed_in()
+        ctl.set_farm_settings(0)
+        ctl.start()
+        await self.env.wait_running()
+        self.assertEqual([p.app_id for p in self.env.presences if p.running], [200])
+        self.assertEqual(ctl.state()["farm"]["state"], "farming")
 
     async def test_initial_state(self):
         state = self.make().state()
@@ -353,6 +422,61 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(max(self.env.sleeps) <= 5.0)
         self.assertEqual(self.env.library_calls, 1)
         self.assertEqual(ctl.state()["library"]["count"], 3)
+
+    async def test_drops_are_counted_for_the_run_and_for_today_without_ids(self):
+        ctl = self.make(drops=[[gd(100, 3)], [gd(100, 1)], [gd(100, 0)]])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.settle()
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["droppedThisRun"], farm["droppedToday"]), (3, 3))
+        self.assertEqual(farm["estimate"], {"dropsRemaining": 0, "hours": 0.0})
+        stored = json.dumps(self.env.settings["steam_idle_drops_daily"])
+        self.assertIsNone(re.search(str(ACCOUNT), stored))
+        self.assertIsNone(re.search(str(BASE_ID + ACCOUNT), stored))
+
+    async def test_dropped_today_adds_up_over_runs_and_starts_again_on_a_new_day(self):
+        day = [datetime.datetime(2026, 11, 22, 12, 0).timestamp()]
+        ctl = self.make(drops=[[gd(100, 2)], [gd(100, 0)]], wall_clock=lambda: day[0])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.settle()
+        self.env.drops = [[gd(100, 1)], [gd(100, 0)]]
+        ctl.start()
+        await self.env.settle()
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["droppedThisRun"], farm["droppedToday"]), (1, 3))
+        day[0] += 86400
+        self.assertEqual(ctl.state()["farm"]["droppedToday"], 0)
+
+    async def test_rechecks_read_the_farmed_games_card_pages_with_the_expected_account(self):
+        ctl = self.make(drops=[[gd(100, 3)]], games=[[gd(100, 1)], [gd(100, 0)]])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.settle()
+        expected = str(BASE_ID + ACCOUNT)
+        self.assertEqual(self.env.games_calls, [([100], expected), ([100], expected)])
+        self.assertEqual(self.env.drops_calls, 2, "the scan and the full read that confirms the end")
+        farm = ctl.state()["farm"]
+        self.assertEqual((farm["state"], farm["droppedThisRun"]), ("done", 3))
+
+    async def test_a_card_pages_mismatch_alone_keeps_farming_and_the_session(self):
+        ctl = self.make(drops=[[gd(100, 3)], [gd(100, 0)]], games=[CommunityError("account_mismatch")])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.settle()
+        state = ctl.state()
+        self.assertEqual((state["farm"]["state"], state["community"]["session"]), ("done", "signed_in"))
+
+    async def test_account_mismatch_confirmed_by_the_full_read_ends_in_needs_login(self):
+        ctl = self.make(drops=[[gd(100, 3)], CommunityError("account_mismatch")],
+                        games=[CommunityError("account_mismatch")])
+        self.env.signed_in()
+        ctl.start()
+        await self.env.settle()
+        state = ctl.state()
+        self.assertEqual((state["farm"]["state"], state["farm"]["lastError"], state["community"]["session"]),
+                         ("needs_login", "account_mismatch", "account_mismatch"))
 
     async def test_library_is_read_once_per_run_and_a_new_run_reads_it_again(self):
         ctl = self.make(drops=[[gd(100, 2)], [gd(100, 1)], [gd(100, 0)]])
@@ -675,6 +799,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctl.start(), "busy")
         await asyncio.sleep(0.05)
         self.assertEqual(self.env.login_commands, [("node", "steam-community.js")])
+        self.assertEqual(self.env.login_expected, [steam_id64(ACCOUNT)], "the window must not settle for another account")
         self.assertEqual(self.env.status_calls, [])
         gate.set()
         await self.env.settle()
@@ -687,8 +812,9 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         await self.env.settle()
         self.assertEqual(ctl.state()["community"]["session"], "unknown")
         self.assertEqual(self.env.status_calls, [])
+        self.assertEqual(self.env.login_expected, [None], "no client account: any account may sign in")
 
-        async def broken(command):
+        async def broken(command, expected_steam_id64=None):
             raise OSError("no node")
 
         self.env.client = SteamClient(True, ACCOUNT)
@@ -934,6 +1060,15 @@ class FactoryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await ctl._protection.classify(5), protection.UNKNOWN)
         self.assertEqual(await ctl._protection.classify(730), protection.PROTECTED)
         await ctl.shutdown()
+
+    async def test_creating_controllers_attaches_the_activity_handler_exactly_once(self):
+        stored = {}
+        for _ in range(2):
+            ctl = create_controller(Path("nowhere"), Path("nowhere"), lambda key, default=False: stored.get(key, default),
+                                    stored.__setitem__, inert=True)
+            await ctl.shutdown()
+        handlers = [h for h in logging.getLogger("steam_idle").handlers if isinstance(h, ActivityHandler)]
+        self.assertEqual(len(handlers), 1)
 
     async def test_real_controller_keeps_the_cache_next_to_the_other_data_files(self):
         with tempfile.TemporaryDirectory() as tmp:

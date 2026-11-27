@@ -54,6 +54,25 @@ const parseGameRow = row => {
   return { appId, name: cleanName, dropsRemaining, playtimeHours };
 };
 
+// One game's /gamecards/<appid>/ page: the same drops and playtime cells as a badges row, but a missing or unknown
+// drops text is an error here (an empty cell would read as 0 drops and mark the game done). The page must name the
+// requested game and carry exactly one drops cell, which a redirect to the badges list or another game does not.
+export const parseGameCardsPage = (html, appId) => {
+  const fail = () => { throw new ParseError('gamecards_unparsed'); };
+  if (typeof html != 'string' || !Number.isSafeInteger(appId) || appId <= 0) fail();
+  if (!new RegExp(`/gamecards/${appId}(?![0-9])`).test(html)) fail();
+  // The card page itself wraps its badge in `badge_row depressed badge_gamecard_page`; any other badge_row is a badges-list row
+  const listRow = (html.match(/class="badge_row(?:\s[^"]*)?"/g) ?? []).some(cls => !cls.includes('badge_gamecard_page'));
+  if ((html.match(/<div class="badge_title_stats_drops">/g) ?? []).length != 1 || listRow) fail();
+  const drops = /<span class="progress_info_bold">([\s\S]*?)<\/span>/.exec(divText(html, 'badge_title_stats_drops') ?? '')?.[1];
+  const dropsRemaining = drops === undefined ? null : parseDropsText(squash(drops));
+  const playtime = divText(html, 'badge_title_stats_playtime');
+  const playtimeHours = playtime === null || squash(playtime) === '' ? 0 : parseHours(squash(playtime));
+  if (dropsRemaining === null || playtimeHours === null) fail();
+  const name = /<div class="badge_title">([\s\S]*?)<span class="badge_view_details"/.exec(html)?.[1];
+  return { appId, name: name === undefined ? '' : squash(name), dropsRemaining, playtimeHours };
+};
+
 export const hasNextPage = (html, n) => new RegExp(`[?&]p=${n + 1}(?![0-9])`).test(html);
 
 // Game rows carry a /gamecards/ link; other badges (community, event) do not and are skipped, as are foil rows (?border=1).

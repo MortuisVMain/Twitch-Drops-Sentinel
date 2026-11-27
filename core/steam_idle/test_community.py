@@ -11,7 +11,7 @@ from unittest import mock
 
 from steam_idle import community
 from steam_idle.community import (CommunityError, GameDrops, OwnedGame, farmable, kill_in_flight, read_drops,
-                                  read_library, read_status)
+                                  read_games, read_library, read_status)
 from steam_idle.helper_support import force_kill, read_pids, wait_gone
 
 FAKE = Path(__file__).with_name("fake_community.py")
@@ -23,6 +23,7 @@ class CommunityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.pidfile = Path(self.temp.name) / "pids.txt"
         self.addCleanup(force_kill, self.pidfile)
+        community.reset_failure_streaks()
 
     def fake(self, mode):
         return [sys.executable, "-S", "-X", "utf8", str(FAKE), mode, str(self.pidfile)]
@@ -38,6 +39,12 @@ class CommunityTests(unittest.TestCase):
             GameDrops(570, "Dota 2", 0, 0.0),
             GameDrops(440, "Team Fortress 2", 1, 12.0),
         ])
+
+    def test_a_huge_playtime_is_a_protocol_error_not_an_overflow(self):
+        entry = {"appId": 1, "name": "G", "dropsRemaining": 1, "playtimeHours": 10 ** 400}
+        with self.assertRaises(CommunityError) as caught:
+            community._games({"games": [entry]}, community._drops_entry)
+        self.assertEqual(caught.exception.code, "protocol")
 
     def test_library_complete(self):
         self.assertEqual(read_library(self.fake("ok")), [
@@ -188,6 +195,47 @@ class CommunityTests(unittest.TestCase):
         kill_in_flight()
 
 
+    def fail(self, mode="noisy", call=read_drops):
+        with self.assertRaises(CommunityError):
+            call(self.fake(mode))
+
+    def test_an_identical_repeat_is_logged_at_debug_only(self):
+        self.fail()
+        with self.assertLogs("steam_idle.community", level="DEBUG") as logged:
+            self.fail()
+            self.fail()
+        self.assertTrue(all(r.levelname == "DEBUG" for r in logged.records), logged.output)
+        self.assertTrue(any("failed:unparsed_row" in r.getMessage() and "3 times" in r.getMessage() for r in logged.records),
+                        logged.output)
+
+    def test_the_first_failure_keeps_the_full_stderr_tail(self):
+        with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+            self.fail()
+        self.assertTrue(any("diag line 30" in r.getMessage() for r in logged.records))
+
+    def test_a_success_logs_one_recovery_line_and_rearms_the_first_failure(self):
+        self.fail()
+        self.fail()
+        with self.assertLogs("steam_idle.community", level="INFO") as logged:
+            read_drops(self.fake("ok"))
+        self.assertEqual([(r.levelname, r.getMessage()) for r in logged.records],
+                         [("INFO", "community drops recovered after 2 failures")])
+        with self.assertLogs("steam_idle.community", level="WARNING") as again:
+            self.fail()
+        self.assertEqual([r.levelname for r in again.records], ["ERROR", "WARNING"])
+
+    def test_a_different_code_logs_loudly_again(self):
+        self.fail("noisy")
+        with self.assertLogs("steam_idle.community", level="WARNING") as logged:
+            self.fail("signed_out")
+        self.assertIn("signed_out", " ".join(r.getMessage() for r in logged.records))
+
+    def test_each_verb_has_its_own_streak(self):
+        self.fail("noisy", read_drops)
+        with self.assertLogs("steam_idle.community", level="WARNING"):
+            self.fail("noisy", read_library)
+
+
 class AccountMatchTests(unittest.TestCase):
     ID = "76561198000000001"
 
@@ -226,6 +274,56 @@ class AccountMatchTests(unittest.TestCase):
             with self.assertRaises(CommunityError) as caught:
                 read_drops(["no-such-program"], expected_steam_id64=bad)
             self.assertEqual(caught.exception.code, "invalid_steam_id")
+
+
+class ReadGamesTests(unittest.TestCase):
+    ID = "76561198000000000"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.pidfile = Path(self.temp.name) / "pids.txt"
+        self.addCleanup(force_kill, self.pidfile)
+        community.reset_failure_streaks()
+
+    def fake(self, mode):
+        return [sys.executable, "-S", "-X", "utf8", str(FAKE), mode, str(self.pidfile)]
+
+    def test_returns_the_requested_games_in_request_order(self):
+        self.assertEqual(read_games(self.fake("ok"), [440, 730]), [
+            GameDrops(440, "Team Fortress 2", 1, 12.0),
+            GameDrops(730, "Counter-Strike 2", 3, 1017.5),
+        ])
+
+    def test_a_repeated_id_is_asked_once(self):
+        self.assertEqual([g.app_id for g in read_games(self.fake("ok"), [440, 440, 730])], [440, 730])
+
+    def test_no_ids_runs_nothing(self):
+        self.assertEqual(read_games(["no-such-program"], []), [])
+
+    def test_the_script_failure_code_is_kept(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_games(self.fake("ok"), [999])
+        self.assertEqual(caught.exception.code, "failed:gamecards_unparsed")
+
+    def test_signed_out_and_mismatch_use_the_same_codes_as_drops(self):
+        for mode, code in (("signed_out", "signed_out"), ("mismatch", "account_mismatch")):
+            with self.assertRaises(CommunityError) as caught:
+                read_games(self.fake(mode), [730], expected_steam_id64=self.ID)
+            self.assertEqual(caught.exception.code, code)
+
+    def test_expected_id_is_passed_after_the_app_ids(self):
+        self.assertEqual(len(read_games(self.fake("needs_expect"), [730, 440], expected_steam_id64=self.ID)), 2)
+
+    def test_an_answer_for_other_games_than_asked_is_a_protocol_error(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_games(self.fake("wrongids"), [730, 440])
+        self.assertEqual(caught.exception.code, "protocol")
+
+    def test_a_bad_expected_id_is_refused_before_running_anything(self):
+        with self.assertRaises(CommunityError) as caught:
+            read_games(["no-such-program"], [730], expected_steam_id64="123")
+        self.assertEqual(caught.exception.code, "invalid_steam_id")
 
 
 class FarmableTests(unittest.TestCase):

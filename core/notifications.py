@@ -19,12 +19,12 @@ MAX_REMEMBERED = 2000
 MAX_TOASTS_PER_BATCH = 3
 
 
-def _default_sender(title: str, message: str) -> None:
+def _default_sender(title: str, message: str, launch: Optional[str] = None) -> None:
     from constants import TEST_MODE
     if TEST_MODE:
         return
     from gui_headless import send_windows_toast
-    send_windows_toast(title, message)
+    send_windows_toast(title, message, launch)
 
 
 class ToastGate:
@@ -40,7 +40,19 @@ class ToastGate:
         self._lock = threading.Lock()
         self._seen: Dict[str, float] = {}
         self._primed: set = set()
+        self._listeners: List[Callable[[str, str], None]] = []
         self._load()
+
+    def add_listener(self, listener: Callable[[str, str], None]) -> None:
+        """Also called with every notification the gate lets through (once per event), whether or not toasts are on."""
+        self._listeners.append(listener)
+
+    def _tell_listeners(self, title: str, message: str) -> None:
+        for listener in self._listeners:
+            try:
+                listener(title, message)
+            except Exception as exc:
+                logger.warning("Notification listener failed: %s", exc, exc_info=True)
 
     def _load(self) -> None:
         if self._store_path is None or not self._store_path.exists():
@@ -67,18 +79,23 @@ class ToastGate:
         except OSError as exc:
             logger.warning("Could not save toast memory %s: %s", self._store_path, exc, exc_info=True)
 
-    def notify(self, kind: str, key: str, title: str, message: str) -> bool:
+    def notify(self, kind: str, key: str, title: str, message: str, launch: Optional[str] = None) -> bool:
         """One toast per (kind, key). Remembered even while toasts are off, so switching them on later
-        does not replay old events. Returns True when a toast was actually sent."""
+        does not replay old events. launch: a key of gui_headless.TOAST_LAUNCH_URIS, what a click on the toast opens.
+        Returns True when a toast was actually sent."""
         token = f"{kind}:{key}"
         with self._lock:
             if token in self._seen:
                 return False
             self._seen[token] = time.time()
             self._save()
+        self._tell_listeners(title, message)
         if not self._enabled():
             return False
-        self._sender(title, message)
+        if launch is None:
+            self._sender(title, message)
+        else:
+            self._sender(title, message, launch)
         return True
 
     def notify_new(
@@ -104,15 +121,17 @@ class ToastGate:
                     fresh.append((key, label))
             if first or fresh:
                 self._save()
-        if first or not fresh or not self._enabled():
+        if first or not fresh:
             return 0
         labels = [label for _, label in fresh]
-        if len(labels) <= MAX_TOASTS_PER_BATCH:
-            for label in labels:
-                self._sender(title, one(label))
-            return len(labels)
-        self._sender(title, many(labels))
-        return 1
+        messages = [one(label) for label in labels] if len(labels) <= MAX_TOASTS_PER_BATCH else [many(labels)]
+        for message in messages:
+            self._tell_listeners(title, message)
+        if not self._enabled():
+            return 0
+        for message in messages:
+            self._sender(title, message)
+        return len(messages)
 
 
 _state = {"enabled": True}

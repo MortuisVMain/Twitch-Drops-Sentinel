@@ -4,6 +4,7 @@ import { followBackendLanguage } from '../i18n';
 import { followBackendTextScale } from '../utils/textScale';
 import { setServerCovers } from '../utils/gameBoxArts';
 import { withServiceToken } from '../utils/serviceAuth.mjs';
+import { shouldPollHttp } from '../utils/liveSync.mjs';
 import { isRewardQueueEntry, queueItems } from '../utils/rewardCampaigns.mjs';
 import { ConnectionPhase, FullSentinelState, SentinelSettings, TrophyItem } from '../types';
 
@@ -19,7 +20,7 @@ const INITIAL_STATE: FullSentinelState = {
   connected: false,
   user_id: '',
   username: '',
-  status_text: 'Подключение к локальному сервису Sentinel...',
+  status_text: 'Подключение к локальному сервису Hell Harvest...',
   watching_channel: null,
   active_drop: null,
   forced_game: null,
@@ -30,9 +31,9 @@ const INITIAL_STATE: FullSentinelState = {
     detected_game: null,
     on_battery: false,
     is_paused: false,
-    ping_ms: 0,
+    ping_ms: null,
     cpu_percent: 0,
-    gpu_percent: 0,
+    gpu_percent: null,
   },
   stats: {
     traffic_saved_mb: 0,
@@ -91,28 +92,13 @@ export function useSentinelState(
       setServiceLost(false);
       if (data.settings && typeof data.settings === 'object') setConfirmedSettings((prev) => ({ ...prev, ...data.settings }));
       setSentinelState((prev) => {
-        let mergedActiveDrop = data.active_drop;
-        if (
-          prev.active_drop &&
-          data.active_drop &&
-          prev.active_drop.id === data.active_drop.id &&
-          prev.active_drop.current_minutes === data.active_drop.current_minutes
-        ) {
-          const diff = Math.abs((prev.active_drop.remaining_seconds || 0) - (data.active_drop.remaining_seconds || 0));
-          if (diff <= 6) {
-            mergedActiveDrop = {
-              ...data.active_drop,
-              remaining_seconds: prev.active_drop.remaining_seconds,
-            };
-          }
-        }
         followBackendLanguage(data.settings?.language);
         followBackendTextScale((data.settings as { ui_text_scale?: unknown } | undefined)?.ui_text_scale);
         setServerCovers(data.covers);
         return {
           ...prev,
           ...data,
-          active_drop: mergedActiveDrop,
+          active_drop: data.active_drop,
           connected: true,
           settings: {
             ...prev.settings,
@@ -151,7 +137,7 @@ export function useSentinelState(
           setSentinelState((prev) => ({
             ...prev,
             connected: false,
-            status_text: 'Локальный сервис Sentinel недоступен',
+            status_text: 'Локальный сервис Hell Harvest недоступен',
           }));
         }
       }
@@ -167,12 +153,16 @@ export function useSentinelState(
       .catch(() => {});
 
     let ws: WebSocket | null = null;
+    let wsLastMessageAt = 0;
+    let wsOpen = false; // HTTP polling below is only the fallback while this is false
     let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const connectWs = () => {
       if (!isMounted || typeof WebSocket === 'undefined' || window.location?.protocol === 'file:') return;
       try {
         ws = new WebSocket(withServiceToken('ws://127.0.0.1:28492/ws'));
+        ws.onopen = () => { wsOpen = true; wsLastMessageAt = Date.now(); };
         ws.onmessage = (ev) => {
+          wsLastMessageAt = Date.now();
           try {
             const payload = JSON.parse(ev.data);
             if (payload && typeof payload === 'object' && ('status_text' in payload || 'settings' in payload)) {
@@ -181,11 +171,14 @@ export function useSentinelState(
           } catch {}
         };
         ws.onclose = () => {
+          wsOpen = false;
           if (isMounted) {
+            fetchState(); // polling resumes at once, not at the next tick
             wsReconnectTimer = setTimeout(connectWs, 5000);
           }
         };
         ws.onerror = () => {
+          wsOpen = false;
           try { ws?.close(); } catch {}
         };
       } catch {}
@@ -210,7 +203,7 @@ export function useSentinelState(
     window.addEventListener('focus', handleFocusWakeup);
     document.addEventListener('visibilitychange', handleFocusWakeup);
 
-    const interval = setInterval(fetchState, 3000);
+    const interval = setInterval(() => { if (shouldPollHttp(wsOpen, Date.now() - wsLastMessageAt)) fetchState(); }, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -221,38 +214,6 @@ export function useSentinelState(
       window.removeEventListener('focus', handleFocusWakeup);
       document.removeEventListener('visibilitychange', handleFocusWakeup);
     };
-  }, []);
-
-  // 1-second countdown ticker for active drop
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSentinelState((prev) => {
-        if (!prev.active_drop || prev.active_drop.is_claimed || prev.hardware.is_paused) {
-          return prev;
-        }
-        if (prev.active_drop.remaining_seconds <= 0) {
-          return prev;
-        }
-        const newRemaining = Math.max(0, prev.active_drop.remaining_seconds - 1);
-        const totalSec = prev.active_drop.required_minutes * 60;
-        const elapsedSec = totalSec - newRemaining;
-        const progressPct = totalSec > 0 ? Math.min(100, Math.round((elapsedSec / totalSec) * 100)) : 100;
-        const canClaim = newRemaining === 0 && !prev.active_drop.is_claimed;
-
-        return {
-          ...prev,
-          active_drop: {
-            ...prev.active_drop,
-            remaining_seconds: newRemaining,
-            current_minutes: Math.floor(elapsedSec / 60),
-            progress_percent: progressPct,
-            can_claim: canClaim,
-          },
-        };
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
   }, []);
 
   // Toggle Game Priority
@@ -402,7 +363,7 @@ export function useSentinelState(
   // Claim Drop
   const handleClaimNow = async (dropId?: string) => {
     if (!sentinelState.active_drop) {
-      showToast('В данный момент нет готовых к зачислению дропов. Sentinel автоматически заберет дроп при достижении 100%.');
+      showToast('В данный момент нет готовых к зачислению дропов. Hell Harvest автоматически заберет дроп при достижении 100%.');
       return;
     }
 

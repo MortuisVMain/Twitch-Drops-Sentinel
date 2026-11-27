@@ -26,6 +26,32 @@ REFUSALS = {"risk_not_acknowledged", "achievements_not_acknowledged", "unavailab
             "steam_signed_out", "community_signed_out", "account_mismatch", "busy"}
 
 
+class FakeIndex:
+    """Answers from a dict; fill marks every asked id as having achievements."""
+
+    def __init__(self, known):
+        self.answers, self.filled, self.progressed = dict(known), [], {}
+
+    def known(self, app_id):
+        return self.answers.get(app_id)
+
+    def missing(self, app_ids):
+        return [a for a in app_ids if a not in self.answers]
+
+    def progress(self, app_id):
+        return self.progressed.get(app_id)
+
+    def record(self, app_id, achieved, total):
+        self.answers[app_id] = total > 0
+        self.progressed[app_id] = {"achieved": achieved, "total": total}
+
+    async def fill(self, app_ids):
+        self.filled.append(list(app_ids))
+        await asyncio.sleep(0)
+        for app_id in self.missing(app_ids):
+            self.answers[app_id] = True
+
+
 def ach(name, achieved=False, hidden=False):
     return Achievement(name, name, "d", hidden, achieved, 7 if achieved else 0)
 
@@ -85,7 +111,7 @@ class StateTests(Base):
                     "finished": [], "totals": {"unlocked": 0, "already": 0, "skipped": 0, "rejected": 0, "failed": 0},
                     "lastError": None, "paused": False, "suspended": False},
             "interrupted": None})
-        self.assertEqual(state["library"], {"count": None, "status": "none", "ageSeconds": None})
+        self.assertEqual(state["library"], {"count": None, "status": "none", "ageSeconds": None, "achievementsChecking": False, "achievementsVersion": 0})
 
     async def test_payload_is_json_free_of_ids_during_and_after_a_run(self):
         ctl = self.make()
@@ -336,14 +362,31 @@ class ExclusionTests(Base):
 
 
 class LibraryTests(Base):
+    async def test_library_labels_games_from_the_achievement_index_and_a_live_read_corrects_it(self):
+        index = FakeIndex({1: True, 2: False})
+        ctl = self.make(achievement_index=index)
+        await self.ready(ctl)
+        self.assertEqual([g["hasAchievements"] for g in ctl.library_games()], [True, False, None])
+        self.assertTrue(ctl.state()["library"]["achievementsChecking"])  # game 3 is asked about in the background
+        await self.env.settle()
+        self.assertEqual(index.filled, [[1, 2, 3]])
+        self.assertFalse(ctl.state()["library"]["achievementsChecking"])
+        self.assertEqual(ctl.state()["library"]["achievementsVersion"], 1)
+        self.assertEqual([g["hasAchievements"] for g in ctl.library_games()], [True, False, True])
+        self.assertEqual(index.filled, [[1, 2, 3]])  # nothing missing: no second lookup
+        self.env.ach[2] = [ach("A"), ach("B", achieved=True)]
+        self.assertIsInstance(await ctl.achievements_of(2), list)
+        self.assertTrue(index.known(2))
+        self.assertEqual(ctl.library_games()[1]["achievements"], {"achieved": 1, "total": 2})
+
     async def test_scan_flow_and_cached_list(self):
         ctl = self.make()
         self.assertIsNone(ctl.library_scan())
         self.assertEqual(ctl.state()["library"]["status"], "scanning")
         self.assertEqual(ctl.library_scan(), "busy")
         await self.env.settle()
-        self.assertEqual(ctl.state()["library"], {"count": 3, "status": "ready", "ageSeconds": 0.0})
-        labels = {"protected": False, "userDenied": False}
+        self.assertEqual(ctl.state()["library"], {"count": 3, "status": "ready", "ageSeconds": 0.0, "achievementsChecking": False, "achievementsVersion": 0})
+        labels = {"protected": False, "userDenied": False, "hasAchievements": None, "achievements": None}
         self.assertEqual(ctl.library_games(), [{"appId": 1, "name": "a", "playtimeMinutes": 0, **labels},
                                                {"appId": 2, "name": "b", "playtimeMinutes": 0, **labels},
                                                {"appId": 3, "name": "c", "playtimeMinutes": 0, **labels}])
@@ -362,7 +405,7 @@ class LibraryTests(Base):
         ctl._read_library_fn = self.env.read_library
         ctl.library_scan()
         await self.env.settle()
-        self.assertEqual(ctl.state()["library"], {"count": None, "status": "none", "ageSeconds": None})
+        self.assertEqual(ctl.state()["library"], {"count": None, "status": "none", "ageSeconds": None, "achievementsChecking": False, "achievementsVersion": 0})
         self.assertEqual(ctl.state()["community"]["session"], "signed_out")
 
     async def test_failed_scan_without_a_list(self):
@@ -370,7 +413,7 @@ class LibraryTests(Base):
         ctl._read_library_fn = mock.Mock(side_effect=CommunityError("failed:boom"))
         ctl.library_scan()
         await self.env.settle()
-        self.assertEqual(ctl.state()["library"], {"count": None, "status": "failed", "ageSeconds": None})
+        self.assertEqual(ctl.state()["library"], {"count": None, "status": "failed", "ageSeconds": None, "achievementsChecking": False, "achievementsVersion": 0})
         self.assertIsNone(ctl.library_games())
 
     async def test_cache_is_dropped_when_the_account_changes(self):

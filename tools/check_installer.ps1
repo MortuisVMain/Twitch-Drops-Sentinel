@@ -256,7 +256,7 @@ try {
     Assert-That (Test-Path $uninstKey) "uninstall entry exists in HKCU"
     if (Test-Path $uninstKey) {
         $entry = Get-ItemProperty $uninstKey
-        Assert-That ($entry.DisplayName -like "Twitch Drops Sentinel*") "uninstall entry DisplayName is the app name"
+        Assert-That ($entry.DisplayName -like "Hell Harvest*") "uninstall entry DisplayName is the app name"
         Assert-That ($entry.DisplayVersion -eq $version) "uninstall entry version is $version"
     }
     Assert-That ((Get-Content -Raw -Encoding UTF8 (Join-Path $installA "config.json")) -eq (Get-Content -Raw -Encoding UTF8 (Join-Path $StageDir "config.json"))) "fresh config.json is the clean template"
@@ -471,7 +471,7 @@ try {
     # other programs may touch their own shortcuts while the check runs; only ours count
     $ours = @($changed | Where-Object { (Split-Path $_.InputObject -Leaf) -like "*Sentinel*" })
     Assert-That ($ours.Count -eq 0) "no Sentinel shortcut created or removed in Start menu or on the desktop"
-    Assert-That (-not ($shortcutsAfter | Where-Object { (Split-Path $_ -Leaf) -like "Twitch Drops Sentinel*" })) "no 'Twitch Drops Sentinel' shortcut exists"
+    Assert-That (-not ($shortcutsAfter | Where-Object { (Split-Path $_ -Leaf) -like "Hell Harvest*" })) "no 'Hell Harvest' shortcut exists"
     Assert-That ((Get-RunValue) -eq $runBefore) "autostart Run value of the user's own copy unchanged"
 }
 catch {

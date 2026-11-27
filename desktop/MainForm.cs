@@ -392,6 +392,12 @@ namespace TwitchDropsSentinel
         private Process? _pythonBackendProcess;
 
         private System.Windows.Forms.Timer? _backendWatchdogTimer;
+        private readonly BackendRestartPolicy _restartPolicy = new(); // the only owner of "start or restart the service"; MainForm executes its decisions on the UI thread
+        private readonly HashSet<int> _killedByUs = new(); // UI thread only: pids closed on purpose, their Exited is not a crash
+        private readonly BackendStartLog _backendStarts = new();
+        private readonly PageCrashGate _pageCrashes = new();
+        private DateTime? _loggedBackoff;
+        private bool _watchdogBusy;
 
         private volatile bool _isShuttingDown = false;
 
@@ -553,9 +559,59 @@ namespace TwitchDropsSentinel
 
 
 
+        // One HttpClient for the whole host (a client per call burns a socket and a handler each time). The timeout is per request,
+        // through a CancellationTokenSource, because HttpClient.Timeout is global. The token is constant for the run.
+        private static readonly System.Net.Http.HttpClient HostHttp = CreateHostHttp();
+
+        private static System.Net.Http.HttpClient CreateHostHttp()
+        {
+            var client = new System.Net.Http.HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
+            return client;
+        }
+
+        // A drag fires Move dozens of times a second; the position is written once, when the window has been still for 500 ms.
+        private readonly WindowSaveDebounce _moveSaveDebounce = new(TimeSpan.FromMilliseconds(500));
+        private System.Windows.Forms.Timer? _moveSaveTimer;
+
+        private void OnWindowMoved()
+        {
+            if (WindowState != FormWindowState.Normal || _isPipMode) return;
+            _moveSaveDebounce.Touch(DateTime.UtcNow);
+            if (_moveSaveTimer == null)
+            {
+                _moveSaveTimer = new System.Windows.Forms.Timer { Interval = 250 };
+                _moveSaveTimer.Tick += (s, e) =>
+                {
+                    if (_moveSaveDebounce.IsDue(DateTime.UtcNow))
+                    {
+                        _moveSaveTimer?.Stop();
+                        SaveWindowState();
+                    }
+                };
+            }
+            _moveSaveTimer.Start();
+        }
+
+        /// <summary>Tells WebView2 how much memory the page may keep: Low while hidden in the tray, Normal when shown again.</summary>
+        private void SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel level)
+        {
+            try
+            {
+                if (_webView?.CoreWebView2 != null) _webView.CoreWebView2.MemoryUsageTargetLevel = level;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or NotImplementedException or NotSupportedException or InvalidCastException)
+            {
+                LogDesktopError($"SetWebViewMemoryTarget({level}): the installed WebView2 runtime does not support it", ex);
+            }
+        }
+
         private void SaveWindowState()
 
         {
+
+            _moveSaveDebounce.Flush(); // a save from any path covers the pending Move save
+            _moveSaveTimer?.Stop();
 
             try
 
@@ -615,10 +671,14 @@ namespace TwitchDropsSentinel
 
 
         private readonly bool _startMinimized;
+        private volatile string _lastDiagnosticsReport = ""; // the sanitized report of the newest check: the "For developer" actions write this one
+        private volatile bool _pageReady;                    // the page has told it listens (APP_READY)
+        private volatile bool _pendingOpenHealth;            // a toast click arrived before the page was ready
+        private readonly HealthExport.ExportGuard _exportGuard = new(); // one run per "For developer" action at a time
 
 
 
-        public MainForm(bool startMinimized = false)
+        public MainForm(bool startMinimized = false, bool openHealthCenter = false)
 
         {
 
@@ -628,8 +688,9 @@ namespace TwitchDropsSentinel
                 ex => LogDesktopError("запись яркости монитора", ex));
 
             _startMinimized = startMinimized;
+            _pendingOpenHealth = openHealthCenter;
 
-            Text = "Twitch Drops Sentinel";
+            Text = "Hell Harvest";
 
             MinimumSize = new Size(1180, 750);
 
@@ -706,7 +767,7 @@ namespace TwitchDropsSentinel
 
             ResizeEnd += (s, e) => SaveWindowState();
 
-            Move += (s, e) => { if (WindowState == FormWindowState.Normal && !_isPipMode) SaveWindowState(); };
+            Move += (s, e) => OnWindowMoved();
 
 
 
@@ -750,6 +811,8 @@ namespace TwitchDropsSentinel
 
             {
 
+                if (_watchdogBusy) return; // a check can outlast the tick interval; overlapping checks would count one failure twice
+                _watchdogBusy = true;
                 try
 
                 {
@@ -757,16 +820,12 @@ namespace TwitchDropsSentinel
                     if (_isShuttingDown || IsDisposed) return;
 
                     bool isAlive = await CheckBackendAliveAsync();
+                    if (_isShuttingDown || IsDisposed) return;
 
-                    if (!isAlive && !_isShuttingDown && !IsDisposed)
-
-                    {
-
-                        Debug.WriteLine("Sentinel Watchdog: Backend unreachable. Auto-reviving Python service...");
-
-                        EnsurePythonBackendRunning();
-
-                    }
+                    // A slow but running service is not dead: restarting it starts the Twitch sign-in over with a new code
+                    // and a new browser tab. The policy waits out the start grace and several missed checks before it kills anything.
+                    NotifyBackendExitIfAny(); // fallback for an Exited event that could not be delivered
+                    ApplyRestartDecision(_restartPolicy.OnHealthCheck(isAlive, DateTime.UtcNow));
 
                 }
 
@@ -774,8 +833,12 @@ namespace TwitchDropsSentinel
 
                 {
 
-                    Debug.WriteLine($"Sentinel Watchdog Tick error: {ex.Message}");
+                    Debug.WriteLine($"Hell Harvest Watchdog Tick error: {ex.Message}");
 
+                }
+                finally
+                {
+                    _watchdogBusy = false;
                 }
 
             };
@@ -786,6 +849,15 @@ namespace TwitchDropsSentinel
 
 
 
+        /// <summary>Liveness probe: the light /api/ping, and /api/state only when an older service answers 404 (host and service can be updated apart).</summary>
+        private static async Task<System.Net.Http.HttpResponseMessage> ProbeServiceAsync(CancellationToken ct)
+        {
+            var res = await HostHttp.GetAsync("http://127.0.0.1:28492/api/ping", ct);
+            if (res.StatusCode != System.Net.HttpStatusCode.NotFound) return res;
+            res.Dispose();
+            return await HostHttp.GetAsync("http://127.0.0.1:28492/api/state", ct);
+        }
+
         private async Task<bool> CheckBackendAliveAsync()
 
         {
@@ -794,10 +866,8 @@ namespace TwitchDropsSentinel
 
             {
 
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(800) };
-                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
-
-                var res = await client.GetAsync("http://127.0.0.1:28492/api/state");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                using var res = await ProbeServiceAsync(cts.Token);
 
                 if (!res.IsSuccessStatusCode) return false;
 
@@ -808,11 +878,11 @@ namespace TwitchDropsSentinel
                         string json = await res.Content.ReadAsStringAsync();
                         using var doc = JsonDocument.Parse(json);
                         var root = doc.RootElement;
-                        string tip = "Twitch Drops Sentinel";
+                        string tip = "Hell Harvest";
                         if (root.TryGetProperty("hardware", out var hw) && hw.ValueKind == JsonValueKind.Object &&
                             hw.TryGetProperty("is_paused", out var pausedProp) && pausedProp.ValueKind == JsonValueKind.True)
                         {
-                            tip = "Sentinel • На паузе";
+                            tip = "Hell Harvest • На паузе";
                         }
                         else if (root.TryGetProperty("active_drop", out var drop) && drop.ValueKind == JsonValueKind.Object)
                         {
@@ -820,12 +890,12 @@ namespace TwitchDropsSentinel
                             int pct = drop.TryGetProperty("progress_percent", out var pProp) && pProp.ValueKind == JsonValueKind.Number ? pProp.GetInt32() : 0;
                             if (!string.IsNullOrWhiteSpace(game))
                             {
-                                tip = $"Sentinel • {game} ({pct}%)";
+                                tip = $"Hell Harvest • {game} ({pct}%)";
                             }
                         }
                         else
                         {
-                            tip = "Sentinel • Ожидание дропов";
+                            tip = "Hell Harvest • Ожидание дропов";
                         }
                         if (tip.Length > 63) tip = tip.Substring(0, 62) + "…";
                         if (_trayIcon.Text != tip) _trayIcon.Text = tip;
@@ -894,227 +964,116 @@ namespace TwitchDropsSentinel
 
 
 
+        /// <summary>Startup only: starts the service when nothing answers and nothing is tracked. A running service is never killed here.</summary>
         private void EnsurePythonBackendRunning()
-
         {
-
             if (_isShuttingDown || IsDisposed) return;
-
+            bool answers = false;
             try
-
             {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+                using var res = ProbeServiceAsync(cts.Token).GetAwaiter().GetResult();
+                answers = res.IsSuccessStatusCode;
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException)
+            {
+                Debug.WriteLine($"Hell Harvest: service does not answer at startup: {ex.Message}");
+            }
+            ApplyRestartDecision(_restartPolicy.OnHealthCheck(answers, DateTime.UtcNow));
+        }
 
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMilliseconds(400) };
-                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
+        /// <summary>Executes a decision of the restart policy. UI thread only; every start is reported back to the policy.</summary>
+        private void ApplyRestartDecision(RestartDecision decision)
+        {
+            if (_isShuttingDown || IsDisposed) return;
+            switch (decision.Action)
+            {
+                case RestartAction.KillAndStart:
+                    Debug.WriteLine($"Hell Harvest Watchdog: restarting the service ({decision.Reason})");
+                    bool oldGone = KillTrackedBackend();
+                    StartBackendProcess(decision.CleanStalePort || !oldGone); // a survivor holds the port: clear it, or the new one cannot bind
+                    break;
+                case RestartAction.Start:
+                    Debug.WriteLine($"Hell Harvest Watchdog: starting the service ({decision.Reason})");
+                    StartBackendProcess(decision.CleanStalePort);
+                    break;
+                case RestartAction.Backoff:
+                    if (_loggedBackoff != decision.Until) // the watchdog sees the same pause every 4 s: log it once
+                    {
+                        _loggedBackoff = decision.Until;
+                        LogDesktopError("service restarts paused", new InvalidOperationException($"{decision.Reason}; no restart until {decision.Until:HH:mm:ss} UTC"));
+                    }
+                    break;
+            }
+        }
 
-                var res = client.GetAsync("http://127.0.0.1:28492/api/state").GetAwaiter().GetResult();
+        /// <summary>Closes the tracked process; true when it is gone. Never throws: the policy already counts a start in flight, so the start must follow.</summary>
+        private bool KillTrackedBackend()
+        {
+            var old = _pythonBackendProcess;
+            if (old == null) return true;
+            try
+            {
+                if (old.HasExited) return true;
+                _killedByUs.Add(old.Id); // marked before the Kill so its Exited is never taken for a crash
+                old.Kill(true);
+                return old.WaitForExit(1500);
+            }
+            catch (Exception ex) // AggregateException from a tree kill included
+            {
+                LogDesktopError("closing the stalled service", ex);
+                return false;
+            }
+        }
 
-                if (res.IsSuccessStatusCode)
+        private void StartBackendProcess(bool cleanStalePort)
+        {
+            bool reported = false;
+            try
+            {
+                try { _pythonBackendProcess?.Dispose(); }
+                catch (InvalidOperationException ex) { LogDesktopError("disposing the previous service process", ex); }
+                _pythonBackendProcess = null;
 
+                // only on a cold start or after a crash pause, when nothing of ours is running: never right after our own start
+                if (cleanStalePort) CleanupStalePort28492();
+
+                var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                string? scriptPath = backend.ScriptPath;
+                if (scriptPath == null)
                 {
-
+                    LogDesktopError("service start", new FileNotFoundException("core\\sentinel_service.py was not found"));
                     return;
-
                 }
-
-            }
-
-            catch
-
-            {
-
-                // Service not responding; launch it
-
-            }
-
-
-
-            try
-
-            {
-
-                if (_pythonBackendProcess != null)
-
+                string projectRoot = backend.ProjectRoot;
+                string pythonExe = backend.PythonExe;
+                var psi = new ProcessStartInfo
                 {
-
-                    try
-
-                    {
-
-                        if (!_pythonBackendProcess.HasExited)
-
-                        {
-
-                            _pythonBackendProcess.Kill(true);
-
-                        }
-
-                        _pythonBackendProcess.Dispose();
-
-                    }
-
-                    catch { }
-
-                    _pythonBackendProcess = null;
-
-                }
-
-
-
-                CleanupStalePort28492();
-
-
-
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-                string scriptPath = Path.Combine(baseDir, "core", "sentinel_service.py");
-
-                if (!File.Exists(scriptPath))
-
-                {
-
-                    scriptPath = Path.Combine(baseDir, "..", "core", "sentinel_service.py");
-
-                }
-
-                if (!File.Exists(scriptPath))
-
-                {
-
-                    scriptPath = Path.Combine(baseDir, "..", "..", "..", "..", "core", "sentinel_service.py");
-
-                }
-
-                if (!File.Exists(scriptPath))
-
-                {
-
-                    scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "core", "sentinel_service.py");
-
-                }
-
-
-
-                if (File.Exists(scriptPath))
-
-                {
-
-                    string coreDir = Path.GetDirectoryName(scriptPath) ?? "";
-
-                    string projectRoot = Directory.GetParent(coreDir)?.FullName ?? coreDir;
-
-
-
-                    // Check for embedded portable Python first
-
-                    string embeddedPython = Path.Combine(baseDir, "python", "python.exe");
-
-                    if (!File.Exists(embeddedPython))
-
-                    {
-
-                        embeddedPython = Path.Combine(baseDir, "portable_runtime", "python", "python.exe");
-
-                    }
-
-                    if (!File.Exists(embeddedPython))
-
-                    {
-
-                        embeddedPython = Path.Combine(baseDir, "..", "..", "..", "..", "portable_runtime", "python", "python.exe");
-
-                    }
-
-                    if (!File.Exists(embeddedPython))
-
-                    {
-
-                        string[] sysPythons = new[]
-
-                        {
-
-                            @"C:\Program Files\Python314\python.exe",
-
-                            @"C:\Program Files\Python313\python.exe",
-
-                            @"C:\Program Files\Python312\python.exe",
-
-                            @"C:\Program Files\Python311\python.exe",
-
-                            @"C:\Program Files\Python310\python.exe",
-
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Python\Python312\python.exe"),
-
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Python\Python311\python.exe")
-
-                        };
-
-                        foreach (var sysPy in sysPythons)
-
-                        {
-
-                            if (File.Exists(sysPy))
-
-                            {
-
-                                embeddedPython = sysPy;
-
-                                break;
-
-                            }
-
-                        }
-
-                    }
-
-                    string pythonExe = File.Exists(embeddedPython) ? embeddedPython : "python";
-
-
-
-                    var psi = new ProcessStartInfo
-
-                    {
-
-                        FileName = pythonExe,
-
-                        Arguments = $"-X utf8 \"{scriptPath}\"",
-
-                        WorkingDirectory = projectRoot,
-
-                        CreateNoWindow = true,
-
-                        UseShellExecute = false,
-
-                        RedirectStandardOutput = true,
-
-                        RedirectStandardError = true,
-
-                        StandardOutputEncoding = Encoding.UTF8,
-
-                        StandardErrorEncoding = Encoding.UTF8
-
-                    };
-
-                    psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-
-                    psi.EnvironmentVariables["PYTHONUTF8"] = "1";
-
-                    psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
-
-                    psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current; // environment only: never the command line, a file or a log
-
-
-
-                    _pythonBackendProcess = Process.Start(psi);
-
-                    if (_pythonBackendProcess != null)
-
-                    {
-
-                        ChildProcessTracker.AddProcess(_pythonBackendProcess);
-
-                        _pythonBackendProcess.EnableRaisingEvents = true;
-
+                    FileName = pythonExe,
+                    Arguments = $"-X utf8 \"{scriptPath}\"",
+                    WorkingDirectory = projectRoot,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
+                psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+                psi.EnvironmentVariables[LocalApiToken.EnvName] = LocalApiToken.Current; // environment only: never the command line, a file or a log
+
+                _pythonBackendProcess = Process.Start(psi);
+                var proc = _pythonBackendProcess;
+                if (proc == null) return;
+                int pid = proc.Id;
+                _restartPolicy.OnStarted(pid, DateTime.UtcNow);
+                reported = true;
+                _backendStarts.Record();
+
+                ChildProcessTracker.AddProcess(proc);
+                proc.EnableRaisingEvents = true;
                         string stdoutLog = Path.Combine(projectRoot, "sentinel_stdout.log");
 
                         string stderrLog = Path.Combine(projectRoot, "sentinel_stderr.log");
@@ -1153,7 +1112,7 @@ namespace TwitchDropsSentinel
 
 
 
-                        _pythonBackendProcess.OutputDataReceived += (s, e) =>
+                        proc.OutputDataReceived += (s, e) =>
 
                         {
 
@@ -1161,7 +1120,7 @@ namespace TwitchDropsSentinel
 
                         };
 
-                        _pythonBackendProcess.ErrorDataReceived += (s, e) =>
+                        proc.ErrorDataReceived += (s, e) =>
 
                         {
 
@@ -1169,38 +1128,71 @@ namespace TwitchDropsSentinel
 
                         };
 
-                        _pythonBackendProcess.BeginOutputReadLine();
+                        proc.BeginOutputReadLine();
 
-                        _pythonBackendProcess.BeginErrorReadLine();
+                        proc.BeginErrorReadLine();
 
-                        _pythonBackendProcess.Exited += (s, ev) =>
-
-                        {
-
-                            if (!_isShuttingDown && !IsDisposed)
-
-                            {
-
-                                Task.Delay(2000).ContinueWith(_ => EnsurePythonBackendRunning());
-
-                            }
-
-                        };
-
-                    }
-
-                }
-
+                // never restarts anything here: the policy decides on the UI thread
+                proc.Exited += (s, ev) => PostBackendExit(pid);
             }
-
             catch (Exception ex)
-
             {
-
-                Debug.WriteLine($"Failed to auto-spawn Python backend: {ex.Message}");
-
+                LogDesktopError("service start failed", ex);
             }
+            finally
+            {
+                if (!reported) ApplyRestartDecision(_restartPolicy.OnStartFailed(DateTime.UtcNow)); // never starts again at once: the next watchdog tick retries
+            }
+        }
 
+        private void PostBackendExit(int pid)
+        {
+            if (_isShuttingDown || IsDisposed) return;
+            try
+            {
+                BeginInvoke(new Action(() => OnBackendExited(pid)));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                LogDesktopError("service exit not delivered to the UI thread (the watchdog will notice)", ex);
+            }
+        }
+
+        private void OnBackendExited(int pid)
+        {
+            if (_isShuttingDown || IsDisposed) return;
+            bool killed = _killedByUs.Remove(pid);
+            ApplyRestartDecision(_restartPolicy.OnExited(pid, DateTime.UtcNow, killed));
+        }
+
+        /// <summary>
+        /// The page renderer crashed (WebView2 158 hits STATUS_ACCESS_VIOLATION inside msedge.dll) or hung: reload instead of leaving the
+        /// browser error page up. PageCrashGate caps it at 3 reloads per 5 minutes; past that the error page and its Refresh button stay.
+        /// </summary>
+        private void OnWebViewProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+        {
+            var kind = e.ProcessFailedKind;
+            bool renderer = kind is CoreWebView2ProcessFailedKind.RenderProcessExited or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive;
+            bool reload = renderer && !_isShuttingDown && !IsDisposed && _pageCrashes.ShouldReload(DateTime.UtcNow);
+            LogDesktopError("window page crashed", new InvalidOperationException($"{kind}, reason {e.Reason}, exit code {e.ExitCode}; {(reload ? "reloading" : "not reloaded")}"));
+            if (!reload) return;
+            try { _webView?.CoreWebView2?.Reload(); }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                LogDesktopError("reloading the crashed page", ex);
+            }
+        }
+
+        /// <summary>Watchdog fallback: the tracked process is gone but its Exited event never reached the UI thread.</summary>
+        private void NotifyBackendExitIfAny()
+        {
+            var proc = _pythonBackendProcess;
+            int? pid = _restartPolicy.TrackedPid;
+            if (proc == null || pid == null) return;
+            bool exited;
+            try { exited = proc.HasExited; }
+            catch (InvalidOperationException ex) { LogDesktopError("tracked service process unreadable", ex); exited = true; }
+            if (exited) OnBackendExited(pid.Value);
         }
 
 
@@ -1210,6 +1202,8 @@ namespace TwitchDropsSentinel
         {
 
             _isShuttingDown = true;
+            // The graceful wait below can take up to ~21 s (Steam IDLE unlock); don't leave a frozen window on screen.
+            if (Visible) Hide();
 
             _dimmerModule?.Shutdown();
 
@@ -1243,14 +1237,15 @@ namespace TwitchDropsSentinel
 
 
 
+            bool shutdownAccepted = false;
+
             try
 
             {
 
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                client.DefaultRequestHeaders.Add(LocalApiToken.HeaderName, LocalApiToken.Current);
-
-                client.PostAsync("http://127.0.0.1:28492/api/shutdown", null).GetAwaiter().GetResult();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                using var shutdownResponse = HostHttp.PostAsync("http://127.0.0.1:28492/api/shutdown", null, cts.Token).GetAwaiter().GetResult();
+                shutdownAccepted = shutdownResponse.IsSuccessStatusCode;
 
             }
 
@@ -1272,7 +1267,7 @@ namespace TwitchDropsSentinel
 
                 {
 
-                    _pythonBackendProcess.WaitForExit(2500);
+                    _pythonBackendProcess.WaitForExit((int)BackendShutdownWait.For(shutdownAccepted).TotalMilliseconds);
 
                     if (!_pythonBackendProcess.HasExited)
 
@@ -1375,6 +1370,21 @@ namespace TwitchDropsSentinel
         }
 
 
+
+        // The tray shows the imp head without the plate: it stays readable at 16 px.
+        private static Icon? LoadTrayIcon()
+        {
+            try
+            {
+                using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("TwitchDropsSentinel.tray.ico");
+                return stream != null ? new Icon(stream) : null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Tray icon load failed: {ex.Message}");
+                return null;
+            }
+        }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
@@ -1516,6 +1526,9 @@ namespace TwitchDropsSentinel
 
                 );
 
+                // a reset the panel asked for runs now, before WebView2 opens the folder (only the exact WebView2Data folder is ever deleted)
+                if (!WebViewDataReset.ApplyPending(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), out string resetNote) && resetNote.Length > 0)
+                    LogDesktopError("window data reset", new IOException(resetNote));
                 Directory.CreateDirectory(userDataFolder);
 
 
@@ -1538,6 +1551,7 @@ namespace TwitchDropsSentinel
 
                 _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
                 _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+                _webView.CoreWebView2.ProcessFailed += OnWebViewProcessFailed;
 
                 _webView.CoreWebView2.NewWindowRequested += (s, args) =>
 
@@ -1654,7 +1668,7 @@ namespace TwitchDropsSentinel
 
                         // This last fallback cannot use the token: its origin is not the app's, so the page script stays inert and the page cannot talk to the service (it only shows this message)
                         _allowInlineNavigation = true; // NavigateToString arrives as a data: navigation; OnNavigationStarting lets this one through
-                        _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Twitch Drops Sentinel v3</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
+                        _webView.CoreWebView2.NavigateToString("<html style=\"background:#0b0d13;color:#fff;font-family:sans-serif;padding:40px;\"><h2>Hell Harvest</h2><p>dist/index.html not found. Please run npm run build.</p></html>");
 
                     }
 
@@ -1670,9 +1684,9 @@ namespace TwitchDropsSentinel
                 if (ex is WebView2RuntimeNotFoundException)
                 {
                     var answer = MessageBox.Show(
-                        "Для работы окна Sentinel нужен Microsoft Edge WebView2 Runtime, он не найден на этом компьютере.\n\n" +
-                        "Открыть страницу загрузки? Установите «Evergreen Bootstrapper» и запустите Sentinel снова.",
-                        "Twitch Drops Sentinel", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        "Для работы окна Hell Harvest нужен Microsoft Edge WebView2 Runtime, он не найден на этом компьютере.\n\n" +
+                        "Открыть страницу загрузки? Установите «Evergreen Bootstrapper» и запустите Hell Harvest снова.",
+                        "Hell Harvest", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                     if (answer == DialogResult.Yes)
                     {
                         Process.Start(new ProcessStartInfo("https://developer.microsoft.com/microsoft-edge/webview2/") { UseShellExecute = true });
@@ -1680,7 +1694,7 @@ namespace TwitchDropsSentinel
                 }
                 else
                 {
-                    MessageBox.Show($"Не удалось запустить окно интерфейса (WebView2):\n{ex.Message}", "Twitch Drops Sentinel", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($"Не удалось запустить окно интерфейса (WebView2):\n{ex.Message}", "Hell Harvest", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
 
             }
@@ -1697,9 +1711,10 @@ namespace TwitchDropsSentinel
             if (_allowInlineNavigation && e.Uri.StartsWith("data:text/html", StringComparison.OrdinalIgnoreCase))
             {
                 _allowInlineNavigation = false;
+                _pageReady = false; // the page is about to reload: it says APP_READY again when it listens
                 return;
             }
-            if (AppOriginPolicy.IsAppUri(e.Uri)) return;
+            if (AppOriginPolicy.IsAppUri(e.Uri)) { _pageReady = false; return; }
             e.Cancel = true;
             try
             {
@@ -1811,7 +1826,7 @@ namespace TwitchDropsSentinel
 
                         {
 
-                            Description = "Выберите папку с установленными играми для Sentinel",
+                            Description = "Выберите папку с установленными играми для Hell Harvest",
 
                             UseDescriptionForTitle = true,
 
@@ -1869,6 +1884,7 @@ namespace TwitchDropsSentinel
                         Process.Start(new ProcessStartInfo
                         {
                             FileName = File.Exists(targetExe) ? targetExe : Application.ExecutablePath,
+                            Arguments = RestartHandoff.RestartArguments(),
                             UseShellExecute = true,
                             WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
                         });
@@ -1878,6 +1894,36 @@ namespace TwitchDropsSentinel
 
                 }
 
+                else if (type == "RUN_DIAGNOSTICS")
+                {
+                    RunDiagnosticsAsync(null);
+                }
+                else if (type == "CLOSE_OTHER_SERVICE")
+                {
+                    int pid = root.TryGetProperty("pid", out var pidProp) && pidProp.TryGetInt32(out int p) ? p : 0;
+                    RunDiagnosticsAsync(pid);
+                }
+                else if (type == "HEALTH_FIX")
+                {
+                    RunHealthFixAsync(root.TryGetProperty("id", out var fixIdProp) && fixIdProp.ValueKind == JsonValueKind.String ? fixIdProp.GetString() ?? "" : "");
+                }
+                else if (type == "OPEN_TWITCH_ACTIVATE")
+                {
+                    // the service's address is checked again here: only https on twitch.tv, otherwise the usual sign-in page
+                    OpenExternalLink(TwitchActivatePolicy.Resolve(root.TryGetProperty("uri", out var activateProp) && activateProp.ValueKind == JsonValueKind.String ? activateProp.GetString() : null), "twitch activate");
+                }
+                else if (type == "APP_READY")
+                {
+                    OnPageReady();
+                }
+                else if (type == "SAVE_HEALTH_REPORT" || type == "COLLECT_HEALTH_LOGS" || type == "REPORT_HEALTH_PROBLEM")
+                {
+                    RunHealthExportAsync(type == "SAVE_HEALTH_REPORT" ? "report" : type == "COLLECT_HEALTH_LOGS" ? "logs" : "issue");
+                }
+                else if (type == "OPEN_LOGS_FOLDER")
+                {
+                    OpenLogsFolder();
+                }
                 else if (type == "DIMMER_MODULE")
                 {
                     if (DimmerModulePayload.TryReadEnabled(root, out bool moduleEnabled))
@@ -2031,7 +2077,7 @@ namespace TwitchDropsSentinel
 
                         {
 
-                            File.WriteAllText(vaultPath, "# 🏆 Журнал Трофеев Twitch Drops Sentinel\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n");
+                            File.WriteAllText(vaultPath, "# 🏆 Журнал Трофеев Hell Harvest\n\n| Дата и Время | Игра | Награда (Дроп) | Кампания | Статус |\n| :--- | :--- | :--- | :--- | :--- |\n");
 
                         }
 
@@ -2314,11 +2360,11 @@ namespace TwitchDropsSentinel
 
                 var trayMenu = new ContextMenuStrip();
 
-                var showItem = new ToolStripMenuItem("Показать Sentinel", null, (s, e) => RestoreFromTray());
+                var showItem = new ToolStripMenuItem("Показать Hell Harvest", null, (s, e) => RestoreFromTray());
 
                 showItem.Font = new Font(showItem.Font, FontStyle.Bold);
 
-                var exitItem = new ToolStripMenuItem("Выход из Sentinel", null, (s, e) => ExitApplication());
+                var exitItem = new ToolStripMenuItem("Выход из Hell Harvest", null, (s, e) => ExitApplication());
 
 
 
@@ -2334,9 +2380,9 @@ namespace TwitchDropsSentinel
 
                 {
 
-                    Text = "Twitch Drops Sentinel",
+                    Text = "Hell Harvest",
 
-                    Icon = this.Icon ?? SystemIcons.Application,
+                    Icon = LoadTrayIcon() ?? this.Icon ?? SystemIcons.Application,
 
                     ContextMenuStrip = trayMenu,
 
@@ -2526,6 +2572,7 @@ namespace TwitchDropsSentinel
 
                     {
 
+                        SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel.Low);
                         _ = _webView.CoreWebView2.TrySuspendAsync();
 
                     }
@@ -3067,6 +3114,13 @@ else
 
 
 
+            if (Program.WM_SENTINEL_HEALTH != 0 && m.Msg == (int)Program.WM_SENTINEL_HEALTH)
+            {
+                RestoreFromTray();
+                PostOpenHealthCenter();
+                return;
+            }
+
             if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
 
             {
@@ -3289,7 +3343,7 @@ else
         {
             if (_trayHintShown) return;
             _trayHintShown = true;
-            _trayIcon?.ShowBalloonTip(5000, "Twitch Drops Sentinel", "Окно скрыто, фарм продолжается в трее. Открыть: клик по значку. Выйти полностью: правый клик по значку → «Выход из Sentinel».", ToolTipIcon.Info);
+            _trayIcon?.ShowBalloonTip(5000, "Hell Harvest", "Окно скрыто, фарм продолжается в трее. Открыть: клик по значку. Выйти полностью: правый клик по значку → «Выход из Hell Harvest».", ToolTipIcon.Info);
         }
 
         private void HideToTray()
@@ -3303,6 +3357,7 @@ else
             {
                 if (_webView?.CoreWebView2 != null)
                 {
+                    SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel.Low);
                     _ = _webView.CoreWebView2.TrySuspendAsync();
                 }
             }
@@ -3342,7 +3397,7 @@ else
                 var remember = new TaskDialogVerificationCheckBox("Запомнить мой выбор");
                 var page = new TaskDialogPage
                 {
-                    Caption = "Twitch Drops Sentinel",
+                    Caption = "Hell Harvest",
                     Heading = "Что сделать при закрытии окна?",
                     Text = "В трее фарм дропов продолжается, а окно можно открыть кликом по значку. При полном выходе фарм остановится. Выбор можно изменить в Настройках.",
                     Icon = TaskDialogIcon.Information,
@@ -3422,6 +3477,7 @@ else
 
                     {
 
+                        SetWebViewMemoryTarget(Microsoft.Web.WebView2.Core.CoreWebView2MemoryUsageTargetLevel.Normal);
                         _webView.CoreWebView2.Resume();
                         _webView.CoreWebView2.PostWebMessageAsJson("{\"type\":\"WAKEUP_SYNC\"}");
 
@@ -3950,6 +4006,215 @@ else
                 }
             }
             return null;
+        }
+
+        private const int ServicePort = 28492;
+
+        /// <summary>Runs the service diagnostics off the UI thread and posts DIAGNOSTICS_RESULT. With closePid the foreign service is closed first.</summary>
+        private void RunDiagnosticsAsync(int? closePid)
+        {
+            var tracked = _pythonBackendProcess;
+            var starts = _backendStarts.Snapshot();
+            var crashBackoff = _restartPolicy.BackoffUntil;
+            Task.Run(() =>
+            {
+                string json;
+                try
+                {
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    var backend = ServiceDiagnostics.ResolveBackend(baseDir, Directory.GetCurrentDirectory());
+                    string closeNote = "";
+                    if (closePid.HasValue)
+                    {
+                        int? trackedPid = null;
+                        var current = _pythonBackendProcess; // the watchdog may have started a new service since the click
+                        try { if (current is { HasExited: false }) trackedPid = current.Id; }
+                        catch (InvalidOperationException ex) { LogDesktopError("diagnostics: tracked pid", ex); }
+                        if (!ServiceDiagnostics.TryCloseOther(ServicePort, closePid.Value, trackedPid, out string closeError))
+                            closeNote = closeError;
+                    }
+                    bool ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+                    string version = StartConflict.ReadVersion(backend.ProjectRoot) ?? "unknown";
+                    var result = ServiceDiagnostics.Run(new DiagnosticsInput(ServicePort, baseDir, Directory.GetCurrentDirectory(), tracked, starts, LocalApiToken.Current, version, ru, crashBackoff));
+                    if (closeNote.Length > 0)
+                    {
+                        var checks = result.Checks.Append(new DiagnosticCheck("close", "fail", ru ? "Закрытие чужой службы" : "Closing the other service", closeNote, "")).ToList();
+                        result = new DiagnosticsResult(checks, ServiceDiagnostics.BuildReport(checks, version, LocalApiToken.Current));
+                    }
+                    _lastDiagnosticsReport = result.Report;
+                    json = ServiceDiagnostics.ToJson(result, LocalApiToken.Current);
+                }
+                catch (Exception ex)
+                {
+                    LogDesktopError("diagnostics failed", ex);
+                    json = JsonSerializer.Serialize(new { type = "DIAGNOSTICS_RESULT", error = ex.Message, checks = Array.Empty<object>(), report = "" });
+                }
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (_isShuttingDown || IsDisposed) return;
+                        try { _webView?.CoreWebView2?.PostWebMessageAsJson(json); }
+                        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+                        { LogDesktopError("diagnostics result not posted", ex); }
+                    }));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+                {
+                    LogDesktopError("diagnostics result not delivered", ex);
+                }
+            });
+        }
+
+        /// <summary>Runs one fix off the UI thread: the window data reset here, every other fix through the service. Posts FIX_RESULT, then runs the diagnostics again.</summary>
+        private void RunHealthFixAsync(string fixId)
+        {
+            Task.Run(() =>
+            {
+                FixResult result;
+                try
+                {
+                    var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                    bool ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+                    if (fixId == "webview_reset")
+                    {
+                        result = WebViewDataReset.Schedule(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), out string scheduleError)
+                            ? new FixResult(fixId, true, ru ? "Сброс запланирован: перезапустите приложение, и данные окна удалятся при старте." : "Reset scheduled: restart the app and the window data is deleted at the start.", Restart: true)
+                            : new FixResult(fixId, false, (ru ? "Не удалось запланировать сброс: " : "Could not schedule the reset: ") + scheduleError);
+                    }
+                    else
+                    {
+                        result = ServiceDiagnostics.PostFix(ServicePort, LocalApiToken.Current, fixId, ru);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDesktopError("health fix failed", ex);
+                    result = new FixResult(ServiceDiagnostics.SafeId(fixId), false, ex.Message);
+                }
+                PostToPage(ServiceDiagnostics.FixResultJson(result, LocalApiToken.Current), "fix result");
+                RunDiagnosticsAsync(null);
+            });
+        }
+
+        private void PostOpenHealthCenter()
+        {
+            if (_pageReady) PostToPage("{\"type\":\"OPEN_HEALTH_CENTER\"}", "open health center");
+            else _pendingOpenHealth = true;
+        }
+
+        private void OnPageReady()
+        {
+            _pageReady = true;
+            if (!_pendingOpenHealth) return;
+            _pendingOpenHealth = false;
+            PostToPage("{\"type\":\"OPEN_HEALTH_CENTER\"}", "open health center");
+        }
+
+        private void PostExportResult(string kind, bool ok, string message) =>
+            PostToPage(JsonSerializer.Serialize(new { type = "HEALTH_EXPORT_RESULT", kind, ok, message = ServiceDiagnostics.Sanitize(message, LocalApiToken.Current) }), "health export result");
+
+        /// <summary>
+        /// The "For developer" actions of the health center, off the UI thread: the report as a file on the Desktop, the sanitized logs ZIP on the Desktop, or the
+        /// clipboard plus the project new-issue page. Answers HEALTH_EXPORT_RESULT. The page sends only the kind; every name, folder and address is decided here.
+        /// </summary>
+        private void RunHealthExportAsync(string kind)
+        {
+            var lease = _exportGuard.TryEnter(kind);
+            if (lease == null) return; // the same action is still running: a double click does nothing
+            Task.Run(() =>
+            {
+                using var held = lease;
+                bool ru = true;
+                try
+                {
+                    var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                    ru = StartConflict.IsRussian(backend.ProjectRoot, System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+                    string version = StartConflict.ReadVersion(backend.ProjectRoot) ?? "unknown";
+                    string report = _lastDiagnosticsReport;
+                    string? token = LocalApiToken.Current;
+                    DateTime now = DateTime.Now;
+                    string desktop = HealthExport.DesktopFolder(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TwitchDropsSentinel"));
+                    if (kind == "logs")
+                    {
+                        var sources = HealthExport.StandardSources(backend.ProjectRoot, AppDomain.CurrentDomain.BaseDirectory);
+                        var built = HealthExport.BuildLogZipUnique(desktop, HealthExport.LogsZipName(now), report.Length > 0 ? report : "(no report yet)", sources, token, now, version);
+                        string zip = built.Path;
+                        var included = built.Included;
+                        RevealInExplorer(zip);
+                        PostExportResult(kind, true, (ru ? "Логи собраны на рабочем столе: " : "Logs collected on the Desktop: ") + Path.GetFileName(zip) + " (" + included.Count + (ru ? " файлов)" : " files)"));
+                    }
+                    else if (report.Length == 0)
+                    {
+                        PostExportResult(kind, false, ru ? "Отчёта ещё нет: дождитесь конца проверки." : "There is no report yet: wait for the check to finish.");
+                    }
+                    else if (kind == "report")
+                    {
+                        string file = HealthExport.SaveReport(desktop, report, now, token);
+                        RevealInExplorer(file);
+                        PostExportResult(kind, true, (ru ? "Отчёт сохранён на рабочем столе: " : "Report saved on the Desktop: ") + Path.GetFileName(file));
+                    }
+                    else
+                    {
+                        bool copied = (bool)Invoke(new Func<bool>(() =>
+                        {
+                            try { Clipboard.SetDataObject(report, true, 5, 100); return true; }
+                            catch (System.Runtime.InteropServices.ExternalException ex) { LogDesktopError("report problem: clipboard", ex); return false; }
+                        }));
+                        string url = HealthExport.IssueUrl(version, System.Runtime.InteropServices.RuntimeInformation.OSDescription + " (" + Environment.OSVersion.Version + ")");
+                        if (!copied)
+                            PostExportResult(kind, false, ru ? "Не удалось скопировать отчёт в буфер обмена." : "The report could not be copied to the clipboard.");
+                        else if (!HealthExport.IsAllowedIssueUrl(url))
+                            PostExportResult(kind, false, ru ? "Адрес страницы обращения не прошёл проверку." : "The issue page address did not pass the check.");
+                        else
+                        {
+                            OpenExternalLink(url, "report problem");
+                            PostExportResult(kind, true, ru ? "Отчёт скопирован. Вставьте его в обращение на открывшейся странице GitHub." : "The report is copied. Paste it into the issue on the GitHub page that opened.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDesktopError("health export (" + kind + ")", ex);
+                    PostExportResult(kind, false, (ru ? "Не получилось: " : "Failed: ") + ex.Message);
+                }
+            });
+        }
+
+        /// <summary>Selects the file in Explorer. A failure is only logged: the file is written, the export did not fail.</summary>
+        private static void RevealInExplorer(string path) =>
+            HealthExport.TryReveal(p =>
+            {
+                using var explorer = Process.Start(new ProcessStartInfo("explorer.exe") { Arguments = "/select,\"" + p + "\"", UseShellExecute = false });
+            }, path, ex => LogDesktopError("reveal in Explorer", ex));
+
+        private void PostToPage(string json, string what)
+        {
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    if (_isShuttingDown || IsDisposed) return;
+                    try { _webView?.CoreWebView2?.PostWebMessageAsJson(json); }
+                    catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+                    { LogDesktopError(what + " not posted", ex); }
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                LogDesktopError(what + " not delivered", ex);
+            }
+        }
+
+        private void OpenLogsFolder()
+        {
+            try
+            {
+                var backend = ServiceDiagnostics.ResolveBackend(AppDomain.CurrentDomain.BaseDirectory, Directory.GetCurrentDirectory());
+                Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = "\"" + backend.ProjectRoot + "\"", UseShellExecute = true });
+            }
+            catch (Exception ex) { LogDesktopError("open logs folder", ex); }
         }
 
         private static void LogDesktopError(string context, Exception ex)
@@ -4481,8 +4746,6 @@ else
 
                 };
 
-                MouseDown += (s, e) => _onDismiss?.Invoke();
-                MouseDoubleClick += (s, e) => _onDismiss?.Invoke();
 
             }
 

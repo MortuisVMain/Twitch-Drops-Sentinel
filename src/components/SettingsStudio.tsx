@@ -1,9 +1,14 @@
-import { ClipboardCopy, Folder, Hourglass, Lock, Moon, Package, Plus, Power, RefreshCw, Stethoscope, Target, Timer, Trash2, TriangleAlert, X, Zap } from 'lucide-react';
+import { ClipboardCopy, Folder, History, Hourglass, Lock, Moon, Package, Plus, Power, RefreshCw, Stethoscope, Target, Timer, Trash2, TriangleAlert, X, Zap } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { SentinelSettings, SentinelStats, UpdateCheckResult, UpdateProgressStatus } from '../types';
 import { getLang, setLang, type Lang } from '../i18n';
 import { TEXT_SCALE_DEFAULT, TEXT_SCALE_MAX, TEXT_SCALE_MIN, TEXT_SCALE_STEP, getTextScale, setTextScale } from '../utils/textScale';
 import { useTactileAudio } from '../hooks/useTactileAudio';
+import { FarmScheduleCard } from './FarmScheduleCard';
+import { WebhooksCard } from './WebhooksCard';
+import { HealthWatchCard } from './HealthWatchCard';
+import { StartupCopiesCard } from './StartupCopiesCard';
 import { useModalFocus } from '../hooks/useModalFocus';
 import { moduleStates, modulesLabel, type ModuleKey } from '../utils/moduleSwitches';
 import { rewardSwitches } from '../utils/rewardCampaigns.mjs';
@@ -26,6 +31,7 @@ interface SettingsStudioProps {
   updateCheckFailure?: string | null;
   updateProgress?: UpdateProgressStatus | null;
   appVersion?: string;
+  showToast?: (msg: string) => void;
 }
 
 export const SettingsStudio: React.FC<SettingsStudioProps> = ({
@@ -43,6 +49,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
   updateCheckFailure,
   updateProgress,
   appVersion,
+  showToast,
 }) => {
   const [textScale, setTextScaleState] = useState(getTextScale());
   const [testCountdown, setTestCountdown] = useState<number | null>(null);
@@ -180,16 +187,16 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     setPendingDanger(null);
     const action = {
       trophies: { path: '/api/trophies/clear', done: 'Журнал Trophies.md очищен!', failed: 'Не удалось очистить журнал: ошибка сервиса' },
-      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Sentinel.', failed: 'Не удалось сбросить сессию: ошибка сервиса' },
+      logout: { path: '/api/logout', done: 'Сессия сброшена! Перезапустите Hell Harvest.', failed: 'Не удалось сбросить сессию: ошибка сервиса' },
       cache: { path: '/api/game-directories/clear-cache', done: 'Кэш распознавания игр очищен!', failed: 'Не удалось очистить кэш: ошибка сервиса' },
     }[type];
     try {
       const res = await fetch(`http://127.0.0.1:28492${action.path}`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      alert(action.done);
+      showToast?.(action.done);
     } catch (err) {
       console.error(`SettingsStudio: ${action.path} failed`, err);
-      alert(action.failed);
+      showToast?.(action.failed);
     }
   };
 
@@ -207,6 +214,100 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     setTimeout(() => {
       setBackupLabel('Бэкап профиля (.zip)');
     }, 3500);
+  };
+
+  // Restore: a backup is staged by the service and applied at the next start, so the app restarts right after
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [backups, setBackups] = useState<Array<{ name: string; size: number; modified: number }> | null>(null);
+  const [restoreAsk, setRestoreAsk] = useState<string | null>(null);
+  const [restoreMsg, setRestoreMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+
+  const loadBackups = async () => {
+    setBackups(null);
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/backups');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setBackups(Array.isArray(data.backups) ? data.backups : []);
+    } catch (err) {
+      console.error('SettingsStudio: listing backups failed', err);
+      setBackups([]);
+      setRestoreMsg({ text: 'Не удалось получить список бэкапов', error: true });
+    }
+  };
+
+  const toggleRestore = () => {
+    playClick();
+    const next = !restoreOpen;
+    setRestoreOpen(next);
+    setRestoreAsk(null);
+    setRestoreMsg(null);
+    if (next) void loadBackups();
+  };
+
+  const restartAfterRestore = async () => {
+    const wv = (window as any).chrome?.webview;
+    if (wv && typeof wv.postMessage === 'function') {
+      wv.postMessage({ type: 'RESTART_SENTINEL' });
+      return;
+    }
+    try {
+      await fetch('http://127.0.0.1:28492/api/restart', { method: 'POST' });
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      console.error('SettingsStudio: restart after restore failed', err);
+    }
+  };
+
+  const runRestore = async (body: { name: string } | { pick: true }) => {
+    playClick();
+    setRestoreAsk(null);
+    setRestoreBusy(true);
+    setRestoreMsg({ text: 'Проверяем бэкап…', error: false });
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.status === 'cancelled') { setRestoreMsg(null); return; }
+      if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
+      setRestoreMsg({ text: `Бэкап проверен. Текущий профиль сохранён в ${data.safety}. Перезапуск…`, error: false });
+      setTimeout(() => { void restartAfterRestore(); }, 1500);
+    } catch (err) {
+      console.error('SettingsStudio: restore failed', err);
+      setRestoreMsg({ text: `Не удалось восстановить: ${err instanceof Error ? err.message : String(err)}`, error: true });
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
+
+  // Rollback: the files the last update replaced are kept; putting them back needs a restart
+  const [rollback, setRollback] = useState<{ from_version: string; to_version: string } | null>(null);
+  const [rollbackAsk, setRollbackAsk] = useState(false);
+  const [rollbackMsg, setRollbackMsg] = useState<{ text: string; error: boolean } | null>(null);
+  useEffect(() => {
+    fetch('http://127.0.0.1:28492/api/updates/rollback')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => setRollback(d.rollback || null))
+      .catch((err) => console.error('SettingsStudio: rollback info failed', err));
+  }, []);
+  const runRollback = async () => {
+    playClick();
+    setRollbackAsk(false);
+    setRollbackMsg({ text: 'Возвращаем прошлую версию…', error: false });
+    try {
+      const res = await fetch('http://127.0.0.1:28492/api/updates/rollback', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
+      setRollbackMsg({ text: `Готово: ${data.message} Перезапуск…`, error: false });
+      setRollback(null);
+      setTimeout(() => { void restartAfterRestore(); }, 1500);
+    } catch (err) {
+      setRollbackMsg({ text: `Откат не удался: ${err instanceof Error ? err.message : String(err)}`, error: true });
+    }
   };
 
   const handleRescanClick = async () => {
@@ -351,7 +452,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
     : updateProgress && updateProgress.stage !== 'idle'
       ? updateProgress.error_message || updateStageNames[updateProgress.stage] || updateProgress.stage
       : updateInfo?.update_available
-        ? `Доступно обновление v${updateInfo.remote_version}`
+        ? `Доступно обновление v${updateInfo.remote_version}${updateInfo.prerelease ? ' (бета)' : ''}`
         : updateCheckFailure
           ? `Не удалось проверить обновления: ${updateCheckFailure}`
           : updateInfo
@@ -393,7 +494,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       key: 'hardwareGuard',
       title: 'Пауза, когда вы играете',
       hint: 'Фарм встаёт на паузу, пока запущена игра',
-      tooltip: 'Чтобы фарм не отнимал FPS: пока Sentinel видит запущенную игру, он ничего не смотрит',
+      tooltip: 'Чтобы фарм не отнимал FPS: пока Hell Harvest видит запущенную игру, он ничего не смотрит',
       onToggle: () => { playClick(); onUpdateSettings({ hardware_guard_enabled: !moduleOn.hardwareGuard }); },
     },
     {
@@ -418,7 +519,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
       key: 'powerCascade',
       title: 'Выключить или усыпить ПК после очереди',
       hint: moduleOn.powerCascade ? `Когда очередь закончится, ПК ${powerModeWord}` : 'Сон, выключение или блокировка после очереди',
-      tooltip: 'Включено: Sentinel выполнит выбранное действие с ПК, когда все дропы очереди получены (за 60 секунд до этого покажет предупреждение)',
+      tooltip: 'Включено: Hell Harvest выполнит выбранное действие с ПК, когда все дропы очереди получены (за 60 секунд до этого покажет предупреждение)',
       onToggle: () => { playClick(); onUpdateSettings({ auto_shutdown_on_complete: !moduleOn.powerCascade }); },
     },
     {
@@ -484,7 +585,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           <div>
             <div className="engraved-header">
               <span className="tag">
-                <span className="led-dot"></span> <span title="Управление модулями и автоматизация (все 10 систем Sentinel)">МОДУЛИ</span>
+                <span className="led-dot"></span> <span title="Управление модулями и автоматизация (все 10 систем Hell Harvest)">МОДУЛИ</span>
               </span>
               <span className="version-chip" title="Сколько из десяти модулей сейчас включено">{modulesLabel(moduleOn)}</span>
             </div>
@@ -498,6 +599,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               )}
             </div>
           </div>
+
+          <HealthWatchCard settings={settings} onChange={onUpdateSettings} playClick={playClick} />
 
           <div className="obsidian-well" style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
             <span className="tabular" style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-muted)' }} title="Что делает крестик окна. Фарм продолжается, пока приложение не закрыто полностью">ПРИ ЗАКРЫТИИ ОКНА:</span>
@@ -656,6 +759,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
             </div>
           </div>
 
+          <FarmScheduleCard schedule={settings.farm_schedule} onChange={(next) => onUpdateSettings({ farm_schedule: next })} playClick={playClick} />
+
           {/* Game Folders Island */}
           <div className="titanium-island" style={{ gap: '8px', display: 'flex', flexDirection: 'column' }}>
             <div className="engraved-header" style={{ marginBottom: 0 }}>
@@ -766,7 +871,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           >
             <span style={{ minWidth: 0 }}>
               <span className="module-switch-title">Кампании наград</span>
-              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Время просмотра набирает Sentinel, платные условия только вручную.</span>
+              <span className="module-switch-hint">Показывать кампании наград Twitch: квесты и предложения брендов. Время просмотра набирает Hell Harvest, платные условия только вручную.</span>
             </span>
             <span className={`cnc-switch ${rewardsOn ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
           </button>
@@ -781,7 +886,7 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
           >
             <span style={{ minWidth: 0 }}>
               <span className="module-switch-title">Дневной слот для наград</span>
-              <span className="module-switch-hint">Кампания из очереди сначала добирает дневную цель, потом Sentinel возвращается к дропам. Около часа в день.</span>
+              <span className="module-switch-hint">Кампания из очереди сначала добирает дневную цель, потом Hell Harvest возвращается к дропам. Около часа в день.</span>
             </span>
             <span className={`cnc-switch ${rewardSwitch.slot && !rewardSwitch.disabled ? 'on' : ''}`} aria-hidden="true"><span className="knob"></span></span>
           </button>
@@ -803,9 +908,55 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         </div>
       </div>
 
+      <WebhooksCard playClick={playClick} />
+
+      <StartupCopiesCard playClick={playClick} restartApp={restartAfterRestore} />
+
       {/* Danger zone: destructive actions live apart from everyday buttons and always ask first */}
       <div className="danger-zone" role="group" aria-label="Опасная зона">
         <span className="danger-zone-title"><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Опасная зона</span>
+        <div className="danger-zone-item" style={{ flexWrap: 'wrap' }}>
+          <button className="safety-guard-btn" onClick={toggleRestore} aria-expanded={restoreOpen} title="Вернуть настройки, вход и трофеи из бэкапа профиля">
+            <History className="ui-icon" aria-hidden="true" focusable="false" /> Восстановить из бэкапа
+          </button>
+          <span className="danger-zone-hint">Заменяет текущий профиль, перед этим сохраняет его</span>
+        </div>
+        {restoreOpen && (
+          <div className="restore-panel" role="region" aria-label="Восстановление из бэкапа">
+            {backups === null ? (
+              <span className="danger-zone-hint">Загружаем список бэкапов…</span>
+            ) : backups.length === 0 ? (
+              <span className="danger-zone-hint">В папке data/backups бэкапов нет. Выберите файл вручную.</span>
+            ) : (
+              <ul className="restore-list">
+                {backups.slice(0, 8).map((b) => (
+                  <li key={b.name} className="restore-row">
+                    <span className="restore-name" title={b.name}>
+                      {new Date(b.modified * 1000).toLocaleString()} <span className="tabular" style={{ color: 'var(--text-muted)' }}>· {Math.max(1, Math.round(b.size / 1024))} КБ</span>
+                    </span>
+                    {restoreAsk === b.name ? (
+                      <>
+                        <span className="danger-zone-question">Заменить профиль этим бэкапом? Приложение перезапустится.</span>
+                        <button className="safety-guard-btn armed" disabled={restoreBusy} onClick={() => runRestore({ name: b.name })}>Да, восстановить</button>
+                        <button className="tactile-btn" autoFocus onClick={() => { playClick(); setRestoreAsk(null); }}>Отмена</button>
+                      </>
+                    ) : (
+                      <button className="tactile-btn" disabled={restoreBusy} onClick={() => { playClick(); setRestoreAsk(b.name); }}>Восстановить</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="tactile-btn" disabled={restoreBusy} onClick={() => runRestore({ pick: true })} title="Выбрать .zip бэкапа в другом месте, например с другого компьютера">
+                <Folder className="ui-icon" aria-hidden="true" focusable="false" /> Выбрать файл…
+              </button>
+              {restoreMsg && (
+                <span role="status" className="danger-zone-hint" style={{ color: restoreMsg.error ? 'var(--led-rose)' : 'var(--text-secondary)' }}>{restoreMsg.text}</span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="danger-zone-item">
           {pendingDanger === 'trophies' ? (
             <>
@@ -869,6 +1020,32 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
                 />
               </div>
             </div>
+            <button
+              className="tactile-btn"
+              role="switch"
+              aria-checked={settings.update_channel === 'beta'}
+              onClick={() => {
+                playClick();
+                onUpdateSettings({ update_channel: settings.update_channel === 'beta' ? 'stable' : 'beta' });
+                // the service drops the other channel's answer; ask again once the setting has landed
+                if (onCheckUpdates) setTimeout(() => { void onCheckUpdates().catch((err) => console.error('SettingsStudio: update check after the channel switch failed', err)); }, 800);
+              }}
+              title="Предлагать и pre-release версии с GitHub: новые функции раньше, но они могут быть сырыми"
+            >
+              {settings.update_channel === 'beta' ? 'Бета-версии: вкл' : 'Бета-версии: выкл'}
+            </button>
+            {rollback && (rollbackAsk ? (
+              <>
+                <span className="danger-zone-question">{`Вернуть v${rollback.from_version}? v${rollback.to_version} больше не будет предлагаться, приложение перезапустится.`}</span>
+                <button className="safety-guard-btn armed" onClick={runRollback}>Да, вернуть</button>
+                <button className="tactile-btn" autoFocus onClick={() => { playClick(); setRollbackAsk(false); }}>Отмена</button>
+              </>
+            ) : (
+              <button className="tactile-btn" onClick={() => { playClick(); setRollbackAsk(true); }} title={`Если v${rollback.to_version} работает хуже, вернуть v${rollback.from_version}. Настройки и вход не меняются.`}>
+                <History className="ui-icon" aria-hidden="true" focusable="false" /> {`Вернуть v${rollback.from_version}`}
+              </button>
+            ))}
+            {rollbackMsg && <span role="status" className="danger-zone-hint" style={{ color: rollbackMsg.error ? 'var(--led-rose)' : 'var(--text-secondary)' }}>{rollbackMsg.text}</span>}
             <button className="chunky-cta" onClick={handleCheckUpdates} disabled={isCheckingUpdates || !onCheckUpdates}>
               {isCheckingUpdates ? 'Проверка...' : 'Проверить обновления'}
             </button>
@@ -880,9 +1057,9 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
         </div>
 
       {/* Diagnostic Report Modal (diagModal) */}
-      {showDiagModal && (
+      {showDiagModal && createPortal(
         <div 
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-in fade-in"
+          className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center p-4 animate-in fade-in"
           onClick={() => setShowDiagModal(false)}
         >
           <div 
@@ -932,7 +1109,8 @@ export const SettingsStudio: React.FC<SettingsStudioProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

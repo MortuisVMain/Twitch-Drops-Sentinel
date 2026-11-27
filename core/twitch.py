@@ -1094,7 +1094,6 @@ class Twitch:
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self._watching_restart.wait(), timeout=delay)
 
-    @task_wrapper(critical=True)
     def _notify_queue_events(self, priority: list[str], exclude: set[str]) -> None:
         """Windows toasts for games from the queue: a campaign is running / it waits for the account link.
         Deduplicated per campaign by the notification gate."""
@@ -1110,19 +1109,43 @@ class Twitch:
             NOTIFIER.notify_new(
                 "campaign_started",
                 [(c.id, c.game.name) for c in queue_campaigns if c.linked],
-                "Twitch Drops Sentinel",
+                "Hell Harvest",
                 lambda game: f"Началась кампания для игры из очереди: {game}",
                 lambda games: f"Начались кампании для игр из очереди ({len(games)}): {', '.join(games[:3])} и другие",
             )
             NOTIFIER.notify_new(
                 "needs_link",
                 [(c.id, c.game.name) for c in queue_campaigns if not c.linked],
-                "Twitch Drops Sentinel",
+                "Hell Harvest",
                 lambda game: f"{game}: кампания ждёт привязки аккаунта игры",
                 lambda games: f"Кампании ждут привязки аккаунта ({len(games)}): {', '.join(games[:3])} и другие",
             )
+            self._notify_queue_deadlines(priority, [c for c in queue_campaigns if c.linked])
         except Exception as exc:
             logger.warning("Queue notifications failed: %s", exc, exc_info=True)
+
+    def _notify_queue_deadlines(self, priority: list[str], campaigns: list) -> None:
+        """One toast per queue campaign that will close before the queue gets to finish it: the games
+        above it need more watching than the campaign has left (or it is too late even on its own)."""
+        from notifications import NOTIFIER
+        from utils import campaign_remaining_watch_minutes, format_minutes_ru, queue_deadline_risks
+        rows = []
+        for entry in reward_watch.game_entries(priority):
+            for c in campaigns:
+                if smart_game_match(c.game.name, entry) and all(r["key"] != c.id for r in rows):
+                    rows.append({"key": c.id, "game": entry, "ends_at": c.ends_at,
+                                 "watch_minutes": campaign_remaining_watch_minutes(c)})
+        for risk in queue_deadline_risks(rows, datetime.now(timezone.utc)):
+            left = format_minutes_ru(risk["minutes_left"])
+            watch = format_minutes_ru(risk["watch_minutes"])
+            if risk["alone"]:
+                text = f"{risk['game']}: кампания закроется через {left}, а смотреть ещё {watch}. Все дропы не успеть."
+            else:
+                ahead = format_minutes_ru(risk["ahead_minutes"])
+                text = (f"{risk['game']}: кампания закроется через {left}, а игры выше в очереди займут {ahead}. "
+                        f"Поднимите её выше, чтобы успеть.")
+            if NOTIFIER.notify("queue_late", risk["key"], "Hell Harvest", text):
+                logger.info("Queue deadline: %s", text)
 
     async def _watch_loop(self) -> NoReturn:
         interval: float = WATCH_INTERVAL.total_seconds()
@@ -1911,7 +1934,7 @@ class Twitch:
         try:
             import notifications
             day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            notifications.NOTIFIER.notify("reward_daily_goal", f"{target['id']}:{day}", "Twitch Drops Sentinel", text)
+            notifications.NOTIFIER.notify("reward_daily_goal", f"{target['id']}:{day}", "Hell Harvest", text)
         except Exception as exc:
             logger.warning("[НАГРАДА] Уведомление о дневной цели не отправлено: %s", exc, exc_info=True)
 
@@ -2764,6 +2787,7 @@ class Twitch:
         self._drops.clear()
         self.gui.inv.clear()
         self.inventory.clear()
+        self._campaigns.clear()
         self._mnt_triggers.clear()
         switch_triggers: set[datetime] = set()
         next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -2875,7 +2899,7 @@ class Twitch:
                 logger.debug(f"SlugRedirect fallback failed for {game.name}: {exc}")
 
         # If drops_enabled filter returned 0 streams, fallback without DROPS_ENABLED filter
-        # so Sentinel can discover live streams and validate drops capability individually
+        # so Hell Harvest can discover live streams and validate drops capability individually
         game_data = (response.get("data") or {}).get("game") if response else None
         streams_edges = (game_data.get("streams") or {}).get("edges", []) if game_data else []
         if not streams_edges and filters:

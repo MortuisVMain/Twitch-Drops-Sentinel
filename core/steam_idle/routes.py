@@ -1,14 +1,18 @@
 """aiohttp handlers for /api/v1/steam-idle: thin adapters that map controller refusals to HTTP 409."""
+import asyncio
 import re
 
 from aiohttp import web
 
+from . import activity
 from .achievement_queue import GamePlan, LibraryPlan, SelectedPlan
 from .achievements import MAX_UNLOCK_NAMES, AchievementsError, valid_api_name
 
 _UINT32_MAX = 0xFFFFFFFF
 _MAX_EXCLUDE = 100000
 _INVALID = {"error": "invalid_request"}
+_STATS_PERIODS = frozenset({"7", "30", "all"})
+_FARM_SETTINGS = {"hoursUntilDrops": "hours_until_drops", "pauseWhilePlaying": "pause_while_playing", "notify": "notify"}
 
 
 def _app_id(value: object) -> bool:
@@ -37,8 +41,9 @@ def _start_plan(body: object):
 
 
 class SteamIdleRoutes:
-    def __init__(self, controller):
+    def __init__(self, controller, log: activity.ActivityLog | None = None):
         self._c = controller
+        self._log = activity.LOG if log is None else log
 
     @staticmethod
     def _reply(refusal: str | None, status: int = 200) -> web.Response:
@@ -47,7 +52,19 @@ class SteamIdleRoutes:
         return web.json_response({"ok": True}, status=status)
 
     async def state(self, request: web.Request) -> web.Response:
-        return web.json_response(self._c.state())
+        return web.json_response(await asyncio.to_thread(self._c.state))
+
+    async def log(self, request: web.Request) -> web.Response:
+        """The activity entries newer than `after` (all when absent); open even while the module is off."""
+        raw = request.query.get("after")
+        if raw is not None and not re.fullmatch(r"[0-9]{1,15}", raw):
+            return web.json_response(_INVALID, status=400)
+        after = None if raw is None else int(raw)
+        return web.json_response({"entries": self._log.since(after), "lastSeq": self._log.last_seq})
+
+    async def log_clear(self, request: web.Request) -> web.Response:
+        self._log.clear()
+        return web.json_response({"ok": True})
 
     async def ack(self, request: web.Request) -> web.Response:
         try:
@@ -109,6 +126,15 @@ class SteamIdleRoutes:
         except ValueError:
             return None
 
+    async def stats(self, request: web.Request) -> web.Response:
+        period = request.query.get("period", "30")
+        if period not in _STATS_PERIODS:
+            return web.json_response(_INVALID, status=400)
+        return web.json_response(self._c.stats_report(period))
+
+    async def stats_reset(self, request: web.Request) -> web.Response:
+        return self._reply(self._c.stats_reset())
+
     async def achievements_ack(self, request: web.Request) -> web.Response:
         body = await self._body(request)
         accepted = body.get("accepted") if isinstance(body, dict) and set(body) == {"accepted"} else None
@@ -121,6 +147,15 @@ class SteamIdleRoutes:
         if not isinstance(body, dict) or set(body) != {"minMinutes", "maxMinutes", "skipHidden"}:
             return web.json_response(_INVALID, status=400)
         refusal = self._c.set_achievements_settings(body["minMinutes"], body["maxMinutes"], body["skipHidden"])
+        if refusal == "invalid_request":
+            return web.json_response(_INVALID, status=400)
+        return self._reply(refusal)
+
+    async def farm_settings(self, request: web.Request) -> web.Response:
+        body = await self._body(request)
+        if not isinstance(body, dict) or not body or not set(body) <= set(_FARM_SETTINGS):
+            return web.json_response(_INVALID, status=400)
+        refusal = self._c.set_farm_settings(**{_FARM_SETTINGS[key]: value for key, value in body.items()})
         if refusal == "invalid_request":
             return web.json_response(_INVALID, status=400)
         return self._reply(refusal)

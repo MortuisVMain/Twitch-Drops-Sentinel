@@ -91,7 +91,7 @@ class Presence:
         try:
             proc = spawn(command(helper_exe, "hold", steam_id64, app_id))
         except OSError as error:
-            logger.error("hold helper start failed: %s", error)
+            logger.error("hold helper start failed: %s", error.strerror or type(error).__name__)  # the message carries the file path
             raise PresenceError("start_failed") from error
         self._proc, self._lines = proc, queue.Queue()
         self._reader = threading.Thread(target=_read_lines, args=(proc.stdout, self._lines), daemon=True)

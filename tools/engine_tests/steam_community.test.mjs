@@ -248,11 +248,11 @@ test('extractSteamId: the 17-digit g_steamID of the page, null for a signed-out 
   }
 });
 
-test('parseArgs: --expect needs 17 digits and only status, drops and library accept it', () => {
-  for (const command of ['status', 'drops', 'library']) {
+test('parseArgs: --expect needs 17 digits and only login, status, drops and library accept it', () => {
+  for (const command of ['login', 'status', 'drops', 'library']) {
     assert.deepEqual(sc.parseArgs([command, `--expect=${FAKE_ID}`]), { command, expect: FAKE_ID });
   }
-  for (const bad of [['drops', '--expect='], ['drops', '--expect=123'], ['login', `--expect=${FAKE_ID}`],
+  for (const bad of [['drops', '--expect='], ['drops', '--expect=123'], ['login', '--expect=123'],
     ['dump', 'x', `--expect=${FAKE_ID}`], ['drops', `--expect=${FAKE_ID}`, 'x'], ['drops', `--other=${FAKE_ID}`]]) {
     assert.equal(sc.parseArgs(bad).error, 'usage', JSON.stringify(bad));
   }
@@ -314,4 +314,141 @@ test('fetchHtml reads the page through the context request API with the browser 
   assert.equal(await sc.fetchHtml(page(() => reply('https://steamcommunity.com/login/home/?goto=my', 200, 'login')), BADGES), null);
   await assert.rejects(sc.fetchHtml(page(url => reply(url, 503, '')), BADGES), error => error.code == 'http_503');
   await assert.rejects(sc.fetchHtml(page(() => { throw new Error('net down'); }), BADGES), error => error.code == 'load_failed');
+});
+
+// A browser context stand-in: `account` is the account the profile is signed in to (null: signed out).
+const fakeContext = account => {
+  const ctx = { account, cleared: 0, loginPageLoads: 0, handlers: {} };
+  const makePage = () => {
+    let current = 'about:blank';
+    return {
+      goto: async url => {
+        if (url.includes('/login/')) { ctx.loginPageLoads += 1; current = url; return; }
+        current = ctx.account ? `https://steamcommunity.com/profiles/${ctx.account}/badges` : 'https://steamcommunity.com/login/home/?goto=my%2Fbadges';
+      },
+      url: () => current,
+      content: async () => `<script>g_steamID = "${ctx.account}";</script>`,
+      close: async () => {},
+    };
+  };
+  const first = makePage();
+  Object.assign(ctx, {
+    on: (event, fn) => { ctx.handlers[event] = fn; },
+    pages: () => [first],
+    newPage: async () => makePage(),
+    cookies: async () => ctx.account ? [{ name: 'steamLoginSecure' }] : [],
+    clearCookies: async () => { ctx.cleared += 1; ctx.account = null; },
+  });
+  return ctx;
+};
+const CLIENT = '76561190000000001';
+const OTHER = '76561190000000002';
+
+test('login: a session of another account is signed out and the sign-in page shown again, not taken as done', async () => {
+  const ctx = fakeContext(OTHER);
+  let ticks = 0;
+  const delay = async () => { ticks += 1; if (ticks == 3) ctx.account = CLIENT; };  // the user signs in on the third check
+  assert.deepEqual(await sc.login(ctx, delay, CLIENT), { status: 'signed_in' });
+  assert.equal(ctx.cleared, 1, 'the other account was signed out once');
+  assert.equal(ctx.loginPageLoads, 2, 'the sign-in page was opened again after signing out');
+});
+
+test('login: the expected account already signed in, or no expectation, ends at once', async () => {
+  for (const [account, expect] of [[CLIENT, CLIENT], [OTHER, undefined]]) {
+    const ctx = fakeContext(account);
+    assert.deepEqual(await sc.login(ctx, async () => {}, expect), { status: 'signed_in' });
+    assert.equal(ctx.cleared, 0);
+  }
+});
+
+test('login: closing the window while another account is signed in ends as closed', async () => {
+  const ctx = fakeContext(OTHER);
+  let ticks = 0;
+  const delay = async () => { ticks += 1; if (ticks == 2) ctx.handlers.close(); };
+  assert.deepEqual(await sc.login(ctx, delay, CLIENT), { status: 'closed' });
+  assert.equal(ctx.cleared, 1);
+});
+
+// ---- cheap rechecks: the cards command reads /gamecards/<appid>/ pages of chosen games only ----
+test('parseGameCardsPage: drops, hours, name and entities from the card page', () => {
+  assert.deepEqual(parse.parseGameCardsPage(fixture('gamecards-synthetic.html'), 1000),
+    { appId: 1000, name: 'Tom & Jerry\'s "Quest"', dropsRemaining: 5, playtimeHours: 1234.5 });
+  const done = parse.parseGameCardsPage(fixture('gamecards-no-drops.html'), 1000);
+  assert.equal(done.dropsRemaining, 0);
+  assert.equal(done.playtimeHours, 12);
+});
+
+test('parseGameCardsPage: the real card page wraps its badge in class="badge_row depressed badge_gamecard_page"', () => {
+  assert.deepEqual(parse.parseGameCardsPage(fixture('gamecards-real-2026-11.html'), 4358690),
+    { appId: 4358690, name: '', dropsRemaining: 1, playtimeHours: 9.7 });
+});
+
+test('parseGameCardsPage: no drops text is an error, never 0 drops (0 would mark the game done)', () => {
+  const synthetic = fixture('gamecards-synthetic.html');
+  const dropsDiv = /<div class="badge_title_stats_drops">[\s\S]*?<\/div>/;
+  const bad = {
+    unknown: fixture('gamecards-unknown-drops.html'),
+    noDropsCell: synthetic.replace(dropsDiv, ''),
+    emptyDropsCell: synthetic.replace(dropsDiv, '<div class="badge_title_stats_drops"></div>'),
+    loginPage: fixture('login-page.html'),
+    empty: '',
+    badgesListing: fixture('badges-synthetic.html'),
+    twoDropsCells: synthetic + synthetic,
+    otherGame: synthetic.replaceAll('/gamecards/1000/', '/gamecards/2000/'),
+  };
+  for (const [label, html] of Object.entries(bad)) {
+    assert.throws(() => parse.parseGameCardsPage(html, 1000), error => error.code == 'gamecards_unparsed', label);
+  }
+  for (const id of [0, -1, 1.5, '1000', null]) {
+    assert.throws(() => parse.parseGameCardsPage(synthetic, id), error => error.code == 'gamecards_unparsed', String(id));
+  }
+});
+
+test('parseGameCardsPage: a missing playtime cell is 0 hours, an unreadable one is an error', () => {
+  const synthetic = fixture('gamecards-synthetic.html');
+  const playtime = /<div class="badge_title_stats_playtime">[\s\S]*?<\/div>/;
+  assert.equal(parse.parseGameCardsPage(synthetic.replace(playtime, ''), 1000).playtimeHours, 0);
+  assert.equal(parse.parseGameCardsPage(synthetic.replace(playtime, '<div class="badge_title_stats_playtime"></div>'), 1000).playtimeHours, 0);
+  assert.throws(() => parse.parseGameCardsPage(synthetic.replace(playtime, '<div class="badge_title_stats_playtime">lots</div>'), 1000),
+    error => error.code == 'gamecards_unparsed');
+});
+
+test('parseArgs: cards takes app ids and an optional --expect, bad ids are usage errors', () => {
+  assert.deepEqual(sc.parseArgs(['cards', '730', '440']), { command: 'cards', appIds: [730, 440] });
+  assert.deepEqual(sc.parseArgs(['cards', '730', `--expect=${FAKE_ID}`]), { command: 'cards', appIds: [730], expect: FAKE_ID });
+  for (const bad of [['cards'], ['cards', `--expect=${FAKE_ID}`], ['cards', 'x'], ['cards', '0'], ['cards', '-5'], ['cards', '1.5'],
+    ['cards', '730', '730'], ['cards', '730', 'drops'], ['cards', ...Array.from({ length: 65 }, (_, i) => String(i + 1))]]) {
+    assert.equal(sc.parseArgs(bad).error, 'usage', JSON.stringify(bad));
+  }
+});
+
+const cardPage = (id, drops, hours = '2 hrs') => `<a href="https://steamcommunity.com/profiles/P/gamecards/${id}/"></a>`
+  + `<div class="badge_title_stats_playtime">${hours} on record</div><div class="badge_title_stats_drops"><span class="progress_info_bold">${drops}</span></div>`
+  + `<div class="badge_title">G${id} &nbsp;<span class="badge_view_details">x</span></div>`;
+
+test('collectCards: one page per game with l=english, in order, with a gap between pages only', async () => {
+  const fetch = fetcher([cardPage(730, '2 card drops remaining'), cardPage(440, 'No card drops remaining')]);
+  let delays = 0;
+  const result = await sc.collectCards(fetch, async () => { delays++; }, undefined, [730, 440]);
+  assert.deepEqual(result, { status: 'complete', games: [
+    { appId: 730, name: 'G730', dropsRemaining: 2, playtimeHours: 2 },
+    { appId: 440, name: 'G440', dropsRemaining: 0, playtimeHours: 2 },
+  ] });
+  assert.deepEqual(fetch.urls, ['https://steamcommunity.com/my/gamecards/730/?l=english', 'https://steamcommunity.com/my/gamecards/440/?l=english']);
+  assert.equal(delays, 1);
+});
+
+test('collectCards: signed out, a failing page and an unparsed page fail the whole command', async () => {
+  assert.deepEqual(await sc.collectCards(fetcher([null]), noDelay, undefined, [1]), { status: 'signed_out' });
+  assert.deepEqual(await sc.collectCards(fetcher([cardPage(1, '1 card drop remaining'), null]), noDelay, undefined, [1, 2]), { status: 'signed_out' });
+  const http = Object.assign(new Error('x'), { code: 'http_503' });
+  assert.deepEqual(await sc.collectCards(fetcher([http]), noDelay, undefined, [1]), { status: 'failed', error: 'http_503', page: 1 });
+  assert.deepEqual(await sc.collectCards(fetcher([cardPage(1, 'Soon')]), noDelay, undefined, [1]), { status: 'failed', error: 'gamecards_unparsed', page: 1 });
+});
+
+test('collectCards with expect: a match passes, another or a missing id is account_mismatch', async () => {
+  const page = fixture('gamecards-synthetic.html');
+  assert.equal((await sc.collectCards(fetcher([page]), noDelay, FAKE_ID, [1000])).status, 'complete');
+  assert.deepEqual(await sc.collectCards(fetcher([page]), noDelay, OTHER_ID, [1000]), { status: 'account_mismatch' });
+  assert.deepEqual(await sc.collectCards(fetcher([cardPage(1, '1 card drop remaining')]), noDelay, FAKE_ID, [1]), { status: 'account_mismatch' });
 });
