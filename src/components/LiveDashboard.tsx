@@ -45,6 +45,10 @@ export interface LiveDashboardProps {
   watchdogStatus?: string | null;
   oauthCode?: string | null;
   oauthUri?: string | null;
+  /** Which Twitch client the login belongs to; with 'tv' Twitch lists only campaigns already started. */
+  authClient?: 'android' | 'tv' | null;
+  signedIn?: boolean;
+  onBrowserLogin?: () => void;
   rewardCampaigns?: RewardCampaign[];
   rewardWatching?: { id: string; name: string } | null; // the reward campaign the engine is watching right now
   allGames?: GameItem[];
@@ -120,6 +124,9 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
   watchdogStatus,
   oauthCode,
   oauthUri,
+  authClient,
+  signedIn = false,
+  onBrowserLogin,
   rewardCampaigns,
   rewardWatching = null,
   allGames = [],
@@ -825,6 +832,16 @@ const filteredLogs = useMemo(() => {
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onBrowserLogin && (
+              <button
+                className="tactile-btn active-mint"
+                style={{ minHeight: '24px', fontSize: 'var(--fs-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => { playClick(); onBrowserLogin(); }}
+                title="Откроет окно входа Twitch: так фармятся все кампании, а не только начатые"
+              >
+                <span>Войти через окно Twitch (полный список кампаний)</span>
+              </button>
+            )}
             {codeCopy === 'failed' && (
               <span role="alert" style={{ fontSize: 'var(--fs-xs)', color: 'var(--led-rose)' }}>Не удалось скопировать, выделите код вручную</span>
             )}
@@ -849,6 +866,24 @@ const filteredLogs = useMemo(() => {
               <ExternalLink className="w-3 h-3" aria-hidden="true" focusable="false" />
             </a>
           </div>
+        </div>
+      )}
+
+      {signedIn && authClient === 'tv' && !oauthCode && onBrowserLogin && (
+        <div className="ending-soon-radar mb-2.5 border-amber-500/40 animate-in fade-in" role="status">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: 'var(--fs-xs)' }}>
+            <KeyRound className="w-4 h-4 text-amber-400" aria-hidden="true" focusable="false" />
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Вход выполнен через ТВ-клиент Twitch: фармятся только уже начатые кампании. Войдите через окно Twitch, чтобы увидеть полный список.
+            </span>
+          </div>
+          <button
+            className="tactile-btn active-mint"
+            style={{ minHeight: '24px', fontSize: 'var(--fs-xs)' }}
+            onClick={() => { playClick(); onBrowserLogin(); }}
+          >
+            Войти через окно Twitch (полный список кампаний)
+          </button>
         </div>
       )}
 

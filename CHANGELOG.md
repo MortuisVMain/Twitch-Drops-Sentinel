@@ -4,6 +4,12 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.4.2] - 2026-11-27
+- Full Twitch Drops campaign list is back: Twitch no longer returns `ViewerDropsDashboard` to the TV device-code client (`SMARTBOX`), so the app now offers sign-in through an isolated in-app Twitch window using the Android app client (`ANDROID_APP`). The token is validated with Twitch, stored encrypted with Windows DPAPI, and the temporary WebView2 login folder is cleaned up automatically after sign-in.
+- Updated the `ViewerDropsDashboard` persisted query hash (`69750554...`) and reused its response for reward campaigns so inventory sync avoids sending duplicate dashboard requests.
+- Fallback campaign discovery for TV-client logins: when a user stays on the device-code login and Twitch returns an empty dashboard, the engine discovers active/upcoming campaigns through live Drops-enabled channels of priority and installed games (with `SlugRedirect` fallback, throttled every 30 minutes).
+- Hardening: OAuth/Bearer tokens are redacted from debug and console logs; `State.RESTART` cannot be overwritten by routine engine transitions; device-code login wakes immediately when in-app sign-in finishes; existing TV cookie jars are auto-detected without wiping valid logins; `TwitchLoginWindow` uses isolated per-session folders and brings an already open window to focus on repeat clicks.
+
 ## [4.4.1] - 2026-11-27
 - Fixed: 4.4.0 did not start. The window stayed black with a spinner and the local service was never launched: the new light health check of the service was waited for on the window's own thread and could never finish. 4.4.0 cannot update itself out of this, so install 4.4.1 with `Hell_Harvest_Setup_v4.4.1.exe` over it (settings and sign-ins are kept).
 

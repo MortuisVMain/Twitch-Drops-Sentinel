@@ -4,7 +4,7 @@ import json
 import random
 import asyncio
 import logging
-from time import time
+from time import monotonic, time
 from copy import deepcopy
 from itertools import chain
 from functools import partial
@@ -75,10 +75,15 @@ import re
 
 from utils import smart_game_match, clean_title, trophies_show_completed
 from dpapi import load_cookie_jar, save_cookie_jar
+from android_login import auth_client_name, client_for_jar
 _clean_game_str = clean_title
 
 logger = logging.getLogger("TwitchDrops")
 _CATALOG_TASK: "asyncio.Task[None] | None" = None  # one catalog poller per process
+# TV-client fallback (the dashboard comes back empty for it): campaigns are discovered through live drops channels
+TV_DISCOVERY_INTERVAL = 30 * 60  # seconds between passes
+TV_DISCOVERY_MAX_GAMES = 12  # games looked at per pass
+TV_DISCOVERY_MAX_CHANNELS = 8  # live channels per game
 REWARD_FAILED_BEATS = 3  # failed beats in a row before the channel is put on cooldown
 REWARD_NO_PROGRESS_SECONDS = 600.0  # a reward watched this long without any Twitch progress is reported once
 REWARD_STALL_SECONDS = 900.0  # no good beat for this long: the reward campaign is dropped and the choice re-evaluated
@@ -139,6 +144,15 @@ class _AuthState:
         self._logged_in.clear()
         self._twitch.gui.help._invalidate_button.config(state="disabled")
 
+    def _fall_back_to_tv(self, client_info: ClientInfo, session: aiohttp.ClientSession) -> ClientInfo:
+        """A saved android login Twitch no longer accepts: the device-code sign-in (TV client) takes over, with its own user agent."""
+        if client_info is not ClientType.ANDROID_APP:
+            return client_info
+        logger.warning("The saved android client login is not usable: signing in with the TV client instead")
+        self._twitch._client_type = ClientType.SMARTBOX
+        session.headers["User-Agent"] = ClientType.SMARTBOX.USER_AGENT
+        return ClientType.SMARTBOX
+
     async def _oauth_login(self) -> str:
         login_form: LoginForm = self._twitch.gui.login
         client_info: ClientInfo = self._twitch._client_type
@@ -179,6 +193,10 @@ class _AuthState:
                     verification_uri: URL = URL(response_json["verification_uri"])
                     expires_at = now + timedelta(seconds=response_json["expires_in"])
 
+                if self._twitch._state is State.RESTART:
+                    raise ReloadRequest()
+                if self._twitch._state is State.EXIT:
+                    raise ExitRequest()
                 # Print the code to the user, open them the activate page so they can type it in
                 await login_form.ask_enter_code(verification_uri, user_code)
 
@@ -188,8 +206,26 @@ class _AuthState:
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 }
                 while True:
-                    # sleep first, not like the user is gonna enter the code *that* fast
-                    await asyncio.sleep(interval)
+                    # wait for interval, waking immediately if an in-app sign-in or shutdown arrives
+                    deadline = monotonic() + interval
+                    while True:
+                        if self._twitch._state is State.RESTART:
+                            # another sign-in (the twitch.tv window) was stored while this code waited: start over with it
+                            raise ReloadRequest()
+                        if self._twitch._state is State.EXIT:
+                            raise ExitRequest()
+                        remaining = deadline - monotonic()
+                        if remaining <= 0:
+                            break
+                        self._twitch._state_change.clear()
+                        if self._twitch._state is State.RESTART:
+                            raise ReloadRequest()
+                        if self._twitch._state is State.EXIT:
+                            raise ExitRequest()
+                        try:
+                            await asyncio.wait_for(self._twitch._state_change.wait(), timeout=remaining)
+                        except asyncio.TimeoutError:
+                            break
                     async with self._twitch.request(
                         "POST",
                         "https://id.twitch.tv/oauth2/token",
@@ -425,6 +461,7 @@ class _AuthState:
                             logger.info("Restored session is invalid")
                             assert client_info.CLIENT_URL.host is not None
                             jar.clear_domain(client_info.CLIENT_URL.host)
+                            client_info = self._fall_back_to_tv(client_info, session)
                             continue
                         elif response.status == 200:
                             validate_response = await response.json()
@@ -434,22 +471,45 @@ class _AuthState:
                 # ensure the cookie's client ID matches the currently selected client
                 if validate_response["client_id"] == client_info.CLIENT_ID:
                     break
+                known = next((c for c in (ClientType.SMARTBOX, ClientType.ANDROID_APP) if c.CLIENT_ID == validate_response["client_id"]), None)
+                if known is not None:
+                    # the saved login belongs to the other client we know: use that client and keep the login
+                    logger.info("Saved login belongs to the %s client: switching to it", "android" if known is ClientType.ANDROID_APP else "TV")
+                    self._twitch._client_type = client_info = known
+                    session.headers["User-Agent"] = known.USER_AGENT
+                    break
                 # otherwise, we need to delete the entire cookie file and clear the jar
                 logger.info("Cookie client ID mismatch")
                 jar.clear()
                 COOKIES_PATH.unlink(missing_ok=True)
+                client_info = self._fall_back_to_tv(client_info, session)
             else:
                 raise RuntimeError("Login verification failure (step #1)")
             self.user_id = int(validate_response["user_id"])
             username = str(validate_response.get("login") or validate_response.get("user_name") or "")
             cookie["persistent"] = str(self.user_id)
-            logger.info(f"Login successful, user ID: {self.user_id}, login: {username}")
+            logger.info(f"Login successful, user ID: {self.user_id}, login: {username}, client: {auth_client_name(self._twitch)}")
             login_form.update(_("gui", "login", "logged_in"), self.user_id, username=username)
             # update our cookie and save it
             jar.update_cookies(cookie, client_info.CLIENT_URL)
             save_cookie_jar(jar, COOKIES_PATH)
         self._twitch.gui.help._invalidate_button.config(state="normal")
         self._logged_in.set()
+
+
+_SENSITIVE_HEADERS = frozenset({"authorization", "client-integrity", "cookie"})
+
+
+def _redact_request_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Copy request kwargs with sensitive headers redacted so debug logs never leak OAuth tokens."""
+    redacted = dict(kwargs)
+    headers = redacted.get("headers")
+    if isinstance(headers, dict):
+        redacted["headers"] = {
+            k: ("[REDACTED]" if str(k).lower() in _SENSITIVE_HEADERS else v)
+            for k, v in headers.items()
+        }
+    return redacted
 
 
 class Twitch:
@@ -510,6 +570,7 @@ class Twitch:
         # Catalog refresh: keeps the in-app catalog <= ~15 min old without a full inventory reload
         self._catalog_refresher: Any = None
         self._catalog_task: asyncio.Task[None] | None = None
+        self._tv_discovery_at: float | None = None  # monotonic() of the last channel-discovery pass
 
     async def get_session(self) -> aiohttp.ClientSession:
         if (session := self._session) is not None:
@@ -523,6 +584,8 @@ class Twitch:
                 load_cookie_jar(cookie_jar, COOKIES_PATH)
         except Exception as err:
             logger.warning(f"Error loading cookies: {err}")
+        # a saved android-client login (the twitch.tv window) means every request below is made as the android client
+        self._client_type = client_for_jar(cookie_jar)
         # create timeouts
         # connection quality mulitiplier determines the magnitude of timeouts
         connection_quality = self.settings.connection_quality
@@ -587,9 +650,15 @@ class Twitch:
         return self._auth_state._logged_in.wait()
 
     def change_state(self, state: State) -> None:
-        if self._state is not State.EXIT:
+        if self._state is State.EXIT:
             # prevent state changing once we switch to exit state
-            self._state = state
+            self._state_change.set()
+            return
+        if self._state is State.RESTART and state is not State.EXIT:
+            # a pending client reload must not be overwritten by routine state transitions
+            self._state_change.set()
+            return
+        self._state = state
         self._state_change.set()
 
     def state_change(self, state: State) -> abc.Callable[[], None]:
@@ -656,6 +725,7 @@ class Twitch:
                 break
             except ReloadRequest:
                 await self.shutdown()
+                self._state = State.IDLE  # the RESTART that got us here must not end the next sign-in wait too
             except ExitRequest:
                 break
             except aiohttp.ContentTypeError as exc:
@@ -2344,7 +2414,7 @@ class Twitch:
         method = method.upper()
         if self.settings.proxy and "proxy" not in kwargs:
             kwargs["proxy"] = self.settings.proxy
-        logger.debug(f"Request: ({method=}, {url=}, {kwargs=})")
+        logger.debug(f"Request: ({method=}, {url=}, kwargs={_redact_request_kwargs(kwargs)})")
         session_timeout = timedelta(seconds=session.timeout.total or 0)
         backoff = ExponentialBackoff(maximum=3*60)
         for delay in backoff:
@@ -2506,10 +2576,11 @@ class Twitch:
                 for cid in campaign_ids
             ]
         )
-        fetched_data: dict[str, JsonType] = {
-            (campaign_data := response_json["data"]["user"]["dropCampaign"])["id"]: campaign_data
-            for response_json in response_list
-        }
+        fetched_data: dict[str, JsonType] = {}
+        for response_json in response_list:
+            campaign_data = ((response_json.get("data") or {}).get("user") or {}).get("dropCampaign")
+            if isinstance(campaign_data, dict) and campaign_data.get("id"):
+                fetched_data[campaign_data["id"]] = campaign_data
         return self._merge_data(campaign_ids, fetched_data)
 
     async def discover_campaigns_for_game(self, game_name: str) -> list[JsonType]:
@@ -2615,6 +2686,96 @@ class Twitch:
             logger.debug(f"Discovery error for {game_name}: {e}")
         return discovered
 
+    def _tv_discovery_games(self) -> list[str]:
+        """Games of interest: the user's priority games first, then the installed games the app knows."""
+        from campaigns_fetcher import CAMPAIGNS_FETCHER
+        names = [g for g in self.settings.priority if not reward_watch.is_reward_key(g)]
+        names += CAMPAIGNS_FETCHER.get_installed_game_names()
+        seen: set[str] = set()
+        return [n for n in names if n.strip() and not (n.casefold() in seen or seen.add(n.casefold()))]
+
+    async def _maybe_discover_via_channels(self, inventory_data: dict[str, JsonType], dashboard_campaigns: list[JsonType]) -> dict[str, JsonType]:
+        """TV client + empty dashboard: find campaigns through live channels and merge them; returns what was found.
+        Throttled, and a failure never breaks the inventory load."""
+        if self._client_type is not ClientType.SMARTBOX or dashboard_campaigns:
+            return {}
+        now = monotonic()
+        if self._tv_discovery_at is not None and now - self._tv_discovery_at < TV_DISCOVERY_INTERVAL:
+            return {}
+        try:
+            found = await self._discover_via_channels(inventory_data)
+        except Exception as exc:
+            logger.warning("Channel campaign discovery failed: %s", exc, exc_info=True)
+            return {}
+        self._tv_discovery_at = monotonic()
+        inventory_data.update(found)
+        if found:
+            logger.info("Channel campaign discovery found %d campaign(s) the TV dashboard did not list", len(found))
+        return found
+
+    async def _discover_via_channels(self, inventory_data: dict[str, JsonType]) -> dict[str, JsonType]:
+        """Game directory -> live drops channels -> AvailableDrops campaign ids -> CampaignDetails, all batched."""
+        games = self._tv_discovery_games()[:TV_DISCOVERY_MAX_GAMES]
+        if not games:
+            return {}
+        guessed_slugs = [Game({"id": 1, "name": g}).slug for g in games]
+        dir_options = {"includeRestricted": ["SUB_ONLY_LIVE"], "systemFilters": ["DROPS_ENABLED"]}
+        directories = await self.gql_request([
+            GQL_QUERIES["GameDirectory"].with_variables({
+                "limit": TV_DISCOVERY_MAX_CHANNELS,
+                "slug": slug,
+                "options": dir_options,
+            })
+            for slug in guessed_slugs
+        ])
+        missed = [
+            (g, slug)
+            for g, slug, directory in zip(games, guessed_slugs, directories)
+            if not (directory.get("data") or {}).get("game")
+        ]
+        if missed:
+            try:
+                redirects = await self.gql_request([
+                    GQL_QUERIES["SlugRedirect"].with_variables({"name": g})
+                    for g, _ in missed
+                ])
+                resolved_slugs = [
+                    real_slug
+                    for (_, old_slug), redir in zip(missed, redirects)
+                    if (real_slug := ((redir.get("data") or {}).get("game") or {}).get("slug")) and real_slug != old_slug
+                ]
+                if resolved_slugs:
+                    directories.extend(await self.gql_request([
+                        GQL_QUERIES["GameDirectory"].with_variables({
+                            "limit": TV_DISCOVERY_MAX_CHANNELS,
+                            "slug": real_slug,
+                            "options": dir_options,
+                        })
+                        for real_slug in resolved_slugs
+                    ]))
+            except Exception as exc:
+                logger.debug("TV channel discovery SlugRedirect fallback failed: %s", exc)
+        channel_ids: dict[str, None] = {}  # ordered set
+        for directory in directories:
+            edges = (((directory.get("data") or {}).get("game") or {}).get("streams") or {}).get("edges") or []
+            for edge in edges[:TV_DISCOVERY_MAX_CHANNELS]:
+                broadcaster = (edge.get("node") or {}).get("broadcaster")
+                if broadcaster:
+                    channel_ids[str(broadcaster["id"])] = None
+        campaign_ids: dict[str, None] = {}
+        for ids in chunk(list(channel_ids), 20):
+            responses = await self.gql_request([GQL_QUERIES["AvailableDrops"].with_variables({"channelID": i}) for i in ids])
+            for resp in responses:
+                for camp in ((resp.get("data") or {}).get("channel") or {}).get("viewerDropCampaigns") or []:
+                    if camp["id"] not in inventory_data:
+                        campaign_ids[camp["id"]] = None
+        found: dict[str, JsonType] = {}
+        for ids in chunk(list(campaign_ids), 20):
+            for cid, camp in (await self.fetch_campaigns([(cid, {}) for cid in ids])).items():
+                if camp.get("id") and camp.get("status") in (None, "ACTIVE", "UPCOMING"):
+                    found[cid] = camp
+        return found
+
     def _start_catalog_refresh(self, fetcher: Any, inventory_data: dict[str, JsonType], dashboard: dict[str, JsonType]) -> None:
         """Remember this fetch's campaign details and make sure the light refresh task runs."""
         from twitch_catalog import CatalogRefresher
@@ -2654,10 +2815,13 @@ class Twitch:
         inventory_data: dict[str, JsonType] = {c["id"]: c for c in ongoing_campaigns}
         # fetch general available campaigns data (campaigns)
         response = await self.gql_request(GQL_QUERIES["Campaigns"])
-        # with fetchRewardCampaigns=true Twitch answers with reward campaigns only (no dropCampaigns), so they are a separate request
+        # The 69750554... dashboard query returns both dropCampaigns and rewardCampaignsAvailableToUser in one request
         if STATE_BRIDGE.reward_campaigns_enabled:
             try:
-                rewards_response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True))
+                if GQL_QUERIES["Campaigns"]["variables"].get("fetchRewardCampaigns"):
+                    rewards_response = response
+                else:
+                    rewards_response = await self.gql_request(reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True))
                 reward_campaigns.publish(STATE_BRIDGE, rewards_response)
                 self._schedule_category_resolution()  # in the background: drops never wait for it
                 self._run_auto_queue_hook()
@@ -2687,10 +2851,12 @@ class Twitch:
                 task.cancel()
             raise
 
+        discovered = await self._maybe_discover_via_channels(inventory_data, available_list)
+
         # the in-app catalog comes from these campaigns (Twitch's own data); a failure here is logged, never raised
         from campaigns_fetcher import CAMPAIGNS_FETCHER as _catalog_fetcher
         from twitch_catalog import publish_first_party
-        publish_first_party(_catalog_fetcher, inventory_data, available_campaigns)
+        publish_first_party(_catalog_fetcher, inventory_data, available_campaigns.keys() | discovered.keys())
         self._start_catalog_refresh(_catalog_fetcher, inventory_data, available_campaigns)
 
         # Proactively discover active campaigns for priority games not present in inventory_data

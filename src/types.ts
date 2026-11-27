@@ -211,6 +211,7 @@ export interface FullSentinelState {
   watchdog_status?: string | null;
   oauth_code?: string | null;
   oauth_uri?: string | null;
+  auth_client?: 'android' | 'tv' | null; // the Twitch client the login belongs to: android sees every campaign, tv only the started ones
   forced_game?: string | null;
 }
 

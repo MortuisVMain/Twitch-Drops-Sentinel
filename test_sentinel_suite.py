@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.4.1", f"Version mismatch: {__version__}"
+    assert __version__ == "4.4.2", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -6130,11 +6130,14 @@ def test_reward_campaigns_setting_state_and_request():
                          cwd=work, capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert res.returncode == 0 and res.stdout.strip().splitlines()[-1] == "False", f"a non-bool in config.json reads as off: {res.stdout[-300:]} {res.stderr[-300:]}"
     twitch_src = src_text(WORKSPACE / "core" / "twitch.py")
-    assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True)' in twitch_src, "reward campaigns come from their own request"
+    assert 'reward_campaigns.dashboard_query(GQL_QUERIES["Campaigns"], True)' in twitch_src, "reward campaigns fallback stays wired"
     assert 'self.gql_request(GQL_QUERIES["Inventory"])' in twitch_src, "the inventory request is untouched"
-    assert 'response = await self.gql_request(GQL_QUERIES["Campaigns"])' in twitch_src, "drop campaigns keep the plain dashboard request (true returns no dropCampaigns)"
+    assert 'response = await self.gql_request(GQL_QUERIES["Campaigns"])' in twitch_src, "drop campaigns use the shared dashboard request"
+    assert 'rewards_response = response' in twitch_src, "reward campaigns reuse the dashboard response when fetchRewardCampaigns is already true"
     constants_src = (WORKSPACE / "core" / "constants.py").read_text(encoding="utf-8")
-    assert constants_src.count('"fetchRewardCampaigns": False') == 2, "the shared constants keep asking for no reward campaigns"
+    # the dashboard is the request www.twitch.tv sends (fetchRewardCampaigns true, hash 69750554...); only the inventory keeps false
+    assert constants_src.count('"fetchRewardCampaigns": False') == 1, "the inventory keeps asking for no reward campaigns"
+    assert constants_src.count('"fetchRewardCampaigns": True') == 1, "the dashboard asks the way twitch.tv does"
     shutil.rmtree(work, ignore_errors=True)
     print("      reward campaigns setting and state: PASS [OK]")
 
@@ -6349,7 +6352,11 @@ def test_reward_campaigns_unit_tests():
 
 
 # core unit test modules for features outside the reward and steam_idle packages; each is a plain unittest module
-CORE_UNIT_MODULES = ["test_queue_deadline", "test_profile_restore", "test_update_channel", "test_farm_schedule", "test_webhooks", "test_signin_watch", "test_update_rollback"]
+CORE_UNIT_MODULES = [
+    "test_queue_deadline", "test_profile_restore", "test_update_channel", "test_farm_schedule",
+    "test_webhooks", "test_signin_watch", "test_update_rollback",
+    "test_android_login", "test_android_login_flow", "test_android_login_route", "test_tv_channel_discovery",
+]
 
 
 def test_core_feature_unit_tests():
@@ -8563,6 +8570,37 @@ def test_other_copies_cleanup_unit_tests_and_service_wiring():
     print("      Program.cs uses the start-conflict logic: PASS [OK]")
 
 
+def test_twitch_browser_login_and_redirect_checks():
+    print("[android login] TwitchTokenRedirect C# checks, client_id sync, and WebView2 login window hygiene...")
+    sdks = ""
+    if shutil.which("dotnet"):
+        sdks = subprocess.run(["dotnet", "--list-sdks"], capture_output=True, text=True, timeout=60).stdout
+    if not any(line.startswith("10.") for line in sdks.splitlines()):
+        print("      SKIP: the redirect check needs the .NET SDK 10 (dotnet run); the source checks below still run")
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="twitch_redirect_check_", dir=SANDBOX))
+        proj = WORKSPACE / "tools" / "twitch_token_redirect_check" / "TwitchTokenRedirectCheck.csproj"
+        res = subprocess.run(
+            ["dotnet", "run", "--project", str(proj), "-c", "Release", "-o", str(out_dir / "bin"),
+             f"-p:BaseIntermediateOutputPath={out_dir / 'obj'}{os.sep}", f"-p:MSBuildProjectExtensionsPath={out_dir / 'obj'}{os.sep}"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        assert res.returncode == 0, (res.stdout + res.stderr)[-1500:]
+        assert "ALL PASSED" in res.stdout, res.stdout[-800:]
+        print("      TwitchTokenRedirect logic check (dotnet run): PASS [OK]")
+
+    redirect_cs = (WORKSPACE / "desktop" / "TwitchTokenRedirect.cs").read_text(encoding="utf-8")
+    m_cs = re.search(r'ClientId\s*=\s*"([^"]+)"', redirect_cs)
+    from core.constants import ClientType
+    assert m_cs and m_cs.group(1) == ClientType.ANDROID_APP.CLIENT_ID, "TwitchTokenRedirect.ClientId must match ClientType.ANDROID_APP.CLIENT_ID"
+
+    login_cs = (WORKSPACE / "desktop" / "TwitchLoginWindow.cs").read_text(encoding="utf-8")
+    assert "Guid.NewGuid()" in login_cs, "each login window uses an isolated session folder"
+    assert "IsDisposed" in login_cs, "OnShown guards against early window disposal"
+    assert "DeleteFolderLaterAsync" in login_cs, "WebView2 user-data folder is cleaned up on close"
+    print("      TwitchLoginWindow & ClientId sync checks: PASS [OK]")
+
+
 def test_service_diagnostics_feature_is_wired():
     print("[diagnostics] Check button: host messages, tool, UI, translations...")
     form = (WORKSPACE / "desktop" / "MainForm.cs").read_text(encoding="utf-8")
@@ -8956,6 +8994,7 @@ if __name__ == "__main__":
         test_health_watch_is_wired,
         test_health_center_is_wired,
         test_installer_script_keeps_its_promises,
+        test_twitch_browser_login_and_redirect_checks,
     ]
     # Every gate runs, a failure is reported with its traceback and the run goes on; the summary lists them all.
     # --fail-fast (or SUITE_FAIL_FAST=1) stops at the first failure like before. -k SUBSTR (repeatable) runs only

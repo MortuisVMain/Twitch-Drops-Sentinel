@@ -51,6 +51,7 @@ truststore.inject_into_ssl()
 from gui_headless import STATE_BRIDGE, send_windows_toast
 from translate import _
 from twitch import Twitch
+from android_login import TokenCheckFailed, TokenRejected, CookieSaveFailed, auth_client_name, sign_in_with_token
 from settings import Settings, default_settings as devilxd_default_settings
 from constants import COOKIES_PATH, LOG_PATH, SETTINGS_PATH, State, PriorityMode, DEFAULT_SERVICE_PORT, TEST_MODE, STEAM_IDLE_LIVE
 from utils import json_load, json_save, smart_game_match, clean_title, campaign_farmability, campaign_remaining_watch_minutes
@@ -278,6 +279,7 @@ class SentinelSupervisor:
         self.giveaways = GiveawaysOrchestrator()
         self._module_sync_tasks: set = set()
         self._module_sync_lock = asyncio.Lock()
+        self._android_login_lock = asyncio.Lock()
         self.dimmer = DimmerController(module_enabled=lambda: tab_enabled(self.settings, "dimmer"))
         self.steam_idle = create_steam_idle_controller(
             PROJECT_DIR, resolve_fgc_root(), lambda key, default=False: self.settings.get(key, default),
@@ -497,6 +499,7 @@ class SentinelSupervisor:
         self.app.router.add_post("/api/browse-folder", self.handle_browse_folder)
         self.app.router.add_post("/api/shutdown", self.handle_shutdown)
         self.app.router.add_post("/api/auth/logout", self.handle_logout)
+        self.app.router.add_post("/api/auth/android-token", self.handle_android_token)
         self.app.router.add_post("/api/logout", self.handle_logout)
         self.app.router.add_post("/api/backup", self.handle_backup_profile)
         self.app.router.add_get("/api/webhooks", self.handle_get_webhooks)
@@ -783,6 +786,7 @@ class SentinelSupervisor:
             "watchdog_status": getattr(STATE_BRIDGE, "watchdog_status", None),
             "oauth_code": getattr(STATE_BRIDGE, "oauth_code", None),
             "oauth_uri": getattr(STATE_BRIDGE, "oauth_uri", None),
+            "auth_client": auth_client_name(self.twitch_client),  # "android": full campaign list; "tv": only started campaigns
             "hardware": self.hardware_state,
             "stats": {
                 "traffic_saved_mb": int(traffic_saved_mb),
@@ -1355,6 +1359,52 @@ class SentinelSupervisor:
         except Exception as e:
             logger.error("Error during logout: %s", e, exc_info=True)
             return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_android_token(self, request: web.Request) -> web.Response:
+        """The host's twitch.tv sign-in window hands over its token: check it, store it, restart the client with the android login."""
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        token = body.get("token") if isinstance(body, dict) else None
+        if not isinstance(token, str):
+            return web.json_response({"success": False, "error": "Нет токена входа"}, status=400)
+        lock = getattr(self, "_android_login_lock", None)
+        if lock is None:
+            lock = self._android_login_lock = asyncio.Lock()
+        async with lock:
+            session = getattr(self.twitch_client, "_session", None)
+            live_jar = session.cookie_jar if session is not None and not session.closed else aiohttp.CookieJar()
+            proxy = getattr(getattr(self.twitch_client, "settings", None), "proxy", None) or None
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as http:
+                    if proxy:
+                        info = await sign_in_with_token(token, http, live_jar, COOKIES_PATH, proxy=proxy)
+                    else:
+                        info = await sign_in_with_token(token, http, live_jar, COOKIES_PATH)
+            except TokenRejected as err:
+                logger.warning("[AUTH] Вход через окно Twitch отклонён: %s", err)
+                return web.json_response({"success": False, "error": str(err)}, status=400)
+            except TokenCheckFailed as err:
+                logger.warning("[AUTH] Токен входа не удалось проверить: %s", err)
+                return web.json_response({"success": False, "error": str(err)}, status=502)
+            except CookieSaveFailed as err:
+                logger.error("[AUTH] Вход через окно Twitch не сохранён: %s", err)
+                return web.json_response({"success": False, "error": str(err)}, status=500)
+            STATE_BRIDGE.user_id = ""
+            STATE_BRIDGE.username = ""
+            STATE_BRIDGE.oauth_code = None
+            STATE_BRIDGE.oauth_uri = None
+            STATE_BRIDGE.status_text = "Вход через окно Twitch выполнен, загрузка кампаний"
+            STATE_BRIDGE.active_drop = None
+            STATE_BRIDGE.watching_channel = None
+            STATE_BRIDGE.available_channels = []
+            if self.twitch_client and hasattr(self.twitch_client, "change_state"):
+                if hasattr(self.twitch_client, "stop_watching"):
+                    self.twitch_client.stop_watching()
+                self.twitch_client.change_state(State.RESTART)  # a waiting device code ends too: twitch.py checks for RESTART
+            await self.broadcast_ws()
+            return web.json_response({"success": True, "login": info["login"]})
 
     async def handle_backup_profile(self, request: web.Request) -> web.Response:
         try:
