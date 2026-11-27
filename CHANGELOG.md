@@ -4,6 +4,11 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-11-27
+- The game catalog (games with Twitch Drops, search, manual farm target) now comes from Twitch itself, from the same campaign data the farm already reads with your account; the third-party campaigns API is no longer used. A check against a live account found all of its games on the account's own Twitch drops page, plus 7 more it lacked. The catalog refreshes every 15 minutes while signed in and is kept across restarts; before the first Twitch sign-in it is empty and says so.
+- Giveaways no longer download a browser on first use: a new profile uses Microsoft Edge, which ships with Windows (or Chrome). Existing profiles stay on the browser they were made with, so sign-ins are kept; the bundled Chromium is downloaded only when you pick it.
+- Release builds check the SHA-256 of the portable Python they download and use pinned versions of their build tools.
+
 ## [4.3.0] - 2026-11-27
 - Steam IDLE reads the card page of the farmed game again: the cheap check every 10 minutes failed on every run ("gamecards_unparsed") because Steam's page wraps its badge in a row class the parser treated as the badges list, so each check read every badge page instead. A failure that repeats is now logged once, then quietly, with one line when it recovers.
 - Restart from the app no longer sometimes just closes it: the new copy waits for the old one to let go instead of taking it for a running copy. On exit the app gives the service up to 21 seconds, so Steam IDLE can release the games it holds, instead of killing it after 2.5 seconds.
