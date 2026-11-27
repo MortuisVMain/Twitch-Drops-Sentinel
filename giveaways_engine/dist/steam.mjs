@@ -4653,8 +4653,8 @@ var require_package = __commonJS({
 // node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
   "node_modules/dotenv/lib/main.js"(exports, module) {
-    var fs2 = __require("fs");
-    var path3 = __require("path");
+    var fs3 = __require("fs");
+    var path4 = __require("path");
     var os2 = __require("os");
     var crypto = __require("crypto");
     var packageJson = require_package();
@@ -4757,7 +4757,7 @@ var require_main = __commonJS({
       if (options && options.path && options.path.length > 0) {
         if (Array.isArray(options.path)) {
           for (const filepath of options.path) {
-            if (fs2.existsSync(filepath)) {
+            if (fs3.existsSync(filepath)) {
               possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
             }
           }
@@ -4765,15 +4765,15 @@ var require_main = __commonJS({
           possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
         }
       } else {
-        possibleVaultPath = path3.resolve(process.cwd(), ".env.vault");
+        possibleVaultPath = path4.resolve(process.cwd(), ".env.vault");
       }
-      if (fs2.existsSync(possibleVaultPath)) {
+      if (fs3.existsSync(possibleVaultPath)) {
         return possibleVaultPath;
       }
       return null;
     }
     function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path3.join(os2.homedir(), envPath.slice(1)) : envPath;
+      return envPath[0] === "~" ? path4.join(os2.homedir(), envPath.slice(1)) : envPath;
     }
     function _configVault(options) {
       const debug = Boolean(options && options.debug);
@@ -4789,7 +4789,7 @@ var require_main = __commonJS({
       return { parsed };
     }
     function configDotenv(options) {
-      const dotenvPath = path3.resolve(process.cwd(), ".env");
+      const dotenvPath = path4.resolve(process.cwd(), ".env");
       let encoding = "utf8";
       const debug = Boolean(options && options.debug);
       if (options && options.encoding) {
@@ -4812,13 +4812,13 @@ var require_main = __commonJS({
       }
       let lastError;
       const parsedAll = {};
-      for (const path4 of optionPaths) {
+      for (const path5 of optionPaths) {
         try {
-          const parsed = DotenvModule.parse(fs2.readFileSync(path4, { encoding }));
+          const parsed = DotenvModule.parse(fs3.readFileSync(path5, { encoding }));
           DotenvModule.populate(parsedAll, parsed, options);
         } catch (e) {
           if (debug) {
-            _debug(`Failed to load ${path4} ${e.message}`);
+            _debug(`Failed to load ${path5} ${e.message}`);
           }
           lastError = e;
         }
@@ -4918,10 +4918,12 @@ var require_main = __commonJS({
 });
 
 // src/browser.js
-import fs from "fs";
-import path from "path";
+import fs2 from "fs";
+import path2 from "path";
 
 // src/browser_choice.js
+import fs from "node:fs";
+import path from "node:path";
 var BROWSER_IDS = ["auto", "chrome", "msedge", "chromium"];
 var LABELS = { auto: "\u0430\u0432\u0442\u043E\u0432\u044B\u0431\u043E\u0440", chrome: "Google Chrome", msedge: "Microsoft Edge", chromium: "\u0432\u0441\u0442\u0440\u043E\u0435\u043D\u043D\u044B\u0439 Chromium" };
 var browserLabel = (browser) => LABELS[browser] ?? browser;
@@ -4960,26 +4962,49 @@ var launchBundled = async (launch, options, install, log) => {
     return launch(withoutChannel(options));
   }
 };
-var launchWithFallback = async (launch, options, platform, install, log) => {
+var AUTO_MARKER = "sentinel-auto-browser.txt";
+var readAutoState = (profile) => {
+  let recorded = null;
   try {
-    return await launch(options);
+    const value = fs.readFileSync(path.join(profile, AUTO_MARKER), "utf8").trim();
+    if (["chrome", "msedge", "chromium"].includes(value)) recorded = value;
   } catch (error) {
-    if (!options.channel || !isChannelError(error)) throw error;
-    log.warn(`[WARN] Browser channel "${options.channel}" is not available on this system.`);
-    if (platform == "win32" && options.channel !== "msedge") {
-      try {
-        log.log("[INFO] Attempting fallback to Microsoft Edge (msedge)...");
-        return await launch({ ...options, channel: "msedge" });
-      } catch {
-      }
-    }
-    log.log("[INFO] Falling back to bundled Patchright Chromium...");
-    return launchBundled(launch, options, install, log);
+    if (error.code !== "ENOENT") throw error;
   }
+  return { recorded, legacy: fs.existsSync(path.join(profile, "Local State")) };
 };
-var launchWithPolicy = async ({ launch, options, browser, platform, install, log }) => {
+var writeAutoMarker = (profile, name) => {
+  fs.mkdirSync(profile, { recursive: true });
+  fs.writeFileSync(path.join(profile, AUTO_MARKER), `${name}
+`, "utf8");
+};
+var autoOrder = ({ recorded, legacy }, platform) => {
+  const base = legacy ? ["chrome", "msedge", "chromium"] : ["msedge", "chrome", "chromium"];
+  const order = recorded ? [recorded, ...base.filter((name) => name !== recorded)] : base;
+  return platform == "win32" ? order : order.filter((name) => name !== "msedge");
+};
+var launchAuto = async (launch, options, auto, platform, log) => {
+  const order = autoOrder(auto, platform);
+  let last;
+  for (const name of order) {
+    try {
+      const context2 = name == "chromium" ? await launch(withoutChannel(options)) : await launch({ ...options, channel: name });
+      auto.record?.(name);
+      return context2;
+    } catch (error) {
+      if (!isChannelError(error)) throw error;
+      last = error;
+      log.warn(`[WARN] Browser "${browserLabel(name)}" is not available on this system.`);
+    }
+  }
+  const firstLine = String(last?.message ?? "").split("\n")[0];
+  const message = `[SENTINEL] \u2715 \u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043D\u0430\u0439\u0442\u0438 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u0434\u043B\u044F \u0440\u0430\u0437\u0434\u0430\u0447 (${firstLine}). \u0423\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0435 Microsoft Edge \u0438\u043B\u0438 Google Chrome \u043B\u0438\u0431\u043E \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \xAB\u0412\u0441\u0442\u0440\u043E\u0435\u043D\u043D\u044B\u0439 Chromium\xBB (\u043E\u043D \u0441\u043A\u0430\u0447\u0430\u0435\u0442\u0441\u044F \u043E\u0434\u0438\u043D \u0440\u0430\u0437) \u0432 \u043E\u043A\u043D\u0435 \xAB\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0433\u043E\u0442\u043E\u0432\u043D\u043E\u0441\u0442\u044C\xBB \u043D\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0435 \xAB\u0420\u0430\u0437\u0434\u0430\u0447\u0438\xBB.`;
+  log.error(message);
+  throw new BrowserUnavailableError(message);
+};
+var launchWithPolicy = async ({ launch, options, browser, platform, install, log, auto = { recorded: null, legacy: false } }) => {
   if (browser == "chromium") return launchBundled(launch, options, install, log);
-  if (browser == "auto") return launchWithFallback(launch, options, platform, install, log);
+  if (browser == "auto") return launchAuto(launch, options, auto, platform, log);
   try {
     return await launch({ ...options, channel: browser });
   } catch (error) {
@@ -5072,10 +5097,10 @@ var launchContext = async (cfg2, options, deps = {}) => {
     options.args = [...options.args ?? [], "--window-position=100,80", "--window-size=1280,900"];
   }
   if (cfg2.dir?.browser) {
-    const lockFile = path.resolve(cfg2.dir.browser, "SingletonLock");
-    if (fs.existsSync(lockFile)) {
+    const lockFile = path2.resolve(cfg2.dir.browser, "SingletonLock");
+    if (fs2.existsSync(lockFile)) {
       try {
-        fs.unlinkSync(lockFile);
+        fs2.unlinkSync(lockFile);
       } catch {
       }
     }
@@ -5094,7 +5119,14 @@ var launchContext = async (cfg2, options, deps = {}) => {
       const { execSync } = await import("child_process");
       execSync("npx patchright install chromium", { stdio: "inherit" });
     },
-    log: console
+    log: console,
+    auto: choice.browser == "auto" ? { ...readAutoState(cfg2.dir.browser), record: (name) => {
+      try {
+        writeAutoMarker(cfg2.dir.browser, name);
+      } catch (e) {
+        console.warn("could not remember the giveaways browser (%s): %s", name, e.message);
+      }
+    } } : void 0
   });
   if (options.headless === false && process.env.FGC_MINIMIZE == "1") await minimizeWindow(context2);
   const switching = process.env.FGC_SWITCH_ACCOUNT;
@@ -5108,7 +5140,7 @@ var launchContext = async (cfg2, options, deps = {}) => {
 };
 
 // src/util.js
-import path2 from "node:path";
+import path3 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { format } from "node:util";
 import { appendFileSync, rmSync } from "node:fs";
@@ -5370,8 +5402,8 @@ var cfg = {
 
 // src/util.js
 var __filename = fileURLToPath2(import.meta.url);
-var __dirname = path2.dirname(__filename);
-var dataDir = (s) => path2.resolve(__dirname, "..", "data", s);
+var __dirname = path3.dirname(__filename);
+var dataDir = (s) => path3.resolve(__dirname, "..", "data", s);
 var fgcLogFile = process.env.FGC_LOG_FILE;
 if (fgcLogFile) {
   for (const level of ["log", "info", "debug", "error", "warn"]) {

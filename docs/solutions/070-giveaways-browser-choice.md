@@ -54,3 +54,17 @@ So each browser signs in once, by hand, in its own profile. The window says so (
 - The scheduled task itself (Windows Task Scheduler): the runner was run by hand with `--scheduled --config`, the task was not touched.
 - The readiness window inside the real WebView2 shell: checked in headless Edge against the offline fixture only. A native `<select>` list popup looks different in WebView2.
 - `tools/check_text_lcd.cjs` does not open the readiness window, so ClearType in that window is covered by the styling rule, not by a measurement.
+
+## Update: Edge is the default, nothing is downloaded behind the user's back
+The engine used to run `npx patchright install chromium` on the first run (a download from the Playwright CDN). Now:
+
+| Case | What "auto" does |
+|---|---|
+| A browser was recorded in the profile (`sentinel-auto-browser.txt` in `data/browser`, written after a successful start) | That browser first, then the rest |
+| The profile already exists (`data/browser/Local State`) but nothing is recorded (installs before this change) | The old order: Chrome, Edge, an already installed bundled Chromium. The first successful start is recorded, so the profile never changes browser by itself |
+| Fresh profile | Microsoft Edge (on every Windows 10/11), then Chrome, then an already installed bundled Chromium |
+| Nothing starts | One log line (`BrowserUnavailableError`) that says to install Edge/Chrome or to choose the bundled Chromium |
+
+The bundled Chromium is downloaded only when the user chose it (`giveaways_browser = chromium`): in `src/browser_choice.js` (`launchBundled`), `runner.js` `ensureBrowserEngine`, and `GiveawaysOrchestrator._install_engine`. Edge uses the same patchright patches: patchright patches the driver, not the browser, and `channel: 'msedge'` launches the installed Edge through it.
+
+Smoke test, no sign-in, no claim (patchright 1.5x, Edge 158, bundled Chromium 153, one machine, one run each): GOG home loads normally in every mode. Epic free-games shows a Cloudflare challenge ("Один момент…", HTTP 403) in headless mode for both Edge and the bundled Chromium, and loads normally (HTTP 200, the games list) in a visible window for both. So Edge is not worse than the bundled build; a background run on Epic is a risk for either browser.

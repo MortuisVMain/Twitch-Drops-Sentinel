@@ -869,6 +869,10 @@ class GiveawaysOrchestrator:
                                                "Проверьте интернет и запустите ещё раз."}, ensure_ascii=False),
                     content_type="application/json",
                 )
+            if read_browser_setting() != "chromium":
+                # Edge is on every Windows 10/11, Chrome is the user's own: no browser is downloaded from a third-party CDN
+                incomplete_mark.unlink(missing_ok=True)
+                return
             br_proc = await asyncio.create_subprocess_exec(
                 "cmd.exe", "/c", "npx", "patchright", "install", "chromium",
                 cwd=str(fgc_dir),
@@ -881,7 +885,7 @@ class GiveawaysOrchestrator:
             if br_proc.returncode != 0:  # None: killed after the timeout. The engine still runs on Chrome or Edge
                 logger.warning(f"Chromium download failed with exit code {br_proc.returncode}")
                 self._engine_install_error = ("Движок установлен, но браузер Chromium не скачался. "
-                                              "Магазины откроются в Chrome или Edge, если они есть.")
+                                              "Проверьте интернет и повторите установку или выберите Microsoft Edge в окне проверки.")
                 self._broadcast("log", {"line": f"[SENTINEL] {self._engine_install_error}", "ts": datetime.now(timezone.utc).isoformat()})
 
     def engine_install_state(self) -> dict:

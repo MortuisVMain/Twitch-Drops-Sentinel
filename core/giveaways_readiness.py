@@ -70,18 +70,35 @@ def _installed_browsers() -> Dict[str, bool]:
     return found
 
 
-def _browser_found() -> Optional[str]:
-    """The browser "auto" would use, in the engine's order."""
-    installed = _installed_browsers()
-    for name, label in (("chrome", "chrome"), ("msedge", "edge"), ("chromium", "chromium")):
+AUTO_MARKER = "sentinel-auto-browser.txt"  # written by giveaways_engine/src/browser_choice.js: the browser that worked in the profile
+
+
+def _auto_order(profile: Path) -> List[str]:
+    """The browsers "auto" tries, as src/browser_choice.js autoOrder does: the remembered one first, an existing profile keeps
+    Chrome before Edge, a fresh one starts with Edge (on every Windows). The bundled Chromium is never downloaded by auto."""
+    try:
+        recorded = (profile / AUTO_MARKER).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        recorded = ""
+    except (OSError, UnicodeDecodeError) as exc:  # an unreadable marker must not break the readiness check
+        logger.warning("Giveaways browser marker in %s is unreadable, treated as absent: %s", profile, exc)
+        recorded = ""
+    base = ["chrome", "msedge", "chromium"] if (profile / "Local State").is_file() else ["msedge", "chrome", "chromium"]
+    return ([recorded] if recorded in base else []) + [name for name in base if name != recorded]
+
+
+def _browser_found(installed: Dict[str, bool]) -> Optional[str]:
+    """The browser "auto" would use."""
+    profile = gc.resolve_fgc_root() / "data" / "browser"
+    for name in _auto_order(profile):
         if installed[name]:
-            return label
+            return "edge" if name == "msedge" else name
     return None
 
 
 def _browser_item(installed: Dict[str, bool], choice: str) -> dict:
-    """The browser for sign-in and claims. Chromium is always offered: the engine downloads it on first use (`npx patchright install chromium`)."""
-    found = _browser_found()
+    """The browser for sign-in and claims. Chromium is always offered, but only choosing it downloads it (`npx patchright install chromium`)."""
+    found = _browser_found(installed)
     options = ["auto"] + [name for name in ("chrome", "msedge") if installed[name]] + ["chromium"]
     params = {"found": found, "choice": choice, "options": options, "chromiumInstalled": installed["chromium"], "reason": None}
     if choice == "auto":

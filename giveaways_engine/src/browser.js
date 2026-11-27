@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { BROWSER_IDS, launchWithPolicy, resolveBrowserChoice } from './browser_choice.js';
+import { BROWSER_IDS, launchWithPolicy, readAutoState, resolveBrowserChoice, writeAutoMarker } from './browser_choice.js';
 
 // All stores share one browser profile, so leaving one account means clearing that store's cookies only.
 // Fab signs in through Epic: with the Epic cookies left in place it would sign straight back in.
@@ -148,6 +148,9 @@ export const launchContext = async (cfg, options, deps = {}) => {
       execSync('npx patchright install chromium', { stdio: 'inherit' });
     },
     log: console,
+    auto: choice.browser == 'auto' ? { ...readAutoState(cfg.dir.browser), record: name => {
+      try { writeAutoMarker(cfg.dir.browser, name); } catch (e) { console.warn('could not remember the giveaways browser (%s): %s', name, e.message); }
+    } } : undefined,
   });
 
   // minimize only when a store forces a visible browser although headless was requested;

@@ -822,7 +822,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.3.0", f"Version mismatch: {__version__}"
+    assert __version__ == "4.4.0", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -1417,9 +1417,8 @@ def test_shelf_removed_tab_and_startup_sync():
     assert "handle_restore_installed_game" in service_py, "sentinel_service must implement handle_restore_installed_game"
     assert '"ignored_games":' in service_py, "sentinel_service must return ignored_games in get_full_state"
 
-    # 3. Test campaigns_fetcher startup sync in background loop
-    camp_fetcher_py = (SANDBOX / "core" / "campaigns_fetcher.py").read_text(encoding="utf-8")
-    assert "await asyncio.to_thread(self.sync_active_drops, False, STARTUP_CACHE_MAX_AGE)" in camp_fetcher_py, "campaigns_fetcher must trigger sync_active_drops on startup"
+    # 3. Test the catalog has no third-party refresh loop
+    assert "start_background_loop" not in service_py, "the catalog refreshes from Twitch data (CatalogRefresher), not a campaigns API loop"
 
     # 4. Test GameShelf.tsx removed tab, banners, disabled buttons, and restore button
     shelf_tsx = (WORKSPACE / "src" / "components" / "GameShelf.tsx").read_text(encoding="utf-8")
@@ -1803,60 +1802,22 @@ def test_update_check_failure_is_visible_and_retried():
     print("      Update check failure visible, logged, retried within limits: PASS [OK]")
 
 
-def test_campaigns_fetcher_backoff_retry_after_and_fresh_cache():
-    print("[audit F-020] Campaigns API client: Retry-After, exponential backoff, fresh-cache startup...")
-    import email.message
-    import urllib.error
+def test_campaign_catalog_has_no_third_party_source():
+    print("[catalog] Campaign catalog is Twitch's own data: no third-party campaigns API in core/ or src/...")
+    needles = ("sunkwi", "twitch-drops-api")
+    hits = []
+    for root in (WORKSPACE / "core", WORKSPACE / "src"):
+        for path in root.rglob("*"):
+            if path.suffix not in {".py", ".json", ".ts", ".tsx", ".js", ".mjs"} or "node_modules" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace").lower()
+            hits += [f"{path.relative_to(WORKSPACE)}: {n}" for n in needles if n in text]
+    assert not hits, f"third-party campaigns API referenced: {hits}"
     sys.path.insert(0, str(SANDBOX / "core"))
     import campaigns_fetcher as cf
-
-    calls = []
-
-    def make_urlopen(code, retry_after=None):
-        def fake(req, timeout=None):
-            calls.append(code)
-            headers = email.message.Message()
-            if retry_after is not None:
-                headers["Retry-After"] = str(retry_after)
-            raise urllib.error.HTTPError(req.full_url, code, "err", headers, None)
-        return fake
-
-    real_urlopen = cf.urllib.request.urlopen
-    try:
-        fetcher = cf.CampaignsFetcher()
-        fetcher._cached_campaigns = [{"id": "cached"}]
-
-        # 429 with Retry-After: one request, then blocked even for force=True.
-        cf.urllib.request.urlopen = make_urlopen(429, retry_after=120)
-        assert fetcher.fetch_sync(force=True) == [{"id": "cached"}]
-        assert len(calls) == 1
-        assert fetcher._blocked_until - time.time() >= 119, "Retry-After must be honoured"
-        fetcher.fetch_sync(force=True)
-        assert len(calls) == 1, "No request may be sent while blocked"
-
-        # Without Retry-After the delay grows exponentially (with jitter).
-        fetcher._fail_count = 0
-        fetcher._blocked_until = 0
-        calls.clear()
-        cf.urllib.request.urlopen = make_urlopen(500)
-        fetcher.fetch_sync(force=True)
-        first = fetcher._blocked_until - time.time()
-        fetcher._blocked_until = 0
-        fetcher.fetch_sync(force=True)
-        second = fetcher._blocked_until - time.time()
-        assert len(calls) == 2 and second > first > 30, (first, second)
-
-        # Fresh cache: startup must not call the API.
-        fetcher._blocked_until = 0
-        fetcher._fail_count = 0
-        calls.clear()
-        fetcher._last_fetch_time = time.time() - 600
-        fetcher.fetch_sync(max_age=900)
-        assert not calls, "Cache younger than max_age must not trigger a request"
-        fetcher.fetch_sync()
-        assert len(calls) == 1, "Default max_age (5 min) must refetch a 10 min old cache"
-    finally:
-        cf.urllib.request.urlopen = real_urlopen
+    assert not hasattr(cf, "API_URL"), "campaigns_fetcher must not keep an HTTP campaigns endpoint"
+    assert not hasattr(cf.CampaignsFetcher, "fetch_sync"), "campaigns_fetcher must not fetch campaigns over HTTP"
+    print("      No third-party campaigns source: PASS [OK]")
 
 
 def test_console_messages_follow_configured_language():
@@ -2570,7 +2531,7 @@ def test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies():
     assert trophies_show_completed(journal, "Albion Online", "", drops) is False
     assert trophies_show_completed(journal, "Another Game", "Dragonfire 9 - #6/7", drops) is False
     twitch_py = src_text(SANDBOX / "core" / "twitch.py")
-    assert twitch_py.count("trophies_show_completed(") == 2 and "drops_claimed >= len(time_drops)" not in twitch_py
+    assert twitch_py.count("trophies_show_completed(") == 1 and "drops_claimed >= len(time_drops)" not in twitch_py
 
 
 def test_listed_but_unfarmable_campaign_never_reads_as_available():
@@ -3782,9 +3743,17 @@ def test_engine_installs_itself_for_a_scheduled_run():
         first = run_runner()
         assert first.returncode == 0, first.stdout + first.stderr
         log = (engine / "install.log").read_text(encoding="utf-8")
-        assert "npm install" in log and "npx patchright install chromium" in log, log
+        assert "npm install" in log and "npx" not in log, f"Edge or Chrome is the default: no browser download: {log}"
         run_runner()
         assert (engine / "install.log").read_text(encoding="utf-8") == log, "an installed engine must not be installed again"
+
+        # Only an explicit choice of the bundled Chromium downloads it
+        shutil.rmtree(engine / "node_modules")
+        (engine / "install.log").unlink()
+        env["FGC_BROWSER"] = "chromium"
+        run_runner()
+        assert "npx patchright install chromium" in (engine / "install.log").read_text(encoding="utf-8"), "chromium choice must download it"
+        env.pop("FGC_BROWSER")
 
         # A failed install stops the run with an error code instead of failing every store one by one
         shutil.rmtree(engine / "node_modules")
@@ -4402,6 +4371,23 @@ def test_giveaways_readiness_says_what_is_left():
         assert report["ready"] and report["remaining"] == 0, report
         assert items[("node", None)]["params"]["version"] == "v24.1.0", items
         assert items[("browser", None)]["params"]["found"] == "chrome", items
+
+        # "auto" on a fresh profile reports Edge (on every Windows); an existing profile keeps Chrome first; the remembered browser wins
+        edge = home / "Microsoft" / "Edge" / "Application"
+        edge.mkdir(parents=True, exist_ok=True)
+        (edge / "msedge.exe").write_text("", encoding="utf-8")
+        report, items = check()
+        assert items[("browser", None)]["params"]["found"] == "edge", "fresh profile: Edge first"
+        profile = engine / "data" / "browser"
+        profile.mkdir(parents=True, exist_ok=True)
+        (profile / "Local State").write_text("{}", encoding="utf-8")
+        report, items = check()
+        assert items[("browser", None)]["params"]["found"] == "chrome", "an existing profile keeps the old order"
+        (profile / "sentinel-auto-browser.txt").write_text("msedge\n", encoding="utf-8")
+        report, items = check()
+        assert items[("browser", None)]["params"]["found"] == "edge", "the browser that worked in the profile goes first"
+        shutil.rmtree(profile)
+        shutil.rmtree(edge.parent.parent)
         assert items[("login", "steam")]["params"] == {"account": "me", "confirmedAt": 1700000000000}, items
         assert ("login", "epic") not in items, "only the selected stores are checked"
         assert all(f.read_bytes() == body for f, body in before.items()), "looking must change nothing"
@@ -4624,6 +4610,8 @@ def test_engine_install_button_does_not_start_a_claim():
     engine = Path(tempfile.mkdtemp(prefix="engine_install_", dir=SANDBOX))
     (engine / "runner.js").write_text("", encoding="utf-8")
     saved = gc.asyncio.create_subprocess_exec, gc.shutil.which, gc.resolve_fgc_root
+    saved_setting = gc.read_browser_setting
+    gc.read_browser_setting = lambda: "auto"
     gc.resolve_fgc_root = lambda: engine
     gc.shutil.which = lambda name, *a, **k: rf"C:\nodejs\{name}"
 
@@ -4670,11 +4658,13 @@ def test_engine_install_button_does_not_start_a_claim():
         gc.asyncio.create_subprocess_exec = fake_exec
         state = asyncio.run(scenario())
         assert not [c for c in calls if "runner.js" in " ".join(map(str, c))], f"installing must not start a claim: {calls}"
+        run.calls = calls
         return state
 
     try:
         state = run(0, slow=True)
         assert not state["running"] and state["error"] is None, state
+        assert not [c for c in run.calls if "npx" in c], f"the default browser (Edge) needs no download: {run.calls}"
         shutil.rmtree(engine / "node_modules")
         state = run(1, slow=True)
         assert not state["running"] and state["error"], f"a failed install must be reported: {state}"
@@ -4687,7 +4677,10 @@ def test_engine_install_button_does_not_start_a_claim():
 
         # Chromium did not download: the engine works with Chrome or Edge, but the user is told
         shutil.rmtree(engine / "node_modules")
+        gc.read_browser_setting = lambda: "chromium"  # only an explicit choice of the bundled Chromium downloads it
         state = run(0, slow=True, chromium_code=1)
+        assert [c for c in run.calls if "npx" in c], "the explicit Chromium choice downloads it"
+        gc.read_browser_setting = saved_setting
         assert gc.engine_installed(engine), "npm succeeded, the engine is there"
         assert state["error"] and "Chromium" in state["error"], f"a failed browser download must be reported: {state}"
         assert not (engine / "data" / gc.ENGINE_INCOMPLETE_MARK).exists(), "only npm decides whether the engine is complete"
@@ -4703,6 +4696,7 @@ def test_engine_install_button_does_not_start_a_claim():
             assert "Node.js" in json.loads(exc.text)["detail"], exc.text
     finally:
         gc.asyncio.create_subprocess_exec, gc.shutil.which, gc.resolve_fgc_root = saved
+        gc.read_browser_setting = saved_setting
     print("      Engine install: ALL PASS [OK]")
 
 
@@ -8142,7 +8136,7 @@ def test_giveaways_browser_choice_in_the_service():
         report, item = check({"giveaways_browser": "chromium"})
         assert item["status"] == "ok" and item["params"]["chromiumInstalled"] is True, item
         report, item = check({"giveaways_browser": "chrome"})
-        assert item["status"] == "ok" and item["params"]["found"] == "chrome", item
+        assert item["status"] == "ok" and item["params"]["found"] == "edge", "both installed, fresh profile: auto reports Edge"
 
         # Sign-ins: sessions.json is the record of chrome and auto and stays as it is; every other browser has its own
         gc.asyncio.create_subprocess_exec = _FakeTaskScheduler(exists=True)
@@ -8839,7 +8833,7 @@ if __name__ == "__main__":
         test_manual_farm_override_and_native_screendimmer_suite,
         test_update_check_failure_reports_running_version,
         test_update_check_failure_is_visible_and_retried,
-        test_campaigns_fetcher_backoff_retry_after_and_fresh_cache,
+        test_campaign_catalog_has_no_third_party_source,
         test_console_messages_follow_configured_language,
         test_giveaways_hung_node_process_hits_ceiling,
         test_shutdown_aborts_running_giveaways_process,

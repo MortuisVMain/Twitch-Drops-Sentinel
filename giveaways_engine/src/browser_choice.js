@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 // Which browser signs in and claims is the user's choice (FGC_BROWSER), made in the app's readiness window.
-// "auto" is the original behaviour: Chrome, then Edge, then the bundled Chromium. An explicit choice is never replaced by another browser.
+// "auto" never downloads a browser: a profile that already exists keeps its order (Chrome, Edge, an installed Chromium), a fresh one
+// starts with Edge (on every Windows), and the browser that worked is written into the profile. An explicit choice is never replaced.
 
 export const BROWSER_IDS = ['auto', 'chrome', 'msedge', 'chromium'];
 
@@ -47,7 +51,7 @@ const withoutChannel = options => {
   return copy;
 };
 
-// The bundled Chromium: downloaded through the engine's own command when its binary is absent
+// The bundled Chromium: downloaded through the engine's own command when its binary is absent (explicit "chromium" only)
 const launchBundled = async (launch, options, install, log) => {
   try {
     return await launch(withoutChannel(options));
@@ -59,34 +63,64 @@ const launchBundled = async (launch, options, install, log) => {
   }
 };
 
-// auto: the order the engine always had
-const launchWithFallback = async (launch, options, platform, install, log) => {
+export const AUTO_MARKER = 'sentinel-auto-browser.txt';
+
+/**
+ * What "auto" knows about a profile folder: the browser that last worked in it (written by launchWithPolicy), and whether the folder
+ * already holds a browser profile ("Local State" is created by every Chromium-family browser on its first start).
+ */
+export const readAutoState = profile => {
+  let recorded = null;
   try {
-    return await launch(options);
+    const value = fs.readFileSync(path.join(profile, AUTO_MARKER), 'utf8').trim();
+    if (['chrome', 'msedge', 'chromium'].includes(value)) recorded = value;
   } catch (error) {
-    if (!options.channel || !isChannelError(error)) throw error;
-    log.warn(`[WARN] Browser channel "${options.channel}" is not available on this system.`);
-    // On Windows, Microsoft Edge is always pre-installed
-    if (platform == 'win32' && options.channel !== 'msedge') {
-      try {
-        log.log('[INFO] Attempting fallback to Microsoft Edge (msedge)...');
-        return await launch({ ...options, channel: 'msedge' });
-      } catch {
-        // Edge not available or failed, fall through to bundled Chromium
-      }
-    }
-    log.log('[INFO] Falling back to bundled Patchright Chromium...');
-    return launchBundled(launch, options, install, log);
+    if (error.code !== 'ENOENT') throw error;
   }
+  return { recorded, legacy: fs.existsSync(path.join(profile, 'Local State')) };
+};
+
+export const writeAutoMarker = (profile, name) => {
+  fs.mkdirSync(profile, { recursive: true });
+  fs.writeFileSync(path.join(profile, AUTO_MARKER), `${name}\n`, 'utf8');
+};
+
+/** The browsers "auto" tries, in order. The recorded one first: a profile never changes browser by itself. */
+export const autoOrder = ({ recorded, legacy }, platform) => {
+  const base = legacy ? ['chrome', 'msedge', 'chromium'] : ['msedge', 'chrome', 'chromium'];
+  const order = recorded ? [recorded, ...base.filter(name => name !== recorded)] : base;
+  return platform == 'win32' ? order : order.filter(name => name !== 'msedge');
+};
+
+// auto: the order above, and no download: the bundled Chromium is used only when it is already there
+const launchAuto = async (launch, options, auto, platform, log) => {
+  const order = autoOrder(auto, platform);
+  let last;
+  for (const name of order) {
+    try {
+      const context = name == 'chromium' ? await launch(withoutChannel(options)) : await launch({ ...options, channel: name });
+      auto.record?.(name);
+      return context;
+    } catch (error) {
+      if (!isChannelError(error)) throw error;
+      last = error;
+      log.warn(`[WARN] Browser "${browserLabel(name)}" is not available on this system.`);
+    }
+  }
+  const firstLine = String(last?.message ?? '').split('\n')[0];
+  const message = `[SENTINEL] ✕ Не удалось найти браузер для раздач (${firstLine}). Установите Microsoft Edge или Google Chrome ` +
+    'либо выберите «Встроенный Chromium» (он скачается один раз) в окне «Проверить готовность» на вкладке «Раздачи».';
+  log.error(message);
+  throw new BrowserUnavailableError(message);
 };
 
 /**
  * Starts the browser according to the choice. `launch(options)` opens the persistent context.
  * chrome and msedge fail with BrowserUnavailableError instead of falling back; chromium uses the bundled build only.
  */
-export const launchWithPolicy = async ({ launch, options, browser, platform, install, log }) => {
+export const launchWithPolicy = async ({ launch, options, browser, platform, install, log, auto = { recorded: null, legacy: false } }) => {
   if (browser == 'chromium') return launchBundled(launch, options, install, log);
-  if (browser == 'auto') return launchWithFallback(launch, options, platform, install, log);
+  if (browser == 'auto') return launchAuto(launch, options, auto, platform, log);
   try {
     return await launch({ ...options, channel: browser });
   } catch (error) {
