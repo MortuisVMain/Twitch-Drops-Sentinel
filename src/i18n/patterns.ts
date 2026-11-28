@@ -1,5 +1,8 @@
 // Dynamic strings (template literals in the components): [Russian shape, English replacement with $1… or a function]
 const plural = (count: string, one: string, many: string): string => (Number(count) === 1 ? one : many);
+// "3 кампании" (a game card's campaign count) -> "3 campaigns"; any other text is returned as it is
+const campaignCountEn = (text: string): string =>
+  text.replace(/^(\d+) кампани(?:я|и|й)$/, (_m, n: string) => `${n} ${plural(n, 'campaign', 'campaigns')}`);
 
 const POWER_VERB: Record<string, string> = {
   'выключится': 'will shut down',
@@ -135,13 +138,14 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Не удалось восстановить "(.+)": сервис недоступен$/, 'Could not restore "$1": the service is unavailable'],
   [/^Обновлено \((\d+)\)$/, 'Updated ($1)'],
   [/^Трофеев: (\d+)$/, 'Trophies: $1'],
-  [/^#(\d+) в очереди(?: • (.+))?$/, (n, rest) => `#${n} in queue${rest ? ` • ${rest}` : ''}`],
-  [/^Дропы активны • (.+)$/, 'Drops active • $1'],
+  [/^#(\d+) в очереди(?: • (.+))?$/, (n, rest) => `#${n} in queue${rest ? ` • ${campaignCountEn(rest)}` : ''}`],
+  [/^Дропы активны • (.+)$/, (rest) => `Drops active • ${campaignCountEn(rest)}`],
   [/^(\d\S*) наград$/, '$1 rewards'],
+  [/^(\d+) кампани(?:я|и|й)$/, (n) => campaignCountEn(`${n} кампании`)],
   [/^Осталось: (.+)$/, 'Left: $1'],
   [/^Исключения \((\d+)\)$/, 'Exclusions ($1)'],
   [/^Удалённые \((\d+)\)$/, 'Removed ($1)'],
-  [/^ЗАБРАТЬ ВСЁ \((\d+) МАГАЗИНОВ\)$/, (n) => `CLAIM ALL (${n} ${Number(n) === 1 ? 'STORE' : 'STORES'})`],
+  [/^ЗАБРАТЬ ВСЁ \((\d+) МАГАЗИН(?:А|ОВ)?\)$/, (n) => `CLAIM ALL (${n} ${Number(n) === 1 ? 'STORE' : 'STORES'})`],
   [/^Вы вошли как (.+)$/, 'Signed in as $1'],
   [/^Сменить аккаунт (.+)$/, 'Switch $1 account'],
   [/^Войти в аккаунт (.+)$/, 'Sign in to $1'],

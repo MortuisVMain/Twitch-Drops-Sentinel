@@ -11,6 +11,7 @@ export interface IdleInfoInput {
   strictMode: boolean;
   now: number;
   smartMatch?: NameMatcher;
+  excludedList?: string[]; // games the user excluded: never counted or offered off-queue
 }
 
 export interface UnlinkedCampaign {
@@ -50,15 +51,19 @@ export const formatTimeLeft = (ms: number): string => {
   return `${minutes}м`;
 };
 
-// Games that are neither in the queue nor already fully received: the "off-queue" set
+// Games that are neither in the queue, nor excluded by the user, nor already fully received: the "off-queue" set
 export const isOffQueueCandidate = (
   g: GameItem,
   priorityList: string[],
   trophies: TrophyItem[],
-  smartMatch?: NameMatcher
-): boolean => !isInQueue(g.name, priorityList, smartMatch) && getCampaignState(g, trophies, smartMatch).kind !== 'done';
+  smartMatch?: NameMatcher,
+  excludedList: string[] = []
+): boolean =>
+  !isInQueue(g.name, priorityList, smartMatch) &&
+  !excludedList.some((x) => x.toLowerCase().trim() === g.name.toLowerCase().trim()) &&
+  getCampaignState(g, trophies, smartMatch).kind !== 'done';
 
-export const computeIdleInfo = ({ priorityList, allGames, trophies = [], strictMode, now, smartMatch }: IdleInfoInput): IdleInfo => {
+export const computeIdleInfo = ({ priorityList, allGames, trophies = [], strictMode, now, smartMatch, excludedList = [] }: IdleInfoInput): IdleInfo => {
   const queueGames = priorityList.map((name) => ({
     name,
     match: allGames.find((g) => namesMatch(g.name, name, smartMatch)),
@@ -83,7 +88,7 @@ export const computeIdleInfo = ({ priorityList, allGames, trophies = [], strictM
     .filter((g) => g.drops_start_at && new Date(g.drops_start_at).getTime() > now)
     .sort((a, b) => new Date(a.drops_start_at as string).getTime() - new Date(b.drops_start_at as string).getTime())[0];
   const outsideCount = allGames.filter(
-    (g) => isOffQueueCandidate(g, priorityList, trophies, smartMatch) && getCampaignState(g, trophies, smartMatch).kind === 'running'
+    (g) => isOffQueueCandidate(g, priorityList, trophies, smartMatch, excludedList) && getCampaignState(g, trophies, smartMatch).kind === 'running'
   ).length;
   let extra: string | null = null;
   if (upcoming) {

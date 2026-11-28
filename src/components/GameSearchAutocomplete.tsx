@@ -5,6 +5,7 @@ import {
   Gamepad2, ShieldCheck, AlertCircle, Loader2, Ban, Trash2
 } from 'lucide-react';
 import { GameItem } from '../types';
+import { pluralRu } from '../utils/idleInfo';
 
 interface GameSearchAutocompleteProps {
   allGames: GameItem[];
@@ -324,7 +325,7 @@ export const GameSearchAutocomplete: React.FC<GameSearchAutocompleteProps> = ({
                               </span>
                               {game.rewards_count && (
                                 <span className="text-[length:var(--fs-xs)] text-[var(--text-muted)] bg-[var(--bg-row)] border border-[var(--border-main)] px-1 rounded tabular-nums">
-                                  {game.rewards_count} наград
+                                  {game.rewards_count} {pluralRu(game.rewards_count, 'кампания', 'кампании', 'кампаний')}
                                 </span>
                               )}
                               {game.is_installed && (

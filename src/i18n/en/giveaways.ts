@@ -85,7 +85,7 @@ export const GIVEAWAYS: Record<string, string> = {
   'Подключите магазин, чтобы начать.': 'Connect a store to get started.',
   'ПЛАНИРОВЩИК': 'SCHEDULER',
   'Дни автосбора:': 'Auto-claim days:',
-  'Журнал пуст — появится после первого автосбора': 'The log is empty — it appears after the first auto-claim',
+  'Здесь появятся строки сбора, когда он начнётся': 'Lines of the claim run appear here when it starts',
   // HelpModal
   'Дашборд': 'Dashboard',
   'Советы по дашборду и фарму': 'Dashboard and farming tips',
