@@ -136,6 +136,34 @@ class Apply(Base):
         for rel in gone:
             self.assertFalse((self.project / rel).exists(), f"{rel} must not be copied")
 
+    def test_every_browser_profile_folder_is_skipped(self):
+        # live 2026-11-27: browser-steam-idle (the Steam community sign-in) was replaced by the old copy's stale profile
+        write(self.source / "giveaways_engine" / "data" / "browser-steam-idle" / "Default" / "Cookies", "old cookies")
+        ci.stage_import(self.project, self.source)
+        self.apply()
+        self.assertFalse((self.project / "giveaways_engine" / "data" / "browser-steam-idle").exists())
+
+    def test_the_trophy_journal_is_merged_not_replaced(self):
+        # live 2026-11-27: the old copy's journal replaced the newer one and five days of rows were gone
+        header = "| Date | Game | Drop | Campaign | Status |\n|---|---|---|---|---|\n"
+        shared, mine, theirs = "| 1 | **A** | x | c | ok |\n", "| 3 | **B** | y | c | ok |\n", "| 2 | **C** | z | c | ok |\n"
+        write(self.project / "Trophies.md", header + shared + mine)
+        write(self.source / "Trophies.md", header + shared + theirs)
+        ci.stage_import(self.project, self.source)
+        self.apply()
+        merged = (self.project / "Trophies.md").read_text(encoding="utf-8")
+        self.assertTrue(merged.startswith(header + shared + mine), merged)
+        self.assertEqual(merged.count(shared), 1)
+        self.assertIn(theirs, merged)
+
+    def test_the_claimed_drops_list_is_merged_not_replaced(self):
+        write(self.project / "data" / "claimed_drops.json", '["mine", "both"]')
+        write(self.source / "data" / "claimed_drops.json", '["both", "theirs"]')
+        ci.stage_import(self.project, self.source)
+        self.apply()
+        merged = json.loads((self.project / "data" / "claimed_drops.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(merged), ["both", "mine", "theirs"])
+
     def test_the_source_is_never_modified(self):
         self.populate_source()
         before = sorted((p.relative_to(self.source).as_posix(), p.read_bytes()) for p in self.source.rglob("*") if p.is_file())

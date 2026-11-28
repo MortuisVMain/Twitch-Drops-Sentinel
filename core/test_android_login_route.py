@@ -95,6 +95,37 @@ class AndroidLoginRouteTests(unittest.TestCase):
             post(make_fake(), '{"token": "%s"}' % TOKEN, sign_in=mock.AsyncMock(side_effect=al.TokenRejected("no")))
         self.assertNotIn(TOKEN, "\n".join(logs.output))
 
+    def test_the_token_check_goes_through_the_proxy_from_the_settings(self):
+        from yarl import URL
+        for proxy, expected in ((URL("http://proxy.local:8080"), URL("http://proxy.local:8080")), (URL(""), None), (None, None)):
+            fake = make_fake()
+            fake.twitch_client.settings = _t.SimpleNamespace(proxy=proxy)
+            sign_in = mock.AsyncMock(return_value={"user_id": 7, "login": "mort"})
+            post(fake, '{"token": "%s"}' % TOKEN, sign_in=sign_in)
+            self.assertEqual(sign_in.await_args.kwargs.get("proxy"), expected, proxy)
+
+    def test_validate_hands_the_proxy_to_the_request(self):
+        seen = {}
+
+        class Resp:
+            status = 200
+
+            async def json(self):
+                return {"client_id": ClientType.ANDROID_APP.CLIENT_ID, "user_id": "7", "login": "mort"}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        def get(url, **kwargs):
+            seen.update(kwargs)
+            return Resp()
+
+        run(al.validate_android_token(TOKEN, _t.SimpleNamespace(get=get), proxy="http://proxy.local:8080"))
+        self.assertEqual(seen.get("proxy"), "http://proxy.local:8080")
+
     def test_the_state_names_the_login_client(self):
         self.assertIsNone(al.auth_client_name(None))
         self.assertEqual(al.auth_client_name(_t.SimpleNamespace(_client_type=ClientType.ANDROID_APP)), "android")

@@ -436,7 +436,11 @@ class SteamIdleController:
                                 for key, value in given.items()):
             return "invalid_request"
         for key, value in given.items():
-            self._set_setting(key, float(value) if key == HOURS_KEY else value)
+            new = float(value) if key == HOURS_KEY else value
+            old = self._get_setting(key, DEFAULT_HOURS if key == HOURS_KEY else None)
+            if old != new:  # a farm setting changes only on a click: the log says which and when
+                logger.info("Steam IDLE setting %s changed: %s -> %s", key, old, new)
+            self._set_setting(key, new)
         if pause_while_playing is False:
             self._release_auto("setting turned off")
         return None

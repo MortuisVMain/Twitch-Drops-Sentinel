@@ -60,6 +60,10 @@ def build_catalog_campaigns(campaigns: Iterable[Any]) -> list[dict[str, Any]]:
         if not (isinstance(game, dict) and name and c.get("id") and c.get("status") in LIVE_STATUSES):
             logger.debug("Campaign skipped for the catalog: %r", c.get("id") if isinstance(c, dict) else type(c))
             continue
+        drops = [d for d in c.get("timeBasedDrops") or [] if isinstance(d, dict)]
+        if drops and all((d.get("requiredMinutesWatched") or 0) <= 0 for d in drops):
+            logger.debug("Campaign skipped for the catalog, no drop is earned by watching (subscription only): %r", c.get("id"))
+            continue
         key = str(game.get("id") or name.strip().lower())
         reward = _reward(c, game, name)
         g = groups.get(key)

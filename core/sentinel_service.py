@@ -28,7 +28,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from types import SimpleNamespace
@@ -208,6 +208,17 @@ SUPERVISOR_DEFAULTS = {
     "ui_relief_mode": "hex-magma",
     "ui_relief_opacity": 85,
 }
+
+
+def better_campaign(current: Any, candidate: Any, horizon: datetime) -> Any:
+    """Of two campaigns of one game, the one the shelf should show: farmable first, then active, then not finished."""
+    if current is None:
+        return candidate
+
+    def rank(camp: Any) -> tuple:
+        return (bool(camp.can_earn_within(horizon)), bool(getattr(camp, "active", False)), not getattr(camp, "finished", False))
+
+    return candidate if rank(candidate) > rank(current) else current
 
 
 def _dimmer_off_response() -> web.Response:
@@ -653,9 +664,11 @@ class SentinelSupervisor:
             raw_inv = self.twitch_client.inventory
             inv_list = raw_inv if isinstance(raw_inv, list) else list(getattr(raw_inv, "campaigns", {}).values())
             camp_map = {}
+            horizon = datetime.now(timezone.utc) + timedelta(hours=1)
             for camp in inv_list:
                 if hasattr(camp, "game") and camp.game and camp.game.name:
-                    camp_map[camp.game.name.strip().lower()] = camp
+                    key = camp.game.name.strip().lower()
+                    camp_map[key] = better_campaign(camp_map.get(key), camp, horizon)
             user_linked_set = {str(k).strip().lower() for k in self.settings.get("user_linked_games", [])}
             trophy_games_set = {t.get("game", "").strip().lower() for t in trophies if t.get("game")}
 
@@ -804,6 +817,7 @@ class SentinelSupervisor:
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
             "catalog_source": CAMPAIGNS_FETCHER.catalog_source,
+            "catalog_updated_at": CAMPAIGNS_FETCHER.catalog_updated_at,
             "installed_games": installed_games,
             "ignored_games": sorted(list(self.scanner.load_ignored_games())) if hasattr(self.scanner, "load_ignored_games") else [],
             # found covers by name, for any game the app shows without working art (no campaign, dead link)

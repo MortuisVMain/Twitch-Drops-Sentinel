@@ -300,6 +300,13 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.env.settings["steam_idle_hours_until_drops"], stored)
                 self.assertEqual(ctl.state()["farm"]["hoursUntilDrops"], stored)
 
+    async def test_a_farm_settings_change_is_logged_with_old_and_new_value(self):
+        # live 2026-11-28: the hours went from 3 to 0 and nothing in any log said when or how
+        ctl = self.make()
+        with self.assertLogs("steam_idle.controller", level="INFO") as logs:
+            ctl.set_farm_settings(0)
+        self.assertTrue(any("steam_idle_hours_until_drops" in line and "3.0" in line and "0.0" in line for line in logs.output), logs.output)
+
     async def test_farm_settings_reject_bad_values_and_keep_the_old_one(self):
         ctl = self.make()
         ctl.set_farm_settings(4)

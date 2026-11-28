@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import math
 import logging
 from enum import Enum
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from translate import _
+from atomic_json import atomic_write_json
 from channel import Channel
 from utils import timestamp, Game
 from exceptions import GQLException
@@ -31,9 +33,37 @@ CLAIM_NEW = "claimed"
 CLAIM_ALREADY = "already_claimed"
 # Claim instances announced and journaled by this process: one row per instance, never one per game and reward text.
 _RECORDED_CLAIMS: set[str] = set()
-# Drops Twitch confirmed as claimed in this process. Linked-account campaigns keep reporting isClaimed=false
-# after an accepted claim, so without this every inventory sync claims them again.
-_CONFIRMED_CLAIMED_DROPS: set[str] = set()
+# Drops Twitch confirmed as claimed. Linked-account campaigns keep reporting isClaimed=false after an accepted claim,
+# so without this every inventory sync (and every start: the set is saved) claims, announces and journals them again.
+CLAIMED_STORE = Path(__file__).resolve().parent.parent / "data" / "claimed_drops.json"
+
+
+def load_claimed_drops(path: Path) -> set[str]:
+    """The saved drop ids; a missing file is empty, a broken one is logged and treated as empty."""
+    if not path.is_file():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {d for d in data if isinstance(d, str)} if isinstance(data, list) else set()
+    except (OSError, ValueError) as err:
+        logger.warning("Claimed drops list %s is unreadable, starting empty: %s", path, err)
+        return set()
+
+
+def _remember_claimed(drop_id: str) -> None:
+    if drop_id in _CONFIRMED_CLAIMED_DROPS:
+        return
+    _CONFIRMED_CLAIMED_DROPS.add(drop_id)
+    try:
+        CLAIMED_STORE.parent.mkdir(parents=True, exist_ok=True)
+        # ids another process (a second copy) saved meanwhile are kept: the file is the union, never this process's view only
+        _CONFIRMED_CLAIMED_DROPS.update(load_claimed_drops(CLAIMED_STORE))
+        atomic_write_json(CLAIMED_STORE, sorted(_CONFIRMED_CLAIMED_DROPS))
+    except (OSError, TypeError, ValueError) as err:
+        logger.warning("Claimed drops list %s could not be saved: %s", CLAIMED_STORE, err, exc_info=True)
+
+
+_CONFIRMED_CLAIMED_DROPS: set[str] = load_claimed_drops(CLAIMED_STORE)
 
 
 def remove_dimensions(url: URLType) -> URLType:
@@ -238,7 +268,7 @@ class BaseDrop:
             logger.error(f"Drop claim has potentially failed! Drop ID: {self.id}")
             return False
         self.is_claimed = True
-        _CONFIRMED_CLAIMED_DROPS.add(self.id)
+        _remember_claimed(self.id)
         instance = self.claim_id or self.id
         if (status == CLAIM_ALREADY and not completed_live) or instance in _RECORDED_CLAIMS:
             logger.debug("Drop %s (%s) was already claimed: not announced, not journaled", self.id, instance)

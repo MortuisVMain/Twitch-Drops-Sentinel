@@ -144,6 +144,11 @@ class CampaignsFetcher:
     def catalog_source(self) -> str:
         return self._source if self._cached_campaigns else "none"
 
+    @property
+    def catalog_updated_at(self) -> float | None:
+        """Epoch seconds of the last catalog built from Twitch data (or of the cache it was loaded from); None before any."""
+        return self._last_fetch_time or None
+
     def set_first_party(self, campaigns: list[dict[str, Any]]) -> bool:
         """Take the per-game campaigns built from Twitch's own data as the catalog source (see twitch_catalog)."""
         if not campaigns:
