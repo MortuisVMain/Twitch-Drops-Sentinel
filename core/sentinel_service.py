@@ -2230,6 +2230,13 @@ class SentinelSupervisor:
         ignored = self.scanner.load_ignored_games() if hasattr(self.scanner, "load_ignored_games") else []
         return shelf_names(self.settings, trophies, sorted(ignored))
 
+    async def resume_steam_idle_farm(self):
+        """A card farm an update or a restart interrupted continues by itself (see SteamIdleController.resume_after_restart)."""
+        try:
+            await self.steam_idle.resume_after_restart()
+        except Exception as exc:
+            logger.error("Steam IDLE farm could not be continued after the restart: %s", exc, exc_info=True)
+
     async def cover_keeper_loop(self):
         """Every half hour: check the covers of games not judged yet and find replacements for the broken or missing ones."""
         from box_art_resolver import keep_covers_alive
@@ -2263,7 +2270,7 @@ class SentinelSupervisor:
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
         else:
-            loops += [self.run_twitch_engine(), self.cover_keeper_loop(), self.giveaways.repair_task_paths()]
+            loops += [self.run_twitch_engine(), self.cover_keeper_loop(), self.giveaways.repair_task_paths(), self.resume_steam_idle_farm()]
         await asyncio.gather(*loops, return_exceptions=True)
 
 if __name__ == "__main__":

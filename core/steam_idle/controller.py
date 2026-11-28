@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 RISK_ACK_KEY = "steam_idle_risk_ack"
 HOURS_KEY = "steam_idle_hours_until_drops"
 PAUSE_KEY = "steam_idle_pause_while_playing"
+RESUME_KEY = "steam_idle_resume_farm"  # {"at": wall time}: the card farm was running when the service stopped
+RESUME_WINDOW, RESUME_RETRY = 10 * 60, 30.0  # an update restart fits in a minute; Steam may need a while to start
 DEFAULT_HOURS, MAX_HOURS = 3.0, 10.0  # ArchiSteamFarm's HoursUntilCardDrops default; the setting's upper bound
 _STEAM_ID_BASE = 76561197960265728
 _REGISTRY_KEY = r"Software\Valve\Steam\ActiveProcess"
@@ -685,6 +687,8 @@ class SteamIdleController:
         """Close the farm and the achievements queue for good (nothing new is written), end the tasks and any read in
         flight, wait for an unlock call already in flight (at most _UNLOCK_WAIT_SECONDS, never killing it) and release
         every held game."""
+        if self._running() and not self._closed:  # the next start continues it if it comes soon (resume_after_restart)
+            self._set_setting(RESUME_KEY, {"at": self._wall_clock()})
         self._closed = True
         self._farm.close()
         self._achv.close()
@@ -698,6 +702,34 @@ class SteamIdleController:
         except asyncio.TimeoutError:
             logger.error("releasing the held game timed out on shutdown")
         await asyncio.to_thread(self._announce, self._close_stats)  # the time up to the release, then the file
+
+    async def resume_after_restart(self) -> bool:
+        """At service start: continue a card farm the last stop interrupted, if that stop was at most RESUME_WINDOW ago
+        (an update or the app's own restart, not a closed app). One try per marker; Steam and the Community session may
+        need a while after a restart, so a refused start is retried until the window ends."""
+        marker = self._get_setting(RESUME_KEY, None)
+        if not marker:
+            return False
+        self._set_setting(RESUME_KEY, None)
+        stopped_at = marker.get("at") if isinstance(marker, dict) else None
+        if not isinstance(stopped_at, (int, float)) or self._wall_clock() - stopped_at > RESUME_WINDOW:
+            logger.info("the card farm stopped too long ago to continue by itself")
+            return False
+        refusal = None
+        for _attempt in range(int(RESUME_WINDOW // RESUME_RETRY)):
+            if self._closed:
+                break
+            refusal = self.start()
+            if refusal is None:
+                logger.info("card farm continued after the restart")
+                return True
+            if refusal in ("module_disabled", "risk_not_acknowledged") or (refusal == "busy" and self._running()):
+                break  # turned off meanwhile, or the user started the farm already
+            if refusal == "community_signed_out" and self._session not in ("checking", "signed_out"):
+                self.check()  # unknown right after a start: ask once, the next try sees the answer
+            await self._sleep(RESUME_RETRY)
+        logger.info("the card farm was not continued after the restart: %s", refusal)
+        return False
 
     def _wind_down(self) -> None:
         """Thread: kill the in-flight reads, let a blocked step finish (the closed farm holds nothing), release all."""
