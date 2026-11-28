@@ -236,6 +236,24 @@ class PartialFailures(unittest.TestCase):
         self.assertEqual(tw._tv_discovery_at, NOW - twitch.TV_DISCOVERY_INTERVAL + twitch.DISCOVERY_RETRY_AFTER)
 
 
+class CreatorCampaigns(unittest.TestCase):
+    def test_a_streamers_own_campaign_without_a_game_is_not_a_find(self):
+        # live 2026-11-28: 26 channel campaigns ("Ёлка", "Thanksgiving26Subs", sub badges) had no game: channel rewards,
+        # not drops of a queued game; the engine drops game-less campaigns anyway
+        tw = make_twitch(games=("Alpha",), channels={"Alpha": ["1"]}, campaigns={"1": ["game_camp", "creator_camp"]})
+        inner = tw.gql_request
+
+        async def gql(ops):
+            out = await inner(ops)
+            for item in out if isinstance(out, list) else [out]:
+                camp = ((item.get("data") or {}).get("user") or {}).get("dropCampaign")
+                if camp and camp.get("id") == "creator_camp":
+                    camp["game"] = None
+            return out
+        tw.gql_request = gql
+        self.assertEqual(set(discover(tw)), {"game_camp"})
+
+
 class GamesOfInterest(unittest.TestCase):
     def test_priority_games_come_first_then_installed_without_duplicates_or_rewards(self):
         tw = object.__new__(twitch.Twitch)

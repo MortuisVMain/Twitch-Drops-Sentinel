@@ -2546,7 +2546,9 @@ def test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies():
     assert trophies_show_completed(journal, "Albion Online", "", drops) is False
     assert trophies_show_completed(journal, "Another Game", "Dragonfire 9 - #6/7", drops) is False
     twitch_py = src_text(SANDBOX / "core" / "twitch.py")
-    assert twitch_py.count("trophies_show_completed(") == 1 and "drops_claimed >= len(time_drops)" not in twitch_py
+    # discovery no longer reads the journal at all: claimed or not comes from Twitch (CampaignDetails + inventory), so a
+    # later step can never be hidden by the trophies of an earlier one
+    assert "trophies_show_completed(" not in twitch_py and "drops_claimed >= len(time_drops)" not in twitch_py
 
 
 def test_listed_but_unfarmable_campaign_never_reads_as_available():
