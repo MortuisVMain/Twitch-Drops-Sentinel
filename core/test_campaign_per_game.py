@@ -25,5 +25,34 @@ class BestCampaignPerGame(unittest.TestCase):
         self.assertIs(s.better_campaign(s.better_campaign(None, expired, datetime(2026, 11, 28)), active, datetime(2026, 11, 28)), active)
 
 
+def drops(total, claimed, active=True, left=None):
+    return SimpleNamespace(total_drops=total, claimed_drops=claimed, active=active, finished=claimed >= total, left=left)
+
+
+class DropTotalsPerGame(unittest.TestCase):
+    def test_active_campaigns_of_a_game_add_up(self):
+        # Albion 2026-11-28: two active weeks of one drop each, two expired ones
+        best = drops(1, 0, left=180)
+        summary = s.game_drop_summary(best, [best, drops(1, 0, left=240), drops(1, 1, active=False), drops(1, 0, active=False)],
+                                      remaining=lambda c: c.left)
+        self.assertEqual(summary, {"total": 2, "claimed": 0, "finished": False, "remaining_minutes": 420})
+
+    def test_finished_only_when_every_active_campaign_is(self):
+        a, b = drops(1, 1), drops(2, 1)
+        self.assertFalse(s.game_drop_summary(a, [a, b], remaining=lambda c: None)["finished"])
+        self.assertTrue(s.game_drop_summary(a, [a, drops(2, 2)], remaining=lambda c: None)["finished"])
+
+    def test_without_active_siblings_the_best_campaign_alone_counts(self):
+        best = drops(3, 1, active=False)
+        summary = s.game_drop_summary(best, [best], remaining=lambda c: None)
+        self.assertEqual((summary["total"], summary["claimed"], summary["remaining_minutes"]), (3, 1, None))
+
+    def test_the_shelf_no_longer_reads_last_polls_values(self):
+        import inspect
+        source = inspect.getsource(s.SentinelSupervisor.get_full_state)
+        self.assertNotIn('g.get("is_finished") is True', source, "a cached catalog dict keeps last poll's verdict")
+        self.assertIn("game_drop_summary(", source)
+
+
 if __name__ == "__main__":
     unittest.main()
