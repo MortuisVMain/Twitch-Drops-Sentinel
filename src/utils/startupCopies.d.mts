@@ -21,11 +21,13 @@ export interface CopyInfo {
   running: boolean;
   exists: boolean;
   importable: boolean;
+  dataTime: number | null; // epoch seconds of the newest profile file, null when unknown
 }
 
 export interface OwnData {
   nonDefaultConfig: boolean;
   signedIn: boolean;
+  dataTime: number | null;
 }
 
 export interface StartupCopiesState {
@@ -46,3 +48,4 @@ export function needsOwnDataConfirm(ownData: OwnData | undefined): boolean;
 export function createSequencer(): { next(): number; isLatest(id: number): boolean };
 export function removalMessage(body: unknown): { text: string; error: boolean };
 export function errorMessage(body: unknown, status: number): string;
+export function importWarning(ownData: OwnData | undefined, copy: CopyInfo | undefined, formatTime?: (seconds: number) => string): { newer: boolean; text: string };

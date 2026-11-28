@@ -94,7 +94,22 @@ def own_data_state(project: Path, defaults: dict) -> dict:
         except ValueError:
             logger.warning("config.json of this copy is unreadable; an import will ask before replacing it", exc_info=True)
             non_default = True
-    return {"nonDefaultConfig": non_default, "signedIn": any((project / rel).is_file() for rel in SIGN_IN_FILES)}
+    return {"nonDefaultConfig": non_default, "signedIn": any((project / rel).is_file() for rel in SIGN_IN_FILES),
+            "dataTime": data_time(project)}
+
+
+def data_time(base: Path) -> Optional[float]:
+    """When the profile of a copy last changed (newest of its settings, sign-ins and journal), None without any: the UI
+    compares both copies, so an import never replaces newer data with older data unnoticed."""
+    times = []
+    for rel in PROFILE_FILES:
+        path = Path(base) / rel
+        try:
+            if path.is_file():
+                times.append(path.stat().st_mtime)
+        except OSError:
+            logger.warning("Cannot read the time of %s", path, exc_info=True)
+    return max(times) if times else None
 
 
 def has_importable_data(source: Path) -> bool:

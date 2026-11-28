@@ -77,10 +77,18 @@ class Validation(Base):
     def test_own_data_state_tells_defaults_from_the_users_choices(self):
         defaults = {"pause_on_gaming": True, "priority_games": ["Rust"]}
         write(self.project / "config.json", json.dumps({"pause_on_gaming": True, "priority_games": ["Rust"], "unknown_key": 5}))
-        self.assertEqual(ci.own_data_state(self.project, defaults), {"nonDefaultConfig": False, "signedIn": False})
+        self.assertEqual({k: v for k, v in ci.own_data_state(self.project, defaults).items() if k != "dataTime"}, {"nonDefaultConfig": False, "signedIn": False})
         write(self.project / "config.json", json.dumps({"pause_on_gaming": False}))
         write(self.project / "core" / "cookies.jar", "jar")
-        self.assertEqual(ci.own_data_state(self.project, defaults), {"nonDefaultConfig": True, "signedIn": True})
+        self.assertEqual({k: v for k, v in ci.own_data_state(self.project, defaults).items() if k != "dataTime"}, {"nonDefaultConfig": True, "signedIn": True})
+
+    def test_data_time_is_the_newest_profile_file_and_none_without_any(self):
+        self.assertIsNone(ci.data_time(self.project))
+        old, new = write(self.project / "config.json", "{}"), write(self.project / "Trophies.md", "| row |")
+        os.utime(old, (1_700_000_000, 1_700_000_000))
+        os.utime(new, (1_800_000_000, 1_800_000_000))
+        self.assertEqual(ci.data_time(self.project), 1_800_000_000)
+        self.assertIn("dataTime", ci.own_data_state(self.project, {}))
 
     def test_a_broken_config_counts_as_nothing_to_lose_only_when_absent(self):
         write(self.project / "config.json", "{ not json")

@@ -38,6 +38,7 @@ class StartupCopiesRoutes:
             entry["version"] = entry["version"] or finding["version"]
         for entry in copies.values():
             entry["importable"] = entry["exists"] and not entry["running"] and copy_import.is_sentinel_copy(Path(entry["dir"])) and copy_import.has_importable_data(Path(entry["dir"]))
+            entry["dataTime"] = copy_import.data_time(Path(entry["dir"])) if entry["exists"] else None
         return {
             "status": "ok", **state, "copies": list(copies.values()), "thisVersion": self._version, "thisDir": str(self._project),
             "ownData": copy_import.own_data_state(self._project, self._defaults),
