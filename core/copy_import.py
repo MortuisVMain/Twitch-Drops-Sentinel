@@ -29,7 +29,9 @@ DATA_DIRS = ("data", "giveaways_engine/data")
 SKIP_DIRS = {"browser", "screenshots", "backups", "restore_pending", "rollback", "cache", "node_modules", "__pycache__"}
 SKIP_FILES = {MARKER_NAME, "startup_cleanup_backup.json"}
 SKIP_SUFFIXES = (".log", ".tmp", ".corrupt")
-SIGN_IN_FILES = ("core/cookies.jar", "cookies.jar", "giveaways_engine/data/sessions.json")
+JOURNAL = "Trophies.md"  # merged, never replaced
+CLAIMED_DROPS = "data/claimed_drops.json"  # merged (union), never replaced: a lost id means a drop journaled again
+SIGN_IN_FILES =("core/cookies.jar", "cookies.jar", "giveaways_engine/data/sessions.json")
 _TEMP_SUFFIX = ".importtmp"
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 
@@ -54,7 +56,8 @@ def _is_link(path: Path) -> bool:
 def _wanted(rel: Path) -> bool:
     if rel.name in SKIP_FILES or rel.name.endswith(SKIP_SUFFIXES):
         return False
-    return not any(part in SKIP_DIRS or part.startswith("import_backup_") for part in rel.parts[:-1])
+    # "browser*": every browser profile (browser, browser-steam-idle) is the other copy's live session state
+    return not any(part in SKIP_DIRS or part.startswith(("import_backup_", "browser")) for part in rel.parts[:-1])
 
 
 def _plain_file(path: Path, base: Path) -> bool:
@@ -91,7 +94,22 @@ def own_data_state(project: Path, defaults: dict) -> dict:
         except ValueError:
             logger.warning("config.json of this copy is unreadable; an import will ask before replacing it", exc_info=True)
             non_default = True
-    return {"nonDefaultConfig": non_default, "signedIn": any((project / rel).is_file() for rel in SIGN_IN_FILES)}
+    return {"nonDefaultConfig": non_default, "signedIn": any((project / rel).is_file() for rel in SIGN_IN_FILES),
+            "dataTime": data_time(project)}
+
+
+def data_time(base: Path) -> Optional[float]:
+    """When the profile of a copy last changed (newest of its settings, sign-ins and journal), None without any: the UI
+    compares both copies, so an import never replaces newer data with older data unnoticed."""
+    times = []
+    for rel in PROFILE_FILES:
+        path = Path(base) / rel
+        try:
+            if path.is_file():
+                times.append(path.stat().st_mtime)
+        except OSError:
+            logger.warning("Cannot read the time of %s", path, exc_info=True)
+    return max(times) if times else None
 
 
 def has_importable_data(source: Path) -> bool:
@@ -108,6 +126,29 @@ def stage_import(project: Path, source: Path) -> dict:
     marker = {"source": str(source), "time": datetime.now().isoformat(timespec="seconds")}
     atomic_write_json(project / "data" / MARKER_NAME, marker)
     return marker
+
+
+def merge_journal(mine: str, theirs: str) -> str:
+    """The trophy journal is append-only history: this copy's text stays as it is, the other copy's rows it lacks are added."""
+    have = set(mine.splitlines())
+    extra = [line for line in theirs.splitlines() if line.startswith("|") and line not in have]
+    if not extra:
+        return mine
+    return mine + ("" if mine.endswith("\n") or not mine else "\n") + "\n".join(extra) + "\n"
+
+
+def merge_id_lists(mine: Path, theirs: Path) -> List[str]:
+    """Union of two JSON id lists (claimed drops). An unreadable side counts as empty; a broken file of this copy is logged."""
+    ids: set = set()
+    for path in (mine, theirs):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.warning("Import: %s is unreadable, merged as empty", path, exc_info=True)
+            continue
+        if isinstance(data, list):
+            ids.update(i for i in data if isinstance(i, str))
+    return sorted(ids)
 
 
 def _system_exes() -> List[str]:
@@ -190,7 +231,13 @@ def apply_pending_import(project: Path, now: Callable[[], str] = lambda: datetim
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = target.with_name(target.name + _TEMP_SUFFIX)
             try:
-                copy_file(source / rel, temp)
+                if rel == JOURNAL and existed:
+                    temp.write_text(merge_journal(target.read_text(encoding="utf-8"), (source / rel).read_text(encoding="utf-8")),
+                                    encoding="utf-8")
+                elif rel == CLAIMED_DROPS and existed:
+                    temp.write_text(json.dumps(merge_id_lists(target, source / rel), indent=2), encoding="utf-8")
+                else:
+                    copy_file(source / rel, temp)
                 os.replace(temp, target)
             finally:
                 temp.unlink(missing_ok=True)

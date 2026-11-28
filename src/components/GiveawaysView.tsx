@@ -510,7 +510,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             className={`chunky-cta ${isClaiming ? 'amber' : ''}`}
             onClick={handleClaimAll}
           >
-            {isClaiming ? <Square className="ui-icon" aria-hidden="true" focusable="false" /> : <Play className="ui-icon" aria-hidden="true" focusable="false" />} {isClaiming ? 'ОСТАНОВИТЬ КЛЕЙМ' : `ЗАБРАТЬ ВСЁ (${selectedStores.length} МАГАЗИНОВ)`}
+            {isClaiming ? <Square className="ui-icon" aria-hidden="true" focusable="false" /> : <Play className="ui-icon" aria-hidden="true" focusable="false" />} {isClaiming ? 'ОСТАНОВИТЬ КЛЕЙМ' : `ЗАБРАТЬ ВСЁ · МАГАЗИНОВ: ${selectedStores.length}`}
           </button>
         </div>
       </div>
@@ -865,7 +865,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
               logs.map((l, i) => renderLogLine(l, i))
             ) : (
               <div style={{ color: 'var(--text-muted)' }}>
-                Журнал пуст — появится после первого автосбора
+                Здесь появятся строки сбора, когда он начнётся
               </div>
             )}
           </div>

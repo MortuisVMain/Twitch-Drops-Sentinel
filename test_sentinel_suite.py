@@ -34,6 +34,18 @@ import tempfile
 
 WORKSPACE = Path(__file__).resolve().parent
 
+
+def node_bin(name: str) -> Path:
+    """A tool of node_modules/.bin, looked up from the workspace upwards: a git worktree (.claude/worktrees/x) has no node_modules
+    of its own and uses the main checkout's, so a lookup in the workspace alone skipped every gate that needs esbuild."""
+    exe = name + ".cmd" if os.name == "nt" else name
+    for folder in (WORKSPACE, *WORKSPACE.parents):
+        candidate = folder / "node_modules" / ".bin" / exe
+        if candidate.exists():
+            return candidate
+    return WORKSPACE / "node_modules" / ".bin" / exe
+
+
 # On a CI runner there is no exe, no cookies, no journal and no live Twitch: gates that need them print an
 # explicit SKIP instead of failing (set CI=1 locally to rehearse it).
 IN_CI = os.environ.get("CI", "").lower() in ("1", "true", "yes")
@@ -822,7 +834,7 @@ def test_github_updater_and_zero_mock_telemetry():
     from updater import GitHubUpdater, parse_version, UPDATER, PROTECTED_PATHS, check_and_apply_pending_exe_update
     from version import __version__
 
-    assert __version__ == "4.4.2", f"Version mismatch: {__version__}"
+    assert __version__ == "4.4.3", f"Version mismatch: {__version__}"
     assert parse_version("3.9.0") == (3, 9, 0)
     assert parse_version("v3.3.6-beta") == (3, 3, 6)
     assert parse_version("v3.9.0") > parse_version("3.5.6")
@@ -1918,7 +1930,7 @@ def test_shutdown_aborts_running_giveaways_process():
 def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
     print("[audit F-032] Shared campaign rules: hero, queue rows and off-queue block must agree...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -1952,6 +1964,8 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
         {**base, "name": "Caliber", "is_account_connected": True, "total_drops": 2, "claimed_drops": 0, "progress_percent": 0.0},
         # no campaign at all
         {"name": "Hearthstone", "has_drops": False, "is_active_now": False},
+        # live campaign but excluded by the user: never offered off-queue (live 2026-11-28: Captain's Call topped the block)
+        {**base, "name": "Excluded Live", "is_account_connected": True, "total_drops": 2, "claimed_drops": 0, "progress_percent": 0.0},
     ]
     trophies = [
         {"id": "1", "date": "2026-11-01 10:00", "game": "EVE Online", "drop_name": "Drop 1", "campaign": "c", "status": "Claimed"},
@@ -1960,7 +1974,8 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
         {"id": "3", "date": "2026-09-01 11:00", "game": "Caliber", "drop_name": "Old", "campaign": "old", "status": "Claimed"},
     ]
     queue = ["EVE Online", "World of Tanks", "Battlefield REDSEC", "Albion Online", "Hearthstone"]
-    fixture = {"priorityList": queue, "allGames": games, "trophies": trophies, "strictMode": True, "now": 1793534400000}
+    fixture = {"priorityList": queue, "allGames": games, "trophies": trophies, "strictMode": True, "now": 1793534400000,
+               "excludedList": ["excluded live"]}
     driver = out_dir / "driver.mjs"
     driver.write_text(
         "import { computeIdleInfo, isOffQueueCandidate } from './idleInfo.mjs';\n"
@@ -1968,7 +1983,7 @@ def test_idle_hero_does_not_promise_claimed_or_unlinked_campaigns():
         f"const f = {json.dumps(fixture)};\n"
         "const info = computeIdleInfo(f);\n"
         "const labels = Object.fromEntries(f.allGames.map(g => [g.name, campaignLabel(getCampaignState(g, f.trophies))]));\n"
-        "const offQueue = f.allGames.filter(g => isOffQueueCandidate(g, f.priorityList, f.trophies)).map(g => g.name);\n"
+        "const offQueue = f.allGames.filter(g => isOffQueueCandidate(g, f.priorityList, f.trophies, undefined, f.excludedList)).map(g => g.name);\n"
         "console.log(JSON.stringify({ info, labels, offQueue }));\n",
         encoding="utf-8")
     run = subprocess.run([node, str(driver)], capture_output=True, text=True, encoding="utf-8", timeout=60)
@@ -2012,7 +2027,7 @@ def test_queue_wait_message_counts_the_whole_queue():
 def test_console_folds_progress_and_repeated_lines():
     print("[audit F-034] Console display folds progress spam and repeats, the journal itself is untouched...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2055,7 +2070,7 @@ def test_console_folds_progress_and_repeated_lines():
 def test_active_campaigns_tab_sorting_and_new_marker():
     print("[audit F-035] Active campaigns tab: honest running set, freshest first, new marker, sort modes...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2121,7 +2136,7 @@ def test_active_campaigns_tab_sorting_and_new_marker():
 def test_console_folds_sync_cycles_but_never_important_events():
     print("[audit F-036] Console: sync cycles fold into one row, CLAIM/WARN/errors never fold...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2180,7 +2195,7 @@ def test_console_folds_sync_cycles_but_never_important_events():
 def test_settings_modules_counter_matches_switches():
     print("[audit F-037] Settings: 'Включено: N из 10' is computed from the same states as the switches...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2223,7 +2238,7 @@ def test_settings_modules_counter_matches_switches():
 def test_shelf_facts_trophy_line_and_sync_age():
     print("[audit F-038] Shelf: time/drops/link facts, one-line trophy summary, 'updated N min ago'...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2293,7 +2308,7 @@ def test_shelf_facts_trophy_line_and_sync_age():
 def test_queue_filter_only_with_campaigns():
     print("[audit F-039] Dashboard queue: status filters hide rows, keep the order, counters add up, old setting migrates...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2390,7 +2405,7 @@ def test_visible_browser_window_opens_on_screen():
 def test_console_collapse_tray_filter_and_plain_labels():
     print("[usability 2] Console: collapse decision, [TRAY] hidden outside Core, toggle is accessible; plain labels; honest empty collection...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2531,7 +2546,9 @@ def test_new_campaign_step_is_not_hidden_by_the_previous_steps_trophies():
     assert trophies_show_completed(journal, "Albion Online", "", drops) is False
     assert trophies_show_completed(journal, "Another Game", "Dragonfire 9 - #6/7", drops) is False
     twitch_py = src_text(SANDBOX / "core" / "twitch.py")
-    assert twitch_py.count("trophies_show_completed(") == 1 and "drops_claimed >= len(time_drops)" not in twitch_py
+    # discovery no longer reads the journal at all: claimed or not comes from Twitch (CampaignDetails + inventory), so a
+    # later step can never be hidden by the trophies of an earlier one
+    assert "trophies_show_completed(" not in twitch_py and "drops_claimed >= len(time_drops)" not in twitch_py
 
 
 def test_listed_but_unfarmable_campaign_never_reads_as_available():
@@ -2555,7 +2572,7 @@ def test_listed_but_unfarmable_campaign_never_reads_as_available():
     assert "\u043f\u0440\u0438\u0432\u044f\u0437\u043a" in campaign_farmability(camp(can_earn_within=lambda s: False, eligible=False))[1]
 
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: front half skipped)")
@@ -2601,7 +2618,7 @@ def test_short_window_console_minimum_leaves_the_collapsed_console_alone():
 def test_queue_row_shows_why_a_campaign_cannot_be_farmed():
     print("[usability] a queued game with an unfarmable campaign shows the engine's reason as the row caption, in both languages...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if esbuild.exists() and node is not None:
         out_dir = SANDBOX / "reason_caption_check"
@@ -2710,7 +2727,7 @@ def test_remaining_watch_minutes_helper_and_deadline_facts():
     assert service.count('g.pop("remaining_watch_minutes", None)') == 2, "[audit] cached catalog dicts lose a stale value when it is unknown or the campaign is not in the inventory"
 
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: front half skipped)")
@@ -2759,7 +2776,7 @@ def test_remaining_watch_minutes_helper_and_deadline_facts():
 def test_campaign_dates_line():
     print("[round5] Campaign dates: 'с … · до …' in local time, start highlighted for a fresh campaign...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -2875,7 +2892,7 @@ def test_cover_keeper_replaces_broken_and_missing_covers():
         "Riders Republic": "https://x/riders.jpg", "PEAK": "https://x/peak.jpg"}
 
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: front half skipped)")
@@ -3036,7 +3053,7 @@ def test_config_files_saved_with_a_bom_still_load():
 def test_login_code_copy_and_activate_link():
     print("[login] Copy button: service first, browser clipboard second, an honest false when both fail; activate link carries the code...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -3083,7 +3100,7 @@ def test_login_code_copy_and_activate_link():
 def test_giveaways_readiness_window_texts_report_and_counts():
     print("[readiness-ui] Readiness window: every reason has a text, the report hides account names, todo items are counted...")
     import shutil as _sh
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     node = _sh.which("node")
     if not esbuild.exists() or node is None:
         print("      (node/esbuild not available: skipped)")
@@ -4043,7 +4060,7 @@ def test_login_state_follows_the_latest_attempt():
     assert "sessions.json" in output and "steam" in output, f"a failed write must be logged with context:\n{output[-800:]}"
 
     # The tab judges this attempt, not whether some account is known from before.
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     view = (WORKSPACE / "src" / "components" / "GiveawaysView.tsx").read_text(encoding="utf-8")
     assert "loginAttemptSucceeded(" in view, "GiveawaysView must judge the login by this attempt"
     if not esbuild.exists():
@@ -4101,7 +4118,7 @@ def test_two_factor_and_confirm_without_a_terminal_go_through_the_log():
 
 def test_login_hint_goes_away_once_the_attempt_succeeded():
     print("[login-polish] Login hint and stale error follow this attempt...")
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     if not esbuild.exists() or shutil.which("node") is None:
         print("      (esbuild or node not available: skipped)")
         return
@@ -4710,7 +4727,7 @@ def test_built_page_embeds_its_font():
 
 def test_keyboard_palette_help_farm_and_log_prefix():
     print("[ui-audit] Palette arrows and Enter, modal focus, the FARM switch, one level per log line...")
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     if not esbuild.exists() or shutil.which("node") is None:
         print("      (node/esbuild not available: skipped)")
         return
@@ -5310,7 +5327,7 @@ def test_store_card_shows_login_even_with_nothing_claimed():
 def test_english_ui_covers_every_russian_string():
     print("[i18n] Every Russian string of the UI has an English translation...")
     node = shutil.which("node")
-    if not node or not (WORKSPACE / "node_modules" / "typescript").exists():
+    if not node or not (node_bin("tsc").parent.parent / "typescript").exists():  # node_modules may be in a parent folder (worktree)
         print("      SKIP: Node.js or node_modules (npm ci) is missing, the translation check cannot run")
         return
     result = subprocess.run([node, str(WORKSPACE / "tools" / "check_i18n.mjs")], cwd=str(WORKSPACE),
@@ -6758,7 +6775,7 @@ def test_settings_post_does_not_wait_for_the_module_sync():
 
 def test_loading_states_of_giveaways_and_dimmer():
     print("[loading] Giveaways and Dimmer tell loading, failure and a real empty answer apart...")
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     if not esbuild.exists() or shutil.which("node") is None:
         print("      (node/esbuild not available: pure-function part skipped)")
     else:
@@ -8247,7 +8264,7 @@ def test_giveaways_browser_choice_in_the_runner_and_engine():
     finally:
         shutil.rmtree(engine.parent, ignore_errors=True)
 
-    esbuild = WORKSPACE / "node_modules" / ".bin" / ("esbuild.cmd" if os.name == "nt" else "esbuild")
+    esbuild = node_bin("esbuild")
     if not esbuild.exists():
         print("      (esbuild not available: the texts were not checked)")
         return

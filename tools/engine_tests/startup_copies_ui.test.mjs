@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { normalizeState, sortFindings, removableCount, importCandidates, needsOwnDataConfirm, errorMessage, createSequencer, removalMessage } =
+const { normalizeState, sortFindings, removableCount, importCandidates, needsOwnDataConfirm, errorMessage, createSequencer, removalMessage, importWarning } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'utils', 'startupCopies.mjs')).href);
 
 const f = (over) => ({ id: 'aaaaaaaaaaaa', kind: 'run_value', name: 'X', target: 'C:\\a\\TwitchDropsSentinel.exe', copyDir: 'C:\\a', version: '3.7.0', dirExists: true, removable: true, closable: false, ...over });
@@ -58,7 +58,7 @@ test('an error shows the service message, else the status', () => {
 
 test('copies that are not valid are dropped and the rest is cleaned like the findings', () => {
   const s = normalizeState({ status: 'ok', findings: [], copies: [null, 5, 'x', {}, { dir: '' }, { dir: 'C:\a', version: 7, running: 1, exists: 'yes', importable: true, extra: 1 }] });
-  assert.deepEqual(s.copies, [{ dir: 'C:\a', version: null, running: true, exists: true, importable: true }]);
+  assert.deepEqual(s.copies, [{ dir: 'C:\a', version: null, running: true, exists: true, importable: true, dataTime: null }]);
 });
 
 test('only the newest request may change the screen', () => {
@@ -76,4 +76,20 @@ test('remove-all says how many went and flags the ones that did not', () => {
   assert.equal(partial.error, true);
   assert.match(partial.text, /^Убрано 1 из 3;/);
   assert.equal(removalMessage(undefined).error, false);
+});
+
+test('the import warns when this copy holds newer data than the copy it would take it from', () => {
+  const day = 86400;
+  const fmt = (s) => new Date(s * 1000).toISOString().slice(0, 10);
+  const newer = importWarning({ dataTime: 20 * day }, { dataTime: 10 * day }, fmt);
+  assert.equal(newer.newer, true);
+  assert.match(newer.text, /новее/);
+  assert.match(newer.text, /1970-01-21/);
+  assert.match(newer.text, /1970-01-11/);
+  const older = importWarning({ dataTime: 10 * day }, { dataTime: 20 * day }, fmt);
+  assert.equal(older.newer, false);
+  assert.equal(importWarning({ dataTime: null }, { dataTime: 5 }, fmt).newer, false, 'unknown times never claim newer');
+  const s = normalizeState({ status: 'ok', findings: [], ownData: { dataTime: 123 }, copies: [{ dir: 'C:\\b', dataTime: 'x' }] });
+  assert.equal(s.ownData.dataTime, 123);
+  assert.equal(s.copies[0].dataTime, null);
 });

@@ -1,6 +1,7 @@
 import { Ban, Check, ChevronDown, ChevronUp, Ellipsis, FileText, Flame, Gift, HardDrive, RefreshCw, Star, Timer, TriangleAlert, Trophy, Undo2, X, Zap } from 'lucide-react';
 import React, { useState, useMemo, useEffect } from 'react';
 import { agoLabel, campaignDatesLine, campaignFacts, lastTrophyLine } from '../utils/campaignFacts';
+import { pluralRu } from '../utils/idleInfo';
 import { campaignKey, isCampaignRunning, isNewCampaign, mergeSeen, sortCampaigns, SORT_LABELS, type CampaignSortMode } from '../utils/campaignList';
 import { Trash2 } from 'lucide-react';
 import { GameItem, RewardCampaign, SentinelSettings, TrophyItem } from '../types';
@@ -861,26 +862,29 @@ export const GameShelf: React.FC<GameShelfProps> = ({
               subtitleColor = 'var(--led-amber)';
             } else if (isInPriority) {
               const rewardsTxt = game.rewards_count || (game as any).drops_count;
-              subtitle = `#${priorityIndex + 1} в очереди • ${rewardsTxt ? `${rewardsTxt} наград` : 'награды уточняются'}`;
+              subtitle = `#${priorityIndex + 1} в очереди • ${rewardsTxt ? `${rewardsTxt} ${pluralRu(Number(rewardsTxt), 'кампания', 'кампании', 'кампаний')}` : 'награды уточняются'}`;
               subtitleColor = 'var(--led-amber)';
             } else if (game.is_installed) {
               subtitle = 'Установлено на ПК';
               subtitleColor = 'var(--led-mint)';
             } else if (game.has_drops || game.is_active_now || (game as any).is_drop_active) {
               const rewardsTxt = game.rewards_count || (game as any).drops_count;
-              subtitle = `Дропы активны • ${rewardsTxt ? `${rewardsTxt} наград` : 'Активная кампания'}`;
+              subtitle = `Дропы активны • ${rewardsTxt ? `${rewardsTxt} ${pluralRu(Number(rewardsTxt), 'кампания', 'кампании', 'кампаний')}` : 'Активная кампания'}`;
               subtitleColor = 'var(--led-mint)';
             }
 
             const isDropActive = isDropActiveNow(game);
             const isLinked = isGameLinked(game);
             const needsLink = isDropActive && !isLinked;
+            const showNewChip = activeFilter === 'all' && isNewCampaign(game, seenAtOpen);
+            // the link badges sit top-right: next to the НОВАЯ chip (top-left) they must end before it, not run under it
+            const badgeMaxWidth = showNewChip ? 'calc(100% - 84px)' : 'calc(100% - 12px)';
             const facts = campaignFacts(game, { trophies, linked: isLinked, now: nowTick });
             const dates = campaignDatesLine(game.drops_start_at, game.drops_end_at, nowTick);
 
             return (
               <div key={game.name} className="cartridge-card">
-                {activeFilter === 'all' && isNewCampaign(game, seenAtOpen) && <span className="new-campaign-chip" title="Кампания появилась после вашего прошлого визита">НОВАЯ</span>}
+                {showNewChip && <span className="new-campaign-chip" title="Кампания появилась после вашего прошлого визита">НОВАЯ</span>}
                 <div 
                   style={{ 
                     position: 'relative', 
@@ -905,7 +909,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         position: 'absolute',
                         top: '6px',
                         right: '6px',
-                        maxWidth: 'calc(100% - 12px)',
+                        maxWidth: badgeMaxWidth,
                         padding: '2px 6px',
                         borderRadius: '5px',
                         fontSize: 'var(--fs-xs)',
@@ -937,7 +941,7 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                         position: 'absolute',
                         top: '6px',
                         right: '6px',
-                        maxWidth: 'calc(100% - 12px)',
+                        maxWidth: badgeMaxWidth,
                         display: 'flex',
                         alignItems: 'center',
                         gap: '2px',
@@ -966,11 +970,13 @@ export const GameShelf: React.FC<GameShelfProps> = ({
                           gap: '3px',
                           whiteSpace: 'nowrap',
                           textDecoration: 'none',
-                          cursor: 'pointer'
+                          cursor: 'pointer',
+                          minWidth: 0,
+                          overflow: 'hidden'
                         }}
                         title="Нажмите, чтобы открыть страницу привязки аккаунта"
                       >
-                        <span><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Требуется привязка</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}><TriangleAlert className="ui-icon" aria-hidden="true" focusable="false" /> Требуется привязка</span>
                       </a>
                       <button
                         onClick={(e) => {

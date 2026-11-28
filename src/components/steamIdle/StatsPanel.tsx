@@ -57,7 +57,7 @@ export const StatsPanel: React.FC = () => {
       {stats === null ? (!failed && loading && <p className="sidle-text" role="status">Загрузка статистики…</p>) : (
         <>
           <dl className="sidle-stats-tiles">
-            <div className="sidle-stats-tile"><dt>Время фарма</dt><dd className="tabular">{hoursNumber(tiles.hours)}</dd></div>
+            <div className="sidle-stats-tile"><dt>Время фарма</dt><dd className="tabular">{hoursNumber(tiles.hours)} ч</dd></div>
             <div className="sidle-stats-tile"><dt>Игры</dt><dd className="tabular">{tiles.games}</dd></div>
             <div className="sidle-stats-tile"><dt>Карточки</dt><dd className="tabular">{tiles.cards}</dd></div>
             <div className="sidle-stats-tile"><dt>Достижения</dt><dd className="tabular">{tiles.achievements}</dd></div>

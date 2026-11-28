@@ -189,6 +189,9 @@ def send_windows_toast(title: str, message: str, launch: Optional[str] = None):
 send_toast_msg = send_windows_toast
 
 
+_STATUS_STEP_RE = re.compile(r"\((\d+)/(\d+)\)\s*$")
+
+
 class HeadlessStatus:
     def update(self, text: str):
         # Translate technical / English / archaic status strings into clear Russian
@@ -208,7 +211,10 @@ class HeadlessStatus:
             friendly_text = "Переключение на лучший активный стрим..."
 
         STATE_BRIDGE.status_text = friendly_text
-        logger.info(f"[STATUS] {friendly_text}")
+        # a counter ("... (5/104)") goes to INFO only at its last step: every inventory sync wrote 105 lines
+        counter = _STATUS_STEP_RE.search(friendly_text)
+        level = logging.DEBUG if counter and counter.group(1) != counter.group(2) else logging.INFO
+        logger.log(level, "[STATUS] %s", friendly_text)
 
 
 class HeadlessTray:

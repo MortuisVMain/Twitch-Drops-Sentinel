@@ -103,6 +103,15 @@ class BuildCatalogCampaigns(unittest.TestCase):
     def test_empty_input(self):
         self.assertEqual(tc.build_catalog_campaigns([]), [])
 
+    def test_a_campaign_with_only_subscription_drops_is_not_listed(self):
+        # live 2026-11-28: a DOOM badge for subscribers (0 minutes, requiredSubs 1) showed as "1 drop waits, link your account"
+        out = tc.build_catalog_campaigns([
+            campaign("sub", game_id="1", game="Sub Badge Game", drops=(("Badge", 0),)),
+            campaign("mix", game_id="2", game="Mixed Game", drops=(("Badge", 0), ("Chest", 60))),
+            campaign("bare", game_id="3", game="No Drops Listed", drops=()),
+        ])
+        self.assertEqual([g["gameDisplayName"] for g in out], ["Mixed Game", "No Drops Listed"])
+
 
 class Publish(unittest.TestCase):
     class Recorder:

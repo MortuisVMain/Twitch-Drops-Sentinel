@@ -319,7 +319,8 @@ export const App: React.FC = () => {
 
 
 
-  const { playClick, playRewardChime, isMuted, toggleMute } = useTactileAudio();
+  const { playClick, playRewardChime, isMuted, toggleMute, setMuted } = useTactileAudio();
+  const mutedBeforeNightRef = useRef<boolean | null>(null);
 
 
 
@@ -413,6 +414,12 @@ export const App: React.FC = () => {
   }, [theme, reliefOpacity]);
 
 
+
+  // The window keeps its theme in localStorage; a fresh WebView profile (reinstall, imported settings) takes the saved one from config
+  const savedTheme = sentinelState.settings?.ui_theme;
+  useEffect(() => {
+    if (savedTheme && !localStorage.getItem('sentinel_theme')) setTheme(savedTheme);
+  }, [savedTheme]);
 
   const handleApplyTheme = (newTheme: string) => {
 
@@ -531,19 +538,19 @@ export const App: React.FC = () => {
 
       setReliefOpacity(0.20);
 
-      handleUpdateSettings({ 
+      handleUpdateSettings({ pause_on_battery: true });
 
-        pause_on_battery: true,
+      mutedBeforeNightRef.current = isMuted;
 
-        ui_sound_enabled: false 
-
-      });
+      setMuted(true); // the sound switch lives in this window (sentinel_muted); a config flag nobody read did not silence anything
 
       showToast('Ночной режим активирован: затемнение задника, тишина ALPS');
 
     } else {
 
       setReliefOpacity(0.85);
+
+      if (mutedBeforeNightRef.current !== null) { setMuted(mutedBeforeNightRef.current); mutedBeforeNightRef.current = null; } // the sound as it was before the night
 
       showToast('Дневной режим восстановлен');
 
@@ -1033,8 +1040,11 @@ export const App: React.FC = () => {
     const match = sentinelState.all_catalog_games?.find(
       (g) => g.name.toLowerCase() === activeDrop.game.toLowerCase()
     );
-    return resolveGameBoxArt(activeDrop.game, [activeDrop.game_box_art, match?.box_art]);
-  }, [activeDrop?.game, activeDrop?.game_box_art, sentinelState.all_catalog_games]);
+    // a reward category (GTA VI) is in no catalog: the reward campaign's own picture stands in
+    const watching = sentinelState.reward_watching;
+    const rewardImage = watching ? sentinelState.reward_campaigns?.find((c) => c.id === watching.id)?.image || undefined : undefined;
+    return resolveGameBoxArt(activeDrop.game, [activeDrop.game_box_art, match?.box_art, rewardImage]);
+  }, [activeDrop?.game, activeDrop?.game_box_art, sentinelState.all_catalog_games, sentinelState.reward_watching, sentinelState.reward_campaigns]);
 
 
 
@@ -1660,7 +1670,7 @@ export const App: React.FC = () => {
 
               onManualRefresh={handleManualRefresh}
 
-              lastSyncAt={lastSyncAt}
+              lastSyncAt={Math.max(lastSyncAt ?? 0, (sentinelState.catalog_updated_at ?? 0) * 1000) || null}
               rewardCampaigns={sentinelState.settings.reward_campaigns_enabled === true ? sentinelState.reward_campaigns : undefined}
               hiddenRewardList={sentinelState.settings.hidden_reward_campaigns}
               rewardCategories={sentinelState.settings.reward_campaign_categories}

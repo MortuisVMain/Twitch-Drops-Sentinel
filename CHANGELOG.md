@@ -4,6 +4,15 @@ Notable changes per release. Full notes, in Russian and (from v3.5.2 on) English
 
 ## [Unreleased]
 
+## [4.4.3] - 2026-11-28
+- Fixed: since 4.4.2 campaigns you had not started yet were never farmed ("no queued game has campaigns", the app fell back to the reward campaign). The new Twitch dashboard lists drops without names, rewards or dates, and that list overwrote the full campaign details, so no drop looked earnable. The details now win.
+- Drops are no longer claimed, announced and written to the trophy journal again after every restart: confirmed claims are remembered in `data/claimed_drops.json`. Duplicate journal rows from restart bursts can be cleaned once.
+- Importing the data of an old copy no longer loses newer data: the trophy journal and the claimed drops list are merged, browser profiles (Steam IDLE sign-in) are never copied.
+- Shelf and dashboard: a game with several campaigns shows the one that can be farmed; subscription-only campaigns (no watch time) are not listed; excluded games are no longer offered off-queue; "updated N ago" shows the catalog's real age; a cover that failed to load is tried again; the NEW chip no longer covers the link badge; campaign counts read "1 кампания / 3 кампании".
+- Less load and noise: the per-game discovery runs at most every 30 minutes (5 after a failure), one channel batch that fails no longer voids the whole pass, the inventory sync logs one line instead of 105.
+- The v3 per-game search that built campaigns by hand (guessed account link, always "active", trophy text matching) is gone. Priority games Twitch's dashboard does not list are searched with the same channel search as the TV fallback, so every find is Twitch's own campaign; it runs for the TV login only (the Android login gets the full dashboard). Streamers' own badge campaigns without a game are no longer taken for game drops, and a Twitch "service error" on a single field (the owner of such a campaign) no longer voids the whole answer.
+- Fixed: the History chart showed no bars; the reward campaign (GTA VI) had an empty cover on the dashboard and in the mini window; Night mode did not mute the sounds; the theme from settings was not applied to a fresh window profile; Steam IDLE setting changes are now logged.
+
 ## [4.4.2] - 2026-11-27
 - Full Twitch Drops campaign list is back: Twitch no longer returns `ViewerDropsDashboard` to the TV device-code client (`SMARTBOX`), so the app now offers sign-in through an isolated in-app Twitch window using the Android app client (`ANDROID_APP`). The token is validated with Twitch, stored encrypted with Windows DPAPI, and the temporary WebView2 login folder is cleaned up automatically after sign-in.
 - Updated the `ViewerDropsDashboard` persisted query hash (`69750554...`) and reused its response for reward campaigns so inventory sync avoids sending duplicate dashboard requests.

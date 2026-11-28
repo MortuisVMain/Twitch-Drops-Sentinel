@@ -1,7 +1,7 @@
 import { Layers, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  createSequencer, errorMessage, importCandidates, needsOwnDataConfirm, normalizeState, removableCount, removalMessage, sortFindings,
+  createSequencer, errorMessage, importCandidates, importWarning, needsOwnDataConfirm, normalizeState, removableCount, removalMessage, sortFindings,
   type CopyFinding, type StartupCopiesState,
 } from '../utils/startupCopies.mjs';
 
@@ -176,6 +176,10 @@ export const StartupCopiesCard: React.FC<{ playClick: () => void; restartApp: ()
               {ask?.type === 'import' && ask.dir === c.dir ? (
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="danger-zone-question">Данные этой копии будут заменены, резервная копия сохранится. Приложение перезапустится.</span>
+                  {(() => {
+                    const age = importWarning(state?.ownData, c);
+                    return age.text ? <span role={age.newer ? 'alert' : undefined} style={{ color: age.newer ? 'var(--led-amber)' : 'var(--text-secondary)', fontSize: 'var(--fs-xs)' }}>{age.text}</span> : null;
+                  })()}
                   <button className="safety-guard-btn armed" disabled={busy || loading} onClick={() => runImport(c.dir, true)}>Да, перенести</button>
                   <button className="tactile-btn" autoFocus onClick={() => { playClick(); setAsk(null); }}>Отмена</button>
                 </div>

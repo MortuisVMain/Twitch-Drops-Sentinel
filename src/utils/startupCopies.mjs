@@ -7,6 +7,7 @@ const isCopy = (x) => Boolean(x) && typeof x === 'object' && typeof x.dir === 's
 const cleanCopy = (x) => ({
   dir: x.dir, version: typeof x.version === 'string' ? x.version : null,
   running: Boolean(x.running), exists: Boolean(x.exists), importable: Boolean(x.importable),
+  dataTime: typeof x.dataTime === 'number' ? x.dataTime : null,
 });
 
 /** The service answer made safe to render, or null when it is not a state answer (an older service, an error). */
@@ -18,7 +19,8 @@ export function normalizeState(raw) {
     copies: Array.isArray(raw.copies) ? raw.copies.filter(isCopy).map(cleanCopy) : [],
     thisVersion: typeof raw.thisVersion === 'string' ? raw.thisVersion : '',
     thisDir: typeof raw.thisDir === 'string' ? raw.thisDir : '',
-    ownData: { nonDefaultConfig: Boolean(raw.ownData?.nonDefaultConfig), signedIn: Boolean(raw.ownData?.signedIn) },
+    ownData: { nonDefaultConfig: Boolean(raw.ownData?.nonDefaultConfig), signedIn: Boolean(raw.ownData?.signedIn),
+      dataTime: typeof raw.ownData?.dataTime === 'number' ? raw.ownData.dataTime : null },
     installerHint: { show: Boolean(raw.installerHint?.show), url: typeof raw.installerHint?.url === 'string' ? raw.installerHint.url : '' },
   };
 }
@@ -66,4 +68,15 @@ export function removalMessage(body) {
 
 export function errorMessage(body, status) {
   return body && typeof body.message === 'string' && body.message ? body.message : `HTTP ${status}`;
+}
+
+/** What the import confirmation says about the age of both profiles; `newer` when this copy changed later than the other one. */
+export function importWarning(ownData, copy, formatTime = (s) => new Date(s * 1000).toLocaleString()) {
+  const mine = typeof ownData?.dataTime === 'number' ? ownData.dataTime : null;
+  const theirs = typeof copy?.dataTime === 'number' ? copy.dataTime : null;
+  if (mine === null || theirs === null) return { newer: false, text: '' };
+  if (mine > theirs) {
+    return { newer: true, text: `Данные этой копии новее (${formatTime(mine)}), чем у той (${formatTime(theirs)}): журнал трофеев объединится, но настройки и вход станут старыми.` };
+  }
+  return { newer: false, text: `Данные той копии изменены ${formatTime(theirs)}, этой — ${formatTime(mine)}.` };
 }

@@ -11,7 +11,7 @@ from functools import partial
 from collections import abc, deque, OrderedDict
 from datetime import datetime, timedelta, timezone
 from contextlib import suppress, asynccontextmanager
-from typing import Any, Literal, Final, NoReturn, overload, cast, TYPE_CHECKING
+from typing import Any, Literal, Final, NoReturn, Optional, overload, cast, TYPE_CHECKING
 
 import aiohttp
 import http.cookies
@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 
 import re
 
-from utils import smart_game_match, clean_title, trophies_show_completed
+from utils import smart_game_match, clean_title
 from dpapi import load_cookie_jar, save_cookie_jar
 from android_login import auth_client_name, client_for_jar
 _clean_game_str = clean_title
@@ -82,6 +82,7 @@ logger = logging.getLogger("TwitchDrops")
 _CATALOG_TASK: "asyncio.Task[None] | None" = None  # one catalog poller per process
 # TV-client fallback (the dashboard comes back empty for it): campaigns are discovered through live drops channels
 TV_DISCOVERY_INTERVAL = 30 * 60  # seconds between passes
+DISCOVERY_RETRY_AFTER = 5 * 60  # an incomplete or failed pass is retried this soon, not on every 2-minute sync
 TV_DISCOVERY_MAX_GAMES = 12  # games looked at per pass
 TV_DISCOVERY_MAX_CHANNELS = 8  # live channels per game
 REWARD_FAILED_BEATS = 3  # failed beats in a row before the channel is put on cooldown
@@ -571,6 +572,9 @@ class Twitch:
         self._catalog_refresher: Any = None
         self._catalog_task: asyncio.Task[None] | None = None
         self._tv_discovery_at: float | None = None  # monotonic() of the last channel-discovery pass
+        self._priority_discovery_at: float | None = None  # monotonic() of the last per-priority-game discovery pass
+        self._priority_discovered: dict[str, JsonType] = {}
+        self._priority_searched: set[str] = set()  # priority games the current discovery window already asked about
 
     async def get_session(self) -> aiohttp.ClientSession:
         if (session := self._session) is not None:
@@ -2426,8 +2430,8 @@ class Twitch:
                 and datetime.now(timezone.utc) >= (invalidate_after - session_timeout)
             ):
                 raise RequestInvalid()
+            response: aiohttp.ClientResponse | None = None
             try:
-                response: aiohttp.ClientResponse | None = None
                 response = await self.gui.coro_unless_closed(
                     session.request(method, url, **kwargs)
                 )
@@ -2511,13 +2515,21 @@ class Twitch:
                                     delay = 5
                                 force_retry = True
                                 break
-                            elif error_dict["message"] == "server error":
+                            elif (
+                                error_dict["message"] == "server error"
+                                # a field Twitch still cannot fill after the retry (the owner of a streamer's own
+                                # campaign): that field is lost, the rest of the answer is good
+                                or (error_dict["message"] == "service error" and error_dict.get("path") and response_json.get("data"))
+                            ):
                                 # nullify the key the error path points to
-                                data_dict: JsonType = response_json["data"]
+                                data_dict: Any = response_json["data"]
                                 path: list[str] = error_dict.get("path", [])
-                                for key in path[:-1]:
-                                    data_dict = data_dict[key]
-                                data_dict[path[-1]] = None
+                                try:
+                                    for key in path[:-1]:
+                                        data_dict = data_dict[key]
+                                    data_dict[path[-1]] = None
+                                except (KeyError, IndexError, TypeError):
+                                    pass  # a parent on the path is already null or missing: nothing left to clear
                                 break
                             elif (
                                 error_dict["message"] in (
@@ -2550,6 +2562,9 @@ class Twitch:
             if in_primary and key in secondary_data:
                 vp = primary_data[key]
                 vs = secondary_data[key]
+                if vp is None or vs is None:  # one side has no value ("allow": null): the other one, never a failed inventory
+                    merged[key] = vs if vp is None else vp
+                    continue
                 if not isinstance(vp, type(vs)) or not isinstance(vs, type(vp)):
                     raise MinerException("Inconsistent merge data")
                 if isinstance(vp, dict):  # both are dicts
@@ -2581,110 +2596,9 @@ class Twitch:
             campaign_data = ((response_json.get("data") or {}).get("user") or {}).get("dropCampaign")
             if isinstance(campaign_data, dict) and campaign_data.get("id"):
                 fetched_data[campaign_data["id"]] = campaign_data
-        return self._merge_data(campaign_ids, fetched_data)
-
-    async def discover_campaigns_for_game(self, game_name: str) -> list[JsonType]:
-        """
-        Discovers active time-based drops campaigns directly from Twitch directory streamers
-        for a given game, bypassing Smartbox user-inventory limitations.
-        """
-        discovered: list[JsonType] = []
-        try:
-            dummy_game = Game({"id": 1, "name": game_name})
-            response = await self.gql_request(
-                GQL_QUERIES["GameDirectory"].with_variables({
-                    "limit": 20,
-                    "slug": dummy_game.slug,
-                    "options": {
-                        "includeRestricted": ["SUB_ONLY_LIVE"],
-                        "systemFilters": ["DROPS_ENABLED"],
-                    },
-                })
-            )
-            streams = response.get("data", {}).get("game", {}).get("streams", {}).get("edges", [])
-            for stream_edge in streams:
-                broadcaster = stream_edge.get("node", {}).get("broadcaster")
-                if not broadcaster:
-                    continue
-                channel_id = str(broadcaster["id"])
-                try:
-                    drops_resp = await self.gql_request(
-                        GQL_QUERIES["AvailableDrops"].with_variables({"channelID": channel_id})
-                    )
-                except Exception as exc:
-                    logger.debug("AvailableDrops GQL query failed for channel %s: %s", channel_id, exc)
-                    continue
-                campaigns = drops_resp.get("data", {}).get("channel", {}).get("viewerDropCampaigns") or []
-                for c in campaigns:
-                    time_drops = [d for d in c.get("timeBasedDrops", []) if d.get("requiredMinutesWatched", 0) > 0]
-                    if time_drops and not any(disc["id"] == c["id"] for disc in discovered):
-                        # Check if all drops in this campaign are already claimed in Trophies.md
-                        try:
-                            from pathlib import Path
-                            t_path = Path(__file__).resolve().parent.parent / "Trophies.md"
-                            if not t_path.exists():
-                                t_path = Path(__file__).resolve().parent / "Trophies.md"
-                            if t_path.exists():
-                                t_text = t_path.read_text(encoding="utf-8")
-                                if trophies_show_completed(t_text, game_name, str(c.get("name", "")), [d.get("name", "") for d in time_drops]):
-                                    logger.info(f"Campaign '{c['name']}' for '{game_name}' is already completed in Trophies.md. Skipping.")
-                                    continue
-                        except Exception as exc:
-                            logger.debug("Error checking campaign completion in Trophies.md: %s", exc)
-                        logger.info(
-                            f"Discovered active drop campaign '{c['name']}' for '{game_name}' via {broadcaster.get('displayName')}"
-                        )
-                        camp_data: JsonType = {
-                            "id": c["id"],
-                            "name": c["name"],
-                            "game": {
-                                "id": c["game"]["id"],
-                                "name": c["game"]["name"],
-                                "boxArtURL": c.get("imageURL") or f"https://static-cdn.jtvnw.net/ttv-boxart/{c['game']['id']}_IGDB-285x380.jpg",
-                            },
-                            "self": {
-                                "isAccountConnected": not bool(c.get("detailsURL") or c.get("accountLinkURL")),
-                            },
-                            "accountLinkURL": c.get("detailsURL", ""),
-                            "startAt": time_drops[0]["startAt"] if "startAt" in time_drops[0] else c.get("startAt", "2020-01-01T00:00:00Z"),
-                            "endAt": c["endAt"],
-                            "status": "ACTIVE",
-                            "allow": {
-                                "channels": [],
-                                "isEnabled": False,
-                            },
-                            "timeBasedDrops": [],
-                        }
-                        for d in time_drops:
-                            td: JsonType = {
-                                "id": d["id"],
-                                "name": d["name"],
-                                "startAt": d["startAt"],
-                                "endAt": d["endAt"],
-                                "requiredMinutesWatched": d["requiredMinutesWatched"],
-                                "preconditionDrops": d.get("preconditionDrops") or [],
-                                "benefitEdges": [],
-                                "self": {
-                                    "currentMinutesWatched": 0,
-                                    "dropInstanceID": None,
-                                    "isClaimed": False,
-                                },
-                            }
-                            for b in d.get("benefitEdges") or []:
-                                ben = dict(b["benefit"])
-                                if "distributionType" not in ben:
-                                    ben["distributionType"] = "DIRECT_ENTITLEMENT"
-                                td["benefitEdges"].append({
-                                    "benefit": ben,
-                                    "entitlementLimit": b.get("entitlementLimit", 1),
-                                })
-                            camp_data["timeBasedDrops"].append(td)
-                        discovered.append(camp_data)
-                if discovered:
-                    break
-        except Exception as e:
-            logger.debug(f"Discovery error for {game_name}: {e}")
-        return discovered
+        # The details come first: the dashboard (hash 69750554) lists timeBasedDrops as bare skeletons (id and minutes only),
+        # and a list is taken whole from the first side, so the dashboard first left every drop without name, benefits or dates.
+        return self._merge_data(fetched_data, campaign_ids)
 
     def _tv_discovery_games(self) -> list[str]:
         """Games of interest: the user's priority games first, then the installed games the app knows."""
@@ -2703,21 +2617,27 @@ class Twitch:
         if self._tv_discovery_at is not None and now - self._tv_discovery_at < TV_DISCOVERY_INTERVAL:
             return {}
         try:
-            found = await self._discover_via_channels(inventory_data)
+            found, complete = await self._discover_via_channels(inventory_data)
         except Exception as exc:
             logger.warning("Channel campaign discovery failed: %s", exc, exc_info=True)
             return {}
-        self._tv_discovery_at = monotonic()
+        # complete: next pass in TV_DISCOVERY_INTERVAL; incomplete: in DISCOVERY_RETRY_AFTER
+        self._tv_discovery_at = now if complete else now - TV_DISCOVERY_INTERVAL + DISCOVERY_RETRY_AFTER
         inventory_data.update(found)
         if found:
             logger.info("Channel campaign discovery found %d campaign(s) the TV dashboard did not list", len(found))
         return found
 
-    async def _discover_via_channels(self, inventory_data: dict[str, JsonType]) -> dict[str, JsonType]:
-        """Game directory -> live drops channels -> AvailableDrops campaign ids -> CampaignDetails, all batched."""
-        games = self._tv_discovery_games()[:TV_DISCOVERY_MAX_GAMES]
+    async def _discover_via_channels(
+        self, inventory_data: dict[str, JsonType], games: list[str] | None = None
+    ) -> tuple[dict[str, JsonType], bool]:
+        """Game directory -> live drops channels -> AvailableDrops campaign ids -> CampaignDetails, all batched; every
+        campaign is Twitch's own (CampaignDetails), only ACTIVE or UPCOMING ones. `games`: the games to search (at most
+        TV_DISCOVERY_MAX_GAMES), else the TV fallback's games of interest. Returns the found campaigns and whether every
+        batch answered."""
+        games = (games if games is not None else self._tv_discovery_games())[:TV_DISCOVERY_MAX_GAMES]
         if not games:
-            return {}
+            return {}, True
         guessed_slugs = [Game({"id": 1, "name": g}).slug for g in games]
         dir_options = {"includeRestricted": ["SUB_ONLY_LIVE"], "systemFilters": ["DROPS_ENABLED"]}
         directories = await self.gql_request([
@@ -2762,19 +2682,33 @@ class Twitch:
                 broadcaster = (edge.get("node") or {}).get("broadcaster")
                 if broadcaster:
                     channel_ids[str(broadcaster["id"])] = None
+        # a failed batch is skipped, not fatal: the rest still counts, and the pass is reported incomplete (retried soon)
+        complete = True
         campaign_ids: dict[str, None] = {}
         for ids in chunk(list(channel_ids), 20):
-            responses = await self.gql_request([GQL_QUERIES["AvailableDrops"].with_variables({"channelID": i}) for i in ids])
+            try:
+                responses = await self.gql_request([GQL_QUERIES["AvailableDrops"].with_variables({"channelID": i}) for i in ids])
+            except Exception as exc:
+                logger.warning("Channel campaign discovery: a batch of %d channels failed: %s", len(ids), exc)
+                complete = False
+                continue
             for resp in responses:
                 for camp in ((resp.get("data") or {}).get("channel") or {}).get("viewerDropCampaigns") or []:
                     if camp["id"] not in inventory_data:
                         campaign_ids[camp["id"]] = None
         found: dict[str, JsonType] = {}
         for ids in chunk(list(campaign_ids), 20):
-            for cid, camp in (await self.fetch_campaigns([(cid, {}) for cid in ids])).items():
-                if camp.get("id") and camp.get("status") in (None, "ACTIVE", "UPCOMING"):
+            try:
+                details = await self.fetch_campaigns([(cid, {}) for cid in ids])
+            except Exception as exc:
+                logger.warning("Channel campaign discovery: details of %d campaigns failed: %s", len(ids), exc)
+                complete = False
+                continue
+            for cid, camp in details.items():
+                # a streamer's own campaign (channel badges, sub rewards) has no game: not a drop of a queued game
+                if camp.get("id") and camp.get("game") and camp.get("status") in (None, "ACTIVE", "UPCOMING"):
                     found[cid] = camp
-        return found
+        return found, complete
 
     def _start_catalog_refresh(self, fetcher: Any, inventory_data: dict[str, JsonType], dashboard: dict[str, JsonType]) -> None:
         """Remember this fetch's campaign details and make sure the light refresh task runs."""
@@ -2800,6 +2734,61 @@ class Twitch:
         while True:
             await asyncio.sleep(60)
             await refresher.refresh(request, self.fetch_campaigns, loop.time())
+
+    async def _discover_missing_priority(self, inventory_data: dict[str, JsonType]) -> None:
+        """Campaigns of priority games Twitch did not list, found through their live channels. The pass asks the directory and
+        up to 20 channels per game, so it runs at most once per TV_DISCOVERY_INTERVAL; its finds are merged in between.
+        Same search as the TV fallback (_discover_via_channels), so a find is Twitch's own CampaignDetails, never a campaign
+        built by hand. A campaign Twitch listed itself is never replaced by a found one. A game newly added to the queue is
+        searched at the next sync. Finds are kept until their campaign ends: no live channel right now does not end it.
+        The TV login only: the android login gets the full dashboard (live 2026-11-28: 74 games searched, 49 s of requests,
+        0 game campaigns it lacked; the 26 channel finds were streamers' own badge campaigns without a game)."""
+        if self._client_type is ClientType.ANDROID_APP:
+            return
+        now = monotonic()
+
+        def _matches_any_camp(p_name: str) -> bool:
+            for c in inventory_data.values():
+                c_game = c.get("game") or {}
+                cg_name = c_game.get("name") or c_game.get("displayName") or ""
+                if smart_game_match(cg_name, p_name):
+                    return True
+            return False
+
+        missing_priority_games = [
+            g for g in self.settings.priority
+            if not reward_watch.is_reward_key(g) and not _matches_any_camp(g)
+        ]
+        due = self._priority_discovery_at is None or now - self._priority_discovery_at >= TV_DISCOVERY_INTERVAL
+        to_search = missing_priority_games if due else [g for g in missing_priority_games if g not in self._priority_searched]
+        if to_search:
+            found: dict[str, JsonType] = {}
+            failed = 0
+            self.gui.status.update(_("gui", "status", "fetching_campaigns"))
+            for start in range(0, len(to_search), TV_DISCOVERY_MAX_GAMES):
+                batch = to_search[start:start + TV_DISCOVERY_MAX_GAMES]
+                try:
+                    part, complete = await self._discover_via_channels(inventory_data, batch)
+                except Exception as exc:
+                    logger.warning("Priority game discovery failed for %s: %s", ", ".join(batch), exc, exc_info=True)
+                    failed += 1
+                    continue
+                found.update(part)
+                failed += 0 if complete else 1
+            if found:
+                logger.info("Priority game discovery found %d campaign(s) Twitch's dashboard did not list", len(found))
+            self._priority_discovered.update(found)
+            self._priority_searched = (set() if due else self._priority_searched) | set(to_search)
+            if due:  # after a failure, try again soon
+                self._priority_discovery_at = now if not failed else now - TV_DISCOVERY_INTERVAL + DISCOVERY_RETRY_AFTER
+        elif due:
+            self._priority_discovery_at = now
+        current = datetime.now(timezone.utc)
+        for cid, camp_data in list(self._priority_discovered.items()):
+            if timestamp(camp_data.get("endAt") or "2099-01-01T00:00:00Z") <= current:  # ended: dropped from the cache
+                del self._priority_discovered[cid]
+            else:
+                inventory_data.setdefault(cid, camp_data)
 
     async def fetch_inventory(self) -> None:
         status_update = self.gui.status.update
@@ -2859,30 +2848,7 @@ class Twitch:
         publish_first_party(_catalog_fetcher, inventory_data, available_campaigns.keys() | discovered.keys())
         self._start_catalog_refresh(_catalog_fetcher, inventory_data, available_campaigns)
 
-        # Proactively discover active campaigns for priority games not present in inventory_data
-        def _matches_any_camp(p_name: str) -> bool:
-            for c in inventory_data.values():
-                c_game = c.get("game", {})
-                cg_name = c_game.get("name") or c_game.get("displayName") or ""
-                if smart_game_match(cg_name, p_name):
-                    return True
-            return False
-
-        missing_priority_games = [
-            g for g in self.settings.priority
-            if not reward_watch.is_reward_key(g) and not _matches_any_camp(g)
-        ]
-        if missing_priority_games:
-            status_update(_("gui", "status", "fetching_campaigns"))
-            discovery_tasks = [
-                asyncio.create_task(self.discover_campaigns_for_game(g))
-                for g in missing_priority_games
-            ]
-            discovery_results = await asyncio.gather(*discovery_tasks, return_exceptions=True)
-            for res in discovery_results:
-                if isinstance(res, list):
-                    for camp_data in res:
-                        inventory_data[camp_data["id"]] = camp_data
+        await self._discover_missing_priority(inventory_data)
 
         # filter out invalid campaigns
         for campaign_id in list(inventory_data.keys()):

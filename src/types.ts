@@ -212,6 +212,7 @@ export interface FullSentinelState {
   oauth_code?: string | null;
   oauth_uri?: string | null;
   auth_client?: 'android' | 'tv' | null; // the Twitch client the login belongs to: android sees every campaign, tv only the started ones
+  catalog_updated_at?: number | null; // epoch seconds of the last catalog built from Twitch data (refreshed every ~15 min)
   forced_game?: string | null;
 }
 

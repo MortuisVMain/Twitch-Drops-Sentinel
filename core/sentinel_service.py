@@ -28,9 +28,9 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from types import SimpleNamespace
 
 import aiohttp
@@ -208,6 +208,49 @@ SUPERVISOR_DEFAULTS = {
     "ui_relief_mode": "hex-magma",
     "ui_relief_opacity": 85,
 }
+
+
+_SECRET_SETTING = re.compile(r"token|webhook|password|secret|api_?key", re.IGNORECASE)
+
+
+def settings_change_lines(old: dict, new: dict) -> list[str]:
+    """One "key: old -> new" line per changed setting (lists as +added -removed); secrets only say "changed"."""
+    lines = []
+    for key, value in new.items():
+        before = old.get(key)
+        if before == value:
+            continue
+        if _SECRET_SETTING.search(key):
+            lines.append(f"{key}: changed")
+        elif isinstance(before, list) and isinstance(value, list):
+            added = [v for v in value if v not in before]
+            removed = [v for v in before if v not in value]
+            lines.append(f"{key}: +{added} -{removed}" if added or removed else f"{key}: reordered")
+        else:
+            lines.append(f"{key}: {before} -> {value}")
+    return lines
+
+
+def game_drop_summary(best: Any, campaigns: list, remaining: Callable[[Any], Optional[int]] = campaign_remaining_watch_minutes) -> dict:
+    """Drops of a game over all its active campaigns (Albion runs two weeks at once): totals, done only when every one is,
+    and the watch time still needed. Without an active campaign the best one alone counts."""
+    active = [c for c in campaigns if getattr(c, "active", False)] or [best]
+    total = sum(getattr(c, "total_drops", 0) or 0 for c in active)
+    claimed = sum(getattr(c, "claimed_drops", 0) or 0 for c in active)
+    finished = all(getattr(c, "finished", False) for c in active)
+    left = [m for c in active if not getattr(c, "finished", False) and (m := remaining(c)) is not None]
+    return {"total": total, "claimed": claimed, "finished": finished, "remaining_minutes": sum(left) if left else None}
+
+
+def better_campaign(current: Any, candidate: Any, horizon: datetime) -> Any:
+    """Of two campaigns of one game, the one the shelf should show: farmable first, then active, then not finished."""
+    if current is None:
+        return candidate
+
+    def rank(camp: Any) -> tuple:
+        return (bool(camp.can_earn_within(horizon)), bool(getattr(camp, "active", False)), not getattr(camp, "finished", False))
+
+    return candidate if rank(candidate) > rank(current) else current
 
 
 def _dimmer_off_response() -> web.Response:
@@ -653,20 +696,24 @@ class SentinelSupervisor:
             raw_inv = self.twitch_client.inventory
             inv_list = raw_inv if isinstance(raw_inv, list) else list(getattr(raw_inv, "campaigns", {}).values())
             camp_map = {}
+            camps_of_game: dict[str, list] = {}
+            horizon = datetime.now(timezone.utc) + timedelta(hours=1)
             for camp in inv_list:
                 if hasattr(camp, "game") and camp.game and camp.game.name:
-                    camp_map[camp.game.name.strip().lower()] = camp
+                    key = camp.game.name.strip().lower()
+                    camp_map[key] = better_campaign(camp_map.get(key), camp, horizon)
+                    camps_of_game.setdefault(key, []).append(camp)
             user_linked_set = {str(k).strip().lower() for k in self.settings.get("user_linked_games", [])}
             trophy_games_set = {t.get("game", "").strip().lower() for t in trophies if t.get("game")}
 
             for g in catalog_games:
                 gn = g.get("name", "").strip().lower()
                 # 1. Smart campaign lookup (Hunt: Showdown 1896 matches Hunt: Showdown)
-                matched_camp = camp_map.get(gn)
+                matched_camp, matched_key = camp_map.get(gn), gn
                 if not matched_camp:
                     for c_name, camp_obj in camp_map.items():
                         if smart_game_match(c_name, gn):
-                            matched_camp = camp_obj
+                            matched_camp, matched_key = camp_obj, c_name
                             break
 
                 is_user_linked = (
@@ -689,33 +736,28 @@ class SentinelSupervisor:
                     # 2. Drops claimed in Twitch inventory (user proved connection)
                     # 3. Campaign completed (finished)
                     # 4. User manually confirmed link or trophy exists in Trophies.md
+                    # only this poll's campaigns count: the catalog dicts are cached, so last poll's values would stick
+                    summary = game_drop_summary(camp, camps_of_game.get(matched_key, [camp]))
                     is_linked = bool(
                         twitch_linked or
                         claimed > 0 or
                         finished or
-                        (g.get("claimed_drops", 0) or 0) > 0 or
-                        g.get("is_finished") is True or
+                        summary["claimed"] > 0 or
                         is_user_linked or
                         is_in_trophies
                     )
                     g["is_account_connected"] = is_linked
                     g["account_link_url"] = getattr(camp, "link_url", "") or "https://www.twitch.tv/settings/connections"
-                    camp_total = getattr(camp, "total_drops", 0) or g.get("total_drops", 0)
-                    camp_claimed = claimed or g.get("claimed_drops", 0)
-                    is_camp_finished = bool(
-                        finished or
-                        g.get("is_finished") is True or
-                        (camp_total > 0 and camp_claimed >= camp_total)
-                    )
+                    is_camp_finished = bool(summary["finished"] or (summary["total"] > 0 and summary["claimed"] >= summary["total"]))
                     g["is_finished"] = is_camp_finished
-                    g["total_drops"] = camp_total
-                    g["claimed_drops"] = camp_claimed
+                    g["total_drops"] = summary["total"]
+                    g["claimed_drops"] = summary["claimed"]
                     if is_camp_finished:
                         g["progress_percent"] = 100.0
                         g["remaining_watch_minutes"] = 0
                     else:
                         g["progress_percent"] = round(getattr(camp, "progress", 0.0) * 100, 1)
-                        watch_left = campaign_remaining_watch_minutes(camp)
+                        watch_left = summary["remaining_minutes"]
                         if watch_left is not None:
                             g["remaining_watch_minutes"] = watch_left
                         else:
@@ -727,13 +769,11 @@ class SentinelSupervisor:
                     except Exception as exc:
                         logger.warning("Could not judge farmability of %s: %s", g.get("name"), exc, exc_info=True)
                 else:
-                    g.pop("remaining_watch_minutes", None)  # no campaign in the inventory now: drop a value cached from an earlier poll
-                    if (
-                        is_user_linked or
-                        is_in_trophies or
-                        (g.get("claimed_drops", 0) or 0) > 0 or
-                        g.get("is_finished") is True
-                    ):
+                    # no campaign in the inventory now: drop the values an earlier poll cached in this dict
+                    g.pop("remaining_watch_minutes", None)
+                    for stale in ("is_finished", "claimed_drops", "total_drops", "progress_percent"):
+                        g.pop(stale, None)
+                    if is_user_linked or is_in_trophies:
                         g["is_account_connected"] = True
                     if inv_list and g.get("has_drops"):
                         # the public catalog lists it, but the engine's inventory has no such campaign: it cannot be farmed
@@ -804,6 +844,7 @@ class SentinelSupervisor:
             **STATE_BRIDGE.state_log_fields(),
             "all_catalog_games": catalog_games,
             "catalog_source": CAMPAIGNS_FETCHER.catalog_source,
+            "catalog_updated_at": CAMPAIGNS_FETCHER.catalog_updated_at,
             "installed_games": installed_games,
             "ignored_games": sorted(list(self.scanner.load_ignored_games())) if hasattr(self.scanner, "load_ignored_games") else [],
             # found covers by name, for any game the app shows without working art (no campaign, dead link)
@@ -1033,7 +1074,10 @@ class SentinelSupervisor:
             health_watch.normalize_settings(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
+            before = {key: copy.deepcopy(self.settings.get(key)) for key in data}
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            for line in settings_change_lines(before, data):
+                logger.info("Setting changed: %s", line)
             reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
             try:
                 apply_reward_auto_queue(self)
@@ -2192,6 +2236,13 @@ class SentinelSupervisor:
         ignored = self.scanner.load_ignored_games() if hasattr(self.scanner, "load_ignored_games") else []
         return shelf_names(self.settings, trophies, sorted(ignored))
 
+    async def resume_steam_idle_farm(self):
+        """A card farm an update or a restart interrupted continues by itself (see SteamIdleController.resume_after_restart)."""
+        try:
+            await self.steam_idle.resume_after_restart()
+        except Exception as exc:
+            logger.error("Steam IDLE farm could not be continued after the restart: %s", exc, exc_info=True)
+
     async def cover_keeper_loop(self):
         """Every half hour: check the covers of games not judged yet and find replacements for the broken or missing ones."""
         from box_art_resolver import keep_covers_alive
@@ -2225,7 +2276,7 @@ class SentinelSupervisor:
         if TEST_MODE:
             logger.info("SENTINEL_TEST_MODE: Twitch engine and campaign fetcher are disabled.")
         else:
-            loops += [self.run_twitch_engine(), self.cover_keeper_loop(), self.giveaways.repair_task_paths()]
+            loops += [self.run_twitch_engine(), self.cover_keeper_loop(), self.giveaways.repair_task_paths(), self.resume_steam_idle_farm()]
         await asyncio.gather(*loops, return_exceptions=True)
 
 if __name__ == "__main__":

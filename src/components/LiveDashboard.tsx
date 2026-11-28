@@ -277,6 +277,11 @@ export const LiveDashboard: React.FC<LiveDashboardProps> = ({
     return resolveGameBoxArt(activeGame, match?.box_art);
   }, [activeGame, safeAllGames]);
 
+  const rewardWatchingImage = useMemo(
+    () => (rewardWatching ? rewardCampaigns?.find((c) => c.id === rewardWatching.id)?.image || undefined : undefined),
+    [rewardWatching, rewardCampaigns]
+  );
+
   // Stage of the campaign: only from the engine's own drop counts, never invented
   const activeGameRow = useMemo(() => {
     if (!activeGame) return undefined;
@@ -463,10 +468,13 @@ const endingSoonGame = useMemo(() => {
     return best;
   }, [priorityList, allGames, endingSoonByGame, trophies]);
 
+  // Games the user excluded are never offered off-queue (live 2026-11-28: excluded Captain's Call topped the block)
+  const excludedList = useMemo(() => settings.excluded_games ?? [], [settings.excluded_games]);
+
   // Manual focus candidates: closing soon first, then live campaigns, finished, the rest
   const overrideAll = useMemo(() => {
     // off-queue only: not in the queue (same matcher as everywhere) and not already fully received
-    let list = allGames.filter((g) => (g.has_drops || g.is_installed) && isOffQueueCandidate(g, priorityList, trophies, smartGameMatch));
+    let list = allGames.filter((g) => (g.has_drops || g.is_installed) && isOffQueueCandidate(g, priorityList, trophies, smartGameMatch, excludedList));
     if (overrideFilter.trim()) {
       const q = safeLower(overrideFilter);
       list = list.filter((g) => safeLower(g.name).includes(q));
@@ -479,7 +487,7 @@ const endingSoonGame = useMemo(() => {
       return 3;
     };
     return [...list].sort((x, y) => rank(x) - rank(y));
-  }, [allGames, overrideFilter, endingSoonByGame, priorityList, trophies]);
+  }, [allGames, overrideFilter, endingSoonByGame, priorityList, trophies, excludedList]);
   // Idle hero: why nothing is being farmed right now, from data already in /api/state
   const isIdle = !(activeDrop && activeGame);
 
@@ -564,8 +572,9 @@ const filteredLogs = useMemo(() => {
         strictMode: settings.priority_mode === 0,
         now: Date.now(),
         smartMatch: smartGameMatch,
+        excludedList,
       }),
-    [gamePriority, allGames, trophies, settings.priority_mode]
+    [gamePriority, allGames, trophies, settings.priority_mode, excludedList]
   );
 
   const scrollToOverride = () => {
@@ -1145,16 +1154,8 @@ const filteredLogs = useMemo(() => {
               {/* The game being farmed: the first thing to read in the hero */}
               <div className="hero-game-card" id="heroGameCard" title={activeGame || undefined}>
                 <div className="hero-game-cover">
-                  {activeGameArt && (
-                    <img
-                      key={activeGame}
-                      src={activeGameArt}
-                      alt=""
-                      crossOrigin={isSteamArt(activeGameArt) ? 'anonymous' : undefined}
-                      onLoad={(e) => { const img = e.currentTarget; if (isBlankCover(img) && !retryCover(img, activeGame)) img.style.display = 'none'; }}
-                      onError={(e) => { const img = e.currentTarget; if (!retryCover(img, activeGame)) img.style.display = 'none'; }}
-                    />
-                  )}
+                  {/* a reward category (GTA VI) is in no catalog: its campaign picture stands in; no art at all shows initials, never an empty box */}
+                  {activeGame && <CartridgeCover key={activeGame} name={activeGame} boxArt={activeGameArt || rewardWatchingImage} compact decorative />}
                 </div>
                 <div className="hero-game-name clip-2">{activeGame || 'Не выбрана'}</div>
               </div>
