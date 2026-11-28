@@ -11,7 +11,7 @@ from functools import partial
 from collections import abc, deque, OrderedDict
 from datetime import datetime, timedelta, timezone
 from contextlib import suppress, asynccontextmanager
-from typing import Any, Literal, Final, NoReturn, overload, cast, TYPE_CHECKING
+from typing import Any, Literal, Final, NoReturn, Optional, overload, cast, TYPE_CHECKING
 
 import aiohttp
 import http.cookies
@@ -2430,8 +2430,8 @@ class Twitch:
                 and datetime.now(timezone.utc) >= (invalidate_after - session_timeout)
             ):
                 raise RequestInvalid()
+            response: aiohttp.ClientResponse | None = None
             try:
-                response: aiohttp.ClientResponse | None = None
                 response = await self.gui.coro_unless_closed(
                     session.request(method, url, **kwargs)
                 )
