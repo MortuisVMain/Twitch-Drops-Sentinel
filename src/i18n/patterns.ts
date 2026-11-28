@@ -145,7 +145,7 @@ export const PATTERNS: Array<[RegExp, string | ((...match: string[]) => string)]
   [/^Осталось: (.+)$/, 'Left: $1'],
   [/^Исключения \((\d+)\)$/, 'Exclusions ($1)'],
   [/^Удалённые \((\d+)\)$/, 'Removed ($1)'],
-  [/^ЗАБРАТЬ ВСЁ \((\d+) МАГАЗИН(?:А|ОВ)?\)$/, (n) => `CLAIM ALL (${n} ${Number(n) === 1 ? 'STORE' : 'STORES'})`],
+  [/^ЗАБРАТЬ ВСЁ · МАГАЗИНОВ: (\d+)$/, 'CLAIM ALL · STORES: $1'],
   [/^Вы вошли как (.+)$/, 'Signed in as $1'],
   [/^Сменить аккаунт (.+)$/, 'Switch $1 account'],
   [/^Войти в аккаунт (.+)$/, 'Sign in to $1'],

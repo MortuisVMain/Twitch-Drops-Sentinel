@@ -5325,7 +5325,7 @@ def test_store_card_shows_login_even_with_nothing_claimed():
 def test_english_ui_covers_every_russian_string():
     print("[i18n] Every Russian string of the UI has an English translation...")
     node = shutil.which("node")
-    if not node or not (WORKSPACE / "node_modules" / "typescript").exists():
+    if not node or not (node_bin("tsc").parent.parent / "typescript").exists():  # node_modules may be in a parent folder (worktree)
         print("      SKIP: Node.js or node_modules (npm ci) is missing, the translation check cannot run")
         return
     result = subprocess.run([node, str(WORKSPACE / "tools" / "check_i18n.mjs")], cwd=str(WORKSPACE),

@@ -16,7 +16,6 @@ import { withServiceToken } from '../utils/serviceAuth.mjs';
 import { useConfirm } from './ConfirmDialog';
 import { GiveawaysReadiness } from './GiveawaysReadiness';
 import { countTodo } from '../utils/giveawaysReadiness';
-import { pluralRu } from '../utils/idleInfo';
 
 interface GiveawaysViewProps {
   onBackToDashboard?: () => void;
@@ -511,7 +510,7 @@ export const GiveawaysView: React.FC<GiveawaysViewProps> = ({
             className={`chunky-cta ${isClaiming ? 'amber' : ''}`}
             onClick={handleClaimAll}
           >
-            {isClaiming ? <Square className="ui-icon" aria-hidden="true" focusable="false" /> : <Play className="ui-icon" aria-hidden="true" focusable="false" />} {isClaiming ? 'ОСТАНОВИТЬ КЛЕЙМ' : `ЗАБРАТЬ ВСЁ (${selectedStores.length} ${pluralRu(selectedStores.length, 'МАГАЗИН', 'МАГАЗИНА', 'МАГАЗИНОВ')})`}
+            {isClaiming ? <Square className="ui-icon" aria-hidden="true" focusable="false" /> : <Play className="ui-icon" aria-hidden="true" focusable="false" />} {isClaiming ? 'ОСТАНОВИТЬ КЛЕЙМ' : `ЗАБРАТЬ ВСЁ · МАГАЗИНОВ: ${selectedStores.length}`}
           </button>
         </div>
       </div>
