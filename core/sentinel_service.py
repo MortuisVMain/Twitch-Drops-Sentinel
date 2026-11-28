@@ -210,6 +210,27 @@ SUPERVISOR_DEFAULTS = {
 }
 
 
+_SECRET_SETTING = re.compile(r"token|webhook|password|secret|api_?key", re.IGNORECASE)
+
+
+def settings_change_lines(old: dict, new: dict) -> list[str]:
+    """One "key: old -> new" line per changed setting (lists as +added -removed); secrets only say "changed"."""
+    lines = []
+    for key, value in new.items():
+        before = old.get(key)
+        if before == value:
+            continue
+        if _SECRET_SETTING.search(key):
+            lines.append(f"{key}: changed")
+        elif isinstance(before, list) and isinstance(value, list):
+            added = [v for v in value if v not in before]
+            removed = [v for v in before if v not in value]
+            lines.append(f"{key}: +{added} -{removed}" if added or removed else f"{key}: reordered")
+        else:
+            lines.append(f"{key}: {before} -> {value}")
+    return lines
+
+
 def better_campaign(current: Any, candidate: Any, horizon: datetime) -> Any:
     """Of two campaigns of one game, the one the shelf should show: farmable first, then active, then not finished."""
     if current is None:
@@ -1047,7 +1068,10 @@ class SentinelSupervisor:
             health_watch.normalize_settings(data)
             steam_idle_was_on = tab_enabled(self.settings, "steamidle")
             dimmer_was_on = tab_enabled(self.settings, "dimmer")
+            before = {key: copy.deepcopy(self.settings.get(key)) for key in data}
             apply_change(self.settings, lambda current: current.update(data), self.save_settings)
+            for line in settings_change_lines(before, data):
+                logger.info("Setting changed: %s", line)
             reward_campaigns.apply_setting(STATE_BRIDGE, self.settings, getattr(self, "twitch_client", None))
             try:
                 apply_reward_auto_queue(self)
